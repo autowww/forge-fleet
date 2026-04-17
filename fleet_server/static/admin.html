@@ -1747,6 +1747,120 @@
       }
     }
 
+    function applySelfUpdateMeta(su) {
+      var wrap = document.getElementById("fleet-self-update-wrap");
+      var btn = document.getElementById("fleet-self-update-btn");
+      var help = document.getElementById("fleet-self-update-help");
+      if (!wrap || !btn || !help) return;
+      su = su || {};
+      if (!su.configured) {
+        wrap.classList.add("d-none");
+        btn.disabled = true;
+        help.textContent = "";
+        return;
+      }
+      wrap.classList.remove("d-none");
+      btn.disabled = false;
+      var parts = [
+        "Runs git pull --ff-only and submodule update in the configured checkout, then update-user.sh (or install-user.sh) when present, then restarts the Fleet user service.",
+      ];
+      if (su.git_root) parts.push("Git root: " + su.git_root);
+      if (su.has_post_git_command) parts.push("After git: custom FLEET_SELF_UPDATE_POST_GIT_COMMAND.");
+      else if (su.has_update_user_script) parts.push("After git: update-user.sh.");
+      else if (su.has_install_user_script) parts.push("After git: install-user.sh.");
+      else parts.push("After git: systemd --user restart only (no update script in clone).");
+      help.textContent = parts.join(" ");
+    }
+
+    function formatSelfUpdateSteps(steps) {
+      if (!Array.isArray(steps) || !steps.length) return "";
+      return steps
+        .map(function (s) {
+          var out = (s.stdout || "").trim();
+          var err = (s.stderr || "").trim();
+          var body = (out + (out && err ? "\n" : "") + err).trim();
+          return (
+            "— " +
+            esc(s.step || "") +
+            " (exit " +
+            esc(String(s.returncode != null ? s.returncode : "?")) +
+            ")\n" +
+            esc(body).slice(0, 12000)
+          );
+        })
+        .join("\n\n");
+    }
+
+    async function waitFleetBack(maxMs) {
+      var deadline = Date.now() + maxMs;
+      while (Date.now() < deadline) {
+        try {
+          var res = await fetch("/v1/version", { headers: authHeaders(), cache: "no-store" });
+          if (res.ok) return true;
+        } catch (_e) {
+          /* server restarting */
+        }
+        await new Promise(function (r) {
+          setTimeout(r, 400);
+        });
+      }
+      return false;
+    }
+
+    async function doGitSelfUpdate() {
+      var btn = document.getElementById("fleet-self-update-btn");
+      var st = document.getElementById("fleet-self-update-status");
+      var logEl = document.getElementById("fleet-self-update-log");
+      if (!btn || btn.disabled) return;
+      setErr("");
+      if (st) st.textContent = "Running git pull…";
+      if (logEl) {
+        logEl.style.display = "none";
+        logEl.textContent = "";
+      }
+      btn.disabled = true;
+      try {
+        var res = await fetch("/v1/admin/git-self-update", {
+          method: "POST",
+          headers: Object.assign({ "Content-Type": "application/json" }, authHeaders()),
+          body: "{}",
+        });
+        var j = {};
+        try {
+          j = await res.json();
+        } catch (_e) {
+          j = {};
+        }
+        if (logEl && j.steps) {
+          logEl.textContent = formatSelfUpdateSteps(j.steps);
+          logEl.style.display = "block";
+        }
+        if (!res.ok || !j.ok) {
+          if (st) st.textContent = "Failed (" + res.status + ").";
+          setErr(String(j.detail || j.error || "git-self-update failed"));
+          btn.disabled = false;
+          return;
+        }
+        if (st) st.textContent = j.note || "OK.";
+        if (j.scheduled_restart) {
+          if (st) st.textContent = (j.note || "") + " Waiting for Fleet to come back…";
+          await new Promise(function (r) {
+            setTimeout(r, j.reload_after_ms || 2200);
+          });
+          var ok = await waitFleetBack(45000);
+          if (st) st.textContent = ok ? "Reloading…" : "Fleet did not respond in time — reload manually.";
+          if (ok) window.location.reload();
+          else btn.disabled = false;
+        } else {
+          btn.disabled = false;
+        }
+      } catch (e) {
+        setErr(String(e));
+        btn.disabled = false;
+        if (st) st.textContent = "";
+      }
+    }
+
     async function loadSnapshot() {
       setErr("");
       var res;
@@ -1974,6 +2088,14 @@
         loadSnapshot().then(function () { scheduleNext(); });
       });
     }
+
+    var suBtn = document.getElementById("fleet-self-update-btn");
+    if (suBtn) {
+      suBtn.addEventListener("click", function () {
+        doGitSelfUpdate();
+      });
+    }
+
     document.addEventListener("visibilitychange", function () {
       scheduleNext();
     });
