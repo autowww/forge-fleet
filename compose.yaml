@@ -5,6 +5,26 @@ services:
       - "18765:18765"
     environment:
       FLEET_BEARER_TOKEN: ${FLEET_BEARER_TOKEN:-}
+      # Optional: absolute path inside this container to a forge-llm checkout (see README — `/v1/services/forge-llm/*`).
+      FLEET_FORGE_LLM_ROOT: ${FLEET_FORGE_LLM_ROOT:-}
+      FLEET_FORGE_LLM_COMPOSE_FILES: ${FLEET_FORGE_LLM_COMPOSE_FILES:-}
+      # Persist job history across container restarts (admin "Recent jobs" reads this SQLite file).
+      FLEET_DATA_DIR: /var/lib/forge-fleet
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-    command: ["python3", "-m", "fleet_server", "--host", "0.0.0.0", "--port", "18765"]
+      - forge-fleet-data:/var/lib/forge-fleet
+    command:
+      [
+        "python3",
+        "-m",
+        "fleet_server",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "18765",
+        "--data-dir",
+        "/var/lib/forge-fleet",
+      ]
+
+volumes:
+  forge-fleet-data:

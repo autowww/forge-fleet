@@ -1,0 +1,46 @@
+# Forge Fleet — systemd unit (starts at boot when enabled). Production uses port 18765.
+# Prefer copying from your checkout with install-update.sh (syncs /opt + this unit + restart):
+#   cd ~/Code/forge-fleet && sudo ./install-update.sh
+# Local development from the repo uses ./run-dev.sh (port 18766, separate data dir).
+#
+# Manual install (systemd only loads units from /etc or /lib, not the git repo):
+#   sudo cp /path/to/forge-fleet/systemd/forge-fleet.service /etc/systemd/system/
+#   … see install-update.sh for env file and data dir ownership.
+#
+# Dedicated user needs the Docker socket (group `docker` on typical installs).
+# SupplementaryGroups=docker below matches that; still run `usermod -aG docker forge-fleet` once.
+# Host energy (RAPL kWh in SQLite) needs readable /sys/class/powercap/*/energy_uj — often root-only;
+# if counters stay null, add the user to group `powercap` when your distro defines it, or adjust sysfs ACLs.
+# /admin “Power” tile: package W from RAPL counters; GPU W needs ``nvidia-smi`` on PATH (CUDA installs: set PATH in forge-fleet.env).
+#
+#   sudo useradd -r -s /usr/sbin/nologin -d /var/lib/forge-fleet forge-fleet
+#   sudo usermod -aG docker forge-fleet
+
+[Unit]
+Description=Forge Fleet — Docker argv HTTP orchestrator (telemetry & energy ledger in SQLite)
+After=network-online.target docker.service
+Wants=network-online.target docker.service
+
+[Service]
+Type=simple
+SyslogIdentifier=forge-fleet
+User=forge-fleet
+Group=forge-fleet
+SupplementaryGroups=docker
+Environment=PYTHONUNBUFFERED=1
+# Must be the forge-fleet checkout root (git submodules: kitchensink + blueprints) so
+# `python3 -m fleet_server` resolves and /admin/ can load kitchensink assets.
+WorkingDirectory=/opt/forge-fleet
+EnvironmentFile=-/etc/forge-fleet/forge-fleet.env
+ExecStart=/usr/bin/python3 -m fleet_server --host 0.0.0.0 --port 18765 --data-dir /var/lib/forge-fleet
+Restart=on-failure
+RestartSec=5
+StartLimitIntervalSec=120
+StartLimitBurst=8
+TimeoutStopSec=30
+# Hardening (optional): relax if something Fleet needs breaks.
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

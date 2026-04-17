@@ -53,7 +53,7 @@ def nvidia_gpu_snapshot() -> dict[str, Any]:
         r = subprocess.run(
             [
                 smi,
-                "--query-gpu=index,name,utilization.gpu,memory.used,memory.total,temperature.gpu",
+                "--query-gpu=index,name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw",
                 "--format=csv,noheader,nounits",
             ],
             capture_output=True,
@@ -82,20 +82,29 @@ def nvidia_gpu_snapshot() -> dict[str, Any]:
         mem_u = _parse_csv_int(row[3])
         mem_t = _parse_csv_int(row[4])
         temp = _parse_csv_int(row[5])
+        pdraw: float | None = None
+        if len(row) >= 7:
+            ps = (row[6] or "").strip()
+            if ps and ps not in ("[N/A]", "N/A"):
+                try:
+                    pdraw = float(ps)
+                except ValueError:
+                    pdraw = None
         mem_pct: float | None = None
         if mem_u is not None and mem_t is not None and mem_t > 0:
             mem_pct = round(100.0 * mem_u / mem_t, 1)
-        devices.append(
-            {
-                "index": idx,
-                "name": name,
-                "utilization_pct": util,
-                "memory_used_mib": mem_u,
-                "memory_total_mib": mem_t,
-                "memory_used_pct": mem_pct,
-                "temperature_c": temp,
-            }
-        )
+        dev: dict[str, Any] = {
+            "index": idx,
+            "name": name,
+            "utilization_pct": util,
+            "memory_used_mib": mem_u,
+            "memory_total_mib": mem_t,
+            "memory_used_pct": mem_pct,
+            "temperature_c": temp,
+        }
+        if pdraw is not None:
+            dev["power_draw_w"] = round(pdraw, 2)
+        devices.append(dev)
     if not devices:
         return {"available": False, "reason": "no GPU rows from nvidia-smi"}
     return {"available": True, "backend": "nvidia-smi", "devices": devices}
@@ -274,6 +283,71 @@ def gpu_bundle() -> dict[str, Any]:
     }
 
 
+def rapl_package_energy_uj() -> dict[str, Any]:
+    """
+    Sum RAPL ``energy_uj`` for **package** domains only (skips ``core`` / ``uncore`` children)
+    under ``/sys/class/powercap`` to avoid double-counting.
+    """
+    if not sys.platform.startswith("linux"):
+        return {"available": False, "reason": "non-linux", "total_uj": None}
+    root = Path("/sys/class/powercap")
+    if not root.is_dir():
+        return {"available": False, "reason": "no /sys/class/powercap", "total_uj": None}
+    total = 0
+    domains = 0
+    for z in sorted(root.iterdir()):
+        if not z.is_dir():
+            continue
+        name_f = z / "name"
+        ej_f = z / "energy_uj"
+        if not ej_f.is_file():
+            continue
+        try:
+            raw_name = name_f.read_text(encoding="utf-8", errors="replace").strip().lower() if name_f.is_file() else ""
+        except OSError:
+            raw_name = ""
+        if "package" not in raw_name or "core" in raw_name:
+            continue
+        try:
+            uj = int((ej_f.read_text(encoding="utf-8", errors="replace").strip()))
+        except (OSError, ValueError):
+            continue
+        if uj < 0:
+            continue
+        total += uj
+        domains += 1
+    if domains == 0:
+        return {"available": False, "reason": "no readable package RAPL energy_uj", "total_uj": None}
+    return {"available": True, "domains": domains, "total_uj": total}
+
+
+def energy_observation(gpu: dict[str, Any]) -> dict[str, Any]:
+    """Instantaneous energy counters / power for the host (RAPL package + NVIDIA draw when present)."""
+    rapl = rapl_package_energy_uj()
+    gpu_w: float | None = None
+    nv = gpu.get("nvidia") if isinstance(gpu.get("nvidia"), dict) else {}
+    if nv.get("available") and isinstance(nv.get("devices"), list):
+        s = 0.0
+        n = 0
+        for d in nv["devices"]:
+            if not isinstance(d, dict):
+                continue
+            pw = d.get("power_draw_w")
+            if isinstance(pw, (int, float)):
+                s += float(pw)
+                n += 1
+        if n:
+            gpu_w = round(s, 3)
+    out: dict[str, Any] = {
+        "rapl_package_uj": rapl.get("total_uj"),
+        "rapl_available": bool(rapl.get("available")),
+        "gpu_power_draw_w_sum": gpu_w,
+    }
+    if not rapl.get("available") and isinstance(rapl.get("reason"), str):
+        out["rapl_reason"] = rapl["reason"]
+    return out
+
+
 def _parse_meminfo_kb(text: str, key: str) -> int | None:
     for line in text.splitlines():
         if line.startswith(key + ":"):
@@ -286,6 +360,7 @@ def _parse_meminfo_kb(text: str, key: str) -> int | None:
 def cpu_usage_percent_sample(interval_s: float = 0.1) -> float | None:
     """
     Host CPU utilization (0–100) from two ``/proc/stat`` samples (Linux).
+    Uses the aggregate ``cpu`` line (global busy jiffies / total jiffies).
     Returns ``None`` on non-Linux or read errors.
     """
     if not sys.platform.startswith("linux"):
@@ -325,8 +400,133 @@ def cpu_usage_percent_sample(interval_s: float = 0.1) -> float | None:
     return round(max(0.0, min(100.0, busy_pct)), 1)
 
 
+def _per_cpu_jiffies_line(line: str) -> tuple[str, int, int] | None:
+    parts = line.split()
+    if len(parts) < 8:
+        return None
+    tag = parts[0]
+    if tag == "cpu" or not tag.startswith("cpu"):
+        return None
+    suffix = tag[3:]
+    if not suffix.isdigit():
+        return None
+    try:
+        nums = [int(x) for x in parts[1:8]]
+    except ValueError:
+        return None
+    idle = nums[3] + nums[4]
+    total = sum(nums)
+    return tag, idle, total
+
+
+def cpu_usage_percent_per_core_avg_sample(interval_s: float = 0.06) -> float | None:
+    """
+    Average per-logical-CPU busy %% (0–100) from ``cpu0`` … lines in ``/proc/stat``.
+
+    Interprets “half the cores at ~50%% busy” as ~25%% overall — the arithmetic mean
+    of each core’s busy%% between two samples. Falls back to the aggregate ``cpu`` line
+    if per-CPU lines are missing.
+    """
+    if not sys.platform.startswith("linux"):
+        return None
+
+    def sample() -> dict[str, tuple[int, int]] | None:
+        try:
+            lines = Path("/proc/stat").read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            return None
+        out: dict[str, tuple[int, int]] = {}
+        for line in lines:
+            row = _per_cpu_jiffies_line(line)
+            if row is None:
+                continue
+            tag, idle, total = row
+            out[tag] = (idle, total)
+        return out or None
+
+    t1 = sample()
+    if not t1:
+        return cpu_usage_percent_sample(interval_s)
+    time.sleep(max(0.02, float(interval_s)))
+    t2 = sample()
+    if not t2:
+        return None
+    pcts: list[float] = []
+    for tag, (idle1, total1) in t1.items():
+        if tag not in t2:
+            continue
+        idle2, total2 = t2[tag]
+        didle = idle2 - idle1
+        dtotal = total2 - total1
+        if dtotal <= 0:
+            continue
+        busy_pct = 100.0 * (1.0 - (didle / dtotal))
+        pcts.append(max(0.0, min(100.0, busy_pct)))
+    if not pcts:
+        return cpu_usage_percent_sample(interval_s)
+    return round(sum(pcts) / len(pcts), 1)
+
+
+def cpufreq_metrics() -> dict[str, Any]:
+    """Current clock (avg) and cpufreq governor / EPP when sysfs exposes them."""
+    empty: dict[str, Any] = {
+        "cpu_freq_mhz_avg": None,
+        "cpu_scaling_governor": None,
+        "cpu_energy_performance_preference": None,
+    }
+    if not sys.platform.startswith("linux"):
+        return empty
+    root = Path("/sys/devices/system/cpu")
+    if not root.is_dir():
+        return empty
+    freqs: list[float] = []
+    govs: set[str] = set()
+    epps: set[str] = set()
+    for cpu_dir in sorted(root.glob("cpu[0-9]*"), key=lambda p: int(p.name[3:])):
+        if not cpu_dir.is_dir():
+            continue
+        cf = cpu_dir / "cpufreq" / "scaling_cur_freq"
+        gv = cpu_dir / "cpufreq" / "scaling_governor"
+        epp = cpu_dir / "cpufreq" / "energy_performance_preference"
+        try:
+            if cf.is_file():
+                hz = int(cf.read_text(encoding="utf-8", errors="replace").strip())
+                freqs.append(hz / 1000.0)
+        except (OSError, ValueError):
+            pass
+        try:
+            if gv.is_file():
+                govs.add(gv.read_text(encoding="utf-8", errors="replace").strip())
+        except OSError:
+            pass
+        try:
+            if epp.is_file():
+                epps.add(epp.read_text(encoding="utf-8", errors="replace").strip())
+        except OSError:
+            pass
+    out = dict(empty)
+    if freqs:
+        out["cpu_freq_mhz_avg"] = round(sum(freqs) / len(freqs), 0)
+    if len(govs) == 1:
+        out["cpu_scaling_governor"] = next(iter(govs))
+    elif len(govs) > 1:
+        joined = ", ".join(sorted(govs))
+        out["cpu_scaling_governor"] = "mixed (" + (joined if len(joined) <= 48 else joined[:45] + "…") + ")"
+    if len(epps) == 1:
+        out["cpu_energy_performance_preference"] = next(iter(epps))
+    elif len(epps) > 1:
+        out["cpu_energy_performance_preference"] = "mixed"
+    return out
+
+
 def _diskstats_physical() -> dict[str, tuple[int, int, int]]:
-    """Map device name -> (sectors_read, sectors_written, weighted_ms)."""
+    """Map device name -> (sectors_read, sectors_written, io_ticks_ms).
+
+    ``io_ticks_ms`` is kernel field 13 (1-based) / ``parts[12]``: milliseconds the
+    device was actively doing I/Os during the sample window. ``Δio_ticks / wall_ms``
+    matches ``iostat`` %util (not ``time_in_queue`` / ``parts[13]``, which is weighted
+    queue time and is *not* comparable to wall-clock ms the same way).
+    """
     out: dict[str, tuple[int, int, int]] = {}
     try:
         text = Path("/proc/diskstats").read_text(encoding="utf-8", errors="replace")
@@ -342,10 +542,10 @@ def _diskstats_physical() -> dict[str, tuple[int, int, int]]:
         try:
             rsect = int(parts[5])
             wsect = int(parts[9])
-            w_ms = int(parts[13]) if len(parts) > 13 else int(parts[12])
+            io_ticks = int(parts[12])
         except (ValueError, IndexError):
             continue
-        out[name] = (rsect, wsect, w_ms)
+        out[name] = (rsect, wsect, io_ticks)
     return out
 
 
@@ -364,14 +564,14 @@ def disk_io_snapshot() -> dict[str, Any]:
     wall_ms = (t1 - t0) / 1e6
     devices: list[dict[str, Any]] = []
     for name in sorted(set(a) & set(b)):
-        r0, w0, m0 = a[name]
-        r1, w1, m1 = b[name]
+        r0, w0, t0_ticks = a[name]
+        r1, w1, t1_ticks = b[name]
         dr = max(0, r1 - r0)
         dw = max(0, w1 - w0)
-        dm = max(0, m1 - m0)
+        d_ticks = max(0, t1_ticks - t0_ticks)
         read_mbps = (dr * 512) / (1024 * 1024) / dt_s
         write_mbps = (dw * 512) / (1024 * 1024) / dt_s
-        busy_pct = min(100.0, max(0.0, 100.0 * dm / wall_ms)) if wall_ms > 0 else None
+        busy_pct = min(100.0, max(0.0, 100.0 * d_ticks / wall_ms)) if wall_ms > 0 else None
         devices.append(
             {
                 "device": name,
@@ -476,13 +676,16 @@ def snapshot() -> dict[str, Any]:
             out["system_uptime_s"] = float(up0)
         except (OSError, ValueError, IndexError):
             out["system_uptime_s"] = None
-        out["cpu_usage_pct"] = cpu_usage_percent_sample(0.05)
+        out["cpu_usage_pct"] = cpu_usage_percent_per_core_avg_sample(0.06)
+        out.update(cpufreq_metrics())
         out["disks"] = {"space": disk_space_snapshot(), "io": disk_io_snapshot()}
     else:
         out["loadavg"] = None
         out["memory"] = None
         out["system_uptime_s"] = None
         out["cpu_usage_pct"] = None
+        out.update(cpufreq_metrics())
         out["disks"] = {"space": [], "io": {"available": False, "reason": "non-linux"}}
     out["gpu"] = gpu_bundle()
+    out["energy"] = energy_observation(out["gpu"])
     return out

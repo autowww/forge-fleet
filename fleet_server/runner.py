@@ -120,6 +120,29 @@ def cancel(job_id: str) -> bool:
     return True
 
 
+_CID_RE = re.compile(r"^[0-9a-f]{12,64}$", re.I)
+
+
+def dispose_container(container_id: str) -> tuple[bool, str]:
+    """``docker rm -f`` for Studio-initiated teardown of long-lived agent containers."""
+    cid = str(container_id or "").strip()
+    if not cid or not _CID_RE.match(cid):
+        return False, "invalid_container_id"
+    try:
+        r = subprocess.run(
+            ["docker", "rm", "-f", cid],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if r.returncode == 0:
+            return True, (r.stdout or "").strip() or "removed"
+        err = (r.stderr or r.stdout or "").strip()
+        return False, err[:2000] or "docker_rm_failed"
+    except (OSError, subprocess.TimeoutExpired) as ex:
+        return False, str(ex)[:800]
+
+
 def list_active_workers(db_path: Path) -> list[dict[str, Any]]:
     """Jobs currently executing a subprocess (read-only introspection)."""
     with _proc_lock:

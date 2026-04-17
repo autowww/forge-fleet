@@ -1,0 +1,23 @@
+# Copy to /etc/forge-fleet/forge-fleet.env (mode 0600) and set values.
+# Referenced by forge-fleet.service via EnvironmentFile=.
+# Created automatically on first system install (install-update.sh / git-install.sh) if missing.
+
+# Required when binding beyond loopback (see forge-fleet README).
+FLEET_BEARER_TOKEN=change-me
+
+# Optional
+# FLEET_ENFORCE_BEARER=1
+# FLEET_LENSES_WORKSPACE_ROOT=/path/to/workspace
+# FLEET_FORGE_CONSOLE_URL=http://127.0.0.1:8787
+# FLEET_GIT_SHA=
+
+# Telemetry (SQLite telemetry_samples + cumulative kWh in fleet_energy_ledger; optional)
+# FLEET_TELEMETRY_INTERVAL_S=60
+# FLEET_TELEMETRY_RETENTION_DAYS=730
+# (0 = never delete old samples)
+#
+# Energy uses the same sampling cadence as telemetry. RAPL needs readable
+# /sys/class/powercap/*/energy_uj for the service user; NVIDIA uses nvidia-smi in PATH.
+#
+# If nvidia-smi lives outside default systemd PATH (e.g. CUDA), set a full PATH (required keys only):
+# PATH=/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin

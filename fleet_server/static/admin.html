@@ -38,27 +38,47 @@
     .st-cancelled { background: #a16207; color: #fff; }
     .fleet-tile-row { display: flex; flex-wrap: nowrap; gap: 0.75rem; overflow-x: auto; padding-bottom: 0.15rem; scroll-snap-type: x mandatory; }
     .fleet-tile {
-      flex: 1 1 0; min-width: 10.5rem; max-width: 16rem; scroll-snap-align: start;
+      flex: 1 1 0; min-width: 7.5rem; max-width: 16rem; scroll-snap-align: start;
       border-radius: 0.7rem; padding: 0.85rem 0.95rem; position: relative; overflow: hidden;
       border: 1px solid rgba(255,255,255,0.22);
       color: #f8fafc !important;
-      text-shadow: 0 1px 3px rgba(0,0,0,0.65);
+      text-shadow: 0 1px 3px rgba(0,0,0,0.72);
       box-shadow: 0 2px 12px rgba(0,0,0,0.35);
     }
-    .fleet-tile .fleet-tile__hint { color: rgba(248,250,252,0.95) !important; opacity: 1 !important; text-shadow: 0 1px 2px rgba(0,0,0,0.55); }
-    .fleet-tile .fleet-tile__label { color: rgba(248,250,252,0.95) !important; opacity: 1 !important; }
-    .fleet-tile .fleet-tile__value { color: #ffffff !important; }
-    .fleet-tile .fleet-tile__logo,
-    .fleet-tile .fleet-brand-mark { color: #f1f5f9; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.5)); }
+    .fleet-tile .fleet-tile__hint { color: rgba(248,250,252,0.98) !important; opacity: 1 !important; text-shadow: 0 1px 3px rgba(0,0,0,0.65); }
+    .fleet-tile .fleet-tile__label { color: rgba(248,250,252,0.98) !important; opacity: 1 !important; text-shadow: 0 1px 2px rgba(0,0,0,0.55); }
+    .fleet-tile .fleet-tile__value { color: #ffffff !important; text-shadow: 0 1px 4px rgba(0,0,0,0.55); }
+    .fleet-tile .fleet-tile__mem {
+      color: rgba(255,255,255,0.98) !important;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+    }
+    .fleet-tile .fleet-tile__load-cousin {
+      color: rgba(248,250,252,0.98) !important;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.55);
+    }
+    .fleet-tile__brand {
+      min-height: 1.35rem;
+      margin-bottom: 0.2rem;
+      display: flex;
+      align-items: center;
+      color: rgba(255,255,255,0.94);
+    }
+    .fleet-tile__mark {
+      height: 1.55rem; width: auto; max-width: 9.5rem; display: block;
+      filter: drop-shadow(0 1px 2px rgba(0,0,0,0.45));
+    }
     [data-bs-theme="light"] .fleet-tile {
-      text-shadow: none;
+      color: #0f172a !important;
+      text-shadow: 0 1px 0 rgba(255,255,255,0.92);
       box-shadow: 0 1px 4px rgba(15,23,42,0.12);
     }
-    [data-bs-theme="light"] .fleet-tile .fleet-tile__value { color: #0f172a !important; }
-    [data-bs-theme="light"] .fleet-tile .fleet-tile__label { color: #334155 !important; }
-    [data-bs-theme="light"] .fleet-tile .fleet-tile__hint { color: #475569 !important; }
-    [data-bs-theme="light"] .fleet-tile .fleet-tile__logo,
-    [data-bs-theme="light"] .fleet-tile .fleet-brand-mark { color: #0f172a; filter: none; }
+    [data-bs-theme="light"] .fleet-tile .fleet-tile__value { color: #0f172a !important; text-shadow: 0 1px 0 rgba(255,255,255,0.85); }
+    [data-bs-theme="light"] .fleet-tile .fleet-tile__label { color: #1e293b !important; text-shadow: 0 1px 0 rgba(255,255,255,0.8); }
+    [data-bs-theme="light"] .fleet-tile .fleet-tile__hint { color: #334155 !important; text-shadow: 0 1px 0 rgba(255,255,255,0.75); }
+    [data-bs-theme="light"] .fleet-tile .fleet-tile__mem { color: #1e293b !important; text-shadow: 0 1px 0 rgba(255,255,255,0.8); }
+    [data-bs-theme="light"] .fleet-tile .fleet-tile__load-cousin { color: #334155 !important; text-shadow: 0 1px 0 rgba(255,255,255,0.75); }
+    [data-bs-theme="light"] .fleet-tile__brand { color: #0f172a; }
+    [data-bs-theme="light"] .fleet-tile__mark { filter: drop-shadow(0 1px 1px rgba(255,255,255,0.9)); }
     .fleet-tile--inactive {
       opacity: 1 !important;
       filter: none !important;
@@ -71,11 +91,32 @@
     }
     [data-bs-theme="light"] .fleet-tile--inactive .fleet-tile__value,
     [data-bs-theme="light"] .fleet-tile--inactive .fleet-tile__label,
-    [data-bs-theme="light"] .fleet-tile--inactive .fleet-tile__hint { color: #1e293b !important; }
-    .fleet-tile__logo { width: 2.25rem; height: 2.25rem; margin-bottom: 0.4rem; display: block; }
+    [data-bs-theme="light"] .fleet-tile--inactive .fleet-tile__hint,
+    [data-bs-theme="light"] .fleet-tile--inactive .fleet-tile__mem,
+    [data-bs-theme="light"] .fleet-tile--inactive .fleet-tile__load-cousin { color: #1e293b !important; }
     .fleet-tile__label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; }
-    .fleet-tile__value { font-size: 1.45rem; font-weight: 800; line-height: 1.15; letter-spacing: -0.02em; }
-    .fleet-tile__hint { font-size: 0.72rem; margin-top: 0.25rem; line-height: 1.35; }
+    .fleet-tile__value {
+      font-size: 1.45rem;
+      font-weight: 800;
+      line-height: 1.12;
+      letter-spacing: -0.02em;
+      font-variant-numeric: tabular-nums;
+    }
+    .fleet-one-row .fleet-tile__value {
+      min-height: 1.62rem;
+      display: flex;
+      align-items: center;
+    }
+    .fleet-tile__value.fleet-mono {
+      font-size: 1.45rem;
+      font-family: var(--font-mono, ui-monospace, monospace);
+    }
+    .fleet-tile__hint {
+      font-size: 0.78rem;
+      font-weight: 600;
+      margin-top: 0.2rem;
+      line-height: 1.35;
+    }
     .fleet-tile--cpu-low { background: linear-gradient(145deg, #047857 0%, #064e3b 100%); border-color: rgba(52,211,153,0.55); }
     .fleet-tile--cpu-mid { background: linear-gradient(145deg, #b45309 0%, #78350f 100%); border-color: rgba(251,191,36,0.55); }
     .fleet-tile--cpu-high { background: linear-gradient(145deg, #b91c1c 0%, #7f1d1d 100%); border-color: rgba(252,165,165,0.55); }
@@ -100,17 +141,221 @@
     [data-bs-theme="light"] .fleet-tile--intel { background: linear-gradient(145deg, #bfdbfe 0%, #93c5fd 100%); border-color: #2563eb; }
     [data-bs-theme="light"] .fleet-tile--intel-mid { background: linear-gradient(145deg, #c4b5fd 0%, #a78bfa 100%); border-color: #6d28d9; }
     [data-bs-theme="light"] .fleet-tile--intel-hot { background: linear-gradient(145deg, #ddd6fe 0%, #c4b5fd 100%); border-color: #7c3aed; }
-    .fleet-uptime-strip { font-size: 0.85rem; }
-    .fleet-uptime-strip strong { font-weight: 650; }
-    .fleet-brand-mark { height: 1.75rem; width: auto; max-width: 100%; display: block; }
-    .fleet-tile__brand { min-height: 2rem; margin-bottom: 0.35rem; display: flex; align-items: center; }
-    .fleet-tile__mem { font-size: 0.8rem; font-weight: 650; margin: 0.15rem 0 0.2rem; opacity: 0.95; }
+    .fleet-tile--load-low { background: linear-gradient(145deg, #0e7490 0%, #164e63 100%); border-color: rgba(34,211,238,0.45); }
+    .fleet-tile--load-mid { background: linear-gradient(145deg, #a16207 0%, #713f12 100%); border-color: rgba(250,204,21,0.45); }
+    .fleet-tile--load-high { background: linear-gradient(145deg, #be123c 0%, #881337 100%); border-color: rgba(251,113,133,0.5); }
+    [data-bs-theme="light"] .fleet-tile--load-low { background: linear-gradient(145deg, #a5f3fc 0%, #67e8f9 100%); border-color: #0891b2; }
+    [data-bs-theme="light"] .fleet-tile--load-mid { background: linear-gradient(145deg, #fde68a 0%, #fcd34d 100%); border-color: #ca8a04; }
+    [data-bs-theme="light"] .fleet-tile--load-high { background: linear-gradient(145deg, #fecdd3 0%, #fda4af 100%); border-color: #e11d48; }
+    .fleet-tile--mem-low { background: linear-gradient(145deg, #6d28d9 0%, #4c1d95 100%); border-color: rgba(196,181,253,0.5); }
+    .fleet-tile--mem-mid { background: linear-gradient(145deg, #a21caf 0%, #701a75 100%); border-color: rgba(240,171,252,0.45); }
+    .fleet-tile--mem-high { background: linear-gradient(145deg, #be123c 0%, #831843 100%); border-color: rgba(251,113,133,0.5); }
+    [data-bs-theme="light"] .fleet-tile--mem-low { background: linear-gradient(145deg, #e9d5ff 0%, #d8b4fe 100%); border-color: #7c3aed; }
+    [data-bs-theme="light"] .fleet-tile--mem-mid { background: linear-gradient(145deg, #fae8ff 0%, #f5d0fe 100%); border-color: #c026d3; }
+    [data-bs-theme="light"] .fleet-tile--mem-high { background: linear-gradient(145deg, #fecdd3 0%, #fda4af 100%); border-color: #e11d48; }
+    .fleet-tile--disk-low { background: linear-gradient(145deg, #334155 0%, #1e293b 100%); border-color: rgba(148,163,184,0.45); }
+    .fleet-tile--disk-mid { background: linear-gradient(145deg, #92400e 0%, #78350f 100%); border-color: rgba(251,191,36,0.45); }
+    .fleet-tile--disk-high { background: linear-gradient(145deg, #991b1b 0%, #7f1d1d 100%); border-color: rgba(252,165,165,0.5); }
+    [data-bs-theme="light"] .fleet-tile--disk-low { background: linear-gradient(145deg, #e2e8f0 0%, #cbd5e1 100%); border-color: #64748b; }
+    [data-bs-theme="light"] .fleet-tile--disk-mid { background: linear-gradient(145deg, #fde68a 0%, #fcd34d 100%); border-color: #d97706; }
+    [data-bs-theme="light"] .fleet-tile--disk-high { background: linear-gradient(145deg, #fecaca 0%, #fca5a5 100%); border-color: #dc2626; }
+    .fleet-tile--power-low { background: linear-gradient(145deg, #0f766e 0%, #134e4a 100%); border-color: rgba(45,212,191,0.5); }
+    .fleet-tile--power-mid { background: linear-gradient(145deg, #ca8a04 0%, #854d0e 100%); border-color: rgba(250,204,21,0.55); }
+    .fleet-tile--power-high { background: linear-gradient(145deg, #c2410c 0%, #7c2d12 100%); border-color: rgba(253,186,116,0.55); }
+    [data-bs-theme="light"] .fleet-tile--power-low { background: linear-gradient(145deg, #ccfbf1 0%, #99f6e4 100%); border-color: #0d9488; }
+    [data-bs-theme="light"] .fleet-tile--power-mid { background: linear-gradient(145deg, #fef08a 0%, #fde047 100%); border-color: #ca8a04; }
+    [data-bs-theme="light"] .fleet-tile--power-high { background: linear-gradient(145deg, #fed7aa 0%, #fdba74 100%); border-color: #ea580c; }
+    .fleet-tile__load-mega { font-size: 1.85rem !important; font-weight: 800 !important; line-height: 1.05 !important; letter-spacing: -0.03em; }
+    .fleet-tile__load-cousin { font-size: 0.78rem; font-weight: 600; margin-top: 0.35rem; line-height: 1.35; font-family: var(--font-mono, ui-monospace, monospace); }
+    .fleet-tile__mem {
+      font-size: 0.78rem;
+      font-weight: 650;
+      margin: 0.12rem 0 0.18rem;
+      line-height: 1.35;
+      opacity: 1;
+    }
     .fleet-chart-box {
       width: 100%; height: 4.5rem; border-radius: 0.5rem;
       background: color-mix(in srgb, var(--forge-surface-2, var(--bs-secondary-bg)) 88%, transparent);
       border: 1px solid var(--forge-border, var(--bs-border-color));
     }
     [data-bs-theme="light"] .fleet-chart-box { background: #f1f5f9; }
+
+    /* Overview: single horizontal row (CPU, RAM, load, disk, power, GPU) + zone colors (<25 green … 75+ dark red) */
+    .fleet-one-row.fleet-tile-row {
+      flex-wrap: nowrap;
+      width: 100%;
+      align-items: stretch;
+    }
+    .fleet-one-row .fleet-tile {
+      flex: 0 1 auto;
+      min-width: 10.25rem;
+      max-width: none;
+      scroll-snap-align: start;
+    }
+    .fleet-cpu-compact.fleet-tile {
+      flex: 1 1 12.5rem;
+      min-width: 12rem;
+    }
+    .fleet-gpu-stub.fleet-tile {
+      flex: 0 1 14rem;
+      min-width: 11.5rem;
+    }
+    .fleet-cpu-compact__shell {
+      position: relative;
+      border-radius: 0.45rem;
+      overflow: hidden;
+      min-height: 4rem;
+      margin-top: 0.2rem;
+    }
+    .fleet-cpu-wide {
+      position: relative; width: 100%; min-height: 5.5rem; border-radius: 0.7rem; overflow: hidden;
+      border: 1px solid rgba(255,255,255,0.22);
+      box-shadow: 0 2px 12px rgba(0,0,0,0.35);
+    }
+    [data-bs-theme="light"] .fleet-cpu-wide {
+      border-color: rgba(15,23,42,0.14);
+      box-shadow: 0 1px 4px rgba(15,23,42,0.1);
+    }
+    .fleet-cpu-wide__track {
+      position: absolute; inset: 0;
+      background: color-mix(in srgb, var(--forge-surface-2, #1e293b) 92%, transparent);
+    }
+    [data-bs-theme="light"] .fleet-cpu-wide__track { background: #e2e8f0; }
+    .fleet-cpu-wide__fill {
+      position: absolute; left: 0; top: 0; bottom: 0; width: 0;
+      transition: background-color 0.35s ease;
+      border-radius: 0 0.35rem 0.35rem 0;
+    }
+    #fleet-cpu-fill {
+      transition: none;
+    }
+    .fleet-cpu-wide--z0 .fleet-cpu-wide__fill { background: linear-gradient(90deg, #15803d, #22c55e); }
+    .fleet-cpu-wide--z1 .fleet-cpu-wide__fill { background: linear-gradient(90deg, #b45309, #f59e0b); }
+    .fleet-cpu-wide--z2 .fleet-cpu-wide__fill { background: linear-gradient(90deg, #dc2626, #fb7185); }
+    .fleet-cpu-wide--z3 .fleet-cpu-wide__fill { background: linear-gradient(90deg, #7f1d1d, #b91c1c); }
+    .fleet-cpu-wide__content {
+      position: relative; z-index: 2; display: flex; flex-wrap: wrap; align-items: center;
+      justify-content: space-between; gap: 0.75rem 1rem; padding: 0.85rem 1rem;
+      color: #f8fafc; text-shadow: 0 1px 3px rgba(0,0,0,0.55);
+    }
+    [data-bs-theme="light"] .fleet-cpu-wide__content { color: #0f172a; text-shadow: 0 1px 0 rgba(255,255,255,0.85); }
+    .fleet-cpu-wide__left { display: flex; align-items: center; gap: 0.65rem; min-width: 0; }
+    .fleet-cpu-wide__meta {
+      font-size: 0.78rem;
+      font-weight: 600;
+      line-height: 1.35;
+      opacity: 0.95;
+      max-width: 28rem;
+    }
+    .fleet-cpu-wide__value {
+      font-size: 1.45rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      line-height: 1.12;
+      font-variant-numeric: tabular-nums;
+      min-width: 4.25ch;
+      text-align: right;
+      min-height: 1.62rem;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+    }
+    .fleet-cpu-compact .fleet-cpu-wide__value { font-size: 1.45rem; }
+    .fleet-cpu-compact__shell .fleet-cpu-wide__content { padding: 0.55rem 0.7rem; }
+
+    .fleet-gpu-brand {
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      min-height: 2.9rem;
+      margin-bottom: 0.05rem;
+    }
+    .fleet-gpu-logo {
+      max-height: 1.45rem;
+      width: auto;
+      max-width: 100%;
+      object-fit: contain;
+      display: block;
+    }
+    .fleet-gpu-logo-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 2.85rem;
+      height: 2.85rem;
+      flex: 0 0 auto;
+      border-radius: 0.5rem;
+      background: #ffffff;
+      border: 1px solid rgba(15, 23, 42, 0.14);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.22);
+    }
+    [data-bs-theme="light"] .fleet-gpu-logo-btn {
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.1);
+    }
+    .fleet-gpu-logo-btn .fleet-gpu-logo--inbtn {
+      display: block;
+      max-height: 1.38rem;
+      max-width: 2.05rem;
+      width: auto;
+      height: auto;
+      object-fit: contain;
+      filter: none;
+      opacity: 1;
+    }
+    .fleet-gpu-logo-btn--intel .fleet-gpu-logo--inbtn {
+      max-height: 1.02rem;
+      max-width: 1.48rem;
+    }
+    .fleet-gpu-logo-btn--stub .fleet-gpu-logo--inbtn {
+      filter: grayscale(1);
+      opacity: 0.55;
+    }
+    .fleet-gpu-stub__logos {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: nowrap;
+      min-height: 2.95rem;
+      margin-top: 0.1rem;
+    }
+
+    .fleet-mem-banks-tile { min-width: 11rem; flex: 1.15 1 12rem; }
+    .fleet-mem-banks { display: flex; gap: 0.4rem; align-items: stretch; margin-top: 0.45rem; min-height: 4.25rem; }
+    .fleet-mem-bank {
+      flex: 1; position: relative; border-radius: 0.35rem; min-height: 4rem;
+      background: rgba(0,0,0,0.2); overflow: hidden;
+    }
+    [data-bs-theme="light"] .fleet-mem-bank { background: rgba(15,23,42,0.08); }
+    .fleet-mem-bank__fill {
+      position: absolute; left: 0; right: 0; bottom: 0; height: 0%;
+      transition: height 0.45s ease, background-color 0.35s ease;
+      border-radius: 0 0 0.3rem 0.3rem;
+    }
+    .fleet-mem-banks--z0 .fleet-mem-bank__fill { background: linear-gradient(180deg, #22c55e, #15803d); }
+    .fleet-mem-banks--z1 .fleet-mem-bank__fill { background: linear-gradient(180deg, #fbbf24, #b45309); }
+    .fleet-mem-banks--z2 .fleet-mem-bank__fill { background: linear-gradient(180deg, #fb7185, #dc2626); }
+    .fleet-mem-banks--z3 .fleet-mem-bank__fill { background: linear-gradient(180deg, #b91c1c, #7f1d1d); }
+
+    .fleet-load-split {
+      min-width: 11rem;
+      flex: 1.05 1 11.5rem;
+    }
+    .fleet-load-split__sub {
+      display: flex;
+      justify-content: center;
+      align-items: flex-end;
+      gap: 0.65rem;
+      margin-top: 0.35rem;
+    }
+    .fleet-load-mini { text-align: center; flex: 1; min-width: 0; }
+    .fleet-load-mini__svg { display: block; margin: 0 auto; width: 100%; max-width: 5.5rem; height: auto; }
+    .fleet-load-mini__period { font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; margin-top: 0.2rem; opacity: 0.92; }
+    .fleet-load-mini__value { font-size: 0.82rem; font-weight: 800; font-family: var(--font-mono, ui-monospace, monospace); margin-top: 0.08rem; }
+    .fleet-load-mini--sm .fleet-load-mini__svg { max-width: 3.15rem; }
+    .fleet-load-mini--sm .fleet-load-mini__period { font-size: 0.57rem; margin-top: 0.1rem; }
+    .fleet-load-mini--sm .fleet-load-mini__value { font-size: 0.72rem; margin-top: 0.04rem; }
   </style>
 </head>
 <body class="fleet-admin-body">
@@ -158,58 +403,67 @@
   <main class="container pb-5">
     <header class="mb-4">
       <h1 class="h3 fleet-admin-title mb-1">Forge Fleet — status</h1>
-      <p class="text-body-secondary small mb-0">Kitchensink + Bootstrap layout; theme follows Light / Dark / System. Data refreshes automatically — no full page reload.</p>
+      <p class="text-body-secondary small mb-1">
+        <span id="fleet-version-line" class="fleet-mono" aria-live="polite">Loading version…</span>
+      </p>
+      <p class="text-body-secondary small mb-1 d-none" id="fleet-forge-console-wrap">
+        <a id="fleet-forge-console" href="#" target="_blank" rel="noopener">Open Forge LLM console</a>
+        <span class="text-body-secondary"> (set <code class="fleet-mono">FLEET_FORGE_CONSOLE_URL</code> on Fleet)</span>
+      </p>
+      <div class="d-none border border-secondary-subtle rounded p-2 mb-2 small" id="fleet-managed-services-wrap">
+        <div class="fw-semibold mb-1">Managed services (<code class="fleet-mono">etc/services/*.json</code>)</div>
+        <p class="text-body-secondary mb-2 fleet-mono small" id="fleet-config-paths"></p>
+        <div id="fleet-managed-services-rows" class="mb-2"></div>
+        <p class="fleet-mono small text-body-secondary mb-1" id="fleet-svc-action-msg" aria-live="polite"></p>
+        <details class="mt-1">
+          <summary class="text-body">Add <strong>forge_llm</strong> compose service</summary>
+          <form id="fleet-add-service-form" class="row g-2 mt-2 small">
+            <div class="col-md-3">
+              <label class="form-label small mb-0" for="fleet-new-svc-id">Service id</label>
+              <input class="form-control form-control-sm fleet-mono" id="fleet-new-svc-id" placeholder="lab" autocomplete="off" />
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small mb-0" for="fleet-new-svc-root">compose_root</label>
+              <input class="form-control form-control-sm fleet-mono" id="fleet-new-svc-root" placeholder="/abs/path/forge-llm" autocomplete="off" />
+            </div>
+            <div class="col-md-3 d-flex align-items-end">
+              <button type="submit" class="btn btn-sm btn-primary w-100">POST /v1/container-services</button>
+            </div>
+            <div class="col-12">
+              <span class="form-label small d-block mb-1">compose_files overlays (optional)</span>
+              <label class="me-3"><input type="checkbox" class="form-check-input fleet-svc-overlay me-1" value="compose.cpu.yaml" />compose.cpu.yaml</label>
+              <label class="me-3"><input type="checkbox" class="form-check-input fleet-svc-overlay me-1" value="compose.gpu.yaml" />compose.gpu.yaml</label>
+              <label class="me-3"><input type="checkbox" class="form-check-input fleet-svc-overlay me-1" value="compose.observability-ports.yaml" />observability-ports</label>
+              <label class="me-3"><input type="checkbox" class="form-check-input fleet-svc-overlay me-1" value="compose.observability-dcgm.yaml" />observability-dcgm</label>
+            </div>
+          </form>
+          <p class="text-body-secondary fleet-mono small mt-2 mb-0" id="fleet-add-service-msg"></p>
+        </details>
+      </div>
+      <div class="d-none border border-secondary-subtle rounded p-2 mb-2 small" id="fleet-container-types-wrap">
+        <div class="fw-semibold mb-1">Container types (<code class="fleet-mono">etc/containers/types.json</code>)</div>
+        <div id="fleet-container-types-table"></div>
+      </div>
+      <p class="text-body-secondary small mb-0">Kitchensink + Bootstrap layout; theme follows Light / Dark / System. Metrics update automatically.</p>
     </header>
 
     <section class="card mb-3 border-secondary-subtle shadow-sm">
       <div class="card-body py-3">
         <h2 class="h6 text-uppercase text-body-secondary mb-3">Overview</h2>
-        <div id="fleet-tiles" class="fleet-tile-row mb-2" aria-live="polite">Loading tiles…</div>
+        <div id="fleet-tiles" class="fleet-tile-row fleet-one-row mb-2" aria-live="polite">Loading tiles…</div>
         <div id="fleet-chart-wrap" class="mb-3">
-          <div class="d-flex flex-wrap justify-content-between align-items-center small text-body-secondary mb-1">
-            <span><span class="text-body">Load chart</span> — CPU % <span style="color:#34d399" aria-hidden="true">●</span> RAM % <span style="color:#38bdf8" aria-hidden="true">●</span> · <span class="fleet-mono">3s</span> · resets each sync</span>
-            <span class="fleet-mono">next sync <span id="fleet-chart-countdown">—</span></span>
+          <div class="small text-body-secondary mb-1 d-flex flex-wrap align-items-center justify-content-between gap-2">
+            <span>
+              <span class="text-body">CPU and memory</span>
+              <span class="ms-1" style="color:#34d399" aria-hidden="true">●</span> CPU
+              <span class="ms-2" style="color:#38bdf8" aria-hidden="true">●</span> RAM
+            </span>
+            <button type="button" class="btn btn-sm btn-primary" id="refresh">Refresh</button>
           </div>
-          <div id="fleet-load-chart" class="fleet-chart-box" role="img" aria-label="CPU and RAM percentage over three seconds"></div>
+          <div id="fleet-load-chart" class="fleet-chart-box" role="img" aria-label="Recent CPU and RAM trend"></div>
         </div>
-        <div id="fleet-uptime" class="fleet-uptime-strip text-body-secondary" aria-live="polite">Loading uptime…</div>
-      </div>
-    </section>
-
-    <section class="card mb-3 border-secondary-subtle shadow-sm">
-      <div class="card-body">
-        <h2 class="h6 text-uppercase text-body-secondary mb-3">Connection</h2>
-        <div class="row g-3 align-items-end">
-          <div class="col-md-6">
-            <label class="form-label small mb-1" for="token">Bearer token</label>
-            <input type="password" class="form-control form-control-sm" id="token" autocomplete="off" placeholder="Not required on loopback bind" spellcheck="false" />
-          </div>
-          <div class="col-md-6 d-flex flex-wrap gap-2">
-            <button type="button" class="btn btn-sm btn-outline-secondary" id="save">Remember in browser</button>
-            <button type="button" class="btn btn-sm btn-primary" id="refresh">Sync now</button>
-          </div>
-        </div>
-        <div class="row mt-3 small text-body-secondary">
-          <div class="col-md-4"><span class="text-body">Auth</span> — <span id="live-auth">…</span></div>
-          <div class="col-md-4"><span class="text-body">Last snapshot</span> — <span id="live-last-sync">…</span></div>
-          <div class="col-md-4"><span class="text-body">Next sync</span> — <span id="live-countdown">…</span></div>
-        </div>
-        <div class="alert alert-danger py-2 px-3 mt-3 mb-0 small d-none" id="err" role="alert"></div>
-        <div id="fleet-storage" class="mt-3 small text-body-secondary" aria-live="polite">Loading job store…</div>
-      </div>
-    </section>
-
-    <section class="card mb-3 border-secondary-subtle shadow-sm">
-      <div class="card-body">
-        <h2 class="h6 text-uppercase text-body-secondary mb-3">Host</h2>
-        <div id="host" class="small text-body-secondary">Loading host metrics…</div>
-      </div>
-    </section>
-
-    <section class="card mb-3 border-secondary-subtle shadow-sm">
-      <div class="card-body">
-        <h2 class="h6 text-uppercase text-body-secondary mb-3">GPU</h2>
-        <div id="gpu" class="small text-body-secondary">Loading GPU metrics…</div>
+        <hr class="my-3 opacity-25" />
+        <div class="alert alert-danger py-2 px-3 mb-0 small d-none" id="err" role="alert"></div>
       </div>
     </section>
 
@@ -315,28 +569,14 @@
   (function () {
     "use strict";
     var LS = "forgeFleetAdminToken";
-    var POLL_VISIBLE_MS = 3000;
-    var POLL_HIDDEN_MS = 9000;
-    var tokenEl = document.getElementById("token");
+    var LS_LOAD_SCALE = "forgeFleetLoadScaleMax";
+    var LS_LOAD_PEAK = "forgeFleetLoadPeakPct";
+    var POLL_MS = 3000;
     var errEl = document.getElementById("err");
-    var liveAuth = document.getElementById("live-auth");
-    var liveLast = document.getElementById("live-last-sync");
-    var liveNext = document.getElementById("live-countdown");
     var nextFire = Date.now();
-    var debounceTimer = null;
-    var lastHostUtc = null;
-    var lastNode = {};
-    var lastSysUp = null;
-    var lastSnapWallMs = 0;
-    var fleetStartedEpoch = null;
-    var lastCoreHours = null;
     var lastHostForChart = null;
     var chartBuf = [];
     var CHART_SAMPLES = 15;
-
-    function pollMs() {
-      return document.hidden ? POLL_HIDDEN_MS : POLL_VISIBLE_MS;
-    }
 
     function esc(s) {
       return String(s ?? "")
@@ -353,117 +593,6 @@
       return d.toLocaleString();
     }
 
-    function relTime(iso) {
-      if (!iso) return "—";
-      var t = Date.parse(iso);
-      if (isNaN(t)) return esc(iso);
-      var sec = Math.max(0, Math.round((Date.now() - t) / 1000));
-      if (sec < 2) return "just now";
-      if (sec < 60) return sec + "s ago";
-      var m = Math.floor(sec / 60);
-      if (m < 60) return m + "m ago";
-      return Math.floor(m / 60) + "h ago";
-    }
-
-    function renderHostDisks(host) {
-      var d = host.disks || {};
-      var space = d.space || [];
-      var io = d.io || {};
-      var spaceHtml;
-      if (space.length) {
-        spaceHtml =
-          "<div class=\"table-responsive mt-2\"><table class=\"table table-sm table-bordered mb-0 fleet-mono\">" +
-          "<thead><tr><th>Mount</th><th>Used %</th><th>Used</th><th>Free</th><th>Total</th></tr></thead><tbody>" +
-          space
-            .map(function (r) {
-              return (
-                "<tr><td><code>" +
-                esc(r.mount) +
-                "</code></td><td>" +
-                esc(r.used_pct) +
-                "</td><td>" +
-                esc(r.used_gb) +
-                " GB</td><td>" +
-                esc(r.free_gb) +
-                " GB</td><td>" +
-                esc(r.total_gb) +
-                " GB</td></tr>"
-              );
-            })
-            .join("") +
-          "</tbody></table></div>";
-      } else {
-        spaceHtml = "<p class=\"small text-body-secondary mb-0\">No disk space rows.</p>";
-      }
-      var ioHtml;
-      if (io && io.available === true && io.aggregated) {
-        var a = io.aggregated;
-        ioHtml =
-          "<div class=\"mt-2 small\"><strong>Disk I/O</strong> (≈" +
-          esc(io.sample_ms) +
-          " ms sample, whole disks) — read <span class=\"fleet-mono\">" +
-          esc(a.read_mbps) +
-          "</span> MB/s · write <span class=\"fleet-mono\">" +
-          esc(a.write_mbps) +
-          "</span> MB/s · combined <span class=\"fleet-mono\">" +
-          esc(a.total_mbps) +
-          "</span> MB/s";
-        if (a.busy_pct_est_max != null && !isNaN(a.busy_pct_est_max)) {
-          ioHtml += " · busy est. (max disk) <span class=\"fleet-mono\">" + esc(a.busy_pct_est_max) + "%</span>";
-        }
-        ioHtml += "</div>";
-        if (io.devices && io.devices.length) {
-          ioHtml +=
-            "<div class=\"table-responsive mt-2\"><table class=\"table table-sm table-bordered mb-0 fleet-mono\"><thead><tr><th>Device</th><th>Read</th><th>Write</th><th>Σ</th><th>Busy est.</th></tr></thead><tbody>" +
-            io.devices
-              .map(function (r) {
-                return (
-                  "<tr><td>" +
-                  esc(r.device) +
-                  "</td><td>" +
-                  esc(r.read_mbps) +
-                  "</td><td>" +
-                  esc(r.write_mbps) +
-                  "</td><td>" +
-                  esc(r.total_mbps) +
-                  "</td><td>" +
-                  esc(r.busy_pct_est != null ? r.busy_pct_est : "—") +
-                  "</td></tr>"
-                );
-              })
-              .join("") +
-            "</tbody></table></div>";
-        }
-      } else {
-        ioHtml =
-          "<div class=\"mt-2 small text-body-secondary\"><strong>Disk I/O</strong> — " +
-          esc((io && io.reason) || "not available") +
-          "</div>";
-      }
-      return (
-        "<h3 class=\"h6 mt-3 text-body-secondary\">Storage &amp; disk load</h3>" +
-        spaceHtml +
-        ioHtml
-      );
-    }
-
-    function formatDuration(sec) {
-      if (sec == null || isNaN(sec)) return "—";
-      var x = Math.max(0, Number(sec));
-      var d = Math.floor(x / 86400);
-      x -= d * 86400;
-      var h = Math.floor(x / 3600);
-      x -= h * 3600;
-      var mi = Math.floor(x / 60);
-      var s = Math.floor(x - mi * 60);
-      var o = [];
-      if (d) o.push(d + "d");
-      if (d || h) o.push(h + "h");
-      o.push(mi + "m");
-      o.push(s + "s");
-      return o.join(" ");
-    }
-
     function heat3(p) {
       if (p == null || isNaN(p)) return "mid";
       if (p < 52) return "low";
@@ -471,12 +600,259 @@
       return "high";
     }
 
+    /** 0–3: green, amber, light red, dark red (by %% bands). */
+    function loadZone4(p) {
+      if (p == null || isNaN(p)) return 0;
+      var v = Number(p);
+      if (v < 25) return 0;
+      if (v < 50) return 1;
+      if (v < 75) return 2;
+      return 3;
+    }
+
+    function loadZoneStroke(p) {
+      var z = loadZone4(p);
+      if (z === 0) return "#4ade80";
+      if (z === 1) return "#fbbf24";
+      if (z === 2) return "#fb7185";
+      return "#b91c1c";
+    }
+
+    /** Smooth CPU %% display: 3s ease per target; new samples restart from the value currently shown. */
+    var fleetCpuAnim = (function () {
+      var DURATION_MS = 3000;
+      var raf = null;
+      var startT = 0;
+      var from = 0;
+      var to = 0;
+      var lastShown = null;
+
+      function ease(u) {
+        u = Math.max(0, Math.min(1, u));
+        return u * u * (3 - 2 * u);
+      }
+
+      function applyDom(val) {
+        var elV = document.getElementById("fleet-cpu-value");
+        var elF = document.getElementById("fleet-cpu-fill");
+        var elS = document.getElementById("fleet-cpu-shell");
+        if (!elV || !elF || !elS) return false;
+        var clamped = Math.min(100, Math.max(0, Number(val)));
+        var wText = Math.round(clamped * 10) / 10;
+        elV.textContent = String(wText) + "%";
+        elF.style.width = String(Math.round(clamped * 100) / 100) + "%";
+        elS.className = "fleet-cpu-compact__shell fleet-cpu-wide--z" + loadZone4(clamped);
+        return true;
+      }
+
+      function interpAt(now) {
+        var u = (now - startT) / DURATION_MS;
+        if (u >= 1) return to;
+        return from + (to - from) * ease(u);
+      }
+
+      function tick() {
+        var now = performance.now();
+        var u = (now - startT) / DURATION_MS;
+        if (u >= 1) {
+          raf = null;
+          lastShown = to;
+          applyDom(to);
+          return;
+        }
+        applyDom(from + (to - from) * ease(u));
+        raf = requestAnimationFrame(tick);
+      }
+
+      function onSnapshotTarget(targetPct) {
+        if (!document.getElementById("fleet-cpu-value")) return;
+
+        var now = performance.now();
+        var curFromAnim = raf != null ? interpAt(now) : null;
+
+        if (raf != null) {
+          cancelAnimationFrame(raf);
+          raf = null;
+        }
+
+        if (targetPct == null || isNaN(targetPct)) {
+          lastShown = null;
+          var elV = document.getElementById("fleet-cpu-value");
+          var elF = document.getElementById("fleet-cpu-fill");
+          var elS = document.getElementById("fleet-cpu-shell");
+          if (elV) elV.textContent = "—";
+          if (elF) elF.style.width = "0%";
+          if (elS) elS.className = "fleet-cpu-compact__shell fleet-cpu-wide--z0";
+          return;
+        }
+
+        if (lastShown === null) {
+          lastShown = targetPct;
+          from = targetPct;
+          to = targetPct;
+          applyDom(targetPct);
+          return;
+        }
+
+        var cur = curFromAnim != null ? curFromAnim : lastShown;
+
+        if (Math.abs(cur - targetPct) < 0.05) {
+          lastShown = targetPct;
+          applyDom(targetPct);
+          return;
+        }
+
+        from = cur;
+        to = targetPct;
+        startT = performance.now();
+        applyDom(from);
+        raf = requestAnimationFrame(tick);
+      }
+
+      /** Width / %% text to paint before replacing the tile DOM (avoids a one-frame jump to the new host value). */
+      function widthForRender(suggestedPct) {
+        if (suggestedPct != null && isNaN(Number(suggestedPct))) suggestedPct = null;
+        if (raf != null) return interpAt(performance.now());
+        if (lastShown != null) return lastShown;
+        return suggestedPct != null ? Number(suggestedPct) : null;
+      }
+
+      return { onSnapshotTarget: onSnapshotTarget, widthForRender: widthForRender };
+    })();
+
     function cpuPct(host) {
       var p = host.cpu_usage_pct;
-      if (p == null && Array.isArray(host.loadavg) && host.cpus) {
-        p = Math.min(100, (100 * host.loadavg[0]) / host.cpus);
+      if (p == null || isNaN(Number(p))) return null;
+      return Math.round(Number(p) * 10) / 10;
+    }
+
+    function memQuarterFills(usedPct) {
+      var p = usedPct == null || isNaN(usedPct) ? 0 : Math.min(100, Math.max(0, Number(usedPct)));
+      var out = [];
+      for (var i = 0; i < 4; i++) {
+        var lo = i * 25;
+        var hi = (i + 1) * 25;
+        var h = 0;
+        if (p > lo) {
+          h = p >= hi ? 100 : (100 * (p - lo)) / 25;
+        }
+        out.push(h);
       }
-      return p == null ? null : Math.round(p * 10) / 10;
+      return out;
+    }
+
+    function miniLoadGaugeSvg(pct) {
+      var p = pct == null || isNaN(pct) ? 0 : Math.min(100, Math.max(0, Number(pct)));
+      var cx = 22;
+      var cy = 23;
+      var r = 14.5;
+      var t = Math.PI * (1 - p / 100);
+      var nx = cx + r * Math.cos(t);
+      var ny = cy - r * Math.sin(t);
+      var x0 = cx - r;
+      var x1 = cx + r;
+      var stroke = loadZoneStroke(p);
+      var track = "rgba(148,163,184,0.42)";
+      return (
+        '<svg class="fleet-load-mini__svg" viewBox="0 0 44 28" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" fill="none" stroke-linecap="round" stroke-linejoin="round">' +
+        '<path d="M ' +
+        x0 +
+        " " +
+        cy +
+        " A " +
+        r +
+        " " +
+        r +
+        ' 0 0 1 ' +
+        x1 +
+        " " +
+        cy +
+        '" stroke="' +
+        track +
+        '" stroke-width="2.05"/>' +
+        '<line x1="' +
+        cx +
+        '" y1="' +
+        cy +
+        '" x2="' +
+        nx.toFixed(2) +
+        '" y2="' +
+        ny.toFixed(2) +
+        '" stroke="' +
+        stroke +
+        '" stroke-width="2.35"/>' +
+        '<circle cx="' +
+        cx +
+        '" cy="' +
+        cy +
+        '" r="2.25" fill="' +
+        stroke +
+        '"/></svg>'
+      );
+    }
+
+    function miniLoadGaugeBlock(pct, periodLabel, small) {
+      var p = pct == null || isNaN(pct) ? null : Math.min(100, Math.max(0, Number(pct)));
+      var show = p == null ? "—" : String(Math.round(p * 10) / 10) + "%";
+      var pv = p == null ? 0 : p;
+      var smCls = small ? " fleet-load-mini--sm" : "";
+      return (
+        '<div class="fleet-load-mini' +
+        smCls +
+        '">' +
+        miniLoadGaugeSvg(pv) +
+        '<div class="fleet-load-mini__period">' +
+        esc(periodLabel) +
+        "</div>" +
+        '<div class="fleet-load-mini__value">' +
+        esc(show) +
+        "</div></div>"
+      );
+    }
+
+    function renderCpuCompactTile(host) {
+      var cpuP = cpuPct(host);
+      var disp =
+        cpuP != null && !isNaN(cpuP) ? fleetCpuAnim.widthForRender(cpuP) : null;
+      if (disp == null || isNaN(disp)) disp = cpuP != null && !isNaN(cpuP) ? Number(cpuP) : null;
+      var w = disp != null ? Math.min(100, Math.max(0, Number(disp))) : 0;
+      var z = loadZone4(w);
+      var cpus = host.cpus != null ? String(host.cpus) : "—";
+      var mhz = host.cpu_freq_mhz_avg != null ? Math.round(Number(host.cpu_freq_mhz_avg)) + " MHz avg" : "—";
+      var gov = host.cpu_scaling_governor ? String(host.cpu_scaling_governor) : "";
+      var epp = host.cpu_energy_performance_preference ? String(host.cpu_energy_performance_preference) : "";
+      var modeLine = [];
+      if (gov) modeLine.push(gov);
+      if (epp) modeLine.push(epp);
+      var modeStr = modeLine.length ? modeLine.join(" · ") : "—";
+      var mainPct =
+        cpuP != null && !isNaN(cpuP)
+          ? esc(String(Math.round(w * 10) / 10)) + "%"
+          : "—";
+      var wBar = esc(String(Math.round(w * 100) / 100));
+      return (
+        '<div class="fleet-tile fleet-cpu-compact">' +
+        '<div class="fleet-tile__brand"><span class="fleet-tile__label">CPU</span></div>' +
+        '<div id="fleet-cpu-shell" class="fleet-cpu-compact__shell fleet-cpu-wide--z' +
+        z +
+        '">' +
+        '<div class="fleet-cpu-wide__track"></div>' +
+        '<div id="fleet-cpu-fill" class="fleet-cpu-wide__fill" style="width:' +
+        wBar +
+        '%"></div>' +
+        '<div class="fleet-cpu-wide__content">' +
+        '<div class="fleet-cpu-wide__left">' +
+        '<div class="fleet-cpu-wide__value" id="fleet-cpu-value">' +
+        mainPct +
+        "</div></div>" +
+        '<div class="fleet-cpu-wide__meta">' +
+        esc(cpus) +
+        " logical cores · " +
+        esc(mhz) +
+        "<br/>" +
+        esc(modeStr) +
+        "</div></div></div></div>"
+      );
     }
 
     function maxList(arr, key) {
@@ -515,6 +891,40 @@
       return g && g.nvidia && g.nvidia.available ? maxList(g.nvidia.devices, "memory_used_pct") : null;
     }
 
+    function gpuNvidiaHasDevices(g) {
+      return !!(
+        g &&
+        g.nvidia &&
+        g.nvidia.available === true &&
+        Array.isArray(g.nvidia.devices) &&
+        g.nvidia.devices.length > 0
+      );
+    }
+    function gpuAmdHasDevices(g) {
+      var a =
+        g &&
+        g.amdgpu_sysfs &&
+        g.amdgpu_sysfs.available === true &&
+        Array.isArray(g.amdgpu_sysfs.devices) &&
+        g.amdgpu_sysfs.devices.length > 0;
+      var r =
+        g &&
+        g.rocm &&
+        g.rocm.available === true &&
+        Array.isArray(g.rocm.devices) &&
+        g.rocm.devices.length > 0;
+      return !!(a || r);
+    }
+    function gpuIntelHasDevices(g) {
+      return !!(
+        g &&
+        g.intel_drm_est &&
+        g.intel_drm_est.available === true &&
+        Array.isArray(g.intel_drm_est.devices) &&
+        g.intel_drm_est.devices.length > 0
+      );
+    }
+
     function tileMemRow(label, pct) {
       if (pct == null || isNaN(pct)) {
         return "<div class=\"fleet-tile__mem\">" + esc(label) + " —</div>";
@@ -523,28 +933,248 @@
       return "<div class=\"fleet-tile__mem\">" + esc(label) + " " + esc(v) + "%</div>";
     }
 
-    /* Stylized marks (not vendor trademark artwork). */
-    var SVG_CPU = "<svg class=\"fleet-brand-mark\" viewBox=\"0 0 40 32\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.55\"><rect x=\"8\" y=\"8\" width=\"24\" height=\"16\" rx=\"2\"/><path d=\"M12 8V5M28 8V5M12 27v-3M28 27v-3M8 14H5M8 20H5M35 14h-3M35 20h-3\"/></svg>";
-    var SVG_NV = "<svg class=\"fleet-brand-mark\" viewBox=\"0 0 96 26\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M4 22 18 4h10L14 22H4zm22 0L46 4h11L32 22H26zm24 0L70 4h10L56 22H50z\"/></svg>";
-    var SVG_AMD = "<svg class=\"fleet-brand-mark\" viewBox=\"0 0 88 28\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M6 5 44 26 82 5H64L44 18 24 5H6z\"/></svg>";
-    var SVG_INTEL = "<svg class=\"fleet-brand-mark\" viewBox=\"0 0 80 26\" aria-hidden=\"true\"><ellipse cx=\"40\" cy=\"13\" rx=\"34\" ry=\"10\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\"/><rect x=\"10\" y=\"8\" width=\"18\" height=\"10\" rx=\"1.5\" fill=\"currentColor\"/></svg>";
+    /* Tile header marks (inline SVG, currentColor from .fleet-tile__brand). */
+    /* Inline SVG marks (no hotlinked images — works offline and matches tile contrast). */
+    var MARK_CPU =
+      "<svg class=\"fleet-tile__mark\" viewBox=\"0 0 40 32\" xmlns=\"http://www.w3.org/2000/svg\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.55\" stroke-linejoin=\"round\"><rect x=\"8\" y=\"8\" width=\"24\" height=\"16\" rx=\"2\"/><path d=\"M12 8V5M28 8V5M12 27v-3M28 27v-3M8 14H5M8 20H5M35 14h-3M35 20h-3\"/></svg>";
+    var MARK_RAM =
+      "<svg class=\"fleet-tile__mark\" viewBox=\"0 0 40 28\" xmlns=\"http://www.w3.org/2000/svg\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linejoin=\"round\"><rect x=\"5\" y=\"5\" width=\"12\" height=\"20\" rx=\"1.5\"/><rect x=\"23\" y=\"5\" width=\"12\" height=\"20\" rx=\"1.5\"/><path d=\"M9 9h4M9 13h4M9 17h4M27 9h4M27 13h4M27 17h4\"/></svg>";
+    var MARK_DISK =
+      "<svg class=\"fleet-tile__mark\" viewBox=\"0 0 40 32\" xmlns=\"http://www.w3.org/2000/svg\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.45\" stroke-linejoin=\"round\"><ellipse cx=\"20\" cy=\"11\" rx=\"13\" ry=\"5\"/><path d=\"M7 11v7c0 2.5 5.8 4.5 13 4.5S33 20.5 33 18v-7\"/><path d=\"M7 18v5c0 2.5 5.8 4.5 13 4.5S33 25.5 33 23v-5\"/></svg>";
+    var MARK_POWER =
+      "<svg class=\"fleet-tile__mark\" viewBox=\"0 0 40 40\" xmlns=\"http://www.w3.org/2000/svg\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.65\" stroke-linejoin=\"round\"><path d=\"M22 5L9 23h10l-5 18 16-22H21l1-14z\"/></svg>";
+
+    var __fleetRaplPrev = { uj: null, tMs: null };
+
+    var GPU_LOGO_BASE = "/admin/static/gpu-logos/";
+    function gpuLogoImg(vendor, alt, extraClass) {
+      var c = "fleet-gpu-logo" + (extraClass ? " " + extraClass : "");
+      return (
+        '<img class="' +
+        c +
+        '" src="' +
+        esc(GPU_LOGO_BASE + vendor + ".png") +
+        '" alt="' +
+        esc(alt) +
+        '" loading="lazy" width="100" height="32" />'
+      );
+    }
+    function gpuLogoButton(vendor, alt, stub) {
+      var intel = vendor === "intel";
+      var cls = "fleet-gpu-logo-btn" + (stub ? " fleet-gpu-logo-btn--stub" : "") + (intel ? " fleet-gpu-logo-btn--intel" : "");
+      return (
+        '<span class="' +
+        cls +
+        '">' +
+        gpuLogoImg(vendor, alt, "fleet-gpu-logo--inbtn") +
+        '<span class="visually-hidden">' +
+        esc(alt) +
+        "</span></span>"
+      );
+    }
+    function gpuLogoBrand(vendor, alt) {
+      return '<div class="fleet-gpu-brand">' + gpuLogoButton(vendor, alt, false) + "</div>";
+    }
+    function renderGpuStubTile() {
+      return (
+        '<div class="fleet-tile fleet-tile--inactive fleet-gpu-stub">' +
+        '<div class="fleet-tile__brand"><span class="fleet-tile__label">GPU</span></div>' +
+        '<div class="fleet-gpu-stub__logos">' +
+        gpuLogoButton("nvidia", "NVIDIA", true) +
+        gpuLogoButton("amd", "AMD", true) +
+        gpuLogoButton("intel", "Intel", true) +
+        "</div>" +
+        '<div class="fleet-tile__hint">No GPU telemetry on this host</div></div>'
+      );
+    }
+
+    function tileMark(svg, hiddenLabel) {
+      return svg + "<span class=\"visually-hidden\">" + esc(hiddenLabel) + "</span>";
+    }
+
+    function getLoadScaleDenominator(liveCpus) {
+      var c = liveCpus != null && !isNaN(Number(liveCpus)) && Number(liveCpus) > 0 ? Number(liveCpus) : 1;
+      var raw = localStorage.getItem(LS_LOAD_SCALE);
+      if (raw == null || String(raw).trim() === "") {
+        return { den: c, saved: false, liveCpus: c };
+      }
+      var n = parseFloat(String(raw).trim());
+      if (!isFinite(n) || n <= 0) {
+        return { den: c, saved: false, liveCpus: c };
+      }
+      return { den: n, saved: true, liveCpus: c };
+    }
+
+    function mergeLoadPeakPct(pct) {
+      if (pct == null || isNaN(pct)) return;
+      var v = Math.round(Number(pct) * 10) / 10;
+      var cur = parseFloat(localStorage.getItem(LS_LOAD_PEAK) || "");
+      if (!isFinite(cur)) cur = 0;
+      if (v > cur) localStorage.setItem(LS_LOAD_PEAK, String(v));
+    }
+
+    function diskAgg(host) {
+      var d = (host && host.disks) || {};
+      var space = d.space || [];
+      var io = d.io || {};
+      var maxU = null;
+      var parts = [];
+      for (var i = 0; i < space.length; i++) {
+        var r = space[i];
+        var u = r.used_pct;
+        if (u != null && !isNaN(Number(u))) {
+          var nu = Number(u);
+          maxU = maxU == null ? nu : Math.max(maxU, nu);
+          if (r.mount) parts.push(esc(String(r.mount)) + " " + esc(Math.round(nu * 10) / 10) + "%");
+        }
+      }
+      var ioAgg = io && io.available === true && io.aggregated ? io.aggregated : null;
+      var busy = ioAgg && ioAgg.busy_pct_est_max != null && !isNaN(ioAgg.busy_pct_est_max) ? Number(ioAgg.busy_pct_est_max) : null;
+      var heatVal = 0;
+      if (maxU != null) heatVal = maxU;
+      if (busy != null) heatVal = Math.max(heatVal, busy);
+      var has = maxU != null || ioAgg != null;
+      return { maxU: maxU, ioAgg: ioAgg, busy: busy, heatVal: heatVal, parts: parts, has: has, ioReason: (io && io.reason) || null };
+    }
+
+    function loadMetrics(host) {
+      var c = host.cpus != null ? Number(host.cpus) : null;
+      var la = host.loadavg;
+      if (!Array.isArray(la) || la.length < 3 || c == null || isNaN(c) || c < 1) return null;
+      var l1 = Number(la[0]);
+      var l5 = Number(la[1]);
+      var l15 = Number(la[2]);
+      if (isNaN(l1) || isNaN(l5) || isNaN(l15)) return null;
+      var sc = getLoadScaleDenominator(c);
+      var den = sc.den;
+      return {
+        l1: l1,
+        l5: l5,
+        l15: l15,
+        cpus: c,
+        scaleDen: den,
+        scaleSaved: sc.saved,
+        pct1: Math.min(100, Math.max(0, (100 * l1) / den)),
+        pct5: Math.min(100, Math.max(0, (100 * l5) / den)),
+        pct15: Math.min(100, Math.max(0, (100 * l15) / den)),
+      };
+    }
 
     function pushChartSample() {
       if (!lastHostForChart) return;
       var cpus = lastHostForChart.cpus || 1;
       var la = Array.isArray(lastHostForChart.loadavg) ? lastHostForChart.loadavg[0] : 0;
-      var loadPct = Math.min(100, Math.max(0, (100 * la) / cpus));
+      var den = getLoadScaleDenominator(cpus).den;
+      var loadPct = Math.min(100, Math.max(0, (100 * la) / den));
       var memP =
         lastHostForChart.memory && lastHostForChart.memory.used_pct != null
           ? Number(lastHostForChart.memory.used_pct)
           : 0;
       var cpuP =
-        lastHostForChart.cpu_usage_pct != null ? Number(lastHostForChart.cpu_usage_pct) : loadPct;
+        lastHostForChart.cpu_usage_pct != null && !isNaN(Number(lastHostForChart.cpu_usage_pct))
+          ? Number(lastHostForChart.cpu_usage_pct)
+          : 0;
       chartBuf.push({
         cpu: Math.min(100, Math.max(0, cpuP)),
         mem: Math.min(100, Math.max(0, memP)),
       });
       if (chartBuf.length > CHART_SAMPLES) chartBuf.shift();
+    }
+
+    function fmtWatts(w) {
+      if (w == null || isNaN(Number(w)) || Number(w) < 0) return "—";
+      var x = Number(w);
+      if (x >= 100) return String(Math.round(x));
+      return String(Math.round(x * 10) / 10);
+    }
+
+    function formatLedgerKwhLine(ledger) {
+      if (!ledger || ledger.total_kwh == null || isNaN(Number(ledger.total_kwh))) {
+        return "No kWh logged yet — starts after Fleet records telemetry on this machine.";
+      }
+      var t = Number(ledger.total_kwh);
+      var s =
+        t >= 100
+          ? t.toFixed(1)
+          : t >= 1
+            ? t.toFixed(2)
+            : t.toFixed(4);
+      return (
+        "Total " +
+        esc(s) +
+        " kWh while Forge-Fleet was sampling (SQLite ledger: package RAPL + NVIDIA draw)."
+      );
+    }
+
+    function renderPowerTile(host, energyLedger) {
+      var en = (host && host.energy) || {};
+      var raplOk = en.rapl_available === true && en.rapl_package_uj != null && !isNaN(Number(en.rapl_package_uj));
+      var uj = raplOk ? Number(en.rapl_package_uj) : null;
+      var gpuW = en.gpu_power_draw_w_sum != null && !isNaN(Number(en.gpu_power_draw_w_sum)) ? Number(en.gpu_power_draw_w_sum) : null;
+      var tMs = host && host.time_utc ? Date.parse(String(host.time_utc)) : NaN;
+
+      var raplW = null;
+      if (raplOk && uj != null && !isNaN(tMs)) {
+        if (__fleetRaplPrev.uj != null && __fleetRaplPrev.tMs != null) {
+          var dt = (tMs - __fleetRaplPrev.tMs) / 1000;
+          if (dt >= 0.2 && dt <= 120) {
+            var duj = uj - __fleetRaplPrev.uj;
+            if (duj >= 0) {
+              raplW = (duj / 1e6) / dt;
+              if (!isFinite(raplW) || raplW < 0 || raplW > 1200) raplW = null;
+            }
+          }
+        }
+        __fleetRaplPrev.uj = uj;
+        __fleetRaplPrev.tMs = tMs;
+      }
+
+      var totalW = null;
+      if (raplW != null && gpuW != null) totalW = raplW + gpuW;
+      else if (raplW != null) totalW = raplW;
+      else if (gpuW != null) totalW = gpuW;
+
+      var hasSignal = totalW != null || raplOk || gpuW != null;
+      if (!hasSignal) {
+        return (
+          '<div class="fleet-tile fleet-tile--inactive">' +
+          '<div class="fleet-tile__brand">' +
+          tileMark(MARK_POWER, "Power") +
+          "</div>" +
+          '<div class="fleet-tile__value fleet-mono">—</div>' +
+          '<div class="fleet-tile__mem">No RAPL / GPU power data</div>' +
+          '<div class="fleet-tile__hint">' +
+          formatLedgerKwhLine(energyLedger) +
+          "</div></div>"
+        );
+      }
+
+      var heatIn = totalW != null ? Math.min(100, Math.max(0, (totalW / 320) * 100)) : 0;
+      var pHeat = heat3(heatIn);
+      var main = totalW != null ? esc(fmtWatts(totalW)) + " W" : "—";
+      var memParts = [];
+      if (raplW != null) memParts.push("pkg ~" + esc(fmtWatts(raplW)) + " W");
+      else if (raplOk) memParts.push("pkg — (second poll)");
+      if (gpuW != null) memParts.push("GPU " + esc(fmtWatts(gpuW)) + " W");
+      var memLine = memParts.length ? memParts.join(" · ") : "Draw";
+      var hint = formatLedgerKwhLine(energyLedger);
+      return (
+        '<div class="fleet-tile fleet-tile--power-' +
+        pHeat +
+        '">' +
+        '<div class="fleet-tile__brand">' +
+        tileMark(MARK_POWER, "Power") +
+        "</div>" +
+        '<div class="fleet-tile__value fleet-mono">' +
+        main +
+        "</div>" +
+        '<div class="fleet-tile__mem">' +
+        esc(memLine) +
+        "</div>" +
+        '<div class="fleet-tile__hint">' +
+        hint +
+        "</div></div>"
+      );
     }
 
     function renderFleetChart() {
@@ -603,97 +1233,207 @@
         "</svg>";
     }
 
-    function renderTiles(host, node) {
+    function renderTiles(host, energyLedger) {
       var g = host.gpu || {};
-      var cpus = host.cpus != null ? host.cpus : "—";
-      var la = Array.isArray(host.loadavg) ? host.loadavg.map(function (x) { return Math.round(x * 100) / 100; }).join(" · ") : "—";
-      var cpuP = cpuPct(host);
-      var cpuCls = "fleet-tile fleet-tile--cpu-" + heat3(cpuP);
-      var cpuMain = cpuP != null ? esc(cpuP) + "%" : esc(la.split(" · ")[0] || "—");
-      var cpuHint = cpuP != null ? "Load " + esc(la) + " · " + esc(cpus) + " cores" : esc(cpus) + " cores · load " + esc(la);
-      var ramPct = host.memory && host.memory.used_pct != null ? host.memory.used_pct : null;
+      var memHost = host.memory || {};
+      var ramPct = memHost.used_pct != null ? Number(memHost.used_pct) : null;
+      if (ramPct != null && isNaN(ramPct)) ramPct = null;
+
+      var lm = loadMetrics(host);
+      var loadTile = "";
+      if (lm) {
+        mergeLoadPeakPct(Math.round(lm.pct1 * 10) / 10);
+        var loadHeat = heat3(Math.max(lm.pct1, lm.pct5, lm.pct15));
+        var p1 =
+          lm.pct1 != null && !isNaN(lm.pct1) ? esc(String(Math.round(lm.pct1 * 10) / 10)) + "%" : "—";
+        loadTile =
+          '<div class="fleet-tile fleet-tile--load-' +
+          loadHeat +
+          ' fleet-load-split">' +
+          '<div class="fleet-tile__brand"><span class="fleet-tile__label">System load</span></div>' +
+          '<div class="fleet-tile__value fleet-mono">' +
+          p1 +
+          "</div>" +
+          '<div class="fleet-tile__mem">1 min load (% of max scale)</div>' +
+          '<div class="fleet-load-split__sub">' +
+          miniLoadGaugeBlock(lm.pct5, "5 min", true) +
+          miniLoadGaugeBlock(lm.pct15, "15 min", true) +
+          "</div></div>";
+      } else {
+        loadTile =
+          '<div class="fleet-tile fleet-tile--inactive fleet-load-split">' +
+          '<div class="fleet-tile__brand"><span class="fleet-tile__label">System load</span></div>' +
+          '<div class="fleet-tile__value fleet-mono">—</div>' +
+          '<div class="fleet-tile__mem">Load averages unavailable</div>' +
+          '<div class="fleet-load-split__sub">' +
+          miniLoadGaugeBlock(0, "5 min", true) +
+          miniLoadGaugeBlock(0, "15 min", true) +
+          "</div></div>";
+      }
+
+      var memTile = "";
+      if (ramPct != null) {
+        var rp = Math.round(ramPct * 10) / 10;
+        var mz = loadZone4(rp);
+        var fills = memQuarterFills(rp);
+        var banks = "";
+        for (var bi = 0; bi < 4; bi++) {
+          var fh = Math.round(fills[bi] * 10) / 10;
+          banks +=
+            '<div class="fleet-mem-bank" title="RAM quarter ' +
+            (bi + 1) +
+            ' of 4">' +
+            '<div class="fleet-mem-bank__fill" style="height:' +
+            esc(String(fh)) +
+            '%"></div></div>';
+        }
+        var gbt = memHost.total_kb != null ? Math.round((memHost.total_kb / 1024 / 1024) * 10) / 10 : null;
+        var memSub =
+          gbt != null
+            ? '<div class="fleet-tile__mem">' + esc(String(gbt)) + " GiB total</div>"
+            : '<div class="fleet-tile__mem">RAM</div>';
+        memTile =
+          '<div class="fleet-tile fleet-tile--mem-' +
+          heat3(rp) +
+          " fleet-mem-banks-tile fleet-mem-banks--z" +
+          mz +
+          '">' +
+          '<div class="fleet-tile__brand">' +
+          tileMark(MARK_RAM, "Memory") +
+          '</div><div class="fleet-tile__value fleet-mono">' +
+          esc(rp) +
+          "%</div>" +
+          memSub +
+          '<div class="fleet-mem-banks">' +
+          banks +
+          "</div></div>";
+      } else {
+        memTile =
+          '<div class="fleet-tile fleet-tile--inactive fleet-mem-banks-tile">' +
+          '<div class="fleet-tile__brand">' +
+          tileMark(MARK_RAM, "Memory") +
+          '</div><div class="fleet-tile__value fleet-mono">—</div>' +
+          '<div class="fleet-tile__mem">—</div>' +
+          '<div class="fleet-mem-banks">' +
+          '<div class="fleet-mem-bank"></div><div class="fleet-mem-bank"></div><div class="fleet-mem-bank"></div><div class="fleet-mem-bank"></div>' +
+          "</div></div>";
+      }
+
+      var dk = diskAgg(host);
+      var diskTile = "";
+      if (!dk.has) {
+        var dh = dk.ioReason ? esc(String(dk.ioReason).slice(0, 140)) : "No disk metrics";
+        diskTile =
+          "<div class=\"fleet-tile fleet-tile--inactive\"><div class=\"fleet-tile__brand\">" +
+          tileMark(MARK_DISK, "Storage") +
+          "</div><div class=\"fleet-tile__value fleet-mono\">—</div>" +
+          "<div class=\"fleet-tile__mem\">—</div>" +
+          "<div class=\"fleet-tile__hint\">" +
+          dh +
+          "</div></div>";
+      } else {
+        var dcls = "fleet-tile fleet-tile--disk-" + heat3(dk.heatVal);
+        var dMain;
+        if (dk.maxU != null) dMain = esc(Math.round(dk.maxU * 10) / 10) + "%";
+        else if (dk.busy != null) dMain = "~" + esc(Math.round(dk.busy * 10) / 10) + "%";
+        else if (dk.ioAgg && dk.ioAgg.total_mbps != null) {
+          dMain = esc(Math.round(Number(dk.ioAgg.total_mbps) * 10) / 10) + " MB/s";
+        } else dMain = "—";
+        var mainIsMbps =
+          dk.maxU == null &&
+          dk.busy == null &&
+          dk.ioAgg &&
+          dk.ioAgg.total_mbps != null;
+        var ioBits = [];
+        if (dk.ioAgg && dk.ioAgg.total_mbps != null && !mainIsMbps) {
+          ioBits.push("Total " + esc(Math.round(Number(dk.ioAgg.total_mbps) * 10) / 10) + " MB/s");
+        }
+        if (dk.busy != null && dk.maxU != null) {
+          ioBits.push("busy ~" + esc(Math.round(dk.busy * 10) / 10) + "%");
+        }
+        if (mainIsMbps && dk.busy != null) {
+          ioBits.push("busy ~" + esc(Math.round(dk.busy * 10) / 10) + "%");
+        }
+        var dSub =
+          ioBits.length > 0
+            ? "<div class=\"fleet-tile__mem\">" + ioBits.join(" · ") + "</div>"
+            : "<div class=\"fleet-tile__mem\">I/O</div>";
+        var dHint =
+          dk.ioAgg && dk.ioAgg.total_mbps != null && !isNaN(Number(dk.ioAgg.total_mbps))
+            ? esc(String(Math.round(Number(dk.ioAgg.total_mbps) * 10) / 10)) + " MB/s"
+            : "— MB/s";
+        diskTile =
+          "<div class=\"" +
+          dcls +
+          "\"><div class=\"fleet-tile__brand\">" +
+          tileMark(MARK_DISK, "Storage") +
+          "</div><div class=\"fleet-tile__value fleet-mono\">" +
+          dMain +
+          "</div>" +
+          dSub +
+          "<div class=\"fleet-tile__hint\">" +
+          dHint +
+          "</div></div>";
+      }
 
       var nv = maxNvUtil(g);
       var nvVram = maxNvVramPct(g);
-      var nvCls = "fleet-tile fleet-tile--nv" + (nv == null ? "" : nv < 55 ? "" : nv < 82 ? "-mid" : "-hot");
-      if (nv == null) nvCls += " fleet-tile--inactive";
-      var nvMain = nv != null ? esc(nv) + "%" : "—";
-      var nvHint = nv != null ? "CUDA / GL" : (g.nvidia && g.nvidia.reason) ? esc(g.nvidia.reason) : "No NVIDIA telemetry";
-
+      var nvHas = gpuNvidiaHasDevices(g);
       var am = maxAmdUtil(g);
-      var amCls = "fleet-tile fleet-tile--amd" + (am == null ? " fleet-tile--inactive" : am < 55 ? "" : am < 82 ? "-mid" : "-hot");
-      var amMain = am != null ? esc(am) + "%" : "—";
-      var amHint = am != null ? "sysfs / ROCm" : "No AMD telemetry";
-
+      var amHas = gpuAmdHasDevices(g);
       var ir = maxIntelUtil(g);
-      var irCls = "fleet-tile fleet-tile--intel" + (ir == null ? " fleet-tile--inactive" : ir < 55 ? "" : ir < 82 ? "-mid" : "-hot");
-      var irMain = ir != null ? esc(ir) + "% est." : "—";
-      var irHint = ir != null ? "Engine busy Δ" : "No Intel / Xe counters";
+      var irHas = gpuIntelHasDevices(g);
 
-      return (
-        "<div class=\"" +
-        cpuCls +
-        "\"><div class=\"fleet-tile__brand\">" +
-        SVG_CPU +
-        "<span class=\"visually-hidden\">CPU</span></div><div class=\"fleet-tile__value\">" +
-        cpuMain +
-        "</div>" +
-        tileMemRow("RAM", ramPct) +
-        "<div class=\"fleet-tile__hint\">" +
-        cpuHint +
-        "</div></div>" +
-        "<div class=\"" +
-        nvCls +
-        "\"><div class=\"fleet-tile__brand\">" +
-        SVG_NV +
-        "<span class=\"visually-hidden\">NVIDIA</span></div><div class=\"fleet-tile__value\">" +
-        nvMain +
-        "</div>" +
-        tileMemRow("VRAM", nvVram) +
-        "<div class=\"fleet-tile__hint\">" +
-        nvHint +
-        "</div></div>" +
-        "<div class=\"" +
-        amCls +
-        "\"><div class=\"fleet-tile__brand\">" +
-        SVG_AMD +
-        "<span class=\"visually-hidden\">AMD</span></div><div class=\"fleet-tile__value\">" +
-        amMain +
-        "</div>" +
-        tileMemRow("VRAM", null) +
-        "<div class=\"fleet-tile__hint\">" +
-        amHint +
-        "</div></div>" +
-        "<div class=\"" +
-        irCls +
-        "\"><div class=\"fleet-tile__brand\">" +
-        SVG_INTEL +
-        "<span class=\"visually-hidden\">Intel</span></div><div class=\"fleet-tile__value\">" +
-        irMain +
-        "</div>" +
-        tileMemRow("VRAM", null) +
-        "<div class=\"fleet-tile__hint\">" +
-        irHint +
-        "</div></div>"
-      );
-    }
-
-    function updateUptimeLive() {
-      var el = document.getElementById("fleet-uptime");
-      if (!el) return;
-      var fleetSec = fleetStartedEpoch != null ? Date.now() / 1000 - fleetStartedEpoch : null;
-      var sysSec = lastSysUp;
-      if (lastSnapWallMs && lastSysUp != null) {
-        sysSec = lastSysUp + (Date.now() - lastSnapWallMs) / 1000;
+      var gpuBlock = "";
+      if (!nvHas && !amHas && !irHas) {
+        gpuBlock = renderGpuStubTile();
+      } else {
+        if (nvHas) {
+          var nvh = nv == null ? 0 : nv;
+          var nvc = "fleet-tile fleet-tile--nv" + (nvh < 55 ? "" : nvh < 82 ? "-mid" : "-hot");
+          gpuBlock +=
+            '<div class="' +
+            nvc +
+            '"><div class="fleet-tile__brand">' +
+            gpuLogoBrand("nvidia", "NVIDIA") +
+            '</div><div class="fleet-tile__value fleet-mono">' +
+            (nv != null ? esc(nv) + "%" : "—") +
+            "</div>" +
+            tileMemRow("VRAM", nvVram) +
+            '<div class="fleet-tile__hint">CUDA / GL</div></div>';
+        }
+        if (amHas) {
+          var amh = am == null ? 0 : am;
+          var amc = "fleet-tile fleet-tile--amd" + (amh < 55 ? "" : amh < 82 ? "-mid" : "-hot");
+          gpuBlock +=
+            '<div class="' +
+            amc +
+            '"><div class="fleet-tile__brand">' +
+            gpuLogoBrand("amd", "AMD") +
+            '</div><div class="fleet-tile__value fleet-mono">' +
+            (am != null ? esc(am) + "%" : "—") +
+            "</div>" +
+            tileMemRow("VRAM", null) +
+            '<div class="fleet-tile__hint">sysfs / ROCm</div></div>';
+        }
+        if (irHas) {
+          var irh = ir == null ? 0 : ir;
+          var irc = "fleet-tile fleet-tile--intel" + (irh < 55 ? "" : irh < 82 ? "-mid" : "-hot");
+          gpuBlock +=
+            '<div class="' +
+            irc +
+            '"><div class="fleet-tile__brand">' +
+            gpuLogoBrand("intel", "Intel") +
+            '</div><div class="fleet-tile__value fleet-mono">' +
+            (ir != null ? esc(ir) + "% est." : "—") +
+            "</div>" +
+            tileMemRow("VRAM", null) +
+            '<div class="fleet-tile__hint">Engine busy Δ</div></div>';
+        }
       }
-      var chs = lastCoreHours != null && !isNaN(lastCoreHours) ? Math.round(lastCoreHours * 1000) / 1000 : "—";
-      el.innerHTML =
-        "<div class=\"d-flex flex-wrap gap-4\">" +
-        "<div><strong>Fleet process</strong><br/><span class=\"fleet-mono\">" + esc(formatDuration(fleetSec)) + "</span></div>" +
-        "<div><strong>System uptime</strong><br/><span class=\"fleet-mono\">" + esc(formatDuration(sysSec)) + "</span></div>" +
-        "<div><strong>Core·hours booked</strong><br/><span class=\"fleet-mono\">" + esc(String(chs)) + "</span> <span class=\"text-body-secondary small\">(at last sync)</span></div>" +
-        "</div>" +
-        "<div class=\"mt-2 small text-body-secondary\">Fleet started <span class=\"fleet-mono\">" + esc((lastNode && lastNode.fleet_started_utc) || "—") + "</span></div>";
+
+      var powerTile = renderPowerTile(host, energyLedger);
+      return renderCpuCompactTile(host) + memTile + loadTile + diskTile + powerTile + gpuBlock;
     }
 
     function statusPill(st) {
@@ -702,7 +1442,7 @@
     }
 
     function authHeaders() {
-      var t = (tokenEl.value || "").trim();
+      var t = (localStorage.getItem(LS) || "").trim();
       var h = { Accept: "application/json" };
       if (t) h.Authorization = "Bearer " + t;
       return h;
@@ -718,57 +1458,97 @@
       errEl.classList.remove("d-none");
     }
 
-    function renderNvidia(nv) {
-      if (!nv || nv.available !== true || !nv.devices || !nv.devices.length) {
-        return "<p class=\"mb-2 text-body-secondary\"><strong>NVIDIA</strong> — " + esc((nv && nv.reason) || "not available") + "</p>";
+    function renderManagedServices(integ) {
+      var wrap = document.getElementById("fleet-managed-services-wrap");
+      var pathsEl = document.getElementById("fleet-config-paths");
+      var rowsEl = document.getElementById("fleet-managed-services-rows");
+      var msgEl = document.getElementById("fleet-svc-action-msg");
+      if (!wrap || !pathsEl || !rowsEl) return;
+      var cl = integ.container_layout;
+      if (!cl) {
+        wrap.classList.add("d-none");
+        return;
       }
-      var rows = nv.devices.map(function (d) {
-        return "<tr><td>" + esc(d.index) + "</td><td>" + esc(d.name) + "</td><td>" + esc(d.utilization_pct) + "</td><td>" +
-          esc(d.memory_used_mib != null && d.memory_total_mib != null ? d.memory_used_mib + " / " + d.memory_total_mib + " MiB" : "—") +
-          "</td><td>" + esc(d.memory_used_pct != null ? d.memory_used_pct : "—") + "</td><td>" + esc(d.temperature_c != null ? d.temperature_c : "—") + "</td></tr>";
-      }).join("");
-      return "<h3 class=\"h6 mt-0\">NVIDIA <span class=\"text-body-secondary fw-normal\">(" + esc(nv.backend || "nvidia-smi") + ")</span></h3>" +
-        "<div class=\"table-responsive mb-3\"><table class=\"table table-sm table-bordered mb-0 fleet-mono\"><thead><tr><th>#</th><th>Name</th><th>Util %</th><th>VRAM MiB</th><th>VRAM %</th><th>°C</th></tr></thead><tbody>" +
-        rows + "</tbody></table></div>";
+      wrap.classList.remove("d-none");
+      pathsEl.textContent = "types_file=" + cl.types_file + " · services_dir=" + cl.services_dir;
+      if (msgEl) msgEl.textContent = "";
+      var svcs = integ.forge_llm_services || [];
+      if (!svcs.length) {
+        rowsEl.innerHTML =
+          "<p class=\"text-body-secondary mb-0\">No <code class=\"fleet-mono\">forge_llm</code> services yet. Add one below, or set <code class=\"fleet-mono\">FLEET_FORGE_LLM_ROOT</code> and restart Fleet once to auto-create <code class=\"fleet-mono\">default.json</code>.</p>";
+        return;
+      }
+      var head =
+        "<div class=\"table-responsive\"><table class=\"table table-sm table-bordered mb-0 fleet-mono\"><thead><tr>" +
+        "<th>id</th><th>label</th><th>compose</th><th>status</th><th></th></tr></thead><tbody>";
+      var body = svcs
+        .map(function (s) {
+          var st = (s.services_running != null ? s.services_running : "—") + " / " + (s.services_total != null ? s.services_total : "—") + " running";
+          if (s.ps_ok === false) st += " · ps failed";
+          var root = String(s.compose_root || "").slice(0, 48) + (String(s.compose_root || "").length > 48 ? "…" : "");
+          var cf = (s.compose_files || []).join(", ") || "compose.yaml";
+          var sid = String(s.id || "");
+          return (
+            "<tr><td>" +
+            esc(sid) +
+            "</td><td>" +
+            esc(s.label || "") +
+            "</td><td title=\"" +
+            esc(String(s.compose_root || "")) +
+            "\">" +
+            esc(root) +
+            "<div class=\"small text-body-secondary\">" +
+            esc(cf) +
+            "</div></td><td>" +
+            esc(st) +
+            "</td><td class=\"text-nowrap\"><button type=\"button\" class=\"btn btn-sm btn-outline-success me-1 fleet-svc-start\" data-svc-id=\"" +
+            esc(sid) +
+            "\">Start</button><button type=\"button\" class=\"btn btn-sm btn-outline-warning fleet-svc-stop\" data-svc-id=\"" +
+            esc(sid) +
+            "\">Stop</button></td></tr>"
+          );
+        })
+        .join("");
+      rowsEl.innerHTML = head + body + "</tbody></table></div>";
     }
 
-    function renderAmd(am) {
-      if (!am || am.available !== true || !am.devices || !am.devices.length) {
-        return "<p class=\"mb-2 text-body-secondary\"><strong>AMD (sysfs)</strong> — " + esc((am && am.reason) || "not available") + "</p>";
+    var __fleetTypesLoaded = false;
+    async function loadContainerTypesOnce() {
+      if (__fleetTypesLoaded) return;
+      try {
+        var res = await fetch("/v1/container-types", { headers: authHeaders(), cache: "no-store" });
+        if (!res.ok) return;
+        var doc = await res.json();
+        if (!doc.ok || !Array.isArray(doc.types)) return;
+        __fleetTypesLoaded = true;
+        var wrap = document.getElementById("fleet-container-types-wrap");
+        var tbl = document.getElementById("fleet-container-types-table");
+        if (!wrap || !tbl) return;
+        wrap.classList.remove("d-none");
+        var rows = doc.types
+          .map(function (t) {
+            return (
+              "<tr><td>" +
+              esc(t.id || "") +
+              "</td><td>" +
+              esc(t.container_class || "") +
+              "</td><td>" +
+              (t.admin_spawnable ? "yes" : "no") +
+              "</td><td>" +
+              (t.api_manage_services ? "yes" : "no") +
+              "</td><td class=\"small\">" +
+              esc(t.notes || "") +
+              "</td></tr>"
+            );
+          })
+          .join("");
+        tbl.innerHTML =
+          "<table class=\"table table-sm table-bordered mb-0 fleet-mono\"><thead><tr><th>id</th><th>container_class</th><th>admin</th><th>API add</th><th>notes</th></tr></thead><tbody>" +
+          rows +
+          "</tbody></table>";
+      } catch (_e) {
+        /* ignore */
       }
-      var rows = am.devices.map(function (d) {
-        return "<tr><td>" + esc(d.card) + "</td><td>" + esc(d.pci_slot || "—") + "</td><td>" + esc(d.utilization_pct) + "</td><td>" + esc(d.driver || "amdgpu") + "</td></tr>";
-      }).join("");
-      return "<h3 class=\"h6\">AMD <span class=\"text-body-secondary fw-normal\">(gpu_busy_percent)</span></h3>" +
-        "<div class=\"table-responsive mb-3\"><table class=\"table table-sm table-bordered mb-0 fleet-mono\"><thead><tr><th>Card</th><th>PCI</th><th>Busy %</th><th>Driver</th></tr></thead><tbody>" + rows + "</tbody></table></div>";
-    }
-
-    function renderIntel(intel) {
-      if (!intel || intel.available !== true || !intel.devices || !intel.devices.length) {
-        return "<p class=\"mb-2 text-body-secondary\"><strong>Intel / Xe (estimate)</strong> — " + esc((intel && intel.reason) || "not available") + "</p>";
-      }
-      var note = intel.sample_wall_ms != null ? " <span class=\"text-body-secondary\">(~" + esc(intel.sample_wall_ms) + " ms window)</span>" : "";
-      var rows = intel.devices.map(function (d) {
-        return "<tr><td>" + esc(d.card) + "</td><td>" + esc(d.utilization_pct_est) + "</td><td>" + esc(d.engines_sampled) + "</td></tr>";
-      }).join("");
-      return "<h3 class=\"h6\">Intel / Xe <span class=\"text-body-secondary fw-normal\">(engine busy Δ)" + note + "</span></h3>" +
-        "<div class=\"table-responsive mb-3\"><table class=\"table table-sm table-bordered mb-0 fleet-mono\"><thead><tr><th>Card</th><th>Util % est.</th><th>Engines</th></tr></thead><tbody>" + rows + "</tbody></table></div>";
-    }
-
-    function renderRocm(rc) {
-      if (!rc || rc.available !== true || !rc.devices || !rc.devices.length) {
-        return "<p class=\"mb-0 text-body-secondary\"><strong>AMD ROCm</strong> — " + esc((rc && rc.reason) || "not available") + "</p>";
-      }
-      var rows = rc.devices.map(function (d) {
-        return "<tr><td>" + esc(d.index) + "</td><td>" + esc(d.utilization_pct) + "</td></tr>";
-      }).join("");
-      return "<h3 class=\"h6\">AMD ROCm <span class=\"text-body-secondary fw-normal\">(" + esc(Array.isArray(rc.argv) ? rc.argv.join(" ") : "") + ")</span></h3>" +
-        "<div class=\"table-responsive\"><table class=\"table table-sm table-bordered mb-0 fleet-mono\"><thead><tr><th>GPU</th><th>Use %</th></tr></thead><tbody>" + rows + "</tbody></table></div>";
-    }
-
-    function renderGpuBundle(g) {
-      if (!g) return "<p class=\"text-body-secondary mb-0\">No GPU bundle.</p>";
-      return renderNvidia(g.nvidia) + renderAmd(g.amdgpu_sysfs) + renderIntel(g.intel_drm_est) + renderRocm(g.rocm);
     }
 
     async function loadSnapshot() {
@@ -781,8 +1561,7 @@
         return false;
       }
       if (res.status === 401) {
-        setErr("Unauthorized — set bearer token to match FLEET_BEARER_TOKEN (unless loopback-only bind skips auth).");
-        liveAuth.textContent = "enforced (401)";
+        setErr("Unauthorized — send Authorization: Bearer … matching FLEET_BEARER_TOKEN (or use loopback-only bind).");
         return false;
       }
       if (!res.ok) {
@@ -796,65 +1575,40 @@
       }
 
       var meta = data.meta || {};
-      liveAuth.textContent = meta.auth_enforced ? "bearer required" : "not required (loopback or no token)";
-      var stEl = document.getElementById("fleet-storage");
-      if (stEl) {
-        var nj = meta.jobs_total != null ? Number(meta.jobs_total) : NaN;
-        var njTxt = !isNaN(nj) ? String(nj) : "—";
-        var hint =
-          !isNaN(nj) && nj === 0
-            ? "<div class=\"alert alert-info py-2 px-2 mt-2 mb-0 small\">" +
-              "<strong>No rows in this server\u2019s SQLite job store.</strong> " +
-              "Forge Lenses must call <span class=\"fleet-mono\">POST /v1/jobs</span> on <em>this</em> process (same host, port, and token). " +
-              "If you run multiple Fleet servers (host vs Docker vs another port), the admin page only shows jobs for the one you opened. " +
-              "With Docker Compose, mount a volume on <span class=\"fleet-mono\">FLEET_DATA_DIR</span> so history survives container restarts.</div>"
-            : "";
-        stEl.innerHTML =
-          "<div><strong>SQLite (job history)</strong> — <span class=\"fleet-mono text-break\">" +
-          esc(meta.sqlite_path || "—") +
-          "</span></div>" +
-          "<div class=\"mt-1\"><strong>Listen host</strong> — <span class=\"fleet-mono\">" +
-          esc(meta.listen_host || "—") +
-          "</span> · <strong>Jobs recorded (all statuses)</strong> — " +
-          esc(njTxt) +
-          "</div>" +
-          hint;
+      var ver = meta.version || {};
+      var vl = document.getElementById("fleet-version-line");
+      if (vl) {
+        var sha = ver.git_sha ? " · git " + String(ver.git_sha).slice(0, 7) : "";
+        vl.textContent =
+          "v" +
+          String(ver.package_semver || "—") +
+          " · DB schema " +
+          String(ver.db_schema_version != null ? ver.db_schema_version : "—") +
+          " · template lib " +
+          String(ver.template_lib_version != null ? ver.template_lib_version : "—") +
+          sha;
       }
-      var host = data.host || {};
-      lastHostUtc = host.time_utc || null;
-      liveLast.textContent = relTime(lastHostUtc) + " · " + esc(lastHostUtc || "—");
+      var wrap = document.getElementById("fleet-forge-console-wrap");
+      var link = document.getElementById("fleet-forge-console");
+      var integ = meta.integrations || {};
+      var fc = integ.forge_console_url;
+      if (wrap && link && fc) {
+        link.href = fc;
+        wrap.classList.remove("d-none");
+      } else if (wrap) {
+        wrap.classList.add("d-none");
+      }
 
-      lastNode = data.node || {};
-      lastSnapWallMs = Date.now();
-      lastSysUp = host.system_uptime_s != null ? Number(host.system_uptime_s) : null;
-      fleetStartedEpoch = lastNode.fleet_started_epoch != null ? Number(lastNode.fleet_started_epoch) : null;
-      if (lastNode.core_hours_1c != null) lastCoreHours = Number(lastNode.core_hours_1c);
-      document.getElementById("fleet-tiles").innerHTML = renderTiles(host, lastNode);
+      renderManagedServices(integ);
+      loadContainerTypesOnce();
+
+      var host = data.host || {};
+      document.getElementById("fleet-tiles").innerHTML = renderTiles(host, meta.energy_ledger_kwh || null);
+      fleetCpuAnim.onSnapshotTarget(cpuPct(host));
       lastHostForChart = host;
       chartBuf = [];
       pushChartSample();
       renderFleetChart();
-      updateUptimeLive();
-
-      var mem = host.memory || {};
-      var la = host.loadavg;
-      var cup = host.cpu_usage_pct;
-      document.getElementById("host").innerHTML =
-        "<div class=\"mb-2\"><strong>Time (UTC)</strong> — <span class=\"fleet-mono\">" + esc(host.time_utc) + "</span></div>" +
-        "<div class=\"d-flex flex-wrap gap-3\">" +
-        "<span><strong>CPU busy (sample)</strong> — " + esc(cup != null ? cup + "%" : "—") + "</span>" +
-        "<span><strong>CPUs</strong> — " + esc(host.cpus != null ? host.cpus : "—") + "</span>" +
-        "<span><strong>Load 1/5/15</strong> — " + esc(Array.isArray(la) ? la.join(" / ") : "—") + "</span>" +
-        "<span><strong>Memory</strong> — " +
-          esc(mem.used_pct != null ? mem.used_pct + "% used" : "—") +
-          esc(mem.total_kb ? " (" + Math.round(mem.total_kb / 1024) + " MiB total)" : "") +
-        "</span>" +
-        "<span><strong>System up</strong> — " + esc(formatDuration(host.system_uptime_s)) + "</span>" +
-        "<span><strong>Python</strong> — " + esc(host.python || "—") + "</span>" +
-        "</div>" +
-        renderHostDisks(host);
-
-      document.getElementById("gpu").innerHTML = renderGpuBundle(host.gpu);
 
       var bs = data.jobs_by_status || {};
       var keys = Object.keys(bs).sort();
@@ -888,19 +1642,11 @@
     }
 
     function scheduleNext() {
-      nextFire = Date.now() + pollMs();
+      nextFire = Date.now() + POLL_MS;
     }
 
     function tick() {
       var ms = Math.max(0, nextFire - Date.now());
-      var cd = ms < 1500 ? (Math.ceil(ms / 100) / 10) + "s" : Math.ceil(ms / 1000) + "s";
-      liveNext.textContent = cd;
-      var fccd = document.getElementById("fleet-chart-countdown");
-      if (fccd) fccd.textContent = cd;
-      if (lastHostUtc) {
-        liveLast.textContent = relTime(lastHostUtc) + " · " + esc(lastHostUtc);
-      }
-      updateUptimeLive();
       pushChartSample();
       renderFleetChart();
       if (ms <= 0) {
@@ -908,24 +1654,95 @@
       }
     }
 
-    tokenEl.value = localStorage.getItem(LS) || "";
-    tokenEl.placeholder = "Optional when auth not enforced";
-
-    document.getElementById("save").onclick = function () {
-      localStorage.setItem(LS, tokenEl.value.trim());
-      tokenEl.value = localStorage.getItem(LS) || "";
-      loadSnapshot().then(function () { scheduleNext(); });
-    };
     document.getElementById("refresh").onclick = function () {
       loadSnapshot().then(function () { scheduleNext(); });
     };
-    tokenEl.addEventListener("input", function () {
-      clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(function () {
-        loadSnapshot().then(function () { scheduleNext(); });
-      }, 350);
+
+    async function forgeSvcPost(path, okText) {
+      setErr("");
+      var m = document.getElementById("fleet-svc-action-msg");
+      if (m) m.textContent = "…";
+      try {
+        var res = await fetch(path, {
+          method: "POST",
+          headers: Object.assign({ "Content-Type": "application/json" }, authHeaders()),
+          body: "{}",
+        });
+        var j = {};
+        try {
+          j = await res.json();
+        } catch (_e) {
+          j = {};
+        }
+        if (m) {
+          if (res.ok && j.ok) m.textContent = okText;
+          else m.textContent = "HTTP " + res.status + " — " + esc(String(j.error || j.detail || res.statusText || ""));
+        }
+      } catch (e) {
+        if (m) m.textContent = esc(String(e));
+      }
+      loadSnapshot().then(function () { scheduleNext(); });
+    }
+
+    document.addEventListener("click", function (ev) {
+      var t = ev.target;
+      if (!t || !t.getAttribute) return;
+      if (t.classList.contains("fleet-svc-start")) {
+        var sid = t.getAttribute("data-svc-id");
+        if (sid) forgeSvcPost("/v1/container-services/" + encodeURIComponent(sid) + "/start", "start sent for " + sid);
+      } else if (t.classList.contains("fleet-svc-stop")) {
+        var sid2 = t.getAttribute("data-svc-id");
+        if (sid2) forgeSvcPost("/v1/container-services/" + encodeURIComponent(sid2) + "/stop", "stop sent for " + sid2);
+      }
     });
 
+    var addForm = document.getElementById("fleet-add-service-form");
+    if (addForm) {
+      addForm.addEventListener("submit", async function (ev) {
+        ev.preventDefault();
+        setErr("");
+        var msg = document.getElementById("fleet-add-service-msg");
+        if (msg) msg.textContent = "";
+        var idEl = document.getElementById("fleet-new-svc-id");
+        var rootEl = document.getElementById("fleet-new-svc-root");
+        var sid = (idEl && idEl.value ? idEl.value : "").trim().toLowerCase();
+        var root = (rootEl && rootEl.value ? rootEl.value : "").trim();
+        var overlays = [];
+        document.querySelectorAll(".fleet-svc-overlay:checked").forEach(function (c) {
+          overlays.push(c.value);
+        });
+        if (!sid || !root) {
+          if (msg) msg.textContent = "id and compose_root required.";
+          return;
+        }
+        try {
+          var res = await fetch("/v1/container-services", {
+            method: "POST",
+            headers: Object.assign({ "Content-Type": "application/json" }, authHeaders()),
+            body: JSON.stringify({
+              id: sid,
+              type_id: "forge_llm",
+              compose_root: root,
+              compose_files: overlays,
+            }),
+          });
+          var j = {};
+          try {
+            j = await res.json();
+          } catch (_e) {
+            j = {};
+          }
+          if (msg) {
+            if (res.ok && j.ok) msg.textContent = "Created service " + sid + ".";
+            else msg.textContent = "HTTP " + res.status + " — " + esc(String(j.error || j.detail || ""));
+          }
+          if (res.ok && j.ok && idEl) idEl.value = "";
+        } catch (e) {
+          if (msg) msg.textContent = esc(String(e));
+        }
+        loadSnapshot().then(function () { scheduleNext(); });
+      });
+    }
     document.addEventListener("visibilitychange", function () {
       scheduleNext();
     });

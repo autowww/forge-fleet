@@ -1,5 +1,5 @@
-"""Forge Fleet — minimal job orchestrator."""
+"""Forge Fleet — local Docker job orchestrator."""
 
-__all__ = ["__version__"]
+from fleet_server.versioning import package_semver as __version_semver
 
-__version__ = "0.1.0"
+__version__ = __version_semver()

@@ -7,10 +7,54 @@ import sqlite3
 import threading
 import time
 import uuid
+import os
 from pathlib import Path
 from typing import Any
 
+from fleet_server import versioning
+
 _lock = threading.Lock()
+_last_telemetry_wall: dict[str, float] = {}
+
+
+def _ensure_telemetry_table(conn: sqlite3.Connection) -> None:
+    """Idempotent: ``telemetry_samples`` + index (also created by schema v3 migration)."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS telemetry_samples (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts REAL NOT NULL,
+            payload_json TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_telemetry_samples_ts ON telemetry_samples (ts)")
+
+
+def _ensure_energy_ledger(conn: sqlite3.Connection) -> None:
+    """Single-row cumulative energy (Wh) from RAPL counters + NVIDIA power × time."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS fleet_energy_ledger (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            cumulative_wh_rapl REAL NOT NULL DEFAULT 0,
+            cumulative_wh_gpu REAL NOT NULL DEFAULT 0,
+            updated REAL NOT NULL DEFAULT 0,
+            last_ts REAL,
+            last_rapl_uj REAL,
+            last_gpu_power_w REAL
+        )
+        """
+    )
+    row = conn.execute("SELECT id FROM fleet_energy_ledger WHERE id = 1").fetchone()
+    if row is None:
+        conn.execute(
+            """
+            INSERT INTO fleet_energy_ledger
+                (id, cumulative_wh_rapl, cumulative_wh_gpu, updated, last_ts, last_rapl_uj, last_gpu_power_w)
+            VALUES (1, 0, 0, 0, NULL, NULL, NULL)
+            """
+        )
 
 
 def connect(db_path: Path) -> sqlite3.Connection:
@@ -36,6 +80,10 @@ def connect(db_path: Path) -> sqlite3.Connection:
         """
     )
     _migrate_jobs_schema(conn)
+    _migrate_fleet_schema_table(conn)
+    _sync_fleet_version_row(conn)
+    _ensure_telemetry_table(conn)
+    _ensure_energy_ledger(conn)
     conn.commit()
     return conn
 
@@ -44,6 +92,81 @@ def _migrate_jobs_schema(conn: sqlite3.Connection) -> None:
     cols = {str(r[1]) for r in conn.execute("PRAGMA table_info(jobs)").fetchall()}
     if "running_started" not in cols:
         conn.execute("ALTER TABLE jobs ADD COLUMN running_started REAL")
+
+
+def _migrate_fleet_schema_table(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS fleet_schema (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            package_semver TEXT NOT NULL,
+            db_schema_version INTEGER NOT NULL,
+            updated REAL NOT NULL
+        )
+        """
+    )
+
+
+def _sync_fleet_version_row(conn: sqlite3.Connection) -> None:
+    """Persist package semver + DB schema revision (schema bumps with migrations in this module)."""
+    now = time.time()
+    sem = versioning.package_semver()
+    code_schema = int(versioning.FLEET_DB_SCHEMA_VERSION)
+    row = conn.execute("SELECT package_semver, db_schema_version FROM fleet_schema WHERE id = 1").fetchone()
+    if row is None:
+        conn.execute(
+            "INSERT INTO fleet_schema (id, package_semver, db_schema_version, updated) VALUES (1, ?, ?, ?)",
+            (sem, code_schema, now),
+        )
+        return
+    stored_schema = int(row["db_schema_version"] or 1)
+    new_schema = stored_schema
+    if code_schema > stored_schema:
+        _run_fleet_schema_migrations(conn, stored_schema, code_schema)
+        new_schema = code_schema
+    elif code_schema < stored_schema:
+        # Database was upgraded by a newer Fleet binary — do not downgrade schema from older code.
+        new_schema = stored_schema
+    conn.execute(
+        "UPDATE fleet_schema SET package_semver = ?, db_schema_version = ?, updated = ? WHERE id = 1",
+        (sem, new_schema, now),
+    )
+
+
+def _run_fleet_schema_migrations(conn: sqlite3.Connection, from_v: int, to_v: int) -> None:
+    """Apply incremental SQLite migrations when ``versioning.FLEET_DB_SCHEMA_VERSION`` increases."""
+    v = int(from_v)
+    target = int(to_v)
+    while v < target:
+        next_v = v + 1
+        if next_v == 2:
+            # v2 introduces ``fleet_schema`` itself — nothing to ALTER on jobs; table already created.
+            pass
+        # elif next_v == 3: ...
+        elif next_v == 3:
+            _ensure_telemetry_table(conn)
+        elif next_v == 4:
+            _ensure_energy_ledger(conn)
+        else:
+            raise RuntimeError(f"fleet_schema migration missing for {v} -> {next_v}")
+        v = next_v
+
+
+def get_fleet_version_row(conn: sqlite3.Connection) -> dict[str, Any]:
+    row = conn.execute(
+        "SELECT package_semver, db_schema_version, updated FROM fleet_schema WHERE id = 1"
+    ).fetchone()
+    if row is None:
+        return {
+            "package_semver": versioning.package_semver(),
+            "db_schema_version": int(versioning.FLEET_DB_SCHEMA_VERSION),
+            "updated": None,
+        }
+    return {
+        "package_semver": str(row["package_semver"] or ""),
+        "db_schema_version": int(row["db_schema_version"] or 1),
+        "updated": float(row["updated"]) if row["updated"] is not None else None,
+    }
 
 
 def insert_job(conn: sqlite3.Connection, *, kind: str, argv: list[str], session_id: str, meta: dict[str, Any]) -> str:
@@ -174,3 +297,216 @@ def list_jobs_summary(conn: sqlite3.Connection, *, limit: int = 150) -> list[dic
             }
         )
     return rows
+
+
+def telemetry_time_bounds(conn: sqlite3.Connection) -> tuple[float | None, float | None, int]:
+    """Return ``(min_ts, max_ts, row_count)`` for ``telemetry_samples`` (any missing -> None / 0)."""
+    try:
+        row = conn.execute(
+            "SELECT MIN(ts) AS t0, MAX(ts) AS t1, COUNT(*) AS n FROM telemetry_samples"
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return None, None, 0
+    if row is None or int(row["n"] or 0) == 0:
+        return None, None, 0
+    t0 = float(row["t0"]) if row["t0"] is not None else None
+    t1 = float(row["t1"]) if row["t1"] is not None else None
+    return t0, t1, int(row["n"] or 0)
+
+
+def _telemetry_prune(conn: sqlite3.Connection) -> None:
+    raw = str(os.environ.get("FLEET_TELEMETRY_RETENTION_DAYS") or "").strip()
+    if not raw or raw == "0":
+        return
+    try:
+        days = int(raw)
+    except ValueError:
+        return
+    if days <= 0:
+        return
+    cutoff = time.time() - float(days) * 86400.0
+    conn.execute("DELETE FROM telemetry_samples WHERE ts < ?", (cutoff,))
+
+
+def _energy_ledger_row_to_public(row: sqlite3.Row | None) -> dict[str, Any]:
+    if row is None:
+        return {
+            "rapl_kwh": 0.0,
+            "gpu_kwh": 0.0,
+            "total_kwh": 0.0,
+            "updated_epoch": None,
+            "last_sample_epoch": None,
+        }
+    cr = float(row["cumulative_wh_rapl"] or 0.0)
+    cg = float(row["cumulative_wh_gpu"] or 0.0)
+    return {
+        "rapl_kwh": round(cr / 1000.0, 9),
+        "gpu_kwh": round(cg / 1000.0, 9),
+        "total_kwh": round((cr + cg) / 1000.0, 9),
+        "updated_epoch": float(row["updated"]) if row["updated"] is not None else None,
+        "last_sample_epoch": float(row["last_ts"]) if row["last_ts"] is not None else None,
+    }
+
+
+def get_energy_ledger(conn: sqlite3.Connection) -> dict[str, Any]:
+    """Cumulative kWh derived from RAPL package counters and NVIDIA ``power.draw`` (trapezoid over sample gaps)."""
+    _ensure_energy_ledger(conn)
+    row = conn.execute(
+        "SELECT cumulative_wh_rapl, cumulative_wh_gpu, updated, last_ts FROM fleet_energy_ledger WHERE id = 1"
+    ).fetchone()
+    return _energy_ledger_row_to_public(row)
+
+
+def apply_energy_ledger_delta(conn: sqlite3.Connection, ts: float, energy: dict[str, Any]) -> dict[str, float]:
+    """
+    Advance cumulative Wh from ``energy`` vs last sample, then return kWh totals
+    (``rapl_kwh``, ``gpu_kwh``, ``total_kwh``).
+    """
+    _ensure_energy_ledger(conn)
+    row = conn.execute("SELECT * FROM fleet_energy_ledger WHERE id = 1").fetchone()
+    if row is None:
+        return {"rapl_kwh": 0.0, "gpu_kwh": 0.0, "total_kwh": 0.0}
+    cum_r = float(row["cumulative_wh_rapl"] or 0.0)
+    cum_g = float(row["cumulative_wh_gpu"] or 0.0)
+    last_ts = row["last_ts"]
+    last_uj = row["last_rapl_uj"]
+    last_gpu_w = row["last_gpu_power_w"]
+
+    rapl_new = energy.get("rapl_package_uj")
+    if rapl_new is not None and not isinstance(rapl_new, (int, float)):
+        rapl_new = None
+    if rapl_new is not None:
+        rapl_new = float(rapl_new)
+
+    gpu_new = energy.get("gpu_power_draw_w_sum")
+    if gpu_new is not None and not isinstance(gpu_new, (int, float)):
+        gpu_new = None
+    if gpu_new is not None:
+        gpu_new = float(gpu_new)
+
+    if last_ts is None:
+        conn.execute(
+            """
+            UPDATE fleet_energy_ledger SET
+                last_ts = ?,
+                last_rapl_uj = ?,
+                last_gpu_power_w = ?,
+                updated = ?
+            WHERE id = 1
+            """,
+            (ts, rapl_new, gpu_new, ts),
+        )
+    else:
+        dt = float(ts) - float(last_ts)
+        if dt > 0 and rapl_new is not None and last_uj is not None:
+            ln = float(last_uj)
+            rn = float(rapl_new)
+            if rn >= ln:
+                cum_r += (rn - ln) / 3_600_000_000.0
+        if dt > 0:
+            g0 = float(last_gpu_w) if last_gpu_w is not None else None
+            g1 = gpu_new
+            if g0 is not None and g1 is not None:
+                cum_g += (g0 + g1) * 0.5 * dt / 3600.0
+            elif g1 is not None:
+                cum_g += g1 * dt / 3600.0
+            elif g0 is not None:
+                cum_g += g0 * dt / 3600.0
+        new_last_uj = rapl_new if rapl_new is not None else last_uj
+        new_last_gpu = gpu_new if gpu_new is not None else last_gpu_w
+        conn.execute(
+            """
+            UPDATE fleet_energy_ledger SET
+                cumulative_wh_rapl = ?,
+                cumulative_wh_gpu = ?,
+                last_ts = ?,
+                last_rapl_uj = ?,
+                last_gpu_power_w = ?,
+                updated = ?
+            WHERE id = 1
+            """,
+            (cum_r, cum_g, ts, new_last_uj, new_last_gpu, ts),
+        )
+
+    return {
+        "rapl_kwh": round(cum_r / 1000.0, 9),
+        "gpu_kwh": round(cum_g / 1000.0, 9),
+        "total_kwh": round((cum_r + cum_g) / 1000.0, 9),
+    }
+
+
+def maybe_record_telemetry_sample(conn: sqlite3.Connection, db_path: Path, host: dict[str, Any]) -> bool:
+    """
+    Append one host snapshot row if the wall interval has elapsed (default 60s, ``FLEET_TELEMETRY_INTERVAL_S``).
+
+    Returns True when a row was written.
+    """
+    key = str(db_path.resolve())
+    try:
+        interval = float(os.environ.get("FLEET_TELEMETRY_INTERVAL_S") or "60")
+    except ValueError:
+        interval = 60.0
+    interval = max(5.0, interval)
+    now = time.time()
+    with _lock:
+        last = _last_telemetry_wall.get(key, 0.0)
+        if now - last < interval:
+            return False
+        _last_telemetry_wall[key] = now
+        energy_in = host.get("energy") if isinstance(host.get("energy"), dict) else {}
+        try:
+            ledger = apply_energy_ledger_delta(conn, now, energy_in)
+        except sqlite3.Error:
+            ledger = None
+        host_out = dict(host)
+        e_out = dict(energy_in)
+        if ledger is not None:
+            e_out["cumulative_kwh"] = ledger
+        host_out["energy"] = e_out
+        payload = json.dumps(host_out, separators=(",", ":"), default=str)
+        conn.execute(
+            "INSERT INTO telemetry_samples (ts, payload_json) VALUES (?, ?)",
+            (now, payload),
+        )
+        _telemetry_prune(conn)
+        conn.commit()
+    return True
+
+
+def list_telemetry_samples(
+    conn: sqlite3.Connection, *, t0: float, t1: float, limit: int
+) -> tuple[list[dict[str, Any]], bool]:
+    """
+    Samples with ``t0 <= ts <= t1`` ascending by ``ts``.
+
+    Returns ``(rows, truncated)`` where ``truncated`` is True when more rows existed than ``limit``.
+    """
+    lim = max(1, min(int(limit), 500_000))
+    try:
+        cur = conn.execute(
+            "SELECT COUNT(*) AS c FROM telemetry_samples WHERE ts >= ? AND ts <= ?",
+            (t0, t1),
+        )
+        total = int(cur.fetchone()["c"])
+        cur = conn.execute(
+            """
+            SELECT ts, payload_json FROM telemetry_samples
+            WHERE ts >= ? AND ts <= ?
+            ORDER BY ts ASC
+            LIMIT ?
+            """,
+            (t0, t1, lim),
+        )
+    except sqlite3.OperationalError:
+        return [], False
+    rows: list[dict[str, Any]] = []
+    for r in cur.fetchall():
+        try:
+            host = json.loads(r["payload_json"] or "{}")
+        except json.JSONDecodeError:
+            host = {}
+        if not isinstance(host, dict):
+            host = {}
+        rows.append({"ts": float(r["ts"]), "host": host})
+    truncated = total > len(rows)
+    return rows, truncated
