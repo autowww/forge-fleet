@@ -3,7 +3,7 @@
 # Env: FLEET_BEARER_TOKEN in /etc/forge-fleet/caddy.env (forge-fleet-caddy.service).
 
 {
-	admin localhost:2019
+	admin off
 }
 
 :18766 {

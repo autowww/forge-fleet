@@ -65,3 +65,12 @@ Use a hostname site block in the Caddyfile and remove plain `:port` when you wan
 ## Stock `caddy.service`
 
 Disable it if it conflicts on the same port, or merge the site block into **`/etc/caddy/Caddyfile`** and use the distro unit instead of **`forge-fleet-caddy.service`**.
+
+## If `forge-fleet-caddy.service` fails to start
+
+```bash
+journalctl --user -xeu forge-fleet-caddy.service
+# or (system layout):  sudo journalctl -xeu forge-fleet-caddy.service
+```
+
+Older generated units used **`Type=notify`**, which often fails with the Ubuntu **`caddy`** package under **`systemctl --user`**. Current installer uses **`Type=simple`**, **`admin off`**, and runs **`caddy validate`** before **`systemctl restart`**. After **`git pull`**, run **`./scripts/install-caddy-fleet.sh`** again (same choices) or **`systemctl --user daemon-reload && systemctl --user restart forge-fleet-caddy.service`** once the unit file on disk is updated.

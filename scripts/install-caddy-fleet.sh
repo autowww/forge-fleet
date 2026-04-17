@@ -85,7 +85,7 @@ write_user_unit_and_caddyfile() {
 
   cat >"$caddyfile" <<EOF
 {
-	admin localhost:2019
+	admin off
 }
 
 :${public_port} {
@@ -103,16 +103,25 @@ After=network-online.target forge-fleet.service
 Wants=forge-fleet.service
 
 [Service]
-Type=notify
+Type=simple
 EnvironmentFile=-%h/.config/forge-fleet/forge-fleet.env
 ExecStart=/usr/bin/caddy run --environ --config %h/.config/forge-fleet/Caddyfile.caddy-fleet
-ExecReload=/usr/bin/caddy reload --config %h/.config/forge-fleet/Caddyfile.caddy-fleet --force
 Restart=on-failure
 RestartSec=3
 
 [Install]
 WantedBy=default.target
 EOF
+
+  command -v caddy >/dev/null || die "caddy not on PATH"
+  # shellcheck disable=SC1090
+  set -a
+  # shellcheck source=/dev/null
+  source "$env_file" || true
+  set +a
+  if ! caddy validate --environ --config "$caddyfile" 2>&1; then
+    die "caddy validate failed — fix Caddyfile or $env_file; logs: journalctl --user -xeu forge-fleet-caddy.service"
+  fi
 }
 
 write_system_caddyfile() {
@@ -122,7 +131,7 @@ write_system_caddyfile() {
   install -d -m0755 /etc/forge-fleet
   cat >/etc/forge-fleet/Caddyfile <<EOF
 {
-	admin localhost:2019
+	admin off
 }
 
 :${public_port} {

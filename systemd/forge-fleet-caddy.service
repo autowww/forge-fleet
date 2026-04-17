@@ -22,7 +22,7 @@ After=network-online.target forge-fleet.service
 Wants=forge-fleet.service
 
 [Service]
-Type=notify
+Type=simple
 User=caddy
 Group=caddy
 EnvironmentFile=-/etc/forge-fleet/caddy.env
