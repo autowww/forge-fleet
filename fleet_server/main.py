@@ -86,6 +86,32 @@ class FleetHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _browser_navigation(self) -> bool:
+        """True when the request looks like a top-level document load (address bar), not fetch/XHR."""
+        mode = (self.headers.get("Sec-Fetch-Mode") or "").lower()
+        if mode == "navigate":
+            return True
+        dest = (self.headers.get("Sec-Fetch-Dest") or "").lower()
+        return dest == "document"
+
+    def _send_unauthorized(self) -> None:
+        if self._browser_navigation():
+            html = (
+                "<!DOCTYPE html><html><head><meta charset=\"utf-8\"/>"
+                "<title>Fleet — sign in</title></head><body style=\"font-family:system-ui;padding:1.5rem;max-width:40rem\">"
+                "<h1>Authorization required</h1>"
+                "<p>This URL is a JSON API. Browsers do not send your Fleet bearer token here.</p>"
+                "<p>Open the <strong>admin dashboard</strong> instead, then paste the same token you use for Lenses / "
+                "<code>FLEET_BEARER_TOKEN</code>:</p>"
+                "<p><a href=\"/admin/\">/admin/</a></p>"
+                "<p style=\"opacity:.75;font-size:.9rem\">API clients: send <code>Authorization: Bearer …</code> "
+                "and <code>Accept: application/json</code>.</p>"
+                "</body></html>"
+            ).encode("utf-8")
+            self._send_raw(401, html, "text/html; charset=utf-8")
+            return
+        self._send(401, {"ok": False, "error": "unauthorized"})
+
     def do_GET(self) -> None:
         path = urlparse(self.path).path
         if path == "/admin":
@@ -101,7 +127,7 @@ class FleetHandler(BaseHTTPRequestHandler):
             self._serve_theme_css()
             return
         if not self._auth_ok():
-            self._send(401, {"ok": False, "error": "unauthorized"})
+            self._send_unauthorized()
             return
         if path == "/v1/health":
             self._send(200, {"ok": True, "service": "forge-fleet"})
@@ -150,7 +176,7 @@ class FleetHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         if not self._auth_ok():
-            self._send(401, {"ok": False, "error": "unauthorized"})
+            self._send_unauthorized()
             return
         path = urlparse(self.path).path
         body = self._read_json()
