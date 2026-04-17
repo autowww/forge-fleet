@@ -295,6 +295,7 @@ def rapl_package_energy_uj() -> dict[str, Any]:
         return {"available": False, "reason": "no /sys/class/powercap", "total_uj": None}
     total = 0
     domains = 0
+    read_err: str | None = None
     for z in sorted(root.iterdir()):
         if not z.is_dir():
             continue
@@ -310,14 +311,20 @@ def rapl_package_energy_uj() -> dict[str, Any]:
             continue
         try:
             uj = int((ej_f.read_text(encoding="utf-8", errors="replace").strip()))
-        except (OSError, ValueError):
+        except PermissionError:
+            read_err = "permission denied reading RAPL energy_uj (run Fleet as root or adjust sysfs permissions)"
+            continue
+        except (OSError, ValueError) as e:
+            if read_err is None:
+                read_err = f"cannot read RAPL energy_uj: {e}"
             continue
         if uj < 0:
             continue
         total += uj
         domains += 1
     if domains == 0:
-        return {"available": False, "reason": "no readable package RAPL energy_uj", "total_uj": None}
+        reason = read_err or "no readable package RAPL energy_uj"
+        return {"available": False, "reason": reason, "total_uj": None}
     return {"available": True, "domains": domains, "total_uj": total}
 
 

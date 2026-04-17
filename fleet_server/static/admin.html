@@ -23,443 +23,7 @@
   </script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" crossorigin="anonymous" />
   <link rel="stylesheet" href="/admin/ks/css/forge-theme.css" />
-  <style>
-    body.fleet-admin-body { padding-top: 4.5rem; min-height: 100vh; }
-    .fleet-admin-title { font-family: var(--font-display, inherit); }
-    .fleet-mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: 0.82rem; }
-    .fleet-stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.5rem; }
-    .fleet-stat { padding: 0.45rem 0.55rem; border-radius: 0.5rem; background: var(--forge-surface-2, var(--bs-secondary-bg)); border: 1px solid var(--forge-border, var(--bs-border-color)); }
-    .fleet-stat b { display: block; font-size: 1.05rem; }
-    .fleet-pill { display: inline-block; padding: 0.12rem 0.42rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
-    .st-queued { background: #6b7280; color: #fff; }
-    .st-running { background: #2563eb; color: #fff; }
-    .st-completed { background: #059669; color: #fff; }
-    .st-failed { background: #b91c1c; color: #fff; }
-    .st-cancelled { background: #a16207; color: #fff; }
-    .fleet-tile-row { display: flex; flex-wrap: nowrap; gap: 0.75rem; overflow-x: auto; padding-bottom: 0.15rem; scroll-snap-type: x mandatory; }
-    .fleet-tile {
-      flex: 1 1 0; min-width: 7.5rem; max-width: 16rem; scroll-snap-align: start;
-      border-radius: 0.7rem; padding: 0.85rem 0.95rem; position: relative; overflow: hidden;
-      border: 1px solid rgba(255,255,255,0.22);
-      color: #f8fafc !important;
-      text-shadow: 0 1px 3px rgba(0,0,0,0.72);
-      box-shadow: 0 2px 12px rgba(0,0,0,0.35);
-    }
-    .fleet-tile .fleet-tile__hint { color: rgba(248,250,252,0.98) !important; opacity: 1 !important; text-shadow: 0 1px 3px rgba(0,0,0,0.65); }
-    .fleet-tile .fleet-tile__label { color: rgba(248,250,252,0.98) !important; opacity: 1 !important; text-shadow: 0 1px 2px rgba(0,0,0,0.55); }
-    .fleet-tile .fleet-tile__value { color: #ffffff !important; text-shadow: 0 1px 4px rgba(0,0,0,0.55); }
-    .fleet-tile .fleet-tile__mem {
-      color: rgba(255,255,255,0.98) !important;
-      text-shadow: 0 1px 3px rgba(0,0,0,0.6);
-    }
-    .fleet-tile .fleet-tile__load-cousin {
-      color: rgba(248,250,252,0.98) !important;
-      text-shadow: 0 1px 3px rgba(0,0,0,0.55);
-    }
-    .fleet-tile__brand {
-      min-height: 1.35rem;
-      margin-bottom: 0.2rem;
-      display: flex;
-      flex-wrap: nowrap;
-      align-items: center;
-      gap: 0.35rem;
-      min-width: 0;
-      color: rgba(255,255,255,0.94);
-    }
-    .fleet-tile__mark {
-      height: 1.55rem; width: auto; max-width: 9.5rem;
-      display: block;
-      flex-shrink: 0;
-      filter: drop-shadow(0 1px 2px rgba(0,0,0,0.45));
-    }
-    [data-bs-theme="light"] .fleet-tile {
-      color: #0f172a !important;
-      text-shadow: 0 1px 0 rgba(255,255,255,0.92);
-      box-shadow: 0 1px 4px rgba(15,23,42,0.12);
-    }
-    [data-bs-theme="light"] .fleet-tile .fleet-tile__value { color: #0f172a !important; text-shadow: 0 1px 0 rgba(255,255,255,0.85); }
-    [data-bs-theme="light"] .fleet-tile .fleet-tile__label { color: #1e293b !important; text-shadow: 0 1px 0 rgba(255,255,255,0.8); }
-    [data-bs-theme="light"] .fleet-tile .fleet-tile__hint { color: #334155 !important; text-shadow: 0 1px 0 rgba(255,255,255,0.75); }
-    [data-bs-theme="light"] .fleet-tile .fleet-tile__mem { color: #1e293b !important; text-shadow: 0 1px 0 rgba(255,255,255,0.8); }
-    [data-bs-theme="light"] .fleet-tile .fleet-tile__load-cousin { color: #334155 !important; text-shadow: 0 1px 0 rgba(255,255,255,0.75); }
-    [data-bs-theme="light"] .fleet-tile__brand { color: #0f172a; }
-    [data-bs-theme="light"] .fleet-tile__mark { filter: drop-shadow(0 1px 1px rgba(255,255,255,0.9)); }
-    .fleet-tile--inactive {
-      opacity: 1 !important;
-      filter: none !important;
-      background: linear-gradient(145deg, #475569 0%, #334155 100%) !important;
-      border-color: rgba(148,163,184,0.5) !important;
-    }
-    [data-bs-theme="light"] .fleet-tile--inactive {
-      background: linear-gradient(145deg, #e2e8f0 0%, #cbd5e1 100%) !important;
-      border-color: #94a3b8 !important;
-    }
-    [data-bs-theme="light"] .fleet-tile--inactive .fleet-tile__value,
-    [data-bs-theme="light"] .fleet-tile--inactive .fleet-tile__label,
-    [data-bs-theme="light"] .fleet-tile--inactive .fleet-tile__hint,
-    [data-bs-theme="light"] .fleet-tile--inactive .fleet-tile__mem,
-    [data-bs-theme="light"] .fleet-tile--inactive .fleet-tile__load-cousin { color: #1e293b !important; }
-    .fleet-tile__label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; }
-    .fleet-tile__value {
-      font-size: 1.45rem;
-      font-weight: 800;
-      line-height: 1.12;
-      letter-spacing: -0.02em;
-      font-variant-numeric: tabular-nums;
-    }
-    .fleet-one-row .fleet-tile__value {
-      min-height: 2.15rem;
-      display: flex;
-      align-items: center;
-    }
-    .fleet-tile__value.fleet-mono {
-      font-size: 1.45rem;
-      font-family: var(--font-mono, ui-monospace, monospace);
-    }
-    .fleet-tile__hint {
-      font-size: 0.78rem;
-      font-weight: 600;
-      margin-top: 0.2rem;
-      line-height: 1.35;
-    }
-    .fleet-tile__fine {
-      font-size: 0.65rem;
-      font-weight: 600;
-      line-height: 1.3;
-      margin-top: 0.12rem;
-      opacity: 0.88;
-    }
-    [data-bs-theme="light"] .fleet-tile__fine { color: #334155 !important; text-shadow: 0 1px 0 rgba(255,255,255,0.75); }
-    /* Trend: inset glow from bottom (heat) or top (cool); 20s baseline is computed in JS. */
-    .fleet-tile--trend-heat-1 {
-      animation: fleetTrendInsetHeat1 2.6s ease-in-out infinite;
-    }
-    .fleet-tile--trend-heat-2 {
-      animation: fleetTrendInsetHeat2 1.3s ease-in-out infinite;
-    }
-    .fleet-tile--trend-cool-1 {
-      animation: fleetTrendInsetCool1 2.6s ease-in-out infinite;
-    }
-    .fleet-tile--trend-cool-2 {
-      animation: fleetTrendInsetCool2 1.3s ease-in-out infinite;
-    }
-    @keyframes fleetTrendInsetHeat1 {
-      0%, 100% { box-shadow: inset 0 -22px 36px -10px rgba(251, 146, 60, 0.42), 0 2px 12px rgba(0,0,0,0.35); }
-      50% { box-shadow: inset 0 -34px 48px -8px rgba(251, 146, 60, 0.58), 0 2px 12px rgba(0,0,0,0.35); }
-    }
-    @keyframes fleetTrendInsetHeat2 {
-      0%, 100% { box-shadow: inset 0 -28px 44px -8px rgba(248, 113, 113, 0.55), 0 2px 12px rgba(0,0,0,0.35); }
-      50% { box-shadow: inset 0 -40px 56px -6px rgba(239, 68, 68, 0.72), 0 2px 12px rgba(0,0,0,0.35); }
-    }
-    @keyframes fleetTrendInsetCool1 {
-      0%, 100% { box-shadow: inset 0 22px 36px -10px rgba(56, 189, 248, 0.38), 0 2px 12px rgba(0,0,0,0.35); }
-      50% { box-shadow: inset 0 34px 48px -8px rgba(56, 189, 248, 0.55), 0 2px 12px rgba(0,0,0,0.35); }
-    }
-    @keyframes fleetTrendInsetCool2 {
-      0%, 100% { box-shadow: inset 0 28px 44px -8px rgba(125, 211, 252, 0.5), 0 2px 12px rgba(0,0,0,0.35); }
-      50% { box-shadow: inset 0 40px 56px -6px rgba(56, 189, 248, 0.68), 0 2px 12px rgba(0,0,0,0.35); }
-    }
-    [data-bs-theme="light"] .fleet-tile--trend-heat-1 {
-      animation: fleetTrendInsetHeat1Lt 2.6s ease-in-out infinite;
-    }
-    [data-bs-theme="light"] .fleet-tile--trend-heat-2 {
-      animation: fleetTrendInsetHeat2Lt 1.3s ease-in-out infinite;
-    }
-    [data-bs-theme="light"] .fleet-tile--trend-cool-1 {
-      animation: fleetTrendInsetCool1Lt 2.6s ease-in-out infinite;
-    }
-    [data-bs-theme="light"] .fleet-tile--trend-cool-2 {
-      animation: fleetTrendInsetCool2Lt 1.3s ease-in-out infinite;
-    }
-    @keyframes fleetTrendInsetHeat1Lt {
-      0%, 100% { box-shadow: inset 0 -20px 32px -10px rgba(234, 88, 12, 0.28), 0 1px 4px rgba(15,23,42,0.12); }
-      50% { box-shadow: inset 0 -30px 42px -8px rgba(234, 88, 12, 0.42), 0 1px 4px rgba(15,23,42,0.12); }
-    }
-    @keyframes fleetTrendInsetHeat2Lt {
-      0%, 100% { box-shadow: inset 0 -26px 40px -8px rgba(220, 38, 38, 0.35), 0 1px 4px rgba(15,23,42,0.12); }
-      50% { box-shadow: inset 0 -36px 50px -6px rgba(220, 38, 38, 0.5), 0 1px 4px rgba(15,23,42,0.12); }
-    }
-    @keyframes fleetTrendInsetCool1Lt {
-      0%, 100% { box-shadow: inset 0 20px 32px -10px rgba(2, 132, 199, 0.26), 0 1px 4px rgba(15,23,42,0.12); }
-      50% { box-shadow: inset 0 30px 42px -8px rgba(2, 132, 199, 0.4), 0 1px 4px rgba(15,23,42,0.12); }
-    }
-    @keyframes fleetTrendInsetCool2Lt {
-      0%, 100% { box-shadow: inset 0 26px 40px -8px rgba(14, 165, 233, 0.38), 0 1px 4px rgba(15,23,42,0.12); }
-      50% { box-shadow: inset 0 36px 50px -6px rgba(14, 165, 233, 0.52), 0 1px 4px rgba(15,23,42,0.12); }
-    }
-    .fleet-tile--cpu-low { background: linear-gradient(145deg, #047857 0%, #064e3b 100%); border-color: rgba(52,211,153,0.55); }
-    .fleet-tile--cpu-mid { background: linear-gradient(145deg, #b45309 0%, #78350f 100%); border-color: rgba(251,191,36,0.55); }
-    .fleet-tile--cpu-high { background: linear-gradient(145deg, #b91c1c 0%, #7f1d1d 100%); border-color: rgba(252,165,165,0.55); }
-    [data-bs-theme="light"] .fleet-tile--cpu-low { background: linear-gradient(145deg, #a7f3d0 0%, #6ee7b7 100%); border-color: #059669; }
-    [data-bs-theme="light"] .fleet-tile--cpu-mid { background: linear-gradient(145deg, #fde68a 0%, #fcd34d 100%); border-color: #d97706; }
-    [data-bs-theme="light"] .fleet-tile--cpu-high { background: linear-gradient(145deg, #fecaca 0%, #fca5a5 100%); border-color: #dc2626; }
-    .fleet-tile--nv { background: linear-gradient(145deg, #15803d 0%, #14532d 100%); border-color: rgba(163,230,53,0.5); }
-    .fleet-tile--nv-mid { background: linear-gradient(145deg, #4d7c0f 0%, #365314 100%); }
-    .fleet-tile--nv-hot { background: linear-gradient(145deg, #a16207 0%, #713f12 100%); }
-    [data-bs-theme="light"] .fleet-tile--nv { background: linear-gradient(145deg, #bbf7d0 0%, #86efac 100%); border-color: #16a34a; }
-    [data-bs-theme="light"] .fleet-tile--nv-mid { background: linear-gradient(145deg, #d9f99d 0%, #bef264 100%); border-color: #65a30d; }
-    [data-bs-theme="light"] .fleet-tile--nv-hot { background: linear-gradient(145deg, #fde047 0%, #facc15 100%); border-color: #ca8a04; }
-    .fleet-tile--amd { background: linear-gradient(145deg, #b91c1c 0%, #7f1d1d 100%); border-color: rgba(252,165,165,0.55); }
-    .fleet-tile--amd-mid { background: linear-gradient(145deg, #c2410c 0%, #9a3412 100%); }
-    .fleet-tile--amd-hot { background: linear-gradient(145deg, #b45309 0%, #92400e 100%); }
-    [data-bs-theme="light"] .fleet-tile--amd { background: linear-gradient(145deg, #fecaca 0%, #fca5a5 100%); border-color: #dc2626; }
-    [data-bs-theme="light"] .fleet-tile--amd-mid { background: linear-gradient(145deg, #fed7aa 0%, #fdba74 100%); border-color: #ea580c; }
-    [data-bs-theme="light"] .fleet-tile--amd-hot { background: linear-gradient(145deg, #fde68a 0%, #fcd34d 100%); border-color: #d97706; }
-    .fleet-tile--intel { background: linear-gradient(145deg, #1d4ed8 0%, #1e3a8a 100%); border-color: rgba(147,197,253,0.55); }
-    .fleet-tile--intel-mid { background: linear-gradient(145deg, #4338ca 0%, #312e81 100%); }
-    .fleet-tile--intel-hot { background: linear-gradient(145deg, #7c3aed 0%, #5b21b6 100%); }
-    [data-bs-theme="light"] .fleet-tile--intel { background: linear-gradient(145deg, #bfdbfe 0%, #93c5fd 100%); border-color: #2563eb; }
-    [data-bs-theme="light"] .fleet-tile--intel-mid { background: linear-gradient(145deg, #c4b5fd 0%, #a78bfa 100%); border-color: #6d28d9; }
-    [data-bs-theme="light"] .fleet-tile--intel-hot { background: linear-gradient(145deg, #ddd6fe 0%, #c4b5fd 100%); border-color: #7c3aed; }
-    .fleet-tile--load-low { background: linear-gradient(145deg, #0e7490 0%, #164e63 100%); border-color: rgba(34,211,238,0.45); }
-    .fleet-tile--load-mid { background: linear-gradient(145deg, #a16207 0%, #713f12 100%); border-color: rgba(250,204,21,0.45); }
-    .fleet-tile--load-high { background: linear-gradient(145deg, #be123c 0%, #881337 100%); border-color: rgba(251,113,133,0.5); }
-    [data-bs-theme="light"] .fleet-tile--load-low { background: linear-gradient(145deg, #a5f3fc 0%, #67e8f9 100%); border-color: #0891b2; }
-    [data-bs-theme="light"] .fleet-tile--load-mid { background: linear-gradient(145deg, #fde68a 0%, #fcd34d 100%); border-color: #ca8a04; }
-    [data-bs-theme="light"] .fleet-tile--load-high { background: linear-gradient(145deg, #fecdd3 0%, #fda4af 100%); border-color: #e11d48; }
-    .fleet-tile--mem-low { background: linear-gradient(145deg, #6d28d9 0%, #4c1d95 100%); border-color: rgba(196,181,253,0.5); }
-    .fleet-tile--mem-mid { background: linear-gradient(145deg, #a21caf 0%, #701a75 100%); border-color: rgba(240,171,252,0.45); }
-    .fleet-tile--mem-high { background: linear-gradient(145deg, #be123c 0%, #831843 100%); border-color: rgba(251,113,133,0.5); }
-    [data-bs-theme="light"] .fleet-tile--mem-low { background: linear-gradient(145deg, #e9d5ff 0%, #d8b4fe 100%); border-color: #7c3aed; }
-    [data-bs-theme="light"] .fleet-tile--mem-mid { background: linear-gradient(145deg, #fae8ff 0%, #f5d0fe 100%); border-color: #c026d3; }
-    [data-bs-theme="light"] .fleet-tile--mem-high { background: linear-gradient(145deg, #fecdd3 0%, #fda4af 100%); border-color: #e11d48; }
-    .fleet-tile--disk-low { background: linear-gradient(145deg, #334155 0%, #1e293b 100%); border-color: rgba(148,163,184,0.45); }
-    .fleet-tile--disk-mid { background: linear-gradient(145deg, #92400e 0%, #78350f 100%); border-color: rgba(251,191,36,0.45); }
-    .fleet-tile--disk-high { background: linear-gradient(145deg, #991b1b 0%, #7f1d1d 100%); border-color: rgba(252,165,165,0.5); }
-    [data-bs-theme="light"] .fleet-tile--disk-low { background: linear-gradient(145deg, #e2e8f0 0%, #cbd5e1 100%); border-color: #64748b; }
-    [data-bs-theme="light"] .fleet-tile--disk-mid { background: linear-gradient(145deg, #fde68a 0%, #fcd34d 100%); border-color: #d97706; }
-    [data-bs-theme="light"] .fleet-tile--disk-high { background: linear-gradient(145deg, #fecaca 0%, #fca5a5 100%); border-color: #dc2626; }
-    .fleet-tile--power-low { background: linear-gradient(145deg, #0f766e 0%, #134e4a 100%); border-color: rgba(45,212,191,0.5); }
-    .fleet-tile--power-mid { background: linear-gradient(145deg, #ca8a04 0%, #854d0e 100%); border-color: rgba(250,204,21,0.55); }
-    .fleet-tile--power-high { background: linear-gradient(145deg, #c2410c 0%, #7c2d12 100%); border-color: rgba(253,186,116,0.55); }
-    [data-bs-theme="light"] .fleet-tile--power-low { background: linear-gradient(145deg, #ccfbf1 0%, #99f6e4 100%); border-color: #0d9488; }
-    [data-bs-theme="light"] .fleet-tile--power-mid { background: linear-gradient(145deg, #fef08a 0%, #fde047 100%); border-color: #ca8a04; }
-    [data-bs-theme="light"] .fleet-tile--power-high { background: linear-gradient(145deg, #fed7aa 0%, #fdba74 100%); border-color: #ea580c; }
-    .fleet-tile__load-mega { font-size: 1.85rem !important; font-weight: 800 !important; line-height: 1.05 !important; letter-spacing: -0.03em; }
-    .fleet-tile__load-cousin { font-size: 0.78rem; font-weight: 600; margin-top: 0.35rem; line-height: 1.35; font-family: var(--font-mono, ui-monospace, monospace); }
-    .fleet-tile__mem {
-      font-size: 0.78rem;
-      font-weight: 650;
-      margin: 0.12rem 0 0.18rem;
-      line-height: 1.35;
-      opacity: 1;
-    }
-    .fleet-chart-box {
-      width: 100%; height: 4.5rem; border-radius: 0.5rem;
-      background: color-mix(in srgb, var(--forge-surface-2, var(--bs-secondary-bg)) 88%, transparent);
-      border: 1px solid var(--forge-border, var(--bs-border-color));
-    }
-    [data-bs-theme="light"] .fleet-chart-box { background: #f1f5f9; }
-
-    /* Overview: single horizontal row (CPU, RAM, load, disk, power, GPU) + zone colors (<25 green … 75+ dark red) */
-    .fleet-one-row.fleet-tile-row {
-      flex-wrap: nowrap;
-      width: 100%;
-      align-items: stretch;
-    }
-    .fleet-one-row .fleet-tile {
-      flex: 0 1 auto;
-      min-width: 10.25rem;
-      max-width: none;
-      scroll-snap-align: start;
-    }
-    .fleet-one-row .fleet-tile__brand {
-      min-height: 2.25rem;
-      align-items: center;
-    }
-    .fleet-one-row .fleet-cpu-compact .fleet-cpu-wide__value {
-      min-height: 2.15rem;
-    }
-    .fleet-admin-adv {
-      border-radius: 0.4rem;
-      padding: 0.35rem 0.5rem;
-      border: 1px solid var(--forge-border, var(--bs-border-color-translucent));
-      background: color-mix(in srgb, var(--forge-surface-2, var(--bs-secondary-bg)) 70%, transparent);
-    }
-    .fleet-cpu-compact.fleet-tile {
-      flex: 1 1 12.5rem;
-      min-width: 12rem;
-    }
-    .fleet-gpu-stub.fleet-tile {
-      flex: 0 1 14rem;
-      min-width: 11.5rem;
-    }
-    .fleet-cpu-stack {
-      display: flex;
-      flex-direction: column;
-      gap: 0.28rem;
-      margin-top: 0.12rem;
-    }
-    .fleet-cpu-wide__value--above {
-      text-align: center;
-      justify-content: center;
-      width: 100%;
-      min-height: 1.5rem;
-      margin: 0;
-      padding: 0 0.15rem;
-    }
-    .fleet-cpu-compact__shell {
-      position: relative;
-      border-radius: 0.45rem;
-      overflow: hidden;
-      min-height: 3.35rem;
-      margin-top: 0;
-    }
-    .fleet-cpu-wide {
-      position: relative; width: 100%; min-height: 5.5rem; border-radius: 0.7rem; overflow: hidden;
-      border: 1px solid rgba(255,255,255,0.22);
-      box-shadow: 0 2px 12px rgba(0,0,0,0.35);
-    }
-    [data-bs-theme="light"] .fleet-cpu-wide {
-      border-color: rgba(15,23,42,0.14);
-      box-shadow: 0 1px 4px rgba(15,23,42,0.1);
-    }
-    .fleet-cpu-wide__track {
-      position: absolute; inset: 0;
-      background: color-mix(in srgb, var(--forge-surface-2, #1e293b) 92%, transparent);
-    }
-    [data-bs-theme="light"] .fleet-cpu-wide__track { background: #e2e8f0; }
-    .fleet-cpu-wide__fill {
-      position: absolute; left: 0; top: 0; bottom: 0; width: 0;
-      transition: background-color 0.35s ease;
-      border-radius: 0 0.35rem 0.35rem 0;
-    }
-    #fleet-cpu-fill {
-      transition: none;
-    }
-    .fleet-cpu-wide--z0 .fleet-cpu-wide__fill { background: linear-gradient(90deg, #15803d, #22c55e); }
-    .fleet-cpu-wide--z1 .fleet-cpu-wide__fill { background: linear-gradient(90deg, #b45309, #f59e0b); }
-    .fleet-cpu-wide--z2 .fleet-cpu-wide__fill { background: linear-gradient(90deg, #dc2626, #fb7185); }
-    .fleet-cpu-wide--z3 .fleet-cpu-wide__fill { background: linear-gradient(90deg, #7f1d1d, #b91c1c); }
-    .fleet-cpu-wide__content {
-      position: relative; z-index: 2; display: flex; flex-wrap: wrap; align-items: center;
-      justify-content: space-between; gap: 0.75rem 1rem; padding: 0.85rem 1rem;
-      color: #f8fafc; text-shadow: 0 1px 3px rgba(0,0,0,0.55);
-    }
-    [data-bs-theme="light"] .fleet-cpu-wide__content { color: #0f172a; text-shadow: 0 1px 0 rgba(255,255,255,0.85); }
-    .fleet-cpu-wide__left { display: flex; align-items: center; gap: 0.65rem; min-width: 0; }
-    .fleet-cpu-wide__meta {
-      font-size: 0.78rem;
-      font-weight: 600;
-      line-height: 1.35;
-      opacity: 0.95;
-      max-width: 28rem;
-    }
-    .fleet-cpu-wide__value {
-      font-size: 1.45rem;
-      font-weight: 800;
-      letter-spacing: -0.02em;
-      line-height: 1.12;
-      font-variant-numeric: tabular-nums;
-      min-width: 4.25ch;
-      text-align: right;
-      min-height: 1.62rem;
-      display: flex;
-      align-items: center;
-      justify-content: flex-end;
-    }
-    .fleet-cpu-compact .fleet-cpu-wide__value { font-size: 1.45rem; }
-    .fleet-cpu-compact__shell .fleet-cpu-wide__content { padding: 0.55rem 0.7rem; }
-    .fleet-cpu-stack .fleet-cpu-wide__meta {
-      text-align: center;
-      max-width: none;
-      margin-top: 0.1rem;
-      font-size: 0.72rem;
-      line-height: 1.35;
-      opacity: 0.92;
-    }
-
-    .fleet-gpu-brand {
-      display: flex;
-      flex-wrap: nowrap;
-      align-items: center;
-      justify-content: flex-start;
-      min-height: 2.25rem;
-      margin-bottom: 0.05rem;
-    }
-    .fleet-gpu-logo {
-      max-height: 1.45rem;
-      width: auto;
-      max-width: 100%;
-      object-fit: contain;
-      display: block;
-    }
-    .fleet-gpu-logo-btn {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 2.85rem;
-      height: 2.85rem;
-      flex: 0 0 auto;
-      border-radius: 0.5rem;
-      background: #ffffff;
-      border: 1px solid rgba(15, 23, 42, 0.14);
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.22);
-    }
-    [data-bs-theme="light"] .fleet-gpu-logo-btn {
-      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.1);
-    }
-    .fleet-gpu-logo-btn .fleet-gpu-logo--inbtn {
-      display: block;
-      max-height: 1.38rem;
-      max-width: 2.05rem;
-      width: auto;
-      height: auto;
-      object-fit: contain;
-      filter: none;
-      opacity: 1;
-    }
-    .fleet-gpu-logo-btn--intel .fleet-gpu-logo--inbtn {
-      max-height: 1.02rem;
-      max-width: 1.48rem;
-    }
-    .fleet-gpu-logo-btn--stub .fleet-gpu-logo--inbtn {
-      filter: grayscale(1);
-      opacity: 0.55;
-    }
-    .fleet-gpu-stub__logos {
-      display: flex;
-      justify-content: flex-start;
-      align-items: center;
-      gap: 0.5rem;
-      flex-wrap: nowrap;
-      min-height: 2.95rem;
-      margin-top: 0.1rem;
-    }
-
-    .fleet-mem-banks-tile { min-width: 11rem; flex: 1.15 1 12rem; }
-    .fleet-mem-banks { display: flex; gap: 0.4rem; align-items: stretch; margin-top: 0.45rem; min-height: 4.25rem; }
-    .fleet-mem-bank {
-      flex: 1; position: relative; border-radius: 0.35rem; min-height: 4rem;
-      background: rgba(0,0,0,0.2); overflow: hidden;
-    }
-    [data-bs-theme="light"] .fleet-mem-bank { background: rgba(15,23,42,0.08); }
-    .fleet-mem-bank__fill {
-      position: absolute; left: 0; right: 0; bottom: 0; height: 0%;
-      transition: height 0.45s ease, background-color 0.35s ease;
-      border-radius: 0 0 0.3rem 0.3rem;
-    }
-    .fleet-mem-banks--z0 .fleet-mem-bank__fill { background: linear-gradient(180deg, #22c55e, #15803d); }
-    .fleet-mem-banks--z1 .fleet-mem-bank__fill { background: linear-gradient(180deg, #fbbf24, #b45309); }
-    .fleet-mem-banks--z2 .fleet-mem-bank__fill { background: linear-gradient(180deg, #fb7185, #dc2626); }
-    .fleet-mem-banks--z3 .fleet-mem-bank__fill { background: linear-gradient(180deg, #b91c1c, #7f1d1d); }
-
-    .fleet-load-split {
-      min-width: 11rem;
-      flex: 1.05 1 11.5rem;
-    }
-    .fleet-load-inline {
-      font-size: 0.78rem;
-      font-weight: 750;
-      white-space: nowrap;
-      overflow-x: auto;
-      max-width: 100%;
-      margin-top: 0.12rem;
-      padding-bottom: 0.12rem;
-      font-variant-numeric: tabular-nums;
-      line-height: 1.35;
-    }
-  </style>
+  <link rel="stylesheet" href="/admin/ks/css/forge-fleet-admin.css" />
 </head>
 <body class="fleet-admin-body">
   <div class="dropdown forge-theme-dropdown position-fixed top-0 end-0 m-2" style="z-index:1050" data-forge-pref="auto">
@@ -506,8 +70,9 @@
   <main class="container pb-5">
     <header class="mb-4">
       <h1 class="h3 fleet-admin-title mb-1">Forge Fleet — status</h1>
-      <p class="text-body-secondary small mb-1">
+      <p class="text-body-secondary small mb-1 d-flex flex-wrap align-items-center gap-2">
         <span id="fleet-version-line" class="fleet-mono" aria-live="polite">Loading version…</span>
+        <span id="fleet-git-remote-row" class="small fleet-mono" aria-live="polite"></span>
       </p>
       <p class="text-body-secondary small mb-1 d-none" id="fleet-forge-console-wrap">
         <a id="fleet-forge-console" href="#" target="_blank" rel="noopener">Open Forge LLM console</a>
@@ -547,7 +112,7 @@
         <div class="fw-semibold mb-1">Container types (<code class="fleet-mono">etc/containers/types.json</code>)</div>
         <div id="fleet-container-types-table"></div>
       </div>
-      <p class="text-body-secondary small mb-0">Kitchensink + Bootstrap layout; theme follows Light / Dark / System. Metrics update automatically.</p>
+      <p class="text-body-secondary small mb-0">Kitchensink + Bootstrap layout; theme follows Light / Dark / System. Metrics refresh on a short poll; GitHub <code class="fleet-mono">master</code> is checked every 3 minutes for newer commits.</p>
       <div class="d-none border border-secondary-subtle rounded p-2 mb-2 small mt-2" id="fleet-self-update-wrap">
         <div class="fw-semibold mb-1">Update from Git</div>
         <p class="text-body-secondary mb-2 small" id="fleet-self-update-help"></p>
@@ -576,36 +141,10 @@
               <span class="ms-1" style="color:#34d399" aria-hidden="true">●</span> CPU
               <span class="ms-2" style="color:#38bdf8" aria-hidden="true">●</span> RAM
             </span>
+            <span class="fleet-chart-time-hint">Older left · recent right</span>
             <button type="button" class="btn btn-sm btn-primary" id="refresh">Refresh</button>
           </div>
-          <div id="fleet-load-chart" class="fleet-chart-box" role="img" aria-label="Recent CPU and RAM trend"></div>
-          <details class="fleet-admin-adv mt-2 small text-body-secondary">
-            <summary class="user-select-none" style="cursor:pointer">Advanced — load % scale</summary>
-            <div class="mt-2">
-              <label for="fleet-load-scale-inp" class="form-label mb-1 small"
-                >Denominator for load % (localStorage <code class="fleet-mono">forgeFleetLoadScaleMax</code>)</label>
-              <div class="d-flex flex-wrap align-items-center gap-2">
-                <input
-                  type="number"
-                  inputmode="decimal"
-                  step="any"
-                  min="0.01"
-                  class="form-control form-control-sm fleet-mono"
-                  style="max-width: 12rem"
-                  id="fleet-load-scale-inp"
-                  placeholder="empty = logical CPU count"
-                  autocomplete="off"
-                />
-                <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-load-scale-save">Apply</button>
-                <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-load-scale-clear">Clear override</button>
-              </div>
-              <p class="mb-0 mt-2 small opacity-75">
-                Peak 1m % is tracked in <code class="fleet-mono">forgeFleetLoadPeakPct</code> automatically. If the overview
-                looks wrong, confirm this page is the current bundle: view-source and search for
-                <code class="fleet-mono">renderPowerTile</code> or <code class="fleet-mono">fleet-tile--power-</code>.
-              </p>
-            </div>
-          </details>
+          <div id="fleet-load-chart" class="fleet-chart-box" role="img" aria-label="CPU and RAM history, oldest on the left"></div>
         </div>
         <hr class="my-3 opacity-25" />
         <div class="alert alert-danger py-2 px-3 mb-0 small d-none" id="err" role="alert"></div>
@@ -721,7 +260,8 @@
     var nextFire = Date.now();
     var lastHostForChart = null;
     var chartBuf = [];
-    var CHART_SAMPLES = 15;
+    var chartHostIdentity = null;
+    var CHART_SAMPLES = 60;
     var TREND_MS = 20000;
     var __fleetTrendBuf = [];
 
@@ -757,14 +297,15 @@
       return 3;
     }
 
-    /** Smooth CPU %% display: 3s ease per target; new samples restart from the value currently shown. */
-    var fleetCpuAnim = (function () {
+    /** Smooth 0–100%% bar + integer label (same easing as legacy CPU tile). */
+    function makeSmoothPercentBarAnim(valueId, fillId, shellId, shellClassPrefix) {
       var DURATION_MS = 3000;
       var raf = null;
       var startT = 0;
       var from = 0;
       var to = 0;
       var lastShown = null;
+      var prefix = shellClassPrefix || "fleet-cpu-compact__shell ";
 
       function ease(u) {
         u = Math.max(0, Math.min(1, u));
@@ -772,15 +313,14 @@
       }
 
       function applyDom(val) {
-        var elV = document.getElementById("fleet-cpu-value");
-        var elF = document.getElementById("fleet-cpu-fill");
-        var elS = document.getElementById("fleet-cpu-shell");
+        var elV = document.getElementById(valueId);
+        var elF = document.getElementById(fillId);
+        var elS = document.getElementById(shellId);
         if (!elV || !elF || !elS) return false;
         var clamped = Math.min(100, Math.max(0, Number(val)));
-        var wText = Math.round(clamped);
-        elV.textContent = String(wText) + "%";
+        elV.textContent = String(Math.round(clamped)) + "%";
         elF.style.width = String(Math.round(clamped * 100) / 100) + "%";
-        elS.className = "fleet-cpu-compact__shell fleet-cpu-wide--z" + loadZone4(clamped);
+        elS.className = prefix + "fleet-cpu-wide--z" + loadZone4(clamped);
         return true;
       }
 
@@ -796,15 +336,25 @@
         if (u >= 1) {
           raf = null;
           lastShown = to;
-          applyDom(to);
+          if (!applyDom(to)) lastShown = null;
           return;
         }
-        applyDom(from + (to - from) * ease(u));
+        if (!applyDom(from + (to - from) * ease(u))) {
+          raf = null;
+          return;
+        }
         raf = requestAnimationFrame(tick);
       }
 
       function onSnapshotTarget(targetPct) {
-        if (!document.getElementById("fleet-cpu-value")) return;
+        if (!document.getElementById(valueId)) {
+          if (raf != null) {
+            cancelAnimationFrame(raf);
+            raf = null;
+          }
+          lastShown = null;
+          return;
+        }
 
         var now = performance.now();
         var curFromAnim = raf != null ? interpAt(now) : null;
@@ -816,12 +366,12 @@
 
         if (targetPct == null || isNaN(targetPct)) {
           lastShown = null;
-          var elV = document.getElementById("fleet-cpu-value");
-          var elF = document.getElementById("fleet-cpu-fill");
-          var elS = document.getElementById("fleet-cpu-shell");
+          var elV = document.getElementById(valueId);
+          var elF = document.getElementById(fillId);
+          var elS = document.getElementById(shellId);
           if (elV) elV.textContent = "—";
           if (elF) elF.style.width = "0%";
-          if (elS) elS.className = "fleet-cpu-compact__shell fleet-cpu-wide--z0";
+          if (elS) elS.className = prefix + "fleet-cpu-wide--z0";
           return;
         }
 
@@ -848,7 +398,267 @@
         raf = requestAnimationFrame(tick);
       }
 
-      /** Width / %% text to paint before replacing the tile DOM (avoids a one-frame jump to the new host value). */
+      function widthForRender(suggestedPct) {
+        if (suggestedPct != null && isNaN(Number(suggestedPct))) suggestedPct = null;
+        if (raf != null) return interpAt(performance.now());
+        if (lastShown != null) return lastShown;
+        return suggestedPct != null ? Number(suggestedPct) : null;
+      }
+
+      return { onSnapshotTarget: onSnapshotTarget, widthForRender: widthForRender };
+    }
+
+    var fleetCpuAnim = makeSmoothPercentBarAnim(
+      "fleet-cpu-value",
+      "fleet-cpu-fill",
+      "fleet-cpu-shell",
+      "fleet-cpu-compact__shell "
+    );
+    var fleetLoad1Anim = makeSmoothPercentBarAnim(
+      "fleet-load1-val",
+      "fleet-load1-fill",
+      "fleet-load1-shell",
+      "fleet-cpu-compact__shell fleet-load-g--compact "
+    );
+    var fleetLoad5Anim = makeSmoothPercentBarAnim(
+      "fleet-load5-val",
+      "fleet-load5-fill",
+      "fleet-load5-shell",
+      "fleet-cpu-compact__shell fleet-load-g--compact "
+    );
+    var fleetLoad15Anim = makeSmoothPercentBarAnim(
+      "fleet-load15-val",
+      "fleet-load15-fill",
+      "fleet-load15-shell",
+      "fleet-cpu-compact__shell fleet-load-g--compact "
+    );
+    var fleetDiskPctAnim = makeSmoothPercentBarAnim(
+      "fleet-disk-pct-val",
+      "fleet-disk-pct-fill",
+      "fleet-disk-pct-shell",
+      "fleet-cpu-compact__shell fleet-load-g--compact "
+    );
+
+    /** Smooth scalar text (MB/s, watts, etc.). */
+    function makeSmoothScalarAnim(valueId, formatRoundedInt) {
+      var DURATION_MS = 3000;
+      var raf = null;
+      var startT = 0;
+      var from = 0;
+      var to = 0;
+      var lastShown = null;
+
+      function ease(u) {
+        u = Math.max(0, Math.min(1, u));
+        return u * u * (3 - 2 * u);
+      }
+
+      function interpAt(now) {
+        var u = (now - startT) / DURATION_MS;
+        if (u >= 1) return to;
+        return from + (to - from) * ease(u);
+      }
+
+      function tick() {
+        var now = performance.now();
+        var u = (now - startT) / DURATION_MS;
+        if (u >= 1) {
+          raf = null;
+          lastShown = to;
+          applyDom(to);
+          return;
+        }
+        if (!document.getElementById(valueId)) {
+          raf = null;
+          return;
+        }
+        applyDom(from + (to - from) * ease(u));
+        raf = requestAnimationFrame(tick);
+      }
+
+      function applyDom(val) {
+        var el = document.getElementById(valueId);
+        if (!el) return false;
+        el.textContent = formatRoundedInt(Math.round(Number(val)));
+        return true;
+      }
+
+      function onSnapshotTarget(target) {
+        if (!document.getElementById(valueId)) {
+          if (raf != null) {
+            cancelAnimationFrame(raf);
+            raf = null;
+          }
+          lastShown = null;
+          return;
+        }
+        var curFromAnim = raf != null ? interpAt(performance.now()) : null;
+        if (raf != null) {
+          cancelAnimationFrame(raf);
+          raf = null;
+        }
+        if (target == null || isNaN(target)) {
+          lastShown = null;
+          var el = document.getElementById(valueId);
+          if (el) el.textContent = "—";
+          return;
+        }
+        if (lastShown === null) {
+          lastShown = target;
+          from = target;
+          to = target;
+          applyDom(target);
+          return;
+        }
+        var cur = curFromAnim != null ? curFromAnim : lastShown;
+        if (Math.abs(cur - target) < 0.05) {
+          lastShown = target;
+          applyDom(target);
+          return;
+        }
+        from = cur;
+        to = target;
+        startT = performance.now();
+        applyDom(from);
+        raf = requestAnimationFrame(tick);
+      }
+
+      function widthForRender(suggested) {
+        if (suggested != null && isNaN(Number(suggested))) suggested = null;
+        if (raf != null) return interpAt(performance.now());
+        if (lastShown != null) return lastShown;
+        return suggested != null ? Number(suggested) : null;
+      }
+
+      return { onSnapshotTarget: onSnapshotTarget, widthForRender: widthForRender };
+    }
+
+    var fleetDiskMbpsAnim = makeSmoothScalarAnim("fleet-disk-mbps-val", function (n) {
+      return String(n) + " MB/s";
+    });
+    var fleetPowerWAnim = makeSmoothScalarAnim("fleet-power-val", function (n) {
+      return String(n) + " W";
+    });
+    var fleetGpuNvAnim = makeSmoothScalarAnim("fleet-gpu-nv-val", function (n) {
+      return String(n) + "%";
+    });
+    var fleetGpuAmAnim = makeSmoothScalarAnim("fleet-gpu-am-val", function (n) {
+      return String(n) + "%";
+    });
+    var fleetGpuIrAnim = makeSmoothScalarAnim("fleet-gpu-ir-val", function (n) {
+      return String(n) + "% est.";
+    });
+
+    /** RAM %% + optional thin bar + quarter bank heights (eased like CPU). */
+    var fleetMemAnim = (function () {
+      var DURATION_MS = 3000;
+      var raf = null;
+      var startT = 0;
+      var from = 0;
+      var to = 0;
+      var lastShown = null;
+
+      function ease(u) {
+        u = Math.max(0, Math.min(1, u));
+        return u * u * (3 - 2 * u);
+      }
+
+      function interpAt(now) {
+        var u = (now - startT) / DURATION_MS;
+        if (u >= 1) return to;
+        return from + (to - from) * ease(u);
+      }
+
+      function applyDom(val) {
+        var elV = document.getElementById("fleet-mem-val");
+        var elF = document.getElementById("fleet-mem-bar-fill");
+        var elS = document.getElementById("fleet-mem-bar-shell");
+        if (!elV) return false;
+        var clamped = Math.min(100, Math.max(0, Number(val)));
+        elV.textContent = String(Math.round(clamped)) + "%";
+        if (elF && elS) {
+          elF.style.width = String(Math.round(clamped * 100) / 100) + "%";
+          elS.className =
+            "fleet-cpu-compact__shell fleet-mem-pct-stack__shell fleet-cpu-wide--z" + loadZone4(clamped);
+        }
+        var fills = memQuarterFills(clamped);
+        for (var bi = 0; bi < 4; bi++) {
+          var bf = document.getElementById("fleet-mem-bank-fill-" + bi);
+          if (bf) bf.style.height = String(Math.round(fills[bi])) + "%";
+        }
+        return true;
+      }
+
+      function tick() {
+        var now = performance.now();
+        var u = (now - startT) / DURATION_MS;
+        if (u >= 1) {
+          raf = null;
+          lastShown = to;
+          if (!applyDom(to)) lastShown = null;
+          return;
+        }
+        if (!document.getElementById("fleet-mem-val")) {
+          raf = null;
+          return;
+        }
+        if (!applyDom(from + (to - from) * ease(u))) {
+          raf = null;
+          return;
+        }
+        raf = requestAnimationFrame(tick);
+      }
+
+      function onSnapshotTarget(targetPct) {
+        if (!document.getElementById("fleet-mem-val")) {
+          if (raf != null) {
+            cancelAnimationFrame(raf);
+            raf = null;
+          }
+          lastShown = null;
+          return;
+        }
+        var curFromAnim = raf != null ? interpAt(performance.now()) : null;
+        if (raf != null) {
+          cancelAnimationFrame(raf);
+          raf = null;
+        }
+        if (targetPct == null || isNaN(targetPct)) {
+          lastShown = null;
+          var elV = document.getElementById("fleet-mem-val");
+          if (elV) elV.textContent = "—";
+          var elF = document.getElementById("fleet-mem-bar-fill");
+          var elS = document.getElementById("fleet-mem-bar-shell");
+          if (elF) elF.style.width = "0%";
+          if (elS)
+            elS.className =
+              "fleet-cpu-compact__shell fleet-mem-pct-stack__shell fleet-cpu-wide--z0";
+          for (var bi = 0; bi < 4; bi++) {
+            var bf = document.getElementById("fleet-mem-bank-fill-" + bi);
+            if (bf) bf.style.height = "0%";
+          }
+          return;
+        }
+        if (lastShown === null) {
+          lastShown = targetPct;
+          from = targetPct;
+          to = targetPct;
+          applyDom(targetPct);
+          return;
+        }
+        var cur = curFromAnim != null ? curFromAnim : lastShown;
+        if (Math.abs(cur - targetPct) < 0.05) {
+          lastShown = targetPct;
+          applyDom(targetPct);
+          return;
+        }
+        from = cur;
+        to = targetPct;
+        startT = performance.now();
+        applyDom(from);
+        raf = requestAnimationFrame(tick);
+      }
+
       function widthForRender(suggestedPct) {
         if (suggestedPct != null && isNaN(Number(suggestedPct))) suggestedPct = null;
         if (raf != null) return interpAt(performance.now());
@@ -1257,7 +1067,10 @@
       return "Logged so far: " + esc(s) + " (see Details).";
     }
 
+    var __fleetLastPowerTotalW = null;
+
     function renderPowerTile(host, energyLedger) {
+      __fleetLastPowerTotalW = null;
       var en = (host && host.energy) || {};
       var raplOk = en.rapl_available === true && en.rapl_package_uj != null && !isNaN(Number(en.rapl_package_uj));
       var uj = raplOk ? Number(en.rapl_package_uj) : null;
@@ -1287,23 +1100,41 @@
 
       var hasSignal = totalW != null || raplOk || gpuW != null;
       if (!hasSignal) {
+        var why =
+          en.rapl_reason != null && String(en.rapl_reason).trim() !== ""
+            ? esc(String(en.rapl_reason).slice(0, 200))
+            : "No Linux RAPL package counter and no NVIDIA power.draw.";
         return (
           '<div class="fleet-tile fleet-tile--inactive">' +
           '<div class="fleet-tile__brand">' +
           tileMark(MARK_POWER, "Power") +
           "</div>" +
           '<div class="fleet-tile__value fleet-mono">—</div>' +
-          '<div class="fleet-tile__mem">No package or GPU power readout yet.</div>' +
-          '<div class="fleet-tile__hint">Cumulative kWh appears after a few host samples.</div>' +
+          '<div class="fleet-tile__mem">No live power estimate yet.</div>' +
+          '<div class="fleet-tile__hint">' +
+          why +
+          " Cumulative kWh still logs once counters exist.</div>" +
           '<details class="small mt-1 fleet-power-adv"><summary>Details</summary><p class="mb-0 small">' +
           formatLedgerKwhLine(energyLedger) +
           "</p></details></div>"
         );
       }
 
+      __fleetLastPowerTotalW = totalW;
       var heatIn = totalW != null ? Math.min(100, Math.max(0, (totalW / 320) * 100)) : 0;
       var pHeat = heat3(heatIn);
-      var main = totalW != null ? esc(fmtWatts(totalW)) + " W" : "—";
+      var pwDisp =
+        totalW != null && !isNaN(totalW) ? fleetPowerWAnim.widthForRender(totalW) : null;
+      var wPow =
+        pwDisp != null && !isNaN(pwDisp)
+          ? Math.round(Number(pwDisp))
+          : totalW != null && !isNaN(totalW)
+            ? Math.round(Number(totalW))
+            : null;
+      var main =
+        wPow != null
+          ? '<span id="fleet-power-val" class="fleet-mono">' + esc(String(wPow)) + " W</span>"
+          : '<span id="fleet-power-val" class="fleet-mono">—</span>';
       var memParts = [];
       if (raplW != null) memParts.push("Package ~" + esc(fmtWatts(raplW)) + " W");
       else if (raplOk) memParts.push("Package (next sample)");
@@ -1335,19 +1166,22 @@
       var el = document.getElementById("fleet-load-chart");
       if (!el) return;
       var w = 600;
-      var h = 90;
-      var pad = 6;
-      var iw = w - 2 * pad;
-      var ih = h - 2 * pad;
+      var h = 100;
+      var padL = 8;
+      var padR = 8;
+      var padT = 6;
+      var padB = 16;
+      var iw = w - padL - padR;
+      var ih = h - padT - padB;
       var n = chartBuf.length;
       if (n === 0) {
         el.innerHTML =
-          "<svg width=\"100%\" height=\"100%\" viewBox=\"0 0 " +
+          "<svg class=\"fleet-chart-svg\" xmlns=\"http://www.w3.org/2000/svg\" width=\"100%\" height=\"100%\" viewBox=\"0 0 " +
           w +
           " " +
           h +
           "\"><text x=\"" +
-          pad +
+          padL +
           "\" y=\"" +
           (h / 2) +
           "\" fill=\"currentColor\" opacity=\"0.45\" font-size=\"12\">Waiting for samples…</text></svg>";
@@ -1356,35 +1190,61 @@
       var denom = Math.max(1, n - 1);
       var ptsCpu = [];
       var ptsMem = [];
-      for (var i = 0; i < n; i++) {
-        var x = pad + (i / denom) * iw;
-        var yc = pad + ih - (chartBuf[i].cpu / 100) * ih;
-        var ym = pad + ih - (chartBuf[i].mem / 100) * ih;
-        ptsCpu.push(Math.round(x * 10) / 10 + "," + Math.round(yc * 10) / 10);
-        ptsMem.push(Math.round(x * 10) / 10 + "," + Math.round(ym * 10) / 10);
+      if (n === 1) {
+        var yc0 = padT + ih - (chartBuf[0].cpu / 100) * ih;
+        var ym0 = padT + ih - (chartBuf[0].mem / 100) * ih;
+        ptsCpu.push(padL.toFixed(2) + "," + yc0.toFixed(2));
+        ptsCpu.push((padL + iw).toFixed(2) + "," + yc0.toFixed(2));
+        ptsMem.push(padL.toFixed(2) + "," + ym0.toFixed(2));
+        ptsMem.push((padL + iw).toFixed(2) + "," + ym0.toFixed(2));
+      } else {
+        for (var i = 0; i < n; i++) {
+          var x = padL + (i / denom) * iw;
+          var yc = padT + ih - (chartBuf[i].cpu / 100) * ih;
+          var ym = padT + ih - (chartBuf[i].mem / 100) * ih;
+          ptsCpu.push(x.toFixed(2) + "," + yc.toFixed(2));
+          ptsMem.push(x.toFixed(2) + "," + ym.toFixed(2));
+        }
       }
-      el.innerHTML =
-        "<svg width=\"100%\" height=\"100%\" preserveAspectRatio=\"none\" viewBox=\"0 0 " +
-        w +
-        " " +
-        h +
-        "\">" +
-        "<line x1=\"" +
-        pad +
-        "\" y1=\"" +
-        (pad + ih) +
-        "\" x2=\"" +
-        (pad + iw) +
-        "\" y2=\"" +
-        (pad + ih) +
-        "\" stroke=\"currentColor\" stroke-opacity=\"0.15\" stroke-width=\"1\"/>" +
-        "<polyline fill=\"none\" stroke=\"#34d399\" stroke-width=\"2.2\" stroke-linejoin=\"round\" stroke-linecap=\"round\" points=\"" +
-        ptsCpu.join(" ") +
-        "\"/>" +
-        "<polyline fill=\"none\" stroke=\"#38bdf8\" stroke-width=\"2.2\" stroke-linejoin=\"round\" stroke-linecap=\"round\" points=\"" +
-        ptsMem.join(" ") +
-        "\"/>" +
-        "</svg>";
+      var ptsC = ptsCpu.join(" ");
+      var ptsM = ptsMem.join(" ");
+      var svg = el.querySelector("svg.fleet-chart-svg");
+      if (!svg) {
+        el.innerHTML =
+          "<svg class=\"fleet-chart-svg\" xmlns=\"http://www.w3.org/2000/svg\" width=\"100%\" height=\"100%\" preserveAspectRatio=\"none\" viewBox=\"0 0 " +
+          w +
+          " " +
+          h +
+          "\">" +
+          "<line id=\"fleet-chart-baseline\" x1=\"" +
+          padL +
+          "\" y1=\"" +
+          (padT + ih) +
+          "\" x2=\"" +
+          (padL + iw) +
+          "\" y2=\"" +
+          (padT + ih) +
+          "\" stroke=\"currentColor\" stroke-opacity=\"0.14\" stroke-width=\"1\"/>" +
+          "<polyline id=\"fleet-chart-cpu\" fill=\"none\" stroke=\"#34d399\" stroke-width=\"2.25\" stroke-linejoin=\"round\" stroke-linecap=\"round\" points=\"" +
+          ptsC +
+          "\"/>" +
+          "<polyline id=\"fleet-chart-mem\" fill=\"none\" stroke=\"#38bdf8\" stroke-width=\"2.25\" stroke-linejoin=\"round\" stroke-linecap=\"round\" points=\"" +
+          ptsM +
+          "\"/>" +
+          "</svg>";
+        return;
+      }
+      var ln = svg.querySelector("#fleet-chart-baseline");
+      if (ln) {
+        ln.setAttribute("x1", String(padL));
+        ln.setAttribute("y1", String(padT + ih));
+        ln.setAttribute("x2", String(padL + iw));
+        ln.setAttribute("y2", String(padT + ih));
+      }
+      var cpuLine = svg.querySelector("#fleet-chart-cpu");
+      var memLine = svg.querySelector("#fleet-chart-mem");
+      if (cpuLine) cpuLine.setAttribute("points", ptsC);
+      if (memLine) memLine.setAttribute("points", ptsM);
     }
 
     function renderTiles(host, energyLedger) {
@@ -1411,22 +1271,41 @@
       var tLoad = lm != null && lm.pct1 != null && !isNaN(lm.pct1) ? trendClassFor("load1", lm.pct1) : "";
       var tDisk = diskTrendPct != null ? trendClassFor("disk", diskTrendPct) : "";
 
-      function pctOneLine(v) {
-        if (v == null || isNaN(v)) return "—";
-        return esc(String(Math.round(v))) + "%";
+      function loadGaugeRow(label, idBase, pctRaw) {
+        var p = pctRaw != null && !isNaN(pctRaw) ? Number(pctRaw) : null;
+        var anim =
+          idBase === "1" ? fleetLoad1Anim : idBase === "5" ? fleetLoad5Anim : fleetLoad15Anim;
+        var disp = p != null ? anim.widthForRender(p) : null;
+        var w = disp != null ? Math.min(100, Math.max(0, Number(disp))) : 0;
+        var z = loadZone4(w);
+        var wBar = esc(String(Math.round(w * 100) / 100));
+        var vTxt = p != null && !isNaN(p) ? esc(String(Math.round(w))) + "%" : "—";
+        return (
+          '<div class="fleet-load-g-row">' +
+          '<span class="fleet-load-g-label">' +
+          esc(label) +
+          '</span><div class="fleet-load-g-barflex"><div id="fleet-load' +
+          idBase +
+          '-shell" class="fleet-cpu-compact__shell fleet-load-g--compact fleet-cpu-wide--z' +
+          z +
+          '">' +
+          '<div class="fleet-cpu-wide__track"></div>' +
+          '<div id="fleet-load' +
+          idBase +
+          '-fill" class="fleet-cpu-wide__fill" style="width:' +
+          wBar +
+          '%"></div></div></div><span id="fleet-load' +
+          idBase +
+          '-val" class="fleet-load-g-val fleet-mono">' +
+          vTxt +
+          "</span></div>"
+        );
       }
 
       var loadTile = "";
       if (lm) {
         mergeLoadPeakPct(Math.round(lm.pct1));
         var loadHeat = heat3(Math.max(lm.pct1, lm.pct5, lm.pct15));
-        var oneLine =
-          "1m " +
-          pctOneLine(lm.pct1) +
-          " · 5m " +
-          pctOneLine(lm.pct5) +
-          " · 15m " +
-          pctOneLine(lm.pct15);
         loadTile =
           '<div class="fleet-tile fleet-tile--load-' +
           loadHeat +
@@ -1434,23 +1313,30 @@
           tLoad +
           '">' +
           '<div class="fleet-tile__brand"><span class="fleet-tile__label">System load</span></div>' +
-          '<div class="fleet-load-inline fleet-mono">' +
-          oneLine +
+          '<div class="fleet-load-gauges">' +
+          loadGaugeRow("1m", "1", lm.pct1) +
+          loadGaugeRow("5m", "5", lm.pct5) +
+          loadGaugeRow("15m", "15", lm.pct15) +
           "</div>" +
           '<div class="fleet-tile__mem">% of max scale (see Advanced)</div></div>';
       } else {
         loadTile =
           '<div class="fleet-tile fleet-tile--inactive fleet-load-split">' +
           '<div class="fleet-tile__brand"><span class="fleet-tile__label">System load</span></div>' +
-          '<div class="fleet-load-inline fleet-mono">1m — · 5m — · 15m —</div>' +
+          '<div class="fleet-load-gauges">' +
+          loadGaugeRow("1m", "1", null) +
+          loadGaugeRow("5m", "5", null) +
+          loadGaugeRow("15m", "15", null) +
+          "</div>" +
           '<div class="fleet-tile__mem">Load averages unavailable</div></div>';
       }
 
       var memTile = "";
       if (ramPct != null) {
-        var rp = Math.round(ramPct);
-        var mz = loadZone4(rp);
-        var fills = memQuarterFills(rp);
+        var dispM = fleetMemAnim.widthForRender(ramPct);
+        var wMem = dispM != null && !isNaN(dispM) ? Math.min(100, Math.max(0, Number(dispM))) : Math.min(100, Math.max(0, Number(ramPct)));
+        var mz = loadZone4(wMem);
+        var fills = memQuarterFills(wMem);
         var banks = "";
         for (var bi = 0; bi < 4; bi++) {
           var fh = Math.round(fills[bi]);
@@ -1458,7 +1344,9 @@
             '<div class="fleet-mem-bank" title="RAM quarter ' +
             (bi + 1) +
             ' of 4">' +
-            '<div class="fleet-mem-bank__fill" style="height:' +
+            '<div id="fleet-mem-bank-fill-' +
+            bi +
+            '" class="fleet-mem-bank__fill" style="height:' +
             esc(String(fh)) +
             '%"></div></div>';
         }
@@ -1467,18 +1355,27 @@
           gbt != null
             ? '<div class="fleet-tile__mem">' + esc(String(gbt)) + " GiB total</div>"
             : '<div class="fleet-tile__mem">RAM</div>';
+        var wBarM = esc(String(Math.round(wMem * 100) / 100));
         memTile =
           '<div class="fleet-tile fleet-tile--mem-' +
-          heat3(rp) +
+          heat3(wMem) +
           " fleet-mem-banks-tile fleet-mem-banks--z" +
           mz +
           tRam +
           '">' +
           '<div class="fleet-tile__brand">' +
           tileMark(MARK_RAM, "Memory") +
-          '</div><div class="fleet-tile__value fleet-mono">' +
-          esc(rp) +
+          '</div><div class="fleet-mem-pct-stack">' +
+          '<div class="fleet-tile__value fleet-mono" id="fleet-mem-val">' +
+          esc(String(Math.round(wMem))) +
           "%</div>" +
+          '<div id="fleet-mem-bar-shell" class="fleet-cpu-compact__shell fleet-mem-pct-stack__shell fleet-cpu-wide--z' +
+          mz +
+          '">' +
+          '<div class="fleet-cpu-wide__track"></div>' +
+          '<div id="fleet-mem-bar-fill" class="fleet-cpu-wide__fill" style="width:' +
+          wBarM +
+          '%"></div></div></div>' +
           memSub +
           '<div class="fleet-mem-banks">' +
           banks +
@@ -1514,12 +1411,27 @@
           dk.ioAgg &&
           dk.ioAgg.total_mbps != null &&
           !isNaN(Number(dk.ioAgg.total_mbps));
-        var dMain;
         var dFine = "";
         var diskPrimaryBusy = false;
+        var diskHeroHtml = "";
         if (dk.busy != null) {
           diskPrimaryBusy = true;
-          dMain = "~" + esc(Math.round(dk.busy)) + "%";
+          var bp = fleetDiskPctAnim.widthForRender(Number(dk.busy));
+          var wB = bp != null && !isNaN(bp) ? Math.min(100, Math.max(0, Number(bp))) : Math.min(100, Math.max(0, Number(dk.busy)));
+          var zB = loadZone4(wB);
+          var wBarD = esc(String(Math.round(wB * 100) / 100));
+          diskHeroHtml =
+            '<div class="fleet-disk-stack">' +
+            '<div class="fleet-tile__value fleet-mono" id="fleet-disk-pct-val">' +
+            esc(String(Math.round(wB))) +
+            "%</div>" +
+            '<div id="fleet-disk-pct-shell" class="fleet-cpu-compact__shell fleet-load-g--compact fleet-cpu-wide--z' +
+            zB +
+            '">' +
+            '<div class="fleet-cpu-wide__track"></div>' +
+            '<div id="fleet-disk-pct-fill" class="fleet-cpu-wide__fill" style="width:' +
+            wBarD +
+            '%"></div></div></div>';
           if (dk.maxU != null) {
             dFine =
               '<div class="fleet-tile__fine">Space: up to ' +
@@ -1527,7 +1439,12 @@
               "% used (fullest mount)</div>";
           }
         } else if (hasValidTput) {
-          dMain = esc(Math.round(Number(dk.ioAgg.total_mbps))) + " MB/s";
+          var mb = fleetDiskMbpsAnim.widthForRender(Number(dk.ioAgg.total_mbps));
+          var wm = mb != null && !isNaN(mb) ? Math.round(mb) : Math.round(Number(dk.ioAgg.total_mbps));
+          diskHeroHtml =
+            '<div class="fleet-disk-stack"><div class="fleet-tile__value fleet-mono" id="fleet-disk-mbps-val">' +
+            esc(String(wm)) +
+            " MB/s</div></div>";
           if (dk.maxU != null) {
             dFine =
               '<div class="fleet-tile__fine">Space: up to ' +
@@ -1535,8 +1452,25 @@
               "% used</div>";
           }
         } else if (dk.maxU != null) {
-          dMain = esc(Math.round(dk.maxU)) + "%";
-        } else dMain = "—";
+          var mp = fleetDiskPctAnim.widthForRender(Number(dk.maxU));
+          var wu = mp != null && !isNaN(mp) ? Math.min(100, Math.max(0, Number(mp))) : Math.min(100, Math.max(0, Number(dk.maxU)));
+          var zu = loadZone4(wu);
+          var wBarU = esc(String(Math.round(wu * 100) / 100));
+          diskHeroHtml =
+            '<div class="fleet-disk-stack">' +
+            '<div class="fleet-tile__value fleet-mono" id="fleet-disk-pct-val">' +
+            esc(String(Math.round(wu))) +
+            "%</div>" +
+            '<div id="fleet-disk-pct-shell" class="fleet-cpu-compact__shell fleet-load-g--compact fleet-cpu-wide--z' +
+            zu +
+            '">' +
+            '<div class="fleet-cpu-wide__track"></div>' +
+            '<div id="fleet-disk-pct-fill" class="fleet-cpu-wide__fill" style="width:' +
+            wBarU +
+            '%"></div></div></div>';
+        } else {
+          diskHeroHtml = '<div class="fleet-tile__value fleet-mono">—</div>';
+        }
         var memLabel =
           dk.maxU != null && !diskPrimaryBusy && !hasValidTput ? "Space" : "I/O";
         var dSub = '<div class="fleet-tile__mem">' + memLabel + "</div>";
@@ -1549,9 +1483,8 @@
           dcls +
           "\"><div class=\"fleet-tile__brand\">" +
           tileMark(MARK_DISK, "Storage") +
-          "</div><div class=\"fleet-tile__value fleet-mono\">" +
-          dMain +
           "</div>" +
+          diskHeroHtml +
           dFine +
           dSub +
           "<div class=\"fleet-tile__hint\">" +
@@ -1621,6 +1554,66 @@
 
       var powerTile = renderPowerTile(host, energyLedger);
       return renderCpuCompactTile(host, tCpu) + memTile + loadTile + diskTile + powerTile + gpuBlock;
+    }
+
+    function applyKpiTileAnims(host) {
+      fleetCpuAnim.onSnapshotTarget(cpuPct(host));
+      var lm = loadMetrics(host);
+      if (lm) {
+        fleetLoad1Anim.onSnapshotTarget(lm.pct1);
+        fleetLoad5Anim.onSnapshotTarget(lm.pct5);
+        fleetLoad15Anim.onSnapshotTarget(lm.pct15);
+      } else {
+        fleetLoad1Anim.onSnapshotTarget(null);
+        fleetLoad5Anim.onSnapshotTarget(null);
+        fleetLoad15Anim.onSnapshotTarget(null);
+      }
+      var memHost = host.memory || {};
+      var rp = memHost.used_pct != null ? Number(memHost.used_pct) : null;
+      if (rp != null && !isNaN(rp)) fleetMemAnim.onSnapshotTarget(rp);
+      else fleetMemAnim.onSnapshotTarget(null);
+
+      var dk = diskAgg(host);
+      if (dk && dk.has) {
+        var hasTput =
+          dk.ioAgg && dk.ioAgg.total_mbps != null && !isNaN(Number(dk.ioAgg.total_mbps));
+        if (dk.busy != null) {
+          fleetDiskPctAnim.onSnapshotTarget(Number(dk.busy));
+          fleetDiskMbpsAnim.onSnapshotTarget(null);
+        } else if (hasTput) {
+          fleetDiskPctAnim.onSnapshotTarget(null);
+          fleetDiskMbpsAnim.onSnapshotTarget(Number(dk.ioAgg.total_mbps));
+        } else if (dk.maxU != null) {
+          fleetDiskPctAnim.onSnapshotTarget(Number(dk.maxU));
+          fleetDiskMbpsAnim.onSnapshotTarget(null);
+        } else {
+          fleetDiskPctAnim.onSnapshotTarget(null);
+          fleetDiskMbpsAnim.onSnapshotTarget(null);
+        }
+      } else {
+        fleetDiskPctAnim.onSnapshotTarget(null);
+        fleetDiskMbpsAnim.onSnapshotTarget(null);
+      }
+
+      fleetPowerWAnim.onSnapshotTarget(
+        __fleetLastPowerTotalW != null && !isNaN(__fleetLastPowerTotalW)
+          ? Number(__fleetLastPowerTotalW)
+          : null
+      );
+
+      var g = host.gpu || {};
+      var nv = maxNvUtil(g);
+      var am = maxAmdUtil(g);
+      var ir = maxIntelUtil(g);
+      if (gpuNvidiaHasDevices(g)) {
+        fleetGpuNvAnim.onSnapshotTarget(nv != null && !isNaN(nv) ? Number(nv) : null);
+      } else fleetGpuNvAnim.onSnapshotTarget(null);
+      if (gpuAmdHasDevices(g)) {
+        fleetGpuAmAnim.onSnapshotTarget(am != null && !isNaN(am) ? Number(am) : null);
+      } else fleetGpuAmAnim.onSnapshotTarget(null);
+      if (gpuIntelHasDevices(g)) {
+        fleetGpuIrAnim.onSnapshotTarget(ir != null && !isNaN(ir) ? Number(ir) : null);
+      } else fleetGpuIrAnim.onSnapshotTarget(null);
     }
 
     function statusPill(st) {
@@ -1852,6 +1845,66 @@
       }
     }
 
+    function gitShaPrefix7(s) {
+      return String(s || "")
+        .toLowerCase()
+        .replace(/[^a-f0-9]/g, "")
+        .slice(0, 7);
+    }
+
+    async function checkRemoteAgainstGitHub() {
+      var row = document.getElementById("fleet-git-remote-row");
+      if (!row) return;
+      var localRaw = (__fleetLocalGitSha || "").trim();
+      if (!localRaw) {
+        row.innerHTML =
+          '<span class="opacity-75">No git SHA from server — cannot compare to GitHub.</span>';
+        return;
+      }
+      try {
+        var res = await fetch("https://api.github.com/repos/" + FLEET_GITHUB_REPO + "/commits/master", {
+          headers: { Accept: "application/vnd.github+json" },
+        });
+        if (!res.ok) {
+          row.innerHTML =
+            '<span class="opacity-75">GitHub check failed (HTTP ' +
+            esc(String(res.status)) +
+            ").</span>";
+          return;
+        }
+        var j = await res.json();
+        var remoteFull = (j.sha || "").trim();
+        if (!remoteFull) {
+          row.textContent = "";
+          return;
+        }
+        var a = gitShaPrefix7(localRaw);
+        var b = gitShaPrefix7(remoteFull);
+        if (a && b && a === b) {
+          row.innerHTML = '<span class="opacity-75">GitHub master matches this host.</span>';
+          return;
+        }
+        var commitsHref = "https://github.com/" + FLEET_GITHUB_REPO + "/commits/master";
+        if (__fleetSelfUpdateConfigured) {
+          row.innerHTML =
+            '<span class="text-warning fw-semibold me-1">Update available</span>' +
+            '<button type="button" class="btn btn-sm btn-warning" id="fleet-header-git-update-btn">Update</button>' +
+            '<a class="btn btn-sm btn-outline-secondary ms-1" href="' +
+            commitsHref +
+            '" target="_blank" rel="noopener">GitHub</a>';
+        } else {
+          row.innerHTML =
+            '<span class="text-warning fw-semibold me-1">Newer commits on GitHub</span>' +
+            '<a class="btn btn-sm btn-outline-warning" href="' +
+            commitsHref +
+            '" target="_blank" rel="noopener">View commits</a>' +
+            '<span class="text-body-secondary ms-1" style="font-size:0.72rem">Enable git self-update on Fleet to pull here.</span>';
+        }
+      } catch (_e) {
+        row.innerHTML = '<span class="opacity-75">Could not reach GitHub.</span>';
+      }
+    }
+
     async function loadSnapshot() {
       setErr("");
       var res;
@@ -1889,6 +1942,17 @@
           String(ver.template_lib_version != null ? ver.template_lib_version : "—") +
           sha;
       }
+      __fleetLocalGitSha = ver.git_sha ? String(ver.git_sha).trim() : "";
+      __fleetSelfUpdateConfigured = !!(meta.self_update && meta.self_update.configured);
+      if (!__fleetRemoteGitTimerStarted) {
+        __fleetRemoteGitTimerStarted = true;
+        setTimeout(function () {
+          checkRemoteAgainstGitHub();
+        }, 1200);
+        setInterval(function () {
+          checkRemoteAgainstGitHub();
+        }, REMOTE_GIT_POLL_MS);
+      }
       var wrap = document.getElementById("fleet-forge-console-wrap");
       var link = document.getElementById("fleet-forge-console");
       var integ = meta.integrations || {};
@@ -1906,11 +1970,20 @@
       loadContainerTypesOnce();
 
       var host = data.host || {};
+      var hid =
+        String(host.platform || "") +
+        "|" +
+        String(host.cpus != null ? host.cpus : "") +
+        "|" +
+        String(host.python || "");
+      if (hid !== chartHostIdentity) {
+        chartHostIdentity = hid;
+        chartBuf = [];
+      }
       document.getElementById("fleet-tiles").innerHTML = renderTiles(host, meta.energy_ledger_kwh || null);
+      applyKpiTileAnims(host);
       pushFleetTrendSample(host);
-      fleetCpuAnim.onSnapshotTarget(cpuPct(host));
       lastHostForChart = host;
-      chartBuf = [];
       pushChartSample();
       renderFleetChart();
 
@@ -1951,47 +2024,9 @@
 
     function tick() {
       var ms = Math.max(0, nextFire - Date.now());
-      pushChartSample();
-      renderFleetChart();
       if (ms <= 0) {
         loadSnapshot().then(function () { scheduleNext(); });
       }
-    }
-
-    document.getElementById("refresh").onclick = function () {
-      loadSnapshot().then(function () { scheduleNext(); });
-    };
-
-    function syncLoadScaleControls() {
-      var inp = document.getElementById("fleet-load-scale-inp");
-      if (!inp) return;
-      var v = localStorage.getItem(LS_LOAD_SCALE);
-      inp.value = v != null && String(v).trim() !== "" ? String(v).trim() : "";
-    }
-    syncLoadScaleControls();
-    var fleetLoadScaleSave = document.getElementById("fleet-load-scale-save");
-    var fleetLoadScaleClear = document.getElementById("fleet-load-scale-clear");
-    if (fleetLoadScaleSave) {
-      fleetLoadScaleSave.onclick = function () {
-        var inp = document.getElementById("fleet-load-scale-inp");
-        if (!inp) return;
-        var s = String(inp.value || "").trim();
-        if (!s) {
-          localStorage.removeItem(LS_LOAD_SCALE);
-        } else {
-          var n = parseFloat(s);
-          if (!isFinite(n) || n <= 0) return;
-          localStorage.setItem(LS_LOAD_SCALE, String(n));
-        }
-        loadSnapshot().then(function () { scheduleNext(); });
-      };
-    }
-    if (fleetLoadScaleClear) {
-      fleetLoadScaleClear.onclick = function () {
-        localStorage.removeItem(LS_LOAD_SCALE);
-        syncLoadScaleControls();
-        loadSnapshot().then(function () { scheduleNext(); });
-      };
     }
 
     async function forgeSvcPost(path, okText) {
@@ -2091,7 +2126,16 @@
       scheduleNext();
     });
 
-    setInterval(tick, 200);
+    var refreshBtn = document.getElementById("refresh");
+    if (refreshBtn) {
+      refreshBtn.addEventListener("click", function () {
+        loadSnapshot().then(function () {
+          scheduleNext();
+        });
+      });
+    }
+
+    setInterval(tick, 500);
     loadSnapshot().then(function () { scheduleNext(); });
   })();
   </script>
