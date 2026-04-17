@@ -66,6 +66,8 @@ Use a hostname site block in the Caddyfile and remove plain `:port` when you wan
 
 Disable it if it conflicts on the same port, or merge the site block into **`/etc/caddy/Caddyfile`** and use the distro unit instead of **`forge-fleet-caddy.service`**.
 
+The installer **inlines `FLEET_BEARER_TOKEN` into the Caddyfile** (with minimal escaping). That avoids **`caddy validate --environ`** / **`caddy run --environ`**, which are **missing on some Ubuntu `caddy` packages**. Keep the Caddyfile mode **`0600`** (user) or **`0640` `root:caddy`** (system) so the token is not world-readable.
+
 ## If `forge-fleet-caddy.service` fails to start
 
 ```bash

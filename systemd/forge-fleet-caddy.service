@@ -12,8 +12,8 @@
 #   - `caddy` binary on PATH (package: apt install caddy / dnf install caddy, or https://caddyserver.com/docs/install)
 #   - User `caddy` exists (distro packages create it). If missing: sudo useradd -r -s /usr/sbin/nologin -d /var/lib/caddy caddy
 #   - Fleet listens on loopback only (see docs/CADDY-SYSTEMD.md) so clients cannot bypass Caddy.
-#   - /etc/forge-fleet/caddy.env with FLEET_BEARER_TOKEN (same value as Fleet). chmod 0640 root:caddy
-#     so the caddy user can read it (forge-fleet.env is 0600 and not readable by caddy).
+#   Bearer token is embedded in /etc/forge-fleet/Caddyfile by install-caddy-fleet.sh (no --environ;
+#   compatible with older distro caddy packages).
 
 [Unit]
 Description=Caddy — reverse proxy for Forge Fleet
@@ -25,8 +25,7 @@ Wants=forge-fleet.service
 Type=simple
 User=caddy
 Group=caddy
-EnvironmentFile=-/etc/forge-fleet/caddy.env
-ExecStart=/usr/bin/caddy run --environ --config /etc/forge-fleet/Caddyfile
+ExecStart=/usr/bin/caddy run --config /etc/forge-fleet/Caddyfile
 ExecReload=/usr/bin/caddy reload --config /etc/forge-fleet/Caddyfile --force
 Restart=on-failure
 RestartSec=5

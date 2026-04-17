@@ -53,6 +53,25 @@ upsert_env_line() {
   chmod 0600 "$file"
 }
 
+# Escape for use inside a Caddyfile double-quoted string (header_up value).
+escape_caddy_dq() {
+  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
+}
+
+write_caddyfile_proxy() {
+  local out="$1" public_port="$2" upstream_host="$3" upstream_port="$4" bearer="$5"
+  local esc
+  esc="$(escape_caddy_dq "$bearer")"
+  {
+    printf '%s\n' '{' '	admin off' '}' ''
+    printf ':%s {\n' "${public_port}"
+    printf '	encode gzip\n'
+    printf '	reverse_proxy %s:%s {\n' "${upstream_host}" "${upstream_port}"
+    printf '		header_up Authorization "Bearer %s"\n' "${esc}"
+    printf '	}\n}\n'
+  } >"$out"
+}
+
 ensure_caddy() {
   if command -v caddy >/dev/null 2>&1; then
     return 0
@@ -74,7 +93,7 @@ ensure_caddy() {
 }
 
 write_user_unit_and_caddyfile() {
-  local upstream_host="$1" upstream_port="$2" public_port="$3"
+  local upstream_host="$1" upstream_port="$2" public_port="$3" bearer="$4"
   local cfg_dir="${XDG_CONFIG_HOME:-$HOME/.config}/forge-fleet"
   local unit_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
   local env_file="$cfg_dir/forge-fleet.env"
@@ -83,18 +102,8 @@ write_user_unit_and_caddyfile() {
 
   mkdir -p "$cfg_dir" "$unit_dir"
 
-  cat >"$caddyfile" <<EOF
-{
-	admin off
-}
-
-:${public_port} {
-	encode gzip
-	reverse_proxy ${upstream_host}:${upstream_port} {
-		header_up Authorization "Bearer {\$FLEET_BEARER_TOKEN}"
-	}
-}
-EOF
+  write_caddyfile_proxy "$caddyfile" "$public_port" "$upstream_host" "$upstream_port" "$bearer"
+  chmod 0600 "$caddyfile"
 
   cat >"$unit_file" <<EOF
 [Unit]
@@ -104,8 +113,7 @@ Wants=forge-fleet.service
 
 [Service]
 Type=simple
-EnvironmentFile=-%h/.config/forge-fleet/forge-fleet.env
-ExecStart=/usr/bin/caddy run --environ --config %h/.config/forge-fleet/Caddyfile.caddy-fleet
+ExecStart=/usr/bin/caddy run --config %h/.config/forge-fleet/Caddyfile.caddy-fleet
 Restart=on-failure
 RestartSec=3
 
@@ -114,13 +122,8 @@ WantedBy=default.target
 EOF
 
   command -v caddy >/dev/null || die "caddy not on PATH"
-  # shellcheck disable=SC1090
-  set -a
-  # shellcheck source=/dev/null
-  source "$env_file" || true
-  set +a
-  if ! caddy validate --environ --config "$caddyfile" 2>&1; then
-    die "caddy validate failed — fix Caddyfile or $env_file; logs: journalctl --user -xeu forge-fleet-caddy.service"
+  if ! caddy validate --config "$caddyfile" 2>&1; then
+    die "caddy validate failed — fix Caddyfile or bearer in $env_file; logs: journalctl --user -xeu forge-fleet-caddy.service"
   fi
 }
 
@@ -128,20 +131,15 @@ write_system_caddyfile() {
   local public_port="$1"
   local upstream_host="${2:-127.0.0.1}"
   local upstream_port="${3:-18765}"
+  local bearer="$4"
   install -d -m0755 /etc/forge-fleet
-  cat >/etc/forge-fleet/Caddyfile <<EOF
-{
-	admin off
-}
-
-:${public_port} {
-	encode gzip
-	reverse_proxy ${upstream_host}:${upstream_port} {
-		header_up Authorization "Bearer {\$FLEET_BEARER_TOKEN}"
-	}
-}
-EOF
-  chmod 0644 /etc/forge-fleet/Caddyfile
+  write_caddyfile_proxy "/etc/forge-fleet/Caddyfile" "$public_port" "$upstream_host" "$upstream_port" "$bearer"
+  if id -u caddy &>/dev/null; then
+    chown root:caddy /etc/forge-fleet/Caddyfile
+    chmod 0640 /etc/forge-fleet/Caddyfile
+  else
+    chmod 0600 /etc/forge-fleet/Caddyfile
+  fi
 }
 
 run_user_systemd() {
@@ -278,7 +276,7 @@ case "$LAYOUT" in
     [[ "$CADDY_PUBLIC_PORT" != "$FLEET_UPSTREAM_PORT" ]] || die "Caddy port must differ from Fleet port"
 
     ensure_caddy
-    write_user_unit_and_caddyfile "$FLEET_UPSTREAM_HOST" "$FLEET_UPSTREAM_PORT" "$CADDY_PUBLIC_PORT"
+    write_user_unit_and_caddyfile "$FLEET_UPSTREAM_HOST" "$FLEET_UPSTREAM_PORT" "$CADDY_PUBLIC_PORT" "$FLEET_BEARER_TOKEN"
     run_user_systemd
 
     echo ""
@@ -312,17 +310,9 @@ case "$LAYOUT" in
 
     ensure_caddy
     install -d -m0755 /etc/forge-fleet
-    umask 077
-    printf 'FLEET_BEARER_TOKEN=%s\n' "$FLEET_BEARER_TOKEN" >/etc/forge-fleet/caddy.env
-    umask 022
-    if id -u caddy &>/dev/null; then
-      chown root:caddy /etc/forge-fleet/caddy.env
-      chmod 0640 /etc/forge-fleet/caddy.env
-    else
-      chmod 0600 /etc/forge-fleet/caddy.env
-    fi
-
-    write_system_caddyfile "$CADDY_PUBLIC_PORT" "$FLEET_UPSTREAM_HOST" "$FLEET_UPSTREAM_PORT"
+    write_system_caddyfile "$CADDY_PUBLIC_PORT" "$FLEET_UPSTREAM_HOST" "$FLEET_UPSTREAM_PORT" "$FLEET_BEARER_TOKEN"
+    command -v caddy >/dev/null || die "caddy not on PATH"
+    caddy validate --config /etc/forge-fleet/Caddyfile || die "caddy validate failed — check /etc/forge-fleet/Caddyfile"
     run_system_systemd
 
     echo ""

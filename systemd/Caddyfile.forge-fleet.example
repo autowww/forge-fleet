@@ -1,6 +1,8 @@
-# Forge Fleet — Caddy reverse proxy (HTTP, all interfaces, port 18766).
+# Example Caddy config for Forge Fleet (HTTP, all interfaces).
+# install-caddy-fleet.sh writes the real file with the bearer token inlined (no {$ENV}),
+# so older Ubuntu `caddy` builds work without `caddy run --environ`.
+#
 # Upstream: Fleet on 127.0.0.1:18765 (loopback-only; see docs/CADDY-SYSTEMD.md).
-# Env: FLEET_BEARER_TOKEN in /etc/forge-fleet/caddy.env (forge-fleet-caddy.service).
 
 {
 	admin off
@@ -9,6 +11,6 @@
 :18766 {
 	encode gzip
 	reverse_proxy 127.0.0.1:18765 {
-		header_up Authorization "Bearer {$FLEET_BEARER_TOKEN}"
+		header_up Authorization "Bearer REPLACE_AT_INSTALL_TIME"
 	}
 }
