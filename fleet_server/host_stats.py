@@ -14,6 +14,25 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+_DISK_DEV = re.compile(r"^(sd[a-z]+|vd[a-z]+|nvme\d+n\d+|mmcblk\d+)$")
+_SPACE_FSTYPES = frozenset(
+    {
+        "ext2",
+        "ext3",
+        "ext4",
+        "xfs",
+        "btrfs",
+        "zfs",
+        "fuseblk",
+        "fuse",
+        "overlay",
+        "nfs",
+        "nfs4",
+        "vfat",
+        "msdos",
+    }
+)
+
 
 def _parse_csv_int(s: str) -> int | None:
     s = (s or "").strip()
@@ -306,6 +325,123 @@ def cpu_usage_percent_sample(interval_s: float = 0.1) -> float | None:
     return round(max(0.0, min(100.0, busy_pct)), 1)
 
 
+def _diskstats_physical() -> dict[str, tuple[int, int, int]]:
+    """Map device name -> (sectors_read, sectors_written, weighted_ms)."""
+    out: dict[str, tuple[int, int, int]] = {}
+    try:
+        text = Path("/proc/diskstats").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return out
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) < 14:
+            continue
+        name = parts[2]
+        if not _DISK_DEV.match(name):
+            continue
+        try:
+            rsect = int(parts[5])
+            wsect = int(parts[9])
+            w_ms = int(parts[13]) if len(parts) > 13 else int(parts[12])
+        except (ValueError, IndexError):
+            continue
+        out[name] = (rsect, wsect, w_ms)
+    return out
+
+
+def disk_io_snapshot() -> dict[str, Any]:
+    """Throughput + approximate busy%% from ``/proc/diskstats`` (two samples, ~120 ms)."""
+    if not sys.platform.startswith("linux"):
+        return {"available": False, "reason": "non-linux"}
+    a = _diskstats_physical()
+    if not a:
+        return {"available": False, "reason": "no whole-disk lines in /proc/diskstats"}
+    t0 = time.perf_counter_ns()
+    time.sleep(0.12)
+    t1 = time.perf_counter_ns()
+    b = _diskstats_physical()
+    dt_s = max(1e-6, (t1 - t0) / 1e9)
+    wall_ms = (t1 - t0) / 1e6
+    devices: list[dict[str, Any]] = []
+    for name in sorted(set(a) & set(b)):
+        r0, w0, m0 = a[name]
+        r1, w1, m1 = b[name]
+        dr = max(0, r1 - r0)
+        dw = max(0, w1 - w0)
+        dm = max(0, m1 - m0)
+        read_mbps = (dr * 512) / (1024 * 1024) / dt_s
+        write_mbps = (dw * 512) / (1024 * 1024) / dt_s
+        busy_pct = min(100.0, max(0.0, 100.0 * dm / wall_ms)) if wall_ms > 0 else None
+        devices.append(
+            {
+                "device": name,
+                "read_mbps": round(read_mbps, 2),
+                "write_mbps": round(write_mbps, 2),
+                "total_mbps": round(read_mbps + write_mbps, 2),
+                "busy_pct_est": round(busy_pct, 1) if busy_pct is not None else None,
+            }
+        )
+    devices.sort(key=lambda d: d["total_mbps"], reverse=True)
+    agg_r = sum(d["read_mbps"] for d in devices)
+    agg_w = sum(d["write_mbps"] for d in devices)
+    busy_max = max((d["busy_pct_est"] for d in devices if d.get("busy_pct_est") is not None), default=None)
+    return {
+        "available": True,
+        "sample_ms": round(wall_ms, 1),
+        "devices": devices[:12],
+        "aggregated": {
+            "read_mbps": round(agg_r, 2),
+            "write_mbps": round(agg_w, 2),
+            "total_mbps": round(agg_r + agg_w, 2),
+            "busy_pct_est_max": busy_max,
+        },
+    }
+
+
+def disk_space_snapshot() -> list[dict[str, Any]]:
+    """Per-mount usage for ``/`` and common paths when present in ``/proc/mounts``."""
+    if not sys.platform.startswith("linux"):
+        return []
+    want: list[str] = ["/"]
+    try:
+        for line in Path("/proc/mounts").read_text(encoding="utf-8", errors="replace").splitlines():
+            parts = line.split()
+            if len(parts) < 3:
+                continue
+            mnt, fst = parts[1], parts[2]
+            if fst not in _SPACE_FSTYPES:
+                continue
+            if mnt in ("/var", "/home") and mnt not in want:
+                want.append(mnt)
+    except OSError:
+        pass
+    seen: set[str] = set()
+    rows: list[dict[str, Any]] = []
+    for mnt in want:
+        if mnt in seen:
+            continue
+        p = Path(mnt)
+        try:
+            if not p.is_dir():
+                continue
+            u = shutil.disk_usage(mnt)
+        except OSError:
+            continue
+        seen.add(mnt)
+        total = u.total or 1
+        rows.append(
+            {
+                "mount": mnt,
+                "total_gb": round(u.total / 1e9, 2),
+                "used_gb": round(u.used / 1e9, 2),
+                "free_gb": round(u.free / 1e9, 2),
+                "used_pct": round(100.0 * u.used / total, 1),
+            }
+        )
+    rows.sort(key=lambda d: (0 if d["mount"] == "/" else 1, d["mount"]))
+    return rows
+
+
 def snapshot() -> dict[str, Any]:
     """Lightweight machine snapshot for admin dashboard."""
     now = datetime.now(UTC).isoformat()
@@ -341,10 +477,12 @@ def snapshot() -> dict[str, Any]:
         except (OSError, ValueError, IndexError):
             out["system_uptime_s"] = None
         out["cpu_usage_pct"] = cpu_usage_percent_sample(0.05)
+        out["disks"] = {"space": disk_space_snapshot(), "io": disk_io_snapshot()}
     else:
         out["loadavg"] = None
         out["memory"] = None
         out["system_uptime_s"] = None
         out["cpu_usage_pct"] = None
+        out["disks"] = {"space": [], "io": {"available": False, "reason": "non-linux"}}
     out["gpu"] = gpu_bundle()
     return out

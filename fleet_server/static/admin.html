@@ -365,6 +365,88 @@
       return Math.floor(m / 60) + "h ago";
     }
 
+    function renderHostDisks(host) {
+      var d = host.disks || {};
+      var space = d.space || [];
+      var io = d.io || {};
+      var spaceHtml;
+      if (space.length) {
+        spaceHtml =
+          "<div class=\"table-responsive mt-2\"><table class=\"table table-sm table-bordered mb-0 fleet-mono\">" +
+          "<thead><tr><th>Mount</th><th>Used %</th><th>Used</th><th>Free</th><th>Total</th></tr></thead><tbody>" +
+          space
+            .map(function (r) {
+              return (
+                "<tr><td><code>" +
+                esc(r.mount) +
+                "</code></td><td>" +
+                esc(r.used_pct) +
+                "</td><td>" +
+                esc(r.used_gb) +
+                " GB</td><td>" +
+                esc(r.free_gb) +
+                " GB</td><td>" +
+                esc(r.total_gb) +
+                " GB</td></tr>"
+              );
+            })
+            .join("") +
+          "</tbody></table></div>";
+      } else {
+        spaceHtml = "<p class=\"small text-body-secondary mb-0\">No disk space rows.</p>";
+      }
+      var ioHtml;
+      if (io && io.available === true && io.aggregated) {
+        var a = io.aggregated;
+        ioHtml =
+          "<div class=\"mt-2 small\"><strong>Disk I/O</strong> (≈" +
+          esc(io.sample_ms) +
+          " ms sample, whole disks) — read <span class=\"fleet-mono\">" +
+          esc(a.read_mbps) +
+          "</span> MB/s · write <span class=\"fleet-mono\">" +
+          esc(a.write_mbps) +
+          "</span> MB/s · combined <span class=\"fleet-mono\">" +
+          esc(a.total_mbps) +
+          "</span> MB/s";
+        if (a.busy_pct_est_max != null && !isNaN(a.busy_pct_est_max)) {
+          ioHtml += " · busy est. (max disk) <span class=\"fleet-mono\">" + esc(a.busy_pct_est_max) + "%</span>";
+        }
+        ioHtml += "</div>";
+        if (io.devices && io.devices.length) {
+          ioHtml +=
+            "<div class=\"table-responsive mt-2\"><table class=\"table table-sm table-bordered mb-0 fleet-mono\"><thead><tr><th>Device</th><th>Read</th><th>Write</th><th>Σ</th><th>Busy est.</th></tr></thead><tbody>" +
+            io.devices
+              .map(function (r) {
+                return (
+                  "<tr><td>" +
+                  esc(r.device) +
+                  "</td><td>" +
+                  esc(r.read_mbps) +
+                  "</td><td>" +
+                  esc(r.write_mbps) +
+                  "</td><td>" +
+                  esc(r.total_mbps) +
+                  "</td><td>" +
+                  esc(r.busy_pct_est != null ? r.busy_pct_est : "—") +
+                  "</td></tr>"
+                );
+              })
+              .join("") +
+            "</tbody></table></div>";
+        }
+      } else {
+        ioHtml =
+          "<div class=\"mt-2 small text-body-secondary\"><strong>Disk I/O</strong> — " +
+          esc((io && io.reason) || "not available") +
+          "</div>";
+      }
+      return (
+        "<h3 class=\"h6 mt-3 text-body-secondary\">Storage &amp; disk load</h3>" +
+        spaceHtml +
+        ioHtml
+      );
+    }
+
     function formatDuration(sec) {
       if (sec == null || isNaN(sec)) return "—";
       var x = Math.max(0, Number(sec));
@@ -769,7 +851,8 @@
         "</span>" +
         "<span><strong>System up</strong> — " + esc(formatDuration(host.system_uptime_s)) + "</span>" +
         "<span><strong>Python</strong> — " + esc(host.python || "—") + "</span>" +
-        "</div>";
+        "</div>" +
+        renderHostDisks(host);
 
       document.getElementById("gpu").innerHTML = renderGpuBundle(host.gpu);
 
