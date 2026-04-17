@@ -40,33 +40,70 @@
     .fleet-tile {
       flex: 1 1 0; min-width: 10.5rem; max-width: 16rem; scroll-snap-align: start;
       border-radius: 0.7rem; padding: 0.85rem 0.95rem; position: relative; overflow: hidden;
-      border: 1px solid rgba(255,255,255,0.1); color: #f8fafc;
-      box-shadow: 0 2px 12px rgba(0,0,0,0.25);
+      border: 1px solid rgba(255,255,255,0.22);
+      color: #f8fafc !important;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.65);
+      box-shadow: 0 2px 12px rgba(0,0,0,0.35);
     }
-    [data-bs-theme="light"] .fleet-tile { color: #0f172a; border-color: rgba(15,23,42,0.12); box-shadow: 0 1px 6px rgba(15,23,42,0.08); }
-    .fleet-tile--inactive { opacity: 0.42; filter: grayscale(0.9); }
+    .fleet-tile .fleet-tile__hint { color: rgba(248,250,252,0.95) !important; opacity: 1 !important; text-shadow: 0 1px 2px rgba(0,0,0,0.55); }
+    .fleet-tile .fleet-tile__label { color: rgba(248,250,252,0.95) !important; opacity: 1 !important; }
+    .fleet-tile .fleet-tile__value { color: #ffffff !important; }
+    .fleet-tile .fleet-tile__logo { color: #f1f5f9; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.5)); }
+    [data-bs-theme="light"] .fleet-tile {
+      text-shadow: none;
+      box-shadow: 0 1px 4px rgba(15,23,42,0.12);
+    }
+    [data-bs-theme="light"] .fleet-tile .fleet-tile__value { color: #0f172a !important; }
+    [data-bs-theme="light"] .fleet-tile .fleet-tile__label { color: #334155 !important; }
+    [data-bs-theme="light"] .fleet-tile .fleet-tile__hint { color: #475569 !important; }
+    [data-bs-theme="light"] .fleet-tile .fleet-tile__logo { color: #0f172a; filter: none; }
+    .fleet-tile--inactive {
+      opacity: 1 !important;
+      filter: none !important;
+      background: linear-gradient(145deg, #475569 0%, #334155 100%) !important;
+      border-color: rgba(148,163,184,0.5) !important;
+    }
+    [data-bs-theme="light"] .fleet-tile--inactive {
+      background: linear-gradient(145deg, #e2e8f0 0%, #cbd5e1 100%) !important;
+      border-color: #94a3b8 !important;
+    }
+    [data-bs-theme="light"] .fleet-tile--inactive .fleet-tile__value,
+    [data-bs-theme="light"] .fleet-tile--inactive .fleet-tile__label,
+    [data-bs-theme="light"] .fleet-tile--inactive .fleet-tile__hint { color: #1e293b !important; }
     .fleet-tile__logo { width: 2.25rem; height: 2.25rem; margin-bottom: 0.4rem; display: block; }
-    .fleet-tile__label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.88; font-weight: 600; }
+    .fleet-tile__label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; }
     .fleet-tile__value { font-size: 1.45rem; font-weight: 800; line-height: 1.15; letter-spacing: -0.02em; }
-    .fleet-tile__hint { font-size: 0.72rem; opacity: 0.78; margin-top: 0.25rem; line-height: 1.3; }
-    .fleet-tile--cpu-low { background: linear-gradient(145deg, #064e3b 0%, #022c22 100%); border-color: rgba(16,185,129,0.35); }
-    .fleet-tile--cpu-mid { background: linear-gradient(145deg, #713f12 0%, #422006 100%); border-color: rgba(245,158,11,0.35); }
-    .fleet-tile--cpu-high { background: linear-gradient(145deg, #7f1d1d 0%, #3f0f0f 100%); border-color: rgba(248,113,113,0.4); }
-    .fleet-tile--nv { background: linear-gradient(145deg, #166534 0%, #052e16 100%); border-color: rgba(118,185,0,0.45); }
-    .fleet-tile--nv-mid { background: linear-gradient(145deg, #3f6212 0%, #1a2e05 100%); }
-    .fleet-tile--nv-hot { background: linear-gradient(145deg, #854d0e 0%, #422006 100%); }
-    .fleet-tile--amd { background: linear-gradient(145deg, #7f1d1d 0%, #450a0a 100%); border-color: rgba(237,28,36,0.4); }
-    .fleet-tile--amd-mid { background: linear-gradient(145deg, #9a3412 0%, #431407 100%); }
-    .fleet-tile--amd-hot { background: linear-gradient(145deg, #a16207 0%, #422006 100%); }
-    .fleet-tile--intel { background: linear-gradient(145deg, #1e40af 0%, #0f172a 100%); border-color: rgba(0,113,197,0.45); }
-    .fleet-tile--intel-mid { background: linear-gradient(145deg, #1d4ed8 0%, #172554 100%); }
-    .fleet-tile--intel-hot { background: linear-gradient(145deg, #6d28d9 0%, #2e1065 100%); }
+    .fleet-tile__hint { font-size: 0.72rem; margin-top: 0.25rem; line-height: 1.35; }
+    .fleet-tile--cpu-low { background: linear-gradient(145deg, #047857 0%, #064e3b 100%); border-color: rgba(52,211,153,0.55); }
+    .fleet-tile--cpu-mid { background: linear-gradient(145deg, #b45309 0%, #78350f 100%); border-color: rgba(251,191,36,0.55); }
+    .fleet-tile--cpu-high { background: linear-gradient(145deg, #b91c1c 0%, #7f1d1d 100%); border-color: rgba(252,165,165,0.55); }
+    [data-bs-theme="light"] .fleet-tile--cpu-low { background: linear-gradient(145deg, #a7f3d0 0%, #6ee7b7 100%); border-color: #059669; }
+    [data-bs-theme="light"] .fleet-tile--cpu-mid { background: linear-gradient(145deg, #fde68a 0%, #fcd34d 100%); border-color: #d97706; }
+    [data-bs-theme="light"] .fleet-tile--cpu-high { background: linear-gradient(145deg, #fecaca 0%, #fca5a5 100%); border-color: #dc2626; }
+    .fleet-tile--nv { background: linear-gradient(145deg, #15803d 0%, #14532d 100%); border-color: rgba(163,230,53,0.5); }
+    .fleet-tile--nv-mid { background: linear-gradient(145deg, #4d7c0f 0%, #365314 100%); }
+    .fleet-tile--nv-hot { background: linear-gradient(145deg, #a16207 0%, #713f12 100%); }
+    [data-bs-theme="light"] .fleet-tile--nv { background: linear-gradient(145deg, #bbf7d0 0%, #86efac 100%); border-color: #16a34a; }
+    [data-bs-theme="light"] .fleet-tile--nv-mid { background: linear-gradient(145deg, #d9f99d 0%, #bef264 100%); border-color: #65a30d; }
+    [data-bs-theme="light"] .fleet-tile--nv-hot { background: linear-gradient(145deg, #fde047 0%, #facc15 100%); border-color: #ca8a04; }
+    .fleet-tile--amd { background: linear-gradient(145deg, #b91c1c 0%, #7f1d1d 100%); border-color: rgba(252,165,165,0.55); }
+    .fleet-tile--amd-mid { background: linear-gradient(145deg, #c2410c 0%, #9a3412 100%); }
+    .fleet-tile--amd-hot { background: linear-gradient(145deg, #b45309 0%, #92400e 100%); }
+    [data-bs-theme="light"] .fleet-tile--amd { background: linear-gradient(145deg, #fecaca 0%, #fca5a5 100%); border-color: #dc2626; }
+    [data-bs-theme="light"] .fleet-tile--amd-mid { background: linear-gradient(145deg, #fed7aa 0%, #fdba74 100%); border-color: #ea580c; }
+    [data-bs-theme="light"] .fleet-tile--amd-hot { background: linear-gradient(145deg, #fde68a 0%, #fcd34d 100%); border-color: #d97706; }
+    .fleet-tile--intel { background: linear-gradient(145deg, #1d4ed8 0%, #1e3a8a 100%); border-color: rgba(147,197,253,0.55); }
+    .fleet-tile--intel-mid { background: linear-gradient(145deg, #4338ca 0%, #312e81 100%); }
+    .fleet-tile--intel-hot { background: linear-gradient(145deg, #7c3aed 0%, #5b21b6 100%); }
+    [data-bs-theme="light"] .fleet-tile--intel { background: linear-gradient(145deg, #bfdbfe 0%, #93c5fd 100%); border-color: #2563eb; }
+    [data-bs-theme="light"] .fleet-tile--intel-mid { background: linear-gradient(145deg, #c4b5fd 0%, #a78bfa 100%); border-color: #6d28d9; }
+    [data-bs-theme="light"] .fleet-tile--intel-hot { background: linear-gradient(145deg, #ddd6fe 0%, #c4b5fd 100%); border-color: #7c3aed; }
     .fleet-uptime-strip { font-size: 0.85rem; }
     .fleet-uptime-strip strong { font-weight: 650; }
   </style>
 </head>
 <body class="fleet-admin-body">
-  <div class="dropdown forge-theme-dropdown position-fixed top-0 end-0 m-2" style="z-index:1050" data-forge-pref="dark">
+  <div class="dropdown forge-theme-dropdown position-fixed top-0 end-0 m-2" style="z-index:1050" data-forge-pref="auto">
     <button type="button" class="forge-theme-trigger dropdown-toggle" data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false" id="forgeThemeMenu" aria-haspopup="true" aria-label="Appearance and color theme" title="Theme">
       <span class="forge-theme-trigger__aurora" aria-hidden="true"></span>
       <span class="forge-theme-trigger__inner">
@@ -77,7 +114,7 @@
         </span>
         <span class="forge-theme-trigger__copy">
           <span class="forge-theme-eyebrow">Appearance</span>
-          <span class="forge-theme-current">Dark</span>
+          <span class="forge-theme-current">System</span>
         </span>
         <svg class="forge-theme-chevron" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
       </span>
@@ -98,7 +135,7 @@
         </button>
       </li>
       <li>
-        <button type="button" class="dropdown-item forge-theme-option" data-forge-color-scheme="auto">
+        <button type="button" class="dropdown-item forge-theme-option active" data-forge-color-scheme="auto">
           <svg class="forge-theme-opt-ico" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" aria-hidden="true"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 22h8"/><path d="M12 18v4"/></svg>
           <span>System</span>
           <svg class="forge-theme-tick" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
@@ -195,6 +232,66 @@
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
   <script src="/admin/ks/js/forge-theme.js"></script>
+  <script>
+  /* forge-theme.js only registers DOMContentLoaded; if that event already fired, theme + clicks never wire — fix here. */
+  (function () {
+    function readCookie(name) {
+      var m = document.cookie.match(
+        new RegExp("(?:^|; )" + name.replace(/[-[\]{}()*+?.\\^$|]/g, "\\$&") + "=([^;]*)")
+      );
+      return m ? decodeURIComponent(m[1].trim()) : "";
+    }
+    function syncForgeToggleLabels() {
+      var v = readCookie("forge_color_scheme");
+      if (v !== "light" && v !== "dark" && v !== "auto") v = "auto";
+      var labels = { light: "Light", dark: "Dark", auto: "System" };
+      document.querySelectorAll(".forge-theme-dropdown").forEach(function (root) {
+        root.setAttribute("data-forge-pref", v);
+      });
+      document.querySelectorAll("[data-forge-color-scheme]").forEach(function (el) {
+        var m = el.getAttribute("data-forge-color-scheme");
+        el.classList.toggle("active", m === v);
+      });
+      document.querySelectorAll(".forge-theme-current").forEach(function (el) {
+        el.textContent = labels[v] || "System";
+      });
+    }
+    function applyHtmlThemeFromForge() {
+      if (typeof window.forgeGetEffectiveColorScheme === "function") {
+        document.documentElement.setAttribute("data-bs-theme", window.forgeGetEffectiveColorScheme());
+      }
+      syncForgeToggleLabels();
+    }
+    function wireForgeThemeClicks() {
+      if (typeof window.forgeSetColorScheme !== "function") return;
+      document.querySelectorAll("[data-forge-color-scheme]").forEach(function (el) {
+        el.addEventListener("click", function (ev) {
+          ev.preventDefault();
+          var m = el.getAttribute("data-forge-color-scheme");
+          if (m) window.forgeSetColorScheme(m);
+        });
+      });
+    }
+    function bootForgeThemeAdmin() {
+      applyHtmlThemeFromForge();
+      wireForgeThemeClicks();
+      if (window.matchMedia) {
+        window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", function () {
+          var v = readCookie("forge_color_scheme");
+          if (v === "auto" || !v) applyHtmlThemeFromForge();
+        });
+      }
+      document.addEventListener("forge-theme-applied", function () {
+        syncForgeToggleLabels();
+      });
+    }
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", bootForgeThemeAdmin);
+    } else {
+      bootForgeThemeAdmin();
+    }
+  })();
+  </script>
   <script>
   (function () {
     "use strict";
