@@ -1,0 +1,7 @@
+[submodule "blueprints"]
+	path = blueprints
+	url = https://github.com/autowww/blueprints.git
+[submodule "kitchensink"]
+	path = kitchensink
+	url = https://github.com/autowww/forgesdlc-kitchensink.git
+	branch = master

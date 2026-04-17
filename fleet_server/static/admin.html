@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Fleet — read-only status</title>
+  <link rel="stylesheet" href="/admin/theme.css" />
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, sans-serif; margin: 0; padding: 1.25rem 1.5rem 2rem; line-height: 1.45; max-width: 1200px; }
+    h1 { font-size: 1.35rem; margin: 0 0 0.25rem; }
+    .sub { opacity: 0.75; font-size: 0.9rem; margin-bottom: 1.25rem; }
+    .panel { border: 1px solid color-mix(in srgb, CanvasText 18%, transparent); border-radius: 8px; padding: 1rem 1.1rem; margin-bottom: 1rem; background: color-mix(in srgb, Canvas 92%, CanvasText 4%); }
+    .panel h2 { font-size: 1rem; margin: 0 0 0.65rem; }
+    .row { display: flex; flex-wrap: wrap; gap: 0.75rem 1.25rem; align-items: center; }
+    label { font-size: 0.85rem; }
+    input[type="password"], input[type="text"] { min-width: 14rem; padding: 0.35rem 0.5rem; }
+    button { padding: 0.35rem 0.75rem; cursor: pointer; }
+    .pill { display: inline-block; padding: 0.15rem 0.45rem; border-radius: 999px; font-size: 0.78rem; font-weight: 600; }
+    .st-queued { background: #6b7280; color: #fff; }
+    .st-running { background: #2563eb; color: #fff; }
+    .st-completed { background: #059669; color: #fff; }
+    .st-failed { background: #b91c1c; color: #fff; }
+    .st-cancelled { background: #a16207; color: #fff; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    th, td { text-align: left; padding: 0.35rem 0.5rem; border-bottom: 1px solid color-mix(in srgb, CanvasText 12%, transparent); vertical-align: top; }
+    th { font-weight: 600; white-space: nowrap; }
+    code { font-size: 0.78rem; word-break: break-all; }
+    .err { color: #b91c1c; font-size: 0.9rem; margin-top: 0.5rem; }
+    .muted { opacity: 0.7; font-size: 0.85rem; }
+    .grid-stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.5rem; }
+    .stat { padding: 0.4rem 0.5rem; border-radius: 6px; background: color-mix(in srgb, CanvasText 6%, transparent); }
+    .stat b { display: block; font-size: 1.1rem; }
+  </style>
+</head>
+<body>
+  <h1>Forge Fleet — status</h1>
+  <p class="sub">Read-only view of the orchestrator: host load, active subprocesses, job counts, and recent jobs. Uses the same bearer token as the Fleet API when auth is enabled.</p>
+
+  <div class="panel">
+    <h2>Connection</h2>
+    <div class="row">
+      <label>Bearer token <input type="password" id="token" autocomplete="off" placeholder="optional if server has no token" /></label>
+      <button type="button" id="save">Remember in this browser</button>
+      <button type="button" id="refresh">Refresh now</button>
+      <span class="muted" id="poll"></span>
+    </div>
+    <div class="err" id="err" hidden></div>
+  </div>
+
+  <div class="panel">
+    <h2>Host</h2>
+    <div id="host" class="muted">Loading…</div>
+  </div>
+
+  <div class="panel">
+    <h2>Jobs by status</h2>
+    <div id="by-status" class="grid-stats"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Active workers</h2>
+    <div id="active">—</div>
+  </div>
+
+  <div class="panel">
+    <h2>Recent jobs</h2>
+    <div style="overflow-x:auto">
+      <table>
+        <thead>
+          <tr>
+            <th>Status</th>
+            <th>ID</th>
+            <th>Session</th>
+            <th>Exit</th>
+            <th>Updated (local)</th>
+            <th>Argv preview</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    const LS = "forgeFleetAdminToken";
+    const tokenEl = document.getElementById("token");
+    const errEl = document.getElementById("err");
+    const pollEl = document.getElementById("poll");
+
+    tokenEl.value = localStorage.getItem(LS) || "";
+
+    document.getElementById("save").onclick = () => {
+      localStorage.setItem(LS, tokenEl.value.trim());
+      tokenEl.value = localStorage.getItem(LS) || "";
+    };
+
+    function authHeaders() {
+      const t = (tokenEl.value || "").trim();
+      const h = { "Accept": "application/json" };
+      if (t) h["Authorization"] = "Bearer " + t;
+      return h;
+    }
+
+    function fmtTime(ts) {
+      if (ts == null || ts === "") return "—";
+      const d = new Date(typeof ts === "number" ? ts * 1000 : Number(ts) * 1000);
+      if (Number.isNaN(d.getTime())) return String(ts);
+      return d.toLocaleString();
+    }
+
+    function esc(s) {
+      return String(s ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function statusPill(st) {
+      const c = "st-" + String(st || "").toLowerCase();
+      return '<span class="pill ' + c + '">' + esc(st || "?") + "</span>";
+    }
+
+    async function load() {
+      errEl.hidden = true;
+      errEl.textContent = "";
+      let res;
+      try {
+        res = await fetch("/v1/admin/snapshot", { headers: authHeaders() });
+      } catch (e) {
+        errEl.textContent = "Network error: " + e;
+        errEl.hidden = false;
+        return;
+      }
+      if (res.status === 401) {
+        errEl.textContent = "Unauthorized — set the bearer token to match FLEET_BEARER_TOKEN.";
+        errEl.hidden = false;
+        return;
+      }
+      if (!res.ok) {
+        errEl.textContent = "HTTP " + res.status;
+        errEl.hidden = false;
+        return;
+      }
+      const data = await res.json();
+      if (!data.ok) {
+        errEl.textContent = JSON.stringify(data);
+        errEl.hidden = false;
+        return;
+      }
+
+      const host = data.host || {};
+      const mem = host.memory || {};
+      const la = host.loadavg;
+      document.getElementById("host").innerHTML =
+        "<div><strong>Time (UTC)</strong> " + (host.time_utc || "—") + "</div>" +
+        "<div class=\"row\" style=\"margin-top:0.5rem\">" +
+        "<span><strong>CPUs</strong> " + (host.cpus ?? "—") + "</span>" +
+        "<span><strong>Load (1/5/15)</strong> " + (Array.isArray(la) ? la.join(" / ") : "—") + "</span>" +
+        "<span><strong>Memory</strong> " +
+          (mem.used_pct != null ? mem.used_pct + "% used" : "—") +
+          (mem.total_kb ? " (" + Math.round(mem.total_kb / 1024) + " MiB total)" : "") +
+        "</span>" +
+        "<span><strong>Python</strong> " + (host.python || "—") + "</span>" +
+        "</div>";
+
+      const bs = data.jobs_by_status || {};
+      const keys = Object.keys(bs).sort();
+      document.getElementById("by-status").innerHTML = keys.length
+        ? keys.map((k) => "<div class=\"stat\"><b>" + bs[k] + "</b>" + k + "</div>").join("")
+        : "<span class=\"muted\">No jobs yet.</span>";
+
+      const act = data.active_workers || [];
+      document.getElementById("active").innerHTML = act.length
+        ? "<table><thead><tr><th>PID</th><th>Job</th><th>Session</th><th>Argv preview</th></tr></thead><tbody>" +
+          act.map((w) =>
+            "<tr><td>" + esc(w.pid) + "</td><td><code>" + esc(w.job_id) + "</code></td><td>" + esc(w.session_id || "—") +
+            "</td><td><code>" + esc(w.argv_preview || "") + "</code></td></tr>"
+          ).join("") + "</tbody></table>"
+        : "<span class=\"muted\">No subprocesses running right now.</span>";
+
+      const rows = data.jobs_recent || [];
+      document.getElementById("rows").innerHTML = rows.map((j) =>
+        "<tr>" +
+        "<td>" + statusPill(j.status) + "</td>" +
+        "<td><code>" + esc(j.id) + "</code></td>" +
+        "<td>" + esc(j.session_id || "—") + "</td>" +
+        "<td>" + esc(j.exit_code != null ? j.exit_code : "—") + "</td>" +
+        "<td>" + esc(fmtTime(j.updated)) + "</td>" +
+        "<td><code>" + esc(j.argv_preview || "") + "</code></td>" +
+        "</tr>"
+      ).join("");
+
+      pollEl.textContent = "Last updated " + new Date().toLocaleTimeString();
+    }
+
+    document.getElementById("refresh").onclick = () => load();
+
+    let timer = setInterval(load, 4000);
+    load();
+    window.addEventListener("beforeunload", () => clearInterval(timer));
+  </script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+[project]
+name = "forge-fleet"
+version = "0.1.0"
+description = "HTTP orchestrator for local Docker (and future remote) Docs Health / tasklet jobs"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+fleet-server = "fleet_server.main:main"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["fleet_server"]
+
+[tool.setuptools.package-data]
+fleet_server = ["static/*.html"]
