@@ -127,6 +127,8 @@ Default compose maps port **18765**, mounts **`forge-fleet-data`** on `FLEET_DAT
 
 For a **host install from git** (not Compose), prefer **`./git-install.sh`** after clone — see **[docs/GIT-INSTALL.md](docs/GIT-INSTALL.md)**.
 
+**Caddy on systemd (HTTP on port 18766, Fleet on loopback):** **[docs/CADDY-SYSTEMD.md](docs/CADDY-SYSTEMD.md)** · **`scripts/install-forge-fleet-caddy-systemd.sh`** · `systemd/forge-fleet-caddy.service` + `systemd/Caddyfile.forge-fleet.example`.
+
 ### Admin shows “No jobs” but Lenses used Fleet
 
 The **Recent jobs** table only lists rows in **this process’s** `fleet.sqlite` (see `meta.sqlite_path` from `GET /v1/admin/snapshot` if you need the path). Common causes:

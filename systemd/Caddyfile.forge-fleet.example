@@ -1,0 +1,14 @@
+# Forge Fleet — Caddy reverse proxy (HTTP, all interfaces, port 18766).
+# Upstream: Fleet on 127.0.0.1:18765 (loopback-only; see docs/CADDY-SYSTEMD.md).
+# Env: FLEET_BEARER_TOKEN in /etc/forge-fleet/caddy.env (forge-fleet-caddy.service).
+
+{
+	admin localhost:2019
+}
+
+:18766 {
+	encode gzip
+	reverse_proxy 127.0.0.1:18765 {
+		header_up Authorization "Bearer {$FLEET_BEARER_TOKEN}"
+	}
+}

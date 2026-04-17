@@ -6,6 +6,8 @@
 FLEET_BEARER_TOKEN=change-me
 
 # Optional
+# When Caddy (or another reverse proxy) injects Authorization on loopback, set 1 so /v1/*
+# still requires a bearer (see docs/CADDY-SYSTEMD.md).
 # FLEET_ENFORCE_BEARER=1
 # FLEET_LENSES_WORKSPACE_ROOT=/path/to/workspace
 # FLEET_FORGE_CONSOLE_URL=http://127.0.0.1:8787

@@ -1,0 +1,37 @@
+# Caddy reverse proxy in front of Forge Fleet (starts at boot when enabled).
+# HTTP on all interfaces, port 18766 -> 127.0.0.1:18765 (see systemd/Caddyfile.forge-fleet.example).
+# Install (from repo root):
+#   FLEET_BEARER_TOKEN='…' sudo -E ./scripts/install-forge-fleet-caddy-systemd.sh
+# Or manual:
+#   sudo install -d -m0755 /etc/forge-fleet
+#   sudo install -m0644 systemd/Caddyfile.forge-fleet.example /etc/forge-fleet/Caddyfile
+#   sudo install -m0644 systemd/forge-fleet-caddy.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now forge-fleet-caddy.service
+#
+# Prerequisites:
+#   - `caddy` binary on PATH (package: apt install caddy / dnf install caddy, or https://caddyserver.com/docs/install)
+#   - User `caddy` exists (distro packages create it). If missing: sudo useradd -r -s /usr/sbin/nologin -d /var/lib/caddy caddy
+#   - Fleet listens on loopback only (see docs/CADDY-SYSTEMD.md) so clients cannot bypass Caddy.
+#   - /etc/forge-fleet/caddy.env with FLEET_BEARER_TOKEN (same value as Fleet). chmod 0640 root:caddy
+#     so the caddy user can read it (forge-fleet.env is 0600 and not readable by caddy).
+
+[Unit]
+Description=Caddy — reverse proxy for Forge Fleet
+Documentation=https://github.com/autowww/forge-fleet/blob/main/docs/CADDY-SYSTEMD.md
+After=network-online.target forge-fleet.service
+Wants=forge-fleet.service
+
+[Service]
+Type=notify
+User=caddy
+Group=caddy
+EnvironmentFile=-/etc/forge-fleet/caddy.env
+ExecStart=/usr/bin/caddy run --environ --config /etc/forge-fleet/Caddyfile
+ExecReload=/usr/bin/caddy reload --config /etc/forge-fleet/Caddyfile --force
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target
