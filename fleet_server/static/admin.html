@@ -35,7 +35,7 @@
 </head>
 <body>
   <h1>Forge Fleet — status</h1>
-  <p class="sub">Read-only view of the orchestrator: host load, active subprocesses, job counts, and recent jobs. When the server is bound to loopback only (<code>127.0.0.1</code> / <code>localhost</code>) bearer auth is skipped even if <code>FLEET_BEARER_TOKEN</code> is set; otherwise paste the same token as the Fleet API.</p>
+  <p class="sub">Read-only view: host load, memory, NVIDIA GPU stats (via <code>nvidia-smi</code> when present), active workers, and jobs. When the server is bound to loopback only (<code>127.0.0.1</code> / <code>localhost</code>) bearer auth is skipped even if <code>FLEET_BEARER_TOKEN</code> is set; otherwise paste the same token as the Fleet API.</p>
 
   <div class="panel">
     <h2>Connection</h2>
@@ -51,6 +51,11 @@
   <div class="panel">
     <h2>Host</h2>
     <div id="host" class="muted">Loading…</div>
+  </div>
+
+  <div class="panel">
+    <h2>GPU</h2>
+    <div id="gpu" class="muted">Loading…</div>
   </div>
 
   <div class="panel">
@@ -164,6 +169,25 @@
         "</span>" +
         "<span><strong>Python</strong> " + (host.python || "—") + "</span>" +
         "</div>";
+
+      const gpu = host.gpu || {};
+      if (gpu.available === true && Array.isArray(gpu.devices) && gpu.devices.length) {
+        document.getElementById("gpu").innerHTML =
+          "<div class=\"muted\" style=\"margin-bottom:0.5rem\">Backend: <code>" + esc(gpu.backend || "?") + "</code></div>" +
+          "<table><thead><tr><th>GPU</th><th>Name</th><th>Util %</th><th>VRAM</th><th>VRAM %</th><th>Temp °C</th></tr></thead><tbody>" +
+          gpu.devices.map((d) =>
+            "<tr><td>" + esc(d.index != null ? d.index : "—") + "</td><td>" + esc(d.name || "—") + "</td><td>" +
+            esc(d.utilization_pct != null ? d.utilization_pct : "—") + "</td><td>" +
+            esc(d.memory_used_mib != null && d.memory_total_mib != null
+              ? d.memory_used_mib + " / " + d.memory_total_mib + " MiB"
+              : "—") + "</td><td>" +
+            esc(d.memory_used_pct != null ? d.memory_used_pct : "—") + "</td><td>" +
+            esc(d.temperature_c != null ? d.temperature_c : "—") + "</td></tr>"
+          ).join("") + "</tbody></table>";
+      } else {
+        document.getElementById("gpu").innerHTML =
+          "<span class=\"muted\">" + esc((gpu && gpu.reason) || "No GPU telemetry.") + "</span>";
+      }
 
       const bs = data.jobs_by_status || {};
       const keys = Object.keys(bs).sort();

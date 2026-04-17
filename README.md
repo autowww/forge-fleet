@@ -10,7 +10,7 @@ Small **HTTP + bearer** orchestrator for **Docker argv** workloads (MVP: same ho
 | POST | `/v1/jobs` | Body: `{ "kind": "docker_argv", "argv": ["docker", "run", ...], "session_id": "..." }` → `{ "id": "..." }` |
 | GET | `/v1/jobs/{id}` | Status: `queued`, `running`, `completed`, `failed`, `cancelled` + `stdout` / `stderr` / `exit_code` |
 | POST | `/v1/jobs/{id}/cancel` | Best-effort kill |
-| GET | `/v1/admin/snapshot` | **Read-only** JSON: host load/memory, `jobs_by_status`, `jobs_recent` (argv preview, no full logs), `active_workers` (PID + argv preview for running subprocesses) |
+| GET | `/v1/admin/snapshot` | **Read-only** JSON: host load/memory, **`host.gpu`** (NVIDIA via `nvidia-smi` when available), `jobs_by_status`, `jobs_recent` (argv preview, no full logs), `active_workers` (PID + argv preview for running subprocesses) |
 | GET | `/admin/` | Browser admin UI (same bearer token as API when auth is enabled) |
 | GET | `/admin/theme.css` | Optional **kitchensink** stylesheet when the `kitchensink/` submodule is checked out |
 
