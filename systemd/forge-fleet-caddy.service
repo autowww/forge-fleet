@@ -1,7 +1,7 @@
 # Caddy reverse proxy in front of Forge Fleet (starts at boot when enabled).
 # HTTP on all interfaces, port 18766 -> 127.0.0.1:18765 (see systemd/Caddyfile.forge-fleet.example).
 # Install (from repo root):
-#   FLEET_BEARER_TOKEN='…' sudo -E ./scripts/install-forge-fleet-caddy-systemd.sh
+#   ./scripts/install-caddy-fleet.sh   (interactive; or LAYOUT=system sudo -E … --non-interactive)
 # Or manual:
 #   sudo install -d -m0755 /etc/forge-fleet
 #   sudo install -m0644 systemd/Caddyfile.forge-fleet.example /etc/forge-fleet/Caddyfile

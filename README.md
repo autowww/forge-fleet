@@ -84,6 +84,12 @@ cd forge-fleet
 
 **Strict release** (clean tree, version-only commit): `./scripts/update-fleet.sh --strict`
 
+**User-level Fleet on localhost (port 18766, `~/.local/share/forge-fleet`):** after push, refresh that tree **without sudo**:
+
+`./scripts/update-fleet.sh --user-install`
+
+(or run **`./update-user.sh`** any time after a `git pull`).
+
 Other flags: **`--minor`**, **`--no-push`**, **`--no-install`**, **`--dry-run`**. In Cursor: slash command **`/update-fleet`** or say **“update fleet”** (rule **forge-fleet-update-fleet**). New host from clone: **`./git-install.sh`** — **[docs/GIT-INSTALL.md](docs/GIT-INSTALL.md)**.
 
 ### Versioning (Studio-style semver)
@@ -127,7 +133,7 @@ Default compose maps port **18765**, mounts **`forge-fleet-data`** on `FLEET_DAT
 
 For a **host install from git** (not Compose), prefer **`./git-install.sh`** after clone — see **[docs/GIT-INSTALL.md](docs/GIT-INSTALL.md)**.
 
-**Caddy on systemd (HTTP on port 18766, Fleet on loopback):** **[docs/CADDY-SYSTEMD.md](docs/CADDY-SYSTEMD.md)** · **`scripts/install-forge-fleet-caddy-systemd.sh`** · `systemd/forge-fleet-caddy.service` + `systemd/Caddyfile.forge-fleet.example`.
+**Caddy on systemd:** **[docs/CADDY-SYSTEMD.md](docs/CADDY-SYSTEMD.md)** · **`scripts/install-caddy-fleet.sh`** (interactive; user or system layout, ports, bearer).
 
 ### Admin shows “No jobs” but Lenses used Fleet
 
