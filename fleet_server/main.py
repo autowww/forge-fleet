@@ -19,6 +19,12 @@ def _json_bytes(obj: Any) -> bytes:
     return json.dumps(obj).encode("utf-8")
 
 
+def _loopback_bind_only(host: str) -> bool:
+    """True when the listen address accepts only same-machine connections (no LAN/WAN socket)."""
+    h = (host or "").strip().lower()
+    return h in ("127.0.0.1", "::1", "localhost")
+
+
 class FleetHandler(BaseHTTPRequestHandler):
     server_version = "forge-fleet/0.1"
     db_path: Path
@@ -70,6 +76,8 @@ class FleetHandler(BaseHTTPRequestHandler):
         return o if isinstance(o, dict) else {}
 
     def _auth_ok(self) -> bool:
+        if getattr(self.server, "loopback_bind_skips_auth", False):
+            return True
         exp = getattr(self.server, "expected_token", "") or ""
         if not exp.strip():
             return True
@@ -101,8 +109,8 @@ class FleetHandler(BaseHTTPRequestHandler):
                 "<title>Fleet — sign in</title></head><body style=\"font-family:system-ui;padding:1.5rem;max-width:40rem\">"
                 "<h1>Authorization required</h1>"
                 "<p>This URL is a JSON API. Browsers do not send your Fleet bearer token here.</p>"
-                "<p>Open the <strong>admin dashboard</strong> instead, then paste the same token you use for Lenses / "
-                "<code>FLEET_BEARER_TOKEN</code>:</p>"
+                "<p>Open the <strong>admin dashboard</strong> (works without a token when the server binds only to "
+                "<code>127.0.0.1</code> / <code>localhost</code>):</p>"
                 "<p><a href=\"/admin/\">/admin/</a></p>"
                 "<p style=\"opacity:.75;font-size:.9rem\">API clients: send <code>Authorization: Bearer …</code> "
                 "and <code>Accept: application/json</code>.</p>"
@@ -130,7 +138,16 @@ class FleetHandler(BaseHTTPRequestHandler):
             self._send_unauthorized()
             return
         if path == "/v1/health":
-            self._send(200, {"ok": True, "service": "forge-fleet"})
+            token_set = bool(str(getattr(self.server, "expected_token", "") or "").strip())
+            skip = bool(getattr(self.server, "loopback_bind_skips_auth", False))
+            self._send(
+                200,
+                {
+                    "ok": True,
+                    "service": "forge-fleet",
+                    "auth_enforced": token_set and not skip,
+                },
+            )
             return
         if path == "/v1/admin/snapshot":
             conn = store.connect(self.server.db_path)
@@ -227,6 +244,13 @@ def main() -> None:
     data_dir.mkdir(parents=True, exist_ok=True)
     db_path = data_dir / "fleet.sqlite"
     token = str(os.environ.get("FLEET_BEARER_TOKEN") or "").strip()
+    force_bearer = str(os.environ.get("FLEET_ENFORCE_BEARER") or "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    loopback_only = _loopback_bind_only(args.host)
+    loopback_skips_auth = bool(token) and loopback_only and not force_bearer
 
     conn = store.connect(db_path)
     conn.close()
@@ -234,7 +258,14 @@ def main() -> None:
     httpd = ThreadingHTTPServer((args.host, args.port), FleetHandler)
     httpd.db_path = db_path
     httpd.expected_token = token
-    print(f"[fleet] http://{args.host}:{args.port}/  db={db_path} auth={'bearer' if token else 'disabled'}")
+    httpd.loopback_bind_skips_auth = loopback_skips_auth
+    if loopback_skips_auth:
+        auth_note = "off (loopback bind — bearer not required; set FLEET_ENFORCE_BEARER=1 to force)"
+    elif token:
+        auth_note = "bearer"
+    else:
+        auth_note = "disabled (no FLEET_BEARER_TOKEN)"
+    print(f"[fleet] http://{args.host}:{args.port}/  db={db_path} auth={auth_note}")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

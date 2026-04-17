@@ -35,12 +35,12 @@
 </head>
 <body>
   <h1>Forge Fleet — status</h1>
-  <p class="sub">Read-only view of the orchestrator: host load, active subprocesses, job counts, and recent jobs. Uses the same bearer token as the Fleet API when auth is enabled.</p>
+  <p class="sub">Read-only view of the orchestrator: host load, active subprocesses, job counts, and recent jobs. When the server is bound to loopback only (<code>127.0.0.1</code> / <code>localhost</code>) bearer auth is skipped even if <code>FLEET_BEARER_TOKEN</code> is set; otherwise paste the same token as the Fleet API.</p>
 
   <div class="panel">
     <h2>Connection</h2>
     <div class="row">
-      <label>Bearer token <input type="password" id="token" autocomplete="off" placeholder="optional if server has no token" /></label>
+      <label>Bearer token <input type="password" id="token" autocomplete="off" placeholder="optional on loopback or when no token" /></label>
       <button type="button" id="save">Remember in this browser</button>
       <button type="button" id="refresh">Refresh now</button>
       <span class="muted" id="poll"></span>

@@ -14,7 +14,11 @@ Small **HTTP + bearer** orchestrator for **Docker argv** workloads (MVP: same ho
 | GET | `/admin/` | Browser admin UI (same bearer token as API when auth is enabled) |
 | GET | `/admin/theme.css` | Optional **kitchensink** stylesheet when the `kitchensink/` submodule is checked out |
 
-Auth: `Authorization: Bearer <token>` when **`FLEET_BEARER_TOKEN`** is set on the server; if unset, requests are accepted (local dev only).
+Auth:
+
+- **`FLEET_BEARER_TOKEN`** set and listen **`--host`** is **not** loopback-only (`127.0.0.1`, `::1`, `localhost`): every `/v1/...` request must send `Authorization: Bearer <token>`.
+- **Loopback-only bind** (`--host 127.0.0.1` / `::1` / `localhost`) **with a token configured**: bearer is **not** required (same machine only; Lenses may still send a token). Override with **`FLEET_ENFORCE_BEARER=1`** if you need the token checked even on loopback.
+- **No token** in env: requests are accepted on any bind address (avoid in production).
 
 ## Submodules (blueprints + kitchensink)
 
