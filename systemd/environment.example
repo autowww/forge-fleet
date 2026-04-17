@@ -9,6 +9,11 @@ FLEET_BEARER_TOKEN=change-me
 # When Caddy (or another reverse proxy) injects Authorization on loopback, set 1 so /v1/*
 # still requires a bearer (see docs/CADDY-SYSTEMD.md).
 # FLEET_ENFORCE_BEARER=1
+#
+# Admin “Update from Git” (POST /v1/admin/git-self-update): path to the **git clone** when the
+# running tree has no .git (e.g. user install rsync’d to ~/.local/share/forge-fleet). Example:
+# FLEET_GIT_ROOT=/home/you/forge-fleet
+# Optional shell after successful git (instead of update-user.sh): FLEET_SELF_UPDATE_POST_GIT_COMMAND
 # FLEET_LENSES_WORKSPACE_ROOT=/path/to/workspace
 # FLEET_FORGE_CONSOLE_URL=http://127.0.0.1:8787
 # FLEET_GIT_SHA=

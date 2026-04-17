@@ -20,6 +20,7 @@ from fleet_server import (
     forge_llm_service,
     host_stats,
     runner,
+    self_update,
     store,
     telemetry_periods,
     templates_catalog,
@@ -342,6 +343,7 @@ class FleetHandler(BaseHTTPRequestHandler):
                     body["meta"]["energy_ledger_kwh"] = store.get_energy_ledger(conn)
                 except (OSError, RuntimeError, TypeError, ValueError, sqlite3.Error):
                     body["meta"]["energy_ledger_kwh"] = None
+                body["meta"]["self_update"] = self_update.self_update_meta(self._repo_root())
                 self._send(200, body)
             finally:
                 conn.close()
@@ -542,6 +544,11 @@ class FleetHandler(BaseHTTPRequestHandler):
                 self._send(500, {"ok": False, "error": "probe_script_missing", "detail": str(ex)})
             except Exception as ex:  # noqa: BLE001
                 self._send(500, {"ok": False, "error": "test_fleet_failed", "detail": str(ex)[:800]})
+            return
+        if path == "/v1/admin/git-self-update":
+            out = self_update.run_git_self_update(self._repo_root())
+            code = 200 if out.get("ok") else 400
+            self._send(code, out)
             return
         data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
         container_layout.ensure_layout(data_dir_p)

@@ -38,6 +38,10 @@ Auth:
 - **Loopback-only bind** (`--host 127.0.0.1` / `::1` / `localhost`) **with a token configured**: bearer is **not** required (same machine only; Lenses may still send a token). Override with **`FLEET_ENFORCE_BEARER=1`** if you need the token checked even on loopback.
 - **No token** in env: requests are accepted on any bind address (avoid in production).
 
+### Admin self-update (git pull from UI)
+
+When **`FLEET_GIT_ROOT`** points at a checkout with **`.git`** (required for typical **user** installs that rsync without `.git`), **`/admin/`** shows **Update from Git**: `git pull --ff-only`, submodule sync, then **`update-user.sh`** / **`install-user.sh`** if present, then **`systemctl --user restart forge-fleet.service`**. API: **`POST /v1/admin/git-self-update`** (same bearer auth as other `/v1/` routes). Optional **`FLEET_SELF_UPDATE_POST_GIT_COMMAND`** runs instead of the update scripts. See **`systemd/environment.example`**.
+
 ## Submodules (blueprints + kitchensink)
 
 This repo vendors the same read-only **blueprints** and **kitchensink** submodules as other Forge sites (`forgesdlc`, `forge-lenses`, …). After clone:

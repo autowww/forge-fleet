@@ -60,11 +60,16 @@
       min-height: 1.35rem;
       margin-bottom: 0.2rem;
       display: flex;
+      flex-wrap: nowrap;
       align-items: center;
+      gap: 0.35rem;
+      min-width: 0;
       color: rgba(255,255,255,0.94);
     }
     .fleet-tile__mark {
-      height: 1.55rem; width: auto; max-width: 9.5rem; display: block;
+      height: 1.55rem; width: auto; max-width: 9.5rem;
+      display: block;
+      flex-shrink: 0;
       filter: drop-shadow(0 1px 2px rgba(0,0,0,0.45));
     }
     [data-bs-theme="light"] .fleet-tile {
@@ -116,6 +121,71 @@
       font-weight: 600;
       margin-top: 0.2rem;
       line-height: 1.35;
+    }
+    .fleet-tile__fine {
+      font-size: 0.65rem;
+      font-weight: 600;
+      line-height: 1.3;
+      margin-top: 0.12rem;
+      opacity: 0.88;
+    }
+    [data-bs-theme="light"] .fleet-tile__fine { color: #334155 !important; text-shadow: 0 1px 0 rgba(255,255,255,0.75); }
+    /* Trend: inset glow from bottom (heat) or top (cool); 20s baseline is computed in JS. */
+    .fleet-tile--trend-heat-1 {
+      animation: fleetTrendInsetHeat1 2.6s ease-in-out infinite;
+    }
+    .fleet-tile--trend-heat-2 {
+      animation: fleetTrendInsetHeat2 1.3s ease-in-out infinite;
+    }
+    .fleet-tile--trend-cool-1 {
+      animation: fleetTrendInsetCool1 2.6s ease-in-out infinite;
+    }
+    .fleet-tile--trend-cool-2 {
+      animation: fleetTrendInsetCool2 1.3s ease-in-out infinite;
+    }
+    @keyframes fleetTrendInsetHeat1 {
+      0%, 100% { box-shadow: inset 0 -22px 36px -10px rgba(251, 146, 60, 0.42), 0 2px 12px rgba(0,0,0,0.35); }
+      50% { box-shadow: inset 0 -34px 48px -8px rgba(251, 146, 60, 0.58), 0 2px 12px rgba(0,0,0,0.35); }
+    }
+    @keyframes fleetTrendInsetHeat2 {
+      0%, 100% { box-shadow: inset 0 -28px 44px -8px rgba(248, 113, 113, 0.55), 0 2px 12px rgba(0,0,0,0.35); }
+      50% { box-shadow: inset 0 -40px 56px -6px rgba(239, 68, 68, 0.72), 0 2px 12px rgba(0,0,0,0.35); }
+    }
+    @keyframes fleetTrendInsetCool1 {
+      0%, 100% { box-shadow: inset 0 22px 36px -10px rgba(56, 189, 248, 0.38), 0 2px 12px rgba(0,0,0,0.35); }
+      50% { box-shadow: inset 0 34px 48px -8px rgba(56, 189, 248, 0.55), 0 2px 12px rgba(0,0,0,0.35); }
+    }
+    @keyframes fleetTrendInsetCool2 {
+      0%, 100% { box-shadow: inset 0 28px 44px -8px rgba(125, 211, 252, 0.5), 0 2px 12px rgba(0,0,0,0.35); }
+      50% { box-shadow: inset 0 40px 56px -6px rgba(56, 189, 248, 0.68), 0 2px 12px rgba(0,0,0,0.35); }
+    }
+    [data-bs-theme="light"] .fleet-tile--trend-heat-1 {
+      animation: fleetTrendInsetHeat1Lt 2.6s ease-in-out infinite;
+    }
+    [data-bs-theme="light"] .fleet-tile--trend-heat-2 {
+      animation: fleetTrendInsetHeat2Lt 1.3s ease-in-out infinite;
+    }
+    [data-bs-theme="light"] .fleet-tile--trend-cool-1 {
+      animation: fleetTrendInsetCool1Lt 2.6s ease-in-out infinite;
+    }
+    [data-bs-theme="light"] .fleet-tile--trend-cool-2 {
+      animation: fleetTrendInsetCool2Lt 1.3s ease-in-out infinite;
+    }
+    @keyframes fleetTrendInsetHeat1Lt {
+      0%, 100% { box-shadow: inset 0 -20px 32px -10px rgba(234, 88, 12, 0.28), 0 1px 4px rgba(15,23,42,0.12); }
+      50% { box-shadow: inset 0 -30px 42px -8px rgba(234, 88, 12, 0.42), 0 1px 4px rgba(15,23,42,0.12); }
+    }
+    @keyframes fleetTrendInsetHeat2Lt {
+      0%, 100% { box-shadow: inset 0 -26px 40px -8px rgba(220, 38, 38, 0.35), 0 1px 4px rgba(15,23,42,0.12); }
+      50% { box-shadow: inset 0 -36px 50px -6px rgba(220, 38, 38, 0.5), 0 1px 4px rgba(15,23,42,0.12); }
+    }
+    @keyframes fleetTrendInsetCool1Lt {
+      0%, 100% { box-shadow: inset 0 20px 32px -10px rgba(2, 132, 199, 0.26), 0 1px 4px rgba(15,23,42,0.12); }
+      50% { box-shadow: inset 0 30px 42px -8px rgba(2, 132, 199, 0.4), 0 1px 4px rgba(15,23,42,0.12); }
+    }
+    @keyframes fleetTrendInsetCool2Lt {
+      0%, 100% { box-shadow: inset 0 26px 40px -8px rgba(14, 165, 233, 0.38), 0 1px 4px rgba(15,23,42,0.12); }
+      50% { box-shadow: inset 0 36px 50px -6px rgba(14, 165, 233, 0.52), 0 1px 4px rgba(15,23,42,0.12); }
     }
     .fleet-tile--cpu-low { background: linear-gradient(145deg, #047857 0%, #064e3b 100%); border-color: rgba(52,211,153,0.55); }
     .fleet-tile--cpu-mid { background: linear-gradient(145deg, #b45309 0%, #78350f 100%); border-color: rgba(251,191,36,0.55); }
@@ -194,7 +264,7 @@
       scroll-snap-align: start;
     }
     .fleet-one-row .fleet-tile__brand {
-      min-height: 2.9rem;
+      min-height: 2.25rem;
       align-items: center;
     }
     .fleet-one-row .fleet-cpu-compact .fleet-cpu-wide__value {
@@ -214,12 +284,26 @@
       flex: 0 1 14rem;
       min-width: 11.5rem;
     }
+    .fleet-cpu-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 0.28rem;
+      margin-top: 0.12rem;
+    }
+    .fleet-cpu-wide__value--above {
+      text-align: center;
+      justify-content: center;
+      width: 100%;
+      min-height: 1.5rem;
+      margin: 0;
+      padding: 0 0.15rem;
+    }
     .fleet-cpu-compact__shell {
       position: relative;
       border-radius: 0.45rem;
       overflow: hidden;
-      min-height: 4rem;
-      margin-top: 0.2rem;
+      min-height: 3.35rem;
+      margin-top: 0;
     }
     .fleet-cpu-wide {
       position: relative; width: 100%; min-height: 5.5rem; border-radius: 0.7rem; overflow: hidden;
@@ -276,12 +360,21 @@
     }
     .fleet-cpu-compact .fleet-cpu-wide__value { font-size: 1.45rem; }
     .fleet-cpu-compact__shell .fleet-cpu-wide__content { padding: 0.55rem 0.7rem; }
+    .fleet-cpu-stack .fleet-cpu-wide__meta {
+      text-align: center;
+      max-width: none;
+      margin-top: 0.1rem;
+      font-size: 0.72rem;
+      line-height: 1.35;
+      opacity: 0.92;
+    }
 
     .fleet-gpu-brand {
       display: flex;
+      flex-wrap: nowrap;
       align-items: center;
       justify-content: flex-start;
-      min-height: 2.9rem;
+      min-height: 2.25rem;
       margin-bottom: 0.05rem;
     }
     .fleet-gpu-logo {
@@ -326,7 +419,7 @@
     }
     .fleet-gpu-stub__logos {
       display: flex;
-      justify-content: center;
+      justify-content: flex-start;
       align-items: center;
       gap: 0.5rem;
       flex-wrap: nowrap;
@@ -355,20 +448,17 @@
       min-width: 11rem;
       flex: 1.05 1 11.5rem;
     }
-    .fleet-load-split__sub {
-      display: flex;
-      justify-content: center;
-      align-items: flex-end;
-      gap: 0.65rem;
-      margin-top: 0.35rem;
+    .fleet-load-inline {
+      font-size: 0.78rem;
+      font-weight: 750;
+      white-space: nowrap;
+      overflow-x: auto;
+      max-width: 100%;
+      margin-top: 0.12rem;
+      padding-bottom: 0.12rem;
+      font-variant-numeric: tabular-nums;
+      line-height: 1.35;
     }
-    .fleet-load-mini { text-align: center; flex: 1; min-width: 0; }
-    .fleet-load-mini__svg { display: block; margin: 0 auto; width: 100%; max-width: 5.5rem; height: auto; }
-    .fleet-load-mini__period { font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; margin-top: 0.2rem; opacity: 0.92; }
-    .fleet-load-mini__value { font-size: 0.82rem; font-weight: 800; font-family: var(--font-mono, ui-monospace, monospace); margin-top: 0.08rem; }
-    .fleet-load-mini--sm .fleet-load-mini__svg { max-width: 3.15rem; }
-    .fleet-load-mini--sm .fleet-load-mini__period { font-size: 0.57rem; margin-top: 0.1rem; }
-    .fleet-load-mini--sm .fleet-load-mini__value { font-size: 0.72rem; margin-top: 0.04rem; }
   </style>
 </head>
 <body class="fleet-admin-body">
@@ -458,6 +548,21 @@
         <div id="fleet-container-types-table"></div>
       </div>
       <p class="text-body-secondary small mb-0">Kitchensink + Bootstrap layout; theme follows Light / Dark / System. Metrics update automatically.</p>
+      <div class="d-none border border-secondary-subtle rounded p-2 mb-2 small mt-2" id="fleet-self-update-wrap">
+        <div class="fw-semibold mb-1">Update from Git</div>
+        <p class="text-body-secondary mb-2 small" id="fleet-self-update-help"></p>
+        <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+          <button type="button" class="btn btn-sm btn-outline-primary" id="fleet-self-update-btn" disabled>
+            Pull, submodule sync, refresh install &amp; restart…
+          </button>
+          <span class="text-body-secondary fleet-mono small" id="fleet-self-update-status" aria-live="polite"></span>
+        </div>
+        <pre
+          class="fleet-mono small text-body-secondary mb-0 p-2 rounded border bg-body-secondary"
+          id="fleet-self-update-log"
+          style="max-height: 14rem; overflow: auto; display: none; white-space: pre-wrap"
+        ></pre>
+      </div>
     </header>
 
     <section class="card mb-3 border-secondary-subtle shadow-sm">
@@ -617,6 +722,8 @@
     var lastHostForChart = null;
     var chartBuf = [];
     var CHART_SAMPLES = 15;
+    var TREND_MS = 20000;
+    var __fleetTrendBuf = [];
 
     function esc(s) {
       return String(s ?? "")
@@ -648,14 +755,6 @@
       if (v < 50) return 1;
       if (v < 75) return 2;
       return 3;
-    }
-
-    function loadZoneStroke(p) {
-      var z = loadZone4(p);
-      if (z === 0) return "#4ade80";
-      if (z === 1) return "#fbbf24";
-      if (z === 2) return "#fb7185";
-      return "#b91c1c";
     }
 
     /** Smooth CPU %% display: 3s ease per target; new samples restart from the value currently shown. */
@@ -781,76 +880,8 @@
       return out;
     }
 
-    function miniLoadGaugeSvg(pct) {
-      var p = pct == null || isNaN(pct) ? 0 : Math.min(100, Math.max(0, Number(pct)));
-      var cx = 22;
-      var cy = 23;
-      var r = 14.5;
-      var t = Math.PI * (1 - p / 100);
-      var nx = cx + r * Math.cos(t);
-      var ny = cy - r * Math.sin(t);
-      var x0 = cx - r;
-      var x1 = cx + r;
-      var stroke = loadZoneStroke(p);
-      var track = "rgba(148,163,184,0.42)";
-      return (
-        '<svg class="fleet-load-mini__svg" viewBox="0 0 44 28" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" fill="none" stroke-linecap="round" stroke-linejoin="round">' +
-        '<path d="M ' +
-        x0 +
-        " " +
-        cy +
-        " A " +
-        r +
-        " " +
-        r +
-        ' 0 0 1 ' +
-        x1 +
-        " " +
-        cy +
-        '" stroke="' +
-        track +
-        '" stroke-width="2.05"/>' +
-        '<line x1="' +
-        cx +
-        '" y1="' +
-        cy +
-        '" x2="' +
-        nx.toFixed(2) +
-        '" y2="' +
-        ny.toFixed(2) +
-        '" stroke="' +
-        stroke +
-        '" stroke-width="2.35"/>' +
-        '<circle cx="' +
-        cx +
-        '" cy="' +
-        cy +
-        '" r="2.25" fill="' +
-        stroke +
-        '"/></svg>'
-      );
-    }
-
-    function miniLoadGaugeBlock(pct, periodLabel, small) {
-      var p = pct == null || isNaN(pct) ? null : Math.min(100, Math.max(0, Number(pct)));
-      var show = p == null ? "—" : String(Math.round(p * 10) / 10) + "%";
-      var pv = p == null ? 0 : p;
-      var smCls = small ? " fleet-load-mini--sm" : "";
-      return (
-        '<div class="fleet-load-mini' +
-        smCls +
-        '">' +
-        miniLoadGaugeSvg(pv) +
-        '<div class="fleet-load-mini__period">' +
-        esc(periodLabel) +
-        "</div>" +
-        '<div class="fleet-load-mini__value">' +
-        esc(show) +
-        "</div></div>"
-      );
-    }
-
-    function renderCpuCompactTile(host) {
+    function renderCpuCompactTile(host, trendCls) {
+      trendCls = trendCls || "";
       var cpuP = cpuPct(host);
       var disp =
         cpuP != null && !isNaN(cpuP) ? fleetCpuAnim.widthForRender(cpuP) : null;
@@ -871,8 +902,14 @@
           : "—";
       var wBar = esc(String(Math.round(w * 100) / 100));
       return (
-        '<div class="fleet-tile fleet-cpu-compact">' +
+        '<div class="fleet-tile fleet-cpu-compact' +
+        trendCls +
+        '">' +
         '<div class="fleet-tile__brand"><span class="fleet-tile__label">CPU</span></div>' +
+        '<div class="fleet-cpu-stack">' +
+        '<div class="fleet-cpu-wide__value fleet-cpu-wide__value--above fleet-mono" id="fleet-cpu-value">' +
+        mainPct +
+        "</div>" +
         '<div id="fleet-cpu-shell" class="fleet-cpu-compact__shell fleet-cpu-wide--z' +
         z +
         '">' +
@@ -880,18 +917,14 @@
         '<div id="fleet-cpu-fill" class="fleet-cpu-wide__fill" style="width:' +
         wBar +
         '%"></div>' +
-        '<div class="fleet-cpu-wide__content">' +
-        '<div class="fleet-cpu-wide__left">' +
-        '<div class="fleet-cpu-wide__value" id="fleet-cpu-value">' +
-        mainPct +
-        "</div></div>" +
+        "</div>" +
         '<div class="fleet-cpu-wide__meta">' +
         esc(cpus) +
-        " logical cores · " +
+        " logical · " +
         esc(mhz) +
-        "<br/>" +
+        " · " +
         esc(modeStr) +
-        "</div></div></div></div>"
+        "</div></div></div>"
       );
     }
 
@@ -1073,8 +1106,86 @@
       var heatVal = 0;
       if (maxU != null) heatVal = maxU;
       if (busy != null) heatVal = Math.max(heatVal, busy);
+      /* Zone tint follows the same signal as the hero number: busy when I/O is present. */
+      var heatTintVal = busy != null ? busy : heatVal;
       var has = maxU != null || ioAgg != null;
-      return { maxU: maxU, ioAgg: ioAgg, busy: busy, heatVal: heatVal, parts: parts, has: has, ioReason: (io && io.reason) || null };
+      return {
+        maxU: maxU,
+        ioAgg: ioAgg,
+        busy: busy,
+        heatVal: heatVal,
+        heatTintVal: heatTintVal,
+        parts: parts,
+        has: has,
+        ioReason: (io && io.reason) || null,
+      };
+    }
+
+    function trendClassFor(key, current) {
+      if (current == null || isNaN(Number(current))) return "";
+      var target = Date.now() - TREND_MS;
+      var baseVal = null;
+      for (var i = __fleetTrendBuf.length - 1; i >= 0; i--) {
+        if (__fleetTrendBuf[i].t <= target) {
+          var v = __fleetTrendBuf[i][key];
+          if (v != null && !isNaN(Number(v))) baseVal = Number(v);
+          break;
+        }
+      }
+      if (baseVal == null || isNaN(baseVal)) return "";
+      var delta = Number(current) - baseVal;
+      var ad = Math.abs(delta);
+      if (ad <= 5) return "";
+      var tier = ad <= 15 ? 1 : 2;
+      if (delta > 0) return " fleet-tile--trend-heat-" + tier;
+      return " fleet-tile--trend-cool-" + tier;
+    }
+
+    function pushFleetTrendSample(host) {
+      var now = Date.now();
+      var c = cpuPct(host);
+      var ram = null;
+      if (host.memory && host.memory.used_pct != null && !isNaN(Number(host.memory.used_pct))) {
+        ram = Number(host.memory.used_pct);
+      }
+      var lm = loadMetrics(host);
+      var l1 = lm != null && lm.pct1 != null && !isNaN(lm.pct1) ? lm.pct1 : null;
+      var dk = diskAgg(host);
+      var dkTput =
+        dk.ioAgg && dk.ioAgg.total_mbps != null && !isNaN(Number(dk.ioAgg.total_mbps));
+      var diskP = null;
+      if (dk.busy != null) diskP = dk.busy;
+      else if (!dkTput && dk.maxU != null) diskP = dk.maxU;
+      var g = host.gpu || {};
+      var gs = [];
+      if (gpuNvidiaHasDevices(g)) {
+        var nvU = maxNvUtil(g);
+        if (nvU != null) gs.push(nvU);
+      }
+      if (gpuAmdHasDevices(g)) {
+        var amU = maxAmdUtil(g);
+        if (amU != null) gs.push(amU);
+      }
+      if (gpuIntelHasDevices(g)) {
+        var irU = maxIntelUtil(g);
+        if (irU != null) gs.push(irU);
+      }
+      var gpuM = gs.length ? Math.max.apply(null, gs) : null;
+      __fleetTrendBuf.push({
+        t: now,
+        cpu: c != null && !isNaN(c) ? Number(c) : null,
+        ram: ram,
+        load1: l1,
+        disk: diskP,
+        gpu: gpuM,
+        nv: gpuNvidiaHasDevices(g) && maxNvUtil(g) != null ? Number(maxNvUtil(g)) : null,
+        am: gpuAmdHasDevices(g) && maxAmdUtil(g) != null ? Number(maxAmdUtil(g)) : null,
+        ir: gpuIntelHasDevices(g) && maxIntelUtil(g) != null ? Number(maxIntelUtil(g)) : null,
+      });
+      var pruneBefore = now - TREND_MS - 8000;
+      while (__fleetTrendBuf.length && __fleetTrendBuf[0].t < pruneBefore) {
+        __fleetTrendBuf.shift();
+      }
     }
 
     function loadMetrics(host) {
@@ -1146,6 +1257,15 @@
       );
     }
 
+    function formatLedgerKwhShort(ledger) {
+      if (!ledger || ledger.total_kwh == null || isNaN(Number(ledger.total_kwh))) {
+        return "No kWh recorded yet for this host.";
+      }
+      var t = Number(ledger.total_kwh);
+      var s = t >= 100 ? t.toFixed(1) : t >= 1 ? t.toFixed(2) : t.toFixed(4);
+      return "Logged so far: " + esc(s) + " kWh (see Details).";
+    }
+
     function renderPowerTile(host, energyLedger) {
       var en = (host && host.energy) || {};
       var raplOk = en.rapl_available === true && en.rapl_package_uj != null && !isNaN(Number(en.rapl_package_uj));
@@ -1182,10 +1302,11 @@
           tileMark(MARK_POWER, "Power") +
           "</div>" +
           '<div class="fleet-tile__value fleet-mono">—</div>' +
-          '<div class="fleet-tile__mem">No RAPL / GPU power data</div>' +
-          '<div class="fleet-tile__hint">' +
+          '<div class="fleet-tile__mem">No package or GPU power readout yet.</div>' +
+          '<div class="fleet-tile__hint">Cumulative kWh appears after a few host samples.</div>' +
+          '<details class="small mt-1 fleet-power-adv"><summary>Details</summary><p class="mb-0 small">' +
           formatLedgerKwhLine(energyLedger) +
-          "</div></div>"
+          "</p></details></div>"
         );
       }
 
@@ -1193,11 +1314,11 @@
       var pHeat = heat3(heatIn);
       var main = totalW != null ? esc(fmtWatts(totalW)) + " W" : "—";
       var memParts = [];
-      if (raplW != null) memParts.push("pkg ~" + esc(fmtWatts(raplW)) + " W");
-      else if (raplOk) memParts.push("pkg — (second poll)");
-      if (gpuW != null) memParts.push("GPU " + esc(fmtWatts(gpuW)) + " W");
-      var memLine = memParts.length ? memParts.join(" · ") : "Draw";
-      var hint = formatLedgerKwhLine(energyLedger);
+      if (raplW != null) memParts.push("Package ~" + esc(fmtWatts(raplW)) + " W");
+      else if (raplOk) memParts.push("Package (next sample)");
+      if (gpuW != null) memParts.push("GPU ~" + esc(fmtWatts(gpuW)) + " W");
+      var memLine = memParts.length ? memParts.join(" · ") : "Draw estimate";
+      var hintShort = formatLedgerKwhShort(energyLedger);
       return (
         '<div class="fleet-tile fleet-tile--power-' +
         pHeat +
@@ -1212,8 +1333,10 @@
         esc(memLine) +
         "</div>" +
         '<div class="fleet-tile__hint">' +
-        hint +
-        "</div></div>"
+        hintShort +
+        '</div><details class="small mt-1 fleet-power-adv"><summary>Technical details</summary><p class="mb-0 small opacity-90">' +
+        formatLedgerKwhLine(energyLedger) +
+        "</p></details></div>"
       );
     }
 
@@ -1280,35 +1403,56 @@
       if (ramPct != null && isNaN(ramPct)) ramPct = null;
 
       var lm = loadMetrics(host);
+      var dkPre = diskAgg(host);
+      var diskHasTput =
+        dkPre.ioAgg &&
+        dkPre.ioAgg.total_mbps != null &&
+        !isNaN(Number(dkPre.ioAgg.total_mbps));
+      var diskTrendPct = null;
+      if (dkPre.busy != null) diskTrendPct = dkPre.busy;
+      else if (!diskHasTput && dkPre.maxU != null) diskTrendPct = dkPre.maxU;
+
+      var tCpu = trendClassFor("cpu", cpuPct(host));
+      var tRam =
+        memHost.used_pct != null && !isNaN(Number(memHost.used_pct))
+          ? trendClassFor("ram", Number(memHost.used_pct))
+          : "";
+      var tLoad = lm != null && lm.pct1 != null && !isNaN(lm.pct1) ? trendClassFor("load1", lm.pct1) : "";
+      var tDisk = diskTrendPct != null ? trendClassFor("disk", diskTrendPct) : "";
+
+      function pctOneLine(v) {
+        if (v == null || isNaN(v)) return "—";
+        return esc(String(Math.round(v * 10) / 10)) + "%";
+      }
+
       var loadTile = "";
       if (lm) {
         mergeLoadPeakPct(Math.round(lm.pct1 * 10) / 10);
         var loadHeat = heat3(Math.max(lm.pct1, lm.pct5, lm.pct15));
-        var p1 =
-          lm.pct1 != null && !isNaN(lm.pct1) ? esc(String(Math.round(lm.pct1 * 10) / 10)) + "%" : "—";
+        var oneLine =
+          "1m " +
+          pctOneLine(lm.pct1) +
+          " · 5m " +
+          pctOneLine(lm.pct5) +
+          " · 15m " +
+          pctOneLine(lm.pct15);
         loadTile =
           '<div class="fleet-tile fleet-tile--load-' +
           loadHeat +
-          ' fleet-load-split">' +
+          " fleet-load-split" +
+          tLoad +
+          '">' +
           '<div class="fleet-tile__brand"><span class="fleet-tile__label">System load</span></div>' +
-          '<div class="fleet-tile__value fleet-mono fleet-tile__load-mega">' +
-          p1 +
+          '<div class="fleet-load-inline fleet-mono">' +
+          oneLine +
           "</div>" +
-          '<div class="fleet-tile__mem">1 min load (% of max scale)</div>' +
-          '<div class="fleet-load-split__sub">' +
-          miniLoadGaugeBlock(lm.pct5, "5 min", true) +
-          miniLoadGaugeBlock(lm.pct15, "15 min", true) +
-          "</div></div>";
+          '<div class="fleet-tile__mem">% of max scale (see Advanced)</div></div>';
       } else {
         loadTile =
           '<div class="fleet-tile fleet-tile--inactive fleet-load-split">' +
           '<div class="fleet-tile__brand"><span class="fleet-tile__label">System load</span></div>' +
-          '<div class="fleet-tile__value fleet-mono">—</div>' +
-          '<div class="fleet-tile__mem">Load averages unavailable</div>' +
-          '<div class="fleet-load-split__sub">' +
-          miniLoadGaugeBlock(0, "5 min", true) +
-          miniLoadGaugeBlock(0, "15 min", true) +
-          "</div></div>";
+          '<div class="fleet-load-inline fleet-mono">1m — · 5m — · 15m —</div>' +
+          '<div class="fleet-tile__mem">Load averages unavailable</div></div>';
       }
 
       var memTile = "";
@@ -1337,6 +1481,7 @@
           heat3(rp) +
           " fleet-mem-banks-tile fleet-mem-banks--z" +
           mz +
+          tRam +
           '">' +
           '<div class="fleet-tile__brand">' +
           tileMark(MARK_RAM, "Memory") +
@@ -1359,7 +1504,7 @@
           "</div></div>";
       }
 
-      var dk = diskAgg(host);
+      var dk = dkPre;
       var diskTile = "";
       if (!dk.has) {
         var dh = dk.ioReason ? esc(String(dk.ioReason).slice(0, 140)) : "No disk metrics";
@@ -1372,25 +1517,38 @@
           dh +
           "</div></div>";
       } else {
-        var dcls = "fleet-tile fleet-tile--disk-" + heat3(dk.heatVal);
-        var dMain;
-        if (dk.maxU != null) dMain = esc(Math.round(dk.maxU * 10) / 10) + "%";
-        else if (dk.busy != null) dMain = "~" + esc(Math.round(dk.busy * 10) / 10) + "%";
-        else if (dk.ioAgg && dk.ioAgg.total_mbps != null) {
-          dMain = esc(Math.round(Number(dk.ioAgg.total_mbps) * 10) / 10) + " MB/s";
-        } else dMain = "—";
+        var dTint = heat3(dk.heatTintVal);
+        var dcls = "fleet-tile fleet-tile--disk-" + dTint + tDisk;
         var hasValidTput =
           dk.ioAgg &&
           dk.ioAgg.total_mbps != null &&
           !isNaN(Number(dk.ioAgg.total_mbps));
-        var ioBits = [];
-        if (!hasValidTput && dk.busy != null && dk.maxU != null) {
-          ioBits.push("busy ~" + esc(Math.round(dk.busy * 10) / 10) + "%");
-        }
-        var dSub =
-          ioBits.length > 0
-            ? "<div class=\"fleet-tile__mem\">" + ioBits.join(" · ") + "</div>"
-            : "<div class=\"fleet-tile__mem\">I/O</div>";
+        var dMain;
+        var dFine = "";
+        var diskPrimaryBusy = false;
+        if (dk.busy != null) {
+          diskPrimaryBusy = true;
+          dMain = "~" + esc(Math.round(dk.busy * 10) / 10) + "%";
+          if (dk.maxU != null) {
+            dFine =
+              '<div class="fleet-tile__fine">Space: up to ' +
+              esc(String(Math.round(dk.maxU * 10) / 10)) +
+              "% used (fullest mount)</div>";
+          }
+        } else if (hasValidTput) {
+          dMain = esc(Math.round(Number(dk.ioAgg.total_mbps) * 10) / 10) + " MB/s";
+          if (dk.maxU != null) {
+            dFine =
+              '<div class="fleet-tile__fine">Space: up to ' +
+              esc(String(Math.round(dk.maxU * 10) / 10)) +
+              "% used</div>";
+          }
+        } else if (dk.maxU != null) {
+          dMain = esc(Math.round(dk.maxU * 10) / 10) + "%";
+        } else dMain = "—";
+        var memLabel =
+          dk.maxU != null && !diskPrimaryBusy && !hasValidTput ? "Space" : "I/O";
+        var dSub = '<div class="fleet-tile__mem">' + memLabel + "</div>";
         var dHint =
           dk.ioAgg && dk.ioAgg.total_mbps != null && !isNaN(Number(dk.ioAgg.total_mbps))
             ? esc(String(Math.round(Number(dk.ioAgg.total_mbps) * 10) / 10)) + " MB/s"
@@ -1403,6 +1561,7 @@
           "</div><div class=\"fleet-tile__value fleet-mono\">" +
           dMain +
           "</div>" +
+          dFine +
           dSub +
           "<div class=\"fleet-tile__hint\">" +
           dHint +
@@ -1417,13 +1576,17 @@
       var ir = maxIntelUtil(g);
       var irHas = gpuIntelHasDevices(g);
 
+      var tNv = nv != null && !isNaN(nv) ? trendClassFor("nv", nv) : "";
+      var tAm = am != null && !isNaN(am) ? trendClassFor("am", am) : "";
+      var tIr = ir != null && !isNaN(ir) ? trendClassFor("ir", ir) : "";
+
       var gpuBlock = "";
       if (!nvHas && !amHas && !irHas) {
         gpuBlock = renderGpuStubTile();
       } else {
         if (nvHas) {
           var nvh = nv == null ? 0 : nv;
-          var nvc = "fleet-tile fleet-tile--nv" + (nvh < 55 ? "" : nvh < 82 ? "-mid" : "-hot");
+          var nvc = "fleet-tile fleet-tile--nv" + (nvh < 55 ? "" : nvh < 82 ? "-mid" : "-hot") + tNv;
           gpuBlock +=
             '<div class="' +
             nvc +
@@ -1437,7 +1600,7 @@
         }
         if (amHas) {
           var amh = am == null ? 0 : am;
-          var amc = "fleet-tile fleet-tile--amd" + (amh < 55 ? "" : amh < 82 ? "-mid" : "-hot");
+          var amc = "fleet-tile fleet-tile--amd" + (amh < 55 ? "" : amh < 82 ? "-mid" : "-hot") + tAm;
           gpuBlock +=
             '<div class="' +
             amc +
@@ -1451,7 +1614,7 @@
         }
         if (irHas) {
           var irh = ir == null ? 0 : ir;
-          var irc = "fleet-tile fleet-tile--intel" + (irh < 55 ? "" : irh < 82 ? "-mid" : "-hot");
+          var irc = "fleet-tile fleet-tile--intel" + (irh < 55 ? "" : irh < 82 ? "-mid" : "-hot") + tIr;
           gpuBlock +=
             '<div class="' +
             irc +
@@ -1466,7 +1629,7 @@
       }
 
       var powerTile = renderPowerTile(host, energyLedger);
-      return renderCpuCompactTile(host) + memTile + loadTile + diskTile + powerTile + gpuBlock;
+      return renderCpuCompactTile(host, tCpu) + memTile + loadTile + diskTile + powerTile + gpuBlock;
     }
 
     function statusPill(st) {
@@ -1632,11 +1795,14 @@
         wrap.classList.add("d-none");
       }
 
+      applySelfUpdateMeta(meta.self_update || {});
+
       renderManagedServices(integ);
       loadContainerTypesOnce();
 
       var host = data.host || {};
       document.getElementById("fleet-tiles").innerHTML = renderTiles(host, meta.energy_ledger_kwh || null);
+      pushFleetTrendSample(host);
       fleetCpuAnim.onSnapshotTarget(cpuPct(host));
       lastHostForChart = host;
       chartBuf = [];
