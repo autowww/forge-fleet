@@ -103,7 +103,7 @@
       font-variant-numeric: tabular-nums;
     }
     .fleet-one-row .fleet-tile__value {
-      min-height: 1.62rem;
+      min-height: 2.15rem;
       display: flex;
       align-items: center;
     }
@@ -192,6 +192,19 @@
       min-width: 10.25rem;
       max-width: none;
       scroll-snap-align: start;
+    }
+    .fleet-one-row .fleet-tile__brand {
+      min-height: 2.9rem;
+      align-items: center;
+    }
+    .fleet-one-row .fleet-cpu-compact .fleet-cpu-wide__value {
+      min-height: 2.15rem;
+    }
+    .fleet-admin-adv {
+      border-radius: 0.4rem;
+      padding: 0.35rem 0.5rem;
+      border: 1px solid var(--forge-border, var(--bs-border-color-translucent));
+      background: color-mix(in srgb, var(--forge-surface-2, var(--bs-secondary-bg)) 70%, transparent);
     }
     .fleet-cpu-compact.fleet-tile {
       flex: 1 1 12.5rem;
@@ -461,6 +474,33 @@
             <button type="button" class="btn btn-sm btn-primary" id="refresh">Refresh</button>
           </div>
           <div id="fleet-load-chart" class="fleet-chart-box" role="img" aria-label="Recent CPU and RAM trend"></div>
+          <details class="fleet-admin-adv mt-2 small text-body-secondary">
+            <summary class="user-select-none" style="cursor:pointer">Advanced — load % scale</summary>
+            <div class="mt-2">
+              <label for="fleet-load-scale-inp" class="form-label mb-1 small"
+                >Denominator for load % (localStorage <code class="fleet-mono">forgeFleetLoadScaleMax</code>)</label>
+              <div class="d-flex flex-wrap align-items-center gap-2">
+                <input
+                  type="number"
+                  inputmode="decimal"
+                  step="any"
+                  min="0.01"
+                  class="form-control form-control-sm fleet-mono"
+                  style="max-width: 12rem"
+                  id="fleet-load-scale-inp"
+                  placeholder="empty = logical CPU count"
+                  autocomplete="off"
+                />
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-load-scale-save">Apply</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-load-scale-clear">Clear override</button>
+              </div>
+              <p class="mb-0 mt-2 small opacity-75">
+                Peak 1m % is tracked in <code class="fleet-mono">forgeFleetLoadPeakPct</code> automatically. If the overview
+                looks wrong, confirm this page is the current bundle: view-source and search for
+                <code class="fleet-mono">renderPowerTile</code> or <code class="fleet-mono">fleet-tile--power-</code>.
+              </p>
+            </div>
+          </details>
         </div>
         <hr class="my-3 opacity-25" />
         <div class="alert alert-danger py-2 px-3 mb-0 small d-none" id="err" role="alert"></div>
@@ -1251,7 +1291,7 @@
           loadHeat +
           ' fleet-load-split">' +
           '<div class="fleet-tile__brand"><span class="fleet-tile__label">System load</span></div>' +
-          '<div class="fleet-tile__value fleet-mono">' +
+          '<div class="fleet-tile__value fleet-mono fleet-tile__load-mega">' +
           p1 +
           "</div>" +
           '<div class="fleet-tile__mem">1 min load (% of max scale)</div>' +
@@ -1339,19 +1379,12 @@
         else if (dk.ioAgg && dk.ioAgg.total_mbps != null) {
           dMain = esc(Math.round(Number(dk.ioAgg.total_mbps) * 10) / 10) + " MB/s";
         } else dMain = "—";
-        var mainIsMbps =
-          dk.maxU == null &&
-          dk.busy == null &&
+        var hasValidTput =
           dk.ioAgg &&
-          dk.ioAgg.total_mbps != null;
+          dk.ioAgg.total_mbps != null &&
+          !isNaN(Number(dk.ioAgg.total_mbps));
         var ioBits = [];
-        if (dk.ioAgg && dk.ioAgg.total_mbps != null && !mainIsMbps) {
-          ioBits.push("Total " + esc(Math.round(Number(dk.ioAgg.total_mbps) * 10) / 10) + " MB/s");
-        }
-        if (dk.busy != null && dk.maxU != null) {
-          ioBits.push("busy ~" + esc(Math.round(dk.busy * 10) / 10) + "%");
-        }
-        if (mainIsMbps && dk.busy != null) {
+        if (!hasValidTput && dk.busy != null && dk.maxU != null) {
           ioBits.push("busy ~" + esc(Math.round(dk.busy * 10) / 10) + "%");
         }
         var dSub =
@@ -1657,6 +1690,38 @@
     document.getElementById("refresh").onclick = function () {
       loadSnapshot().then(function () { scheduleNext(); });
     };
+
+    function syncLoadScaleControls() {
+      var inp = document.getElementById("fleet-load-scale-inp");
+      if (!inp) return;
+      var v = localStorage.getItem(LS_LOAD_SCALE);
+      inp.value = v != null && String(v).trim() !== "" ? String(v).trim() : "";
+    }
+    syncLoadScaleControls();
+    var fleetLoadScaleSave = document.getElementById("fleet-load-scale-save");
+    var fleetLoadScaleClear = document.getElementById("fleet-load-scale-clear");
+    if (fleetLoadScaleSave) {
+      fleetLoadScaleSave.onclick = function () {
+        var inp = document.getElementById("fleet-load-scale-inp");
+        if (!inp) return;
+        var s = String(inp.value || "").trim();
+        if (!s) {
+          localStorage.removeItem(LS_LOAD_SCALE);
+        } else {
+          var n = parseFloat(s);
+          if (!isFinite(n) || n <= 0) return;
+          localStorage.setItem(LS_LOAD_SCALE, String(n));
+        }
+        loadSnapshot().then(function () { scheduleNext(); });
+      };
+    }
+    if (fleetLoadScaleClear) {
+      fleetLoadScaleClear.onclick = function () {
+        localStorage.removeItem(LS_LOAD_SCALE);
+        syncLoadScaleControls();
+        loadSnapshot().then(function () { scheduleNext(); });
+      };
+    }
 
     async function forgeSvcPost(path, okText) {
       setErr("");
