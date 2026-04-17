@@ -328,6 +328,44 @@ def rapl_package_energy_uj() -> dict[str, Any]:
     return {"available": True, "domains": domains, "total_uj": total}
 
 
+def rapl_package_power_uw_sum() -> int | None:
+    """
+    Sum ``power_uw`` (micro-watts) for **package** RAPL domains when the kernel exposes it.
+
+    This is optional hardware/kernel support; when present it gives an immediate draw hint
+    without waiting for a second ``energy_uj`` sample.
+    """
+    if not sys.platform.startswith("linux"):
+        return None
+    root = Path("/sys/class/powercap")
+    if not root.is_dir():
+        return None
+    total = 0
+    n = 0
+    for z in sorted(root.iterdir()):
+        if not z.is_dir():
+            continue
+        name_f = z / "name"
+        pw_f = z / "power_uw"
+        if not pw_f.is_file():
+            continue
+        try:
+            raw_name = name_f.read_text(encoding="utf-8", errors="replace").strip().lower() if name_f.is_file() else ""
+        except OSError:
+            raw_name = ""
+        if "package" not in raw_name or "core" in raw_name:
+            continue
+        try:
+            uw = int(pw_f.read_text(encoding="utf-8", errors="replace").strip())
+        except (OSError, ValueError):
+            continue
+        if uw <= 0 or uw > 500_000_000:
+            continue
+        total += uw
+        n += 1
+    return total if n else None
+
+
 def energy_observation(gpu: dict[str, Any]) -> dict[str, Any]:
     """Instantaneous energy counters / power for the host (RAPL package + NVIDIA draw when present)."""
     rapl = rapl_package_energy_uj()
@@ -350,6 +388,10 @@ def energy_observation(gpu: dict[str, Any]) -> dict[str, Any]:
         "rapl_available": bool(rapl.get("available")),
         "gpu_power_draw_w_sum": gpu_w,
     }
+    if rapl.get("available"):
+        puw = rapl_package_power_uw_sum()
+        if puw is not None:
+            out["rapl_instant_w"] = round(puw / 1_000_000.0, 3)
     if not rapl.get("available") and isinstance(rapl.get("reason"), str):
         out["rapl_reason"] = rapl["reason"]
     return out
@@ -472,6 +514,30 @@ def cpu_usage_percent_per_core_avg_sample(interval_s: float = 0.06) -> float | N
     if not pcts:
         return cpu_usage_percent_sample(interval_s)
     return round(sum(pcts) / len(pcts), 1)
+
+
+def physical_cpu_cores_linux() -> int | None:
+    """Count unique physical cores from sysfs ``topology`` (socket + core id)."""
+    if not sys.platform.startswith("linux"):
+        return None
+    root = Path("/sys/devices/system/cpu")
+    if not root.is_dir():
+        return None
+    pairs: set[tuple[int, int]] = set()
+    for cpu_dir in sorted(root.glob("cpu[0-9]*")):
+        if not cpu_dir.is_dir():
+            continue
+        pkg_f = cpu_dir / "topology" / "physical_package_id"
+        core_f = cpu_dir / "topology" / "core_id"
+        if not pkg_f.is_file() or not core_f.is_file():
+            continue
+        try:
+            pkg = int(pkg_f.read_text(encoding="utf-8", errors="replace").strip())
+            cid = int(core_f.read_text(encoding="utf-8", errors="replace").strip())
+        except (OSError, ValueError):
+            continue
+        pairs.add((pkg, cid))
+    return len(pairs) if pairs else None
 
 
 def cpufreq_metrics() -> dict[str, Any]:
@@ -685,6 +751,7 @@ def snapshot() -> dict[str, Any]:
             out["system_uptime_s"] = None
         out["cpu_usage_pct"] = cpu_usage_percent_per_core_avg_sample(0.06)
         out.update(cpufreq_metrics())
+        out["cpu_cores_physical"] = physical_cpu_cores_linux()
         out["disks"] = {"space": disk_space_snapshot(), "io": disk_io_snapshot()}
     else:
         out["loadavg"] = None
@@ -692,6 +759,7 @@ def snapshot() -> dict[str, Any]:
         out["system_uptime_s"] = None
         out["cpu_usage_pct"] = None
         out.update(cpufreq_metrics())
+        out["cpu_cores_physical"] = None
         out["disks"] = {"space": [], "io": {"available": False, "reason": "non-linux"}}
     out["gpu"] = gpu_bundle()
     out["energy"] = energy_observation(out["gpu"])

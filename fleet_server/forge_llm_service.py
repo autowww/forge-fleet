@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import threading
 from pathlib import Path
@@ -91,6 +92,34 @@ def compose_ps(root: Path, rel_files: list[str]) -> tuple[list[dict[str, Any]], 
     return rows, None
 
 
+def gateway_host_port_from_compose_ps(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """
+    Parse ``docker compose ps --format json`` rows for ``forge-gateway`` published ``8080`` port.
+
+    Typical ``Ports`` string: ``0.0.0.0:18080->8080/tcp`` or ``[::]:18080->8080/tcp``.
+    """
+    pat = re.compile(
+        r"(?:^|[\s,])(?:0\.0\.0\.0|\:\:|\:\:\:|127\.0\.0\.1)\:(\d+)->8080/(?:tcp|udp)",
+        re.I,
+    )
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("Service") or row.get("Name") or "").lower()
+        if "forge-gateway" not in name and "gateway" not in name:
+            continue
+        ports = str(row.get("Ports") or "")
+        m = pat.search(ports)
+        if not m:
+            continue
+        try:
+            hp = int(m.group(1))
+        except ValueError:
+            continue
+        return {"host_port": hp, "container_port": 8080, "ports_preview": ports[:240]}
+    return None
+
+
 def _summarize_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
     running = 0
     slim: list[dict[str, Any]] = []
@@ -121,7 +150,8 @@ def status_for_record(record: dict[str, Any]) -> dict[str, Any]:
     rel = resolve_compose_files(root, extras)
     rows, err = compose_ps(root, rel)
     summary = _summarize_rows(rows)
-    return {
+    gw = gateway_host_port_from_compose_ps(rows)
+    out = {
         "ok": True,
         "service_id": record.get("id"),
         "compose_root": str(root),
@@ -130,6 +160,9 @@ def status_for_record(record: dict[str, Any]) -> dict[str, Any]:
         "last_error": err,
         **summary,
     }
+    if gw:
+        out["gateway_publish"] = gw
+    return out
 
 
 def start_for_record(record: dict[str, Any]) -> dict[str, Any]:

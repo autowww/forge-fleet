@@ -64,3 +64,16 @@ def test_start_for_record_mock(tmp_path: Path) -> None:
     with patch("fleet_server.forge_llm_service.subprocess.run", side_effect=fake_run):
         out = fls.start_for_record(rec)
     assert out["ok"] is True
+
+
+def test_gateway_host_port_from_compose_ps() -> None:
+    rows = [
+        {
+            "Service": "forge-gateway",
+            "Ports": "0.0.0.0:18080->8080/tcp, :::18080->8080/tcp",
+        }
+    ]
+    g = fls.gateway_host_port_from_compose_ps(rows)
+    assert g is not None
+    assert g["host_port"] == 18080
+    assert g["container_port"] == 8080

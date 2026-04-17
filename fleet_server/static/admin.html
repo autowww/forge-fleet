@@ -112,7 +112,7 @@
         <div class="fw-semibold mb-1">Container types (<code class="fleet-mono">etc/containers/types.json</code>)</div>
         <div id="fleet-container-types-table"></div>
       </div>
-      <p class="text-body-secondary small mb-0">Kitchensink + Bootstrap layout; theme follows Light / Dark / System. Metrics refresh on a short poll; GitHub <code class="fleet-mono">master</code> is checked every 3 minutes for newer commits.</p>
+      <p class="text-body-secondary small mb-0">Kitchensink + Bootstrap layout; theme follows Light / Dark / System. Overview metrics poll automatically. <strong>Update</strong> (by the chart) runs git pull and your user install script when self-update is configured; GitHub <code class="fleet-mono">master</code> is checked every 3 minutes for newer commits.</p>
       <div class="d-none border border-secondary-subtle rounded p-2 mb-2 small mt-2" id="fleet-self-update-wrap">
         <div class="fw-semibold mb-1">Update from Git</div>
         <p class="text-body-secondary mb-2 small" id="fleet-self-update-help"></p>
@@ -141,10 +141,18 @@
               <span class="ms-1" style="color:#34d399" aria-hidden="true">●</span> CPU
               <span class="ms-2" style="color:#38bdf8" aria-hidden="true">●</span> RAM
             </span>
-            <span class="fleet-chart-time-hint">Older left · recent right</span>
-            <button type="button" class="btn btn-sm btn-primary" id="refresh">Refresh</button>
+            <span class="fleet-chart-time-hint">Older left · recent right · log % scale (0–1–10–100)</span>
+            <button
+              type="button"
+              class="btn btn-sm btn-outline-primary"
+              id="fleet-chart-update-btn"
+              disabled
+              title="Configure git self-update (FLEET_GIT_ROOT or run from a clone with .git) to enable."
+            >
+              Update
+            </button>
           </div>
-          <div id="fleet-load-chart" class="fleet-chart-box" role="img" aria-label="CPU and RAM history, oldest on the left"></div>
+          <div id="fleet-load-chart" class="fleet-chart-box" role="img" aria-label="CPU and RAM history, oldest on the left, logarithmic percent scale"></div>
         </div>
         <hr class="my-3 opacity-25" />
         <div class="alert alert-danger py-2 px-3 mb-0 small d-none" id="err" role="alert"></div>
@@ -256,11 +264,17 @@
     var LS_LOAD_SCALE = "forgeFleetLoadScaleMax";
     var LS_LOAD_PEAK = "forgeFleetLoadPeakPct";
     var POLL_MS = 3000;
+    var __fleetLocalGitSha = "";
+    var __fleetSelfUpdateConfigured = false;
+    var __fleetRemoteGitTimerStarted = false;
     var errEl = document.getElementById("err");
     var nextFire = Date.now();
     var lastHostForChart = null;
     var chartBuf = [];
     var chartHostIdentity = null;
+    /** Smooth last segment between Fleet polls (same timestamps, eased value). */
+    var chartBlend = null;
+    var __fleetChartRaf = null;
     var CHART_SAMPLES = 60;
     var TREND_MS = 20000;
     var __fleetTrendBuf = [];
@@ -345,7 +359,7 @@
     }
 
     /** Smooth 0–100%% bar + integer label (same easing as legacy CPU tile). */
-    function makeSmoothPercentBarAnim(valueId, fillId, shellId, shellClassPrefix) {
+    function makeSmoothPercentBarAnim(valueId, fillId, shellId, shellClassPrefix, mirrorPctFn) {
       var DURATION_MS = 3000;
       var raf = null;
       var startT = 0;
@@ -368,6 +382,7 @@
         elV.textContent = String(Math.round(clamped)) + "%";
         elF.style.width = String(Math.round(clamped * 100) / 100) + "%";
         elS.className = prefix + "fleet-cpu-wide--z" + loadZone4(clamped);
+        if (typeof mirrorPctFn === "function") mirrorPctFn(clamped);
         return true;
       }
 
@@ -400,6 +415,7 @@
             raf = null;
           }
           lastShown = null;
+          if (typeof mirrorPctFn === "function") mirrorPctFn(null);
           return;
         }
 
@@ -419,6 +435,7 @@
           if (elV) elV.textContent = "—";
           if (elF) elF.style.width = "0%";
           if (elS) elS.className = prefix + "fleet-cpu-wide--z0";
+          if (typeof mirrorPctFn === "function") mirrorPctFn(null);
           return;
         }
 
@@ -455,6 +472,22 @@
       return { onSnapshotTarget: onSnapshotTarget, widthForRender: widthForRender };
     }
 
+    function syncLoadHeroBarFromPct(clamped) {
+      var elHf = document.getElementById("fleet-load-hero-fill");
+      var elHs = document.getElementById("fleet-load-hero-shell");
+      var elHp = document.getElementById("fleet-load-hero-pct");
+      if (clamped == null || isNaN(Number(clamped))) {
+        if (elHf) elHf.style.width = "0%";
+        if (elHs) elHs.className = "fleet-cpu-compact__shell fleet-load-hero__shell fleet-cpu-wide--z0";
+        if (elHp) elHp.textContent = "—";
+        return;
+      }
+      var w = Math.min(100, Math.max(0, Number(clamped)));
+      if (elHf) elHf.style.width = String(Math.round(w * 100) / 100) + "%";
+      if (elHs) elHs.className = "fleet-cpu-compact__shell fleet-load-hero__shell fleet-cpu-wide--z" + loadZone4(w);
+      if (elHp) elHp.textContent = String(Math.round(w)) + "% of scale (1m)";
+    }
+
     var fleetCpuAnim = makeSmoothPercentBarAnim(
       "fleet-cpu-value",
       "fleet-cpu-fill",
@@ -465,7 +498,8 @@
       "fleet-load1-val",
       "fleet-load1-fill",
       "fleet-load1-shell",
-      "fleet-cpu-compact__shell fleet-load-g--compact "
+      "fleet-cpu-compact__shell fleet-load-g--compact ",
+      syncLoadHeroBarFromPct
     );
     var fleetLoad5Anim = makeSmoothPercentBarAnim(
       "fleet-load5-val",
@@ -745,14 +779,17 @@
       if (disp == null || isNaN(disp)) disp = cpuP != null && !isNaN(cpuP) ? Number(cpuP) : null;
       var w = disp != null ? Math.min(100, Math.max(0, Number(disp))) : 0;
       var z = loadZone4(w);
-      var cpus = host.cpus != null ? String(host.cpus) : "—";
-      var mhz = host.cpu_freq_mhz_avg != null ? Math.round(Number(host.cpu_freq_mhz_avg)) + " MHz avg" : "—";
-      var gov = host.cpu_scaling_governor ? String(host.cpu_scaling_governor) : "";
-      var epp = host.cpu_energy_performance_preference ? String(host.cpu_energy_performance_preference) : "";
-      var modeLine = [];
-      if (gov) modeLine.push(gov);
-      if (epp) modeLine.push(epp);
-      var modeStr = modeLine.length ? modeLine.join(" · ") : "—";
+      var logC = host.cpus != null && !isNaN(Number(host.cpus)) ? Number(host.cpus) : null;
+      var physC =
+        host.cpu_cores_physical != null && !isNaN(Number(host.cpu_cores_physical))
+          ? Number(host.cpu_cores_physical)
+          : null;
+      var coreStr =
+        logC != null ? (physC != null ? String(logC) + "/" + String(physC) : String(logC)) : "—";
+      var ghzStr =
+        host.cpu_freq_mhz_avg != null && !isNaN(Number(host.cpu_freq_mhz_avg))
+          ? (Number(host.cpu_freq_mhz_avg) / 1000).toFixed(1) + " GHz"
+          : "—";
       var mainPct =
         cpuP != null && !isNaN(cpuP) ? esc(String(Math.round(w))) + "%" : "—";
       var wBar = esc(String(Math.round(w * 100) / 100));
@@ -774,11 +811,9 @@
         '%"></div>' +
         "</div>" +
         '<div class="fleet-cpu-wide__meta">' +
-        esc(cpus) +
-        " logical · " +
-        esc(mhz) +
-        " · " +
-        esc(modeStr) +
+        esc(ghzStr) +
+        " · Core: " +
+        esc(coreStr) +
         "</div></div></div>"
       );
     }
@@ -871,6 +906,8 @@
       "<svg class=\"fleet-tile__mark\" viewBox=\"0 0 40 32\" xmlns=\"http://www.w3.org/2000/svg\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.45\" stroke-linejoin=\"round\"><ellipse cx=\"20\" cy=\"11\" rx=\"13\" ry=\"5\"/><path d=\"M7 11v7c0 2.5 5.8 4.5 13 4.5S33 20.5 33 18v-7\"/><path d=\"M7 18v5c0 2.5 5.8 4.5 13 4.5S33 25.5 33 23v-5\"/></svg>";
     var MARK_POWER =
       "<svg class=\"fleet-tile__mark\" viewBox=\"0 0 40 40\" xmlns=\"http://www.w3.org/2000/svg\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.65\" stroke-linejoin=\"round\"><path d=\"M22 5L9 23h10l-5 18 16-22H21l1-14z\"/></svg>";
+    var MARK_LOAD =
+      "<svg class=\"fleet-tile__mark\" viewBox=\"0 0 40 32\" xmlns=\"http://www.w3.org/2000/svg\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.55\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M7 26V14M20 26V6M33 26V18\"/><path d=\"M5 26h30\" opacity=\"0.85\"/></svg>";
 
     var __fleetRaplPrev = { uj: null, tMs: null };
 
@@ -918,6 +955,13 @@
 
     function tileMark(svg, hiddenLabel) {
       return svg + "<span class=\"visually-hidden\">" + esc(hiddenLabel) + "</span>";
+    }
+
+    function fmtLoadAvg1m(x) {
+      if (x == null || isNaN(Number(x))) return "—";
+      var n = Number(x);
+      var t = Math.abs(n) >= 100 ? n.toFixed(0) : n.toFixed(2);
+      return String(t);
     }
 
     function getLoadScaleDenominator(liveCpus) {
@@ -976,6 +1020,14 @@
       };
     }
 
+    /** Hero %% for Storage: fullest-mount space when known (stable); else I/O busy estimate. */
+    function diskPrimaryPct(dk) {
+      if (!dk || !dk.has) return null;
+      if (dk.maxU != null && !isNaN(Number(dk.maxU))) return Number(dk.maxU);
+      if (dk.busy != null && !isNaN(Number(dk.busy))) return Number(dk.busy);
+      return null;
+    }
+
     function trendClassFor(key, current) {
       if (current == null || isNaN(Number(current))) return "";
       var target = Date.now() - TREND_MS;
@@ -1006,11 +1058,7 @@
       var lm = hostLoadForUi(host);
       var l1 = lm != null && lm.pct1 != null && !isNaN(lm.pct1) ? lm.pct1 : null;
       var dk = diskAgg(host);
-      var dkTput =
-        dk.ioAgg && dk.ioAgg.total_mbps != null && !isNaN(Number(dk.ioAgg.total_mbps));
-      var diskP = null;
-      if (dk.busy != null) diskP = dk.busy;
-      else if (!dkTput && dk.maxU != null) diskP = dk.maxU;
+      var diskP = diskPrimaryPct(dk);
       var g = host.gpu || {};
       var gs = [];
       if (gpuNvidiaHasDevices(g)) {
@@ -1095,6 +1143,45 @@
       return loadMetrics(host) || approxLoadMetrics(host);
     }
 
+    function chartSmoothstep(u) {
+      u = Math.max(0, Math.min(1, u));
+      return u * u * (3 - 2 * u);
+    }
+
+    /** Map 0–100%% to chart height using log10(1+p) so low %% (0,1,10,100) spread like a log axis. */
+    function chartPctToY(p, padT, ih) {
+      var u = Math.min(100, Math.max(0, Number(p)));
+      var g = Math.log(1 + u) / Math.log(101);
+      return padT + ih - g * ih;
+    }
+
+    function chartTickPercents() {
+      return [0, 1, 10, 100];
+    }
+
+    function cancelChartRaf() {
+      if (__fleetChartRaf != null) {
+        cancelAnimationFrame(__fleetChartRaf);
+        __fleetChartRaf = null;
+      }
+    }
+
+    function kickChartRaf() {
+      if (__fleetChartRaf != null) return;
+      function loop() {
+        __fleetChartRaf = null;
+        if (!chartBuf.length) return;
+        renderFleetChart();
+        if (chartBlend) {
+          var u = (performance.now() - chartBlend.t0) / chartBlend.dur;
+          if (u < 1) {
+            __fleetChartRaf = requestAnimationFrame(loop);
+          }
+        }
+      }
+      __fleetChartRaf = requestAnimationFrame(loop);
+    }
+
     function pushChartSample() {
       if (!lastHostForChart) return;
       var cpus = lastHostForChart.cpus || 1;
@@ -1109,11 +1196,37 @@
         lastHostForChart.cpu_usage_pct != null && !isNaN(Number(lastHostForChart.cpu_usage_pct))
           ? Number(lastHostForChart.cpu_usage_pct)
           : 0;
-      chartBuf.push({
-        cpu: Math.min(100, Math.max(0, cpuP)),
-        mem: Math.min(100, Math.max(0, memP)),
-      });
+      var newC = Math.min(100, Math.max(0, cpuP));
+      var newM = Math.min(100, Math.max(0, memP));
+      var fromC = newC;
+      var fromM = newM;
+      if (chartBuf.length) {
+        var prevRow = chartBuf[chartBuf.length - 1];
+        if (chartBlend) {
+          var u = (performance.now() - chartBlend.t0) / chartBlend.dur;
+          u = chartSmoothstep(Math.max(0, Math.min(1, u)));
+          fromC = chartBlend.fc + (chartBlend.tc - chartBlend.fc) * u;
+          fromM = chartBlend.fm + (chartBlend.tm - chartBlend.fm) * u;
+        } else {
+          fromC = prevRow.cpu;
+          fromM = prevRow.mem;
+        }
+      }
+      chartBuf.push({ cpu: newC, mem: newM });
       if (chartBuf.length > CHART_SAMPLES) chartBuf.shift();
+      if (chartBuf.length >= 2) {
+        chartBlend = {
+          fc: fromC,
+          tc: newC,
+          fm: fromM,
+          tm: newM,
+          t0: performance.now(),
+          dur: Math.min(2800, Math.max(700, POLL_MS * 0.92)),
+        };
+        kickChartRaf();
+      } else {
+        chartBlend = null;
+      }
     }
 
     function fmtWatts(w) {
@@ -1123,24 +1236,20 @@
 
     function formatLedgerKwhLine(ledger) {
       if (!ledger || ledger.total_kwh == null || isNaN(Number(ledger.total_kwh))) {
-        return "No kWh logged yet — starts after Fleet records telemetry on this machine.";
+        return "No running total yet — leave this page open a little while and it may appear.";
       }
       var t = Number(ledger.total_kwh);
       var s = t < 1 ? String(Math.round(t * 1000)) + " Wh" : String(Math.round(t)) + " kWh";
-      return (
-        "Total " +
-        esc(s) +
-        " while Forge-Fleet was sampling (SQLite ledger: package RAPL + NVIDIA draw)."
-      );
+      return "Electricity use logged while Fleet was watching: " + esc(s) + ".";
     }
 
     function formatLedgerKwhShort(ledger) {
       if (!ledger || ledger.total_kwh == null || isNaN(Number(ledger.total_kwh))) {
-        return "No kWh recorded yet for this host.";
+        return "";
       }
       var t = Number(ledger.total_kwh);
       var s = t < 1 ? String(Math.round(t * 1000)) + " Wh" : String(Math.round(t)) + " kWh";
-      return "Logged so far: " + esc(s) + " (see Details).";
+      return "Running total: " + esc(s) + ".";
     }
 
     var __fleetLastPowerTotalW = null;
@@ -1169,6 +1278,12 @@
         __fleetRaplPrev.tMs = tMs;
       }
 
+      var raplInstant =
+        en.rapl_instant_w != null && !isNaN(Number(en.rapl_instant_w)) && Number(en.rapl_instant_w) > 0
+          ? Number(en.rapl_instant_w)
+          : null;
+      if (raplW == null && raplInstant != null) raplW = raplInstant;
+
       var totalW = null;
       if (raplW != null && gpuW != null) totalW = raplW + gpuW;
       else if (raplW != null) totalW = raplW;
@@ -1179,24 +1294,19 @@
       else if (gpuW != null && !isNaN(Number(gpuW))) heroW = Number(gpuW);
 
       var hasSignal = totalW != null || raplOk || gpuW != null;
+      var hintLine = formatLedgerKwhShort(energyLedger) || formatLedgerKwhLine(energyLedger);
+
       if (!hasSignal) {
-        var why =
-          en.rapl_reason != null && String(en.rapl_reason).trim() !== ""
-            ? esc(String(en.rapl_reason).slice(0, 200))
-            : "No Linux RAPL package counter and no NVIDIA power.draw.";
         return (
           '<div class="fleet-tile fleet-tile--inactive">' +
           '<div class="fleet-tile__brand">' +
           tileMark(MARK_POWER, "Power") +
           "</div>" +
           '<div class="fleet-tile__value fleet-mono">—</div>' +
-          '<div class="fleet-tile__mem">No live power estimate yet.</div>' +
+          '<div class="fleet-tile__mem">Live power use isn’t available on this host.</div>' +
           '<div class="fleet-tile__hint">' +
-          why +
-          " Cumulative kWh still logs once counters exist.</div>" +
-          '<details class="small mt-1 fleet-power-adv"><summary>Details</summary><p class="mb-0 small">' +
-          formatLedgerKwhLine(energyLedger) +
-          "</p></details></div>"
+          hintLine +
+          "</div></div>"
         );
       }
 
@@ -1215,11 +1325,10 @@
           ? '<span id="fleet-power-val" class="fleet-mono">' + esc(String(wPow)) + " W</span>"
           : '<span id="fleet-power-val" class="fleet-mono">—</span>';
       var memParts = [];
-      if (raplW != null) memParts.push("Package ~" + esc(fmtWatts(raplW)) + " W");
-      else if (raplOk) memParts.push("Package (calibrating — needs two timestamps)");
-      if (gpuW != null) memParts.push("GPU ~" + esc(fmtWatts(gpuW)) + " W");
-      var memLine = memParts.length ? memParts.join(" · ") : "Draw estimate";
-      var hintShort = formatLedgerKwhShort(energyLedger);
+      if (raplW != null) memParts.push("Processor about " + esc(fmtWatts(raplW)) + " W");
+      else if (raplOk) memParts.push("Processor: hang on — watts fill in on the next refresh");
+      if (gpuW != null) memParts.push("GPU about " + esc(fmtWatts(gpuW)) + " W");
+      var memLine = memParts.length ? memParts.join(" · ") : "Power draw";
       return (
         '<div class="fleet-tile fleet-tile--power-' +
         pHeat +
@@ -1234,10 +1343,8 @@
         esc(memLine) +
         "</div>" +
         '<div class="fleet-tile__hint">' +
-        hintShort +
-        '</div><details class="small mt-1 fleet-power-adv"><summary>Technical details</summary><p class="mb-0 small opacity-90">' +
-        formatLedgerKwhLine(energyLedger) +
-        "</p></details></div>"
+        hintLine +
+        "</div></div>"
       );
     }
 
@@ -1246,10 +1353,10 @@
       if (!el) return;
       var w = 600;
       var h = 100;
-      var padL = 8;
+      var padL = 36;
       var padR = 8;
       var padT = 6;
-      var padB = 16;
+      var padB = 14;
       var iw = w - padL - padR;
       var ih = h - padT - padB;
       var n = chartBuf.length;
@@ -1266,12 +1373,24 @@
           "\" fill=\"currentColor\" opacity=\"0.45\" font-size=\"12\">Waiting for samples…</text></svg>";
         return;
       }
+      function duoAt(i) {
+        var row = chartBuf[i];
+        if (!row) return { c: 0, m: 0 };
+        if (i !== n - 1 || !chartBlend || n < 2) return { c: row.cpu, m: row.mem };
+        var u = (performance.now() - chartBlend.t0) / chartBlend.dur;
+        u = chartSmoothstep(Math.max(0, Math.min(1, u)));
+        return {
+          c: chartBlend.fc + (chartBlend.tc - chartBlend.fc) * u,
+          m: chartBlend.fm + (chartBlend.tm - chartBlend.fm) * u,
+        };
+      }
       var denom = Math.max(1, n - 1);
       var ptsCpu = [];
       var ptsMem = [];
       if (n === 1) {
-        var yc0 = padT + ih - (chartBuf[0].cpu / 100) * ih;
-        var ym0 = padT + ih - (chartBuf[0].mem / 100) * ih;
+        var d0 = duoAt(0);
+        var yc0 = chartPctToY(d0.c, padT, ih);
+        var ym0 = chartPctToY(d0.m, padT, ih);
         ptsCpu.push(padL.toFixed(2) + "," + yc0.toFixed(2));
         ptsCpu.push((padL + iw).toFixed(2) + "," + yc0.toFixed(2));
         ptsMem.push(padL.toFixed(2) + "," + ym0.toFixed(2));
@@ -1279,14 +1398,40 @@
       } else {
         for (var i = 0; i < n; i++) {
           var x = padL + (i / denom) * iw;
-          var yc = padT + ih - (chartBuf[i].cpu / 100) * ih;
-          var ym = padT + ih - (chartBuf[i].mem / 100) * ih;
+          var di = duoAt(i);
+          var yc = chartPctToY(di.c, padT, ih);
+          var ym = chartPctToY(di.m, padT, ih);
           ptsCpu.push(x.toFixed(2) + "," + yc.toFixed(2));
           ptsMem.push(x.toFixed(2) + "," + ym.toFixed(2));
         }
       }
       var ptsC = ptsCpu.join(" ");
       var ptsM = ptsMem.join(" ");
+      var gridParts = [];
+      chartTickPercents().forEach(function (tp) {
+        var gy = chartPctToY(tp, padT, ih);
+        gridParts.push(
+          "<line x1=\"" +
+          padL +
+          "\" y1=\"" +
+          gy.toFixed(2) +
+          "\" x2=\"" +
+          (padL + iw) +
+          "\" y2=\"" +
+          gy.toFixed(2) +
+          "\" stroke=\"currentColor\" stroke-opacity=\"0.11\" stroke-width=\"1\"/>"
+        );
+        gridParts.push(
+          "<text x=\"" +
+          (padL - 5) +
+          "\" y=\"" +
+          (gy + 3).toFixed(2) +
+          "\" fill=\"currentColor\" opacity=\"0.48\" font-size=\"9\" text-anchor=\"end\">" +
+          tp +
+          "</text>"
+        );
+      });
+      var gridInner = gridParts.join("");
       var svg = el.querySelector("svg.fleet-chart-svg");
       if (!svg) {
         el.innerHTML =
@@ -1295,6 +1440,9 @@
           " " +
           h +
           "\">" +
+          "<g id=\"fleet-chart-grid\">" +
+          gridInner +
+          "</g>" +
           "<line id=\"fleet-chart-baseline\" x1=\"" +
           padL +
           "\" y1=\"" +
@@ -1304,14 +1452,22 @@
           "\" y2=\"" +
           (padT + ih) +
           "\" stroke=\"currentColor\" stroke-opacity=\"0.14\" stroke-width=\"1\"/>" +
-          "<polyline id=\"fleet-chart-cpu\" fill=\"none\" stroke=\"#34d399\" stroke-width=\"2.25\" stroke-linejoin=\"round\" stroke-linecap=\"round\" points=\"" +
+          "<polyline id=\"fleet-chart-cpu\" fill=\"none\" stroke=\"#34d399\" stroke-width=\"2.25\" stroke-linejoin=\"round\" stroke-linecap=\"round\" vector-effect=\"non-scaling-stroke\" shape-rendering=\"geometricPrecision\" points=\"" +
           ptsC +
           "\"/>" +
-          "<polyline id=\"fleet-chart-mem\" fill=\"none\" stroke=\"#38bdf8\" stroke-width=\"2.25\" stroke-linejoin=\"round\" stroke-linecap=\"round\" points=\"" +
+          "<polyline id=\"fleet-chart-mem\" fill=\"none\" stroke=\"#38bdf8\" stroke-width=\"2.25\" stroke-linejoin=\"round\" stroke-linecap=\"round\" vector-effect=\"non-scaling-stroke\" shape-rendering=\"geometricPrecision\" points=\"" +
           ptsM +
           "\"/>" +
           "</svg>";
         return;
+      }
+      var gGrid = svg.querySelector("#fleet-chart-grid");
+      if (gGrid) gGrid.innerHTML = gridInner;
+      else {
+        var insertG = document.createElementNS("http://www.w3.org/2000/svg", "g");
+        insertG.setAttribute("id", "fleet-chart-grid");
+        insertG.innerHTML = gridInner;
+        svg.insertBefore(insertG, svg.firstChild);
       }
       var ln = svg.querySelector("#fleet-chart-baseline");
       if (ln) {
@@ -1324,6 +1480,10 @@
       var memLine = svg.querySelector("#fleet-chart-mem");
       if (cpuLine) cpuLine.setAttribute("points", ptsC);
       if (memLine) memLine.setAttribute("points", ptsM);
+      if (chartBlend) {
+        var ufin = (performance.now() - chartBlend.t0) / chartBlend.dur;
+        if (ufin >= 1) chartBlend = null;
+      }
     }
 
     function renderTiles(host, energyLedger) {
@@ -1339,9 +1499,7 @@
         dkPre.ioAgg &&
         dkPre.ioAgg.total_mbps != null &&
         !isNaN(Number(dkPre.ioAgg.total_mbps));
-      var diskTrendPct = null;
-      if (dkPre.busy != null) diskTrendPct = dkPre.busy;
-      else if (!diskHasTput && dkPre.maxU != null) diskTrendPct = dkPre.maxU;
+      var diskTrendPct = diskPrimaryPct(dkPre);
 
       var tCpu = trendClassFor("cpu", cpuPct(host));
       var tRam =
@@ -1397,13 +1555,31 @@
             esc(String(lm.cpus)) +
             " (CPU count missing or invalid)</div>"
           : '<div class="fleet-tile__mem">% of max scale (see Advanced)</div>';
+        var w1Hero = fleetLoad1Anim.widthForRender(Number(lm.pct1));
+        var w1p = w1Hero != null && !isNaN(w1Hero) ? Math.min(100, Math.max(0, Number(w1Hero))) : Math.min(100, Math.max(0, Number(lm.pct1)));
+        var z1h = loadZone4(w1p);
+        var wBar1h = esc(String(Math.round(w1p * 100) / 100));
         loadTile =
           '<div class="fleet-tile fleet-tile--load-' +
           loadHeat +
           " fleet-load-split" +
           tLoad +
           '">' +
-          '<div class="fleet-tile__brand"><span class="fleet-tile__label">System load</span></div>' +
+          '<div class="fleet-tile__brand">' +
+          tileMark(MARK_LOAD, "System load") +
+          '</div><div class="fleet-load-hero-stack">' +
+          '<div class="fleet-tile__value fleet-mono" id="fleet-load-hero-l1">' +
+          esc(fmtLoadAvg1m(lm.l1)) +
+          '</div><div class="fleet-tile__fine fleet-mono" id="fleet-load-hero-pct">' +
+          esc(String(Math.round(w1p))) +
+          "% of scale (1m)</div>" +
+          '<div id="fleet-load-hero-shell" class="fleet-cpu-compact__shell fleet-load-hero__shell fleet-cpu-wide--z' +
+          z1h +
+          '">' +
+          '<div class="fleet-cpu-wide__track"></div>' +
+          '<div id="fleet-load-hero-fill" class="fleet-cpu-wide__fill" style="width:' +
+          wBar1h +
+          '%"></div></div></div>' +
           '<div class="fleet-load-gauges">' +
           loadGaugeRow("1m", "1", lm.pct1) +
           loadGaugeRow("5m", "5", lm.pct5) +
@@ -1414,7 +1590,9 @@
       } else {
         loadTile =
           '<div class="fleet-tile fleet-tile--inactive fleet-load-split">' +
-          '<div class="fleet-tile__brand"><span class="fleet-tile__label">System load</span></div>' +
+          '<div class="fleet-tile__brand">' +
+          tileMark(MARK_LOAD, "System load") +
+          '</div><div class="fleet-tile__value fleet-mono">—</div>' +
           '<div class="fleet-load-gauges">' +
           loadGaugeRow("1m", "1", null) +
           loadGaugeRow("5m", "5", null) +
@@ -1505,67 +1683,43 @@
           dk.ioAgg.total_mbps != null &&
           !isNaN(Number(dk.ioAgg.total_mbps));
         var dFine = "";
-        var diskPrimaryBusy = false;
+        var primPct = diskPrimaryPct(dk);
+        var heroMbpsOnly = hasValidTput && primPct == null;
         var diskHeroHtml = "";
-        if (dk.busy != null) {
-          diskPrimaryBusy = true;
-          var bp = fleetDiskPctAnim.widthForRender(Number(dk.busy));
-          var wB = bp != null && !isNaN(bp) ? Math.min(100, Math.max(0, Number(bp))) : Math.min(100, Math.max(0, Number(dk.busy)));
-          var zB = loadZone4(wB);
-          var wBarD = esc(String(Math.round(wB * 100) / 100));
-          diskHeroHtml =
-            '<div class="fleet-disk-stack">' +
-            '<div class="fleet-tile__value fleet-mono" id="fleet-disk-pct-val">' +
-            esc(String(Math.round(wB))) +
-            "%</div>" +
-            '<div id="fleet-disk-pct-shell" class="fleet-cpu-compact__shell fleet-load-g--compact fleet-cpu-wide--z' +
-            zB +
-            '">' +
-            '<div class="fleet-cpu-wide__track"></div>' +
-            '<div id="fleet-disk-pct-fill" class="fleet-cpu-wide__fill" style="width:' +
-            wBarD +
-            '%"></div></div></div>';
-          if (dk.maxU != null) {
-            dFine =
-              '<div class="fleet-tile__fine">Space: up to ' +
-              esc(String(Math.round(dk.maxU))) +
-              "% used (fullest mount)</div>";
-          }
-        } else if (hasValidTput) {
+        if (heroMbpsOnly) {
           var mb = fleetDiskMbpsAnim.widthForRender(Number(dk.ioAgg.total_mbps));
           var wm = mb != null && !isNaN(mb) ? Math.round(mb) : Math.round(Number(dk.ioAgg.total_mbps));
           diskHeroHtml =
             '<div class="fleet-disk-stack"><div class="fleet-tile__value fleet-mono" id="fleet-disk-mbps-val">' +
             esc(String(wm)) +
             " MB/s</div></div>";
-          if (dk.maxU != null) {
-            dFine =
-              '<div class="fleet-tile__fine">Space: up to ' +
-              esc(String(Math.round(dk.maxU))) +
-              "% used</div>";
-          }
-        } else if (dk.maxU != null) {
-          var mp = fleetDiskPctAnim.widthForRender(Number(dk.maxU));
-          var wu = mp != null && !isNaN(mp) ? Math.min(100, Math.max(0, Number(mp))) : Math.min(100, Math.max(0, Number(dk.maxU)));
-          var zu = loadZone4(wu);
-          var wBarU = esc(String(Math.round(wu * 100) / 100));
+        } else if (primPct != null) {
+          var bp = fleetDiskPctAnim.widthForRender(primPct);
+          var wP = bp != null && !isNaN(bp) ? Math.min(100, Math.max(0, Number(bp))) : Math.min(100, Math.max(0, Number(primPct)));
+          var zP = loadZone4(wP);
+          var wBarP = esc(String(Math.round(wP * 100) / 100));
           diskHeroHtml =
             '<div class="fleet-disk-stack">' +
             '<div class="fleet-tile__value fleet-mono" id="fleet-disk-pct-val">' +
-            esc(String(Math.round(wu))) +
+            esc(String(Math.round(wP))) +
             "%</div>" +
             '<div id="fleet-disk-pct-shell" class="fleet-cpu-compact__shell fleet-load-g--compact fleet-cpu-wide--z' +
-            zu +
+            zP +
             '">' +
             '<div class="fleet-cpu-wide__track"></div>' +
             '<div id="fleet-disk-pct-fill" class="fleet-cpu-wide__fill" style="width:' +
-            wBarU +
+            wBarP +
             '%"></div></div></div>';
+          if (dk.maxU != null && dk.busy != null) {
+            dFine =
+              '<div class="fleet-tile__fine">Recent activity up to ' +
+              esc(String(Math.round(Number(dk.busy)))) +
+              "% busy (not the same as space used)</div>";
+          }
         } else {
           diskHeroHtml = '<div class="fleet-tile__value fleet-mono">—</div>';
         }
-        var memLabel =
-          dk.maxU != null && !diskPrimaryBusy && !hasValidTput ? "Space" : "I/O";
+        var memLabel = dk.maxU != null ? "Space" : "I/O";
         var dSub = '<div class="fleet-tile__mem">' + memLabel + "</div>";
         var dHint =
           dk.ioAgg && dk.ioAgg.total_mbps != null && !isNaN(Number(dk.ioAgg.total_mbps))
@@ -1661,6 +1815,8 @@
         fleetLoad5Anim.onSnapshotTarget(null);
         fleetLoad15Anim.onSnapshotTarget(null);
       }
+      var loadHeroL1 = document.getElementById("fleet-load-hero-l1");
+      if (loadHeroL1) loadHeroL1.textContent = lm ? fmtLoadAvg1m(lm.l1) : "—";
       var memHost = host.memory || {};
       var rp = memHost.used_pct != null ? Number(memHost.used_pct) : null;
       if (rp != null && !isNaN(rp)) fleetMemAnim.onSnapshotTarget(rp);
@@ -1670,17 +1826,15 @@
       if (dk && dk.has) {
         var hasTput =
           dk.ioAgg && dk.ioAgg.total_mbps != null && !isNaN(Number(dk.ioAgg.total_mbps));
-        if (dk.busy != null) {
-          fleetDiskPctAnim.onSnapshotTarget(Number(dk.busy));
-          fleetDiskMbpsAnim.onSnapshotTarget(null);
-        } else if (hasTput) {
-          fleetDiskPctAnim.onSnapshotTarget(null);
-          fleetDiskMbpsAnim.onSnapshotTarget(Number(dk.ioAgg.total_mbps));
-        } else if (dk.maxU != null) {
-          fleetDiskPctAnim.onSnapshotTarget(Number(dk.maxU));
-          fleetDiskMbpsAnim.onSnapshotTarget(null);
+        var prim = diskPrimaryPct(dk);
+        if (prim != null) {
+          fleetDiskPctAnim.onSnapshotTarget(prim);
         } else {
           fleetDiskPctAnim.onSnapshotTarget(null);
+        }
+        if (hasTput && prim == null) {
+          fleetDiskMbpsAnim.onSnapshotTarget(Number(dk.ioAgg.total_mbps));
+        } else {
           fleetDiskMbpsAnim.onSnapshotTarget(null);
         }
       } else {
@@ -1879,16 +2033,27 @@
       var wrap = document.getElementById("fleet-self-update-wrap");
       var btn = document.getElementById("fleet-self-update-btn");
       var help = document.getElementById("fleet-self-update-help");
+      var chartUp = document.getElementById("fleet-chart-update-btn");
       if (!wrap || !btn || !help) return;
       su = su || {};
       if (!su.configured) {
         wrap.classList.add("d-none");
         btn.disabled = true;
         help.textContent = "";
+        if (chartUp) {
+          chartUp.disabled = true;
+          chartUp.title =
+            "Git self-update is off: set FLEET_GIT_ROOT to your forge-fleet checkout (with .git), or run Fleet from that clone.";
+        }
         return;
       }
       wrap.classList.remove("d-none");
       btn.disabled = false;
+      if (chartUp) {
+        chartUp.disabled = false;
+        chartUp.title =
+          "Pull from git (ff-only), sync submodules, then update-user.sh or install-user.sh when present, and restart the Forge Fleet user service.";
+      }
       var parts = [
         "Runs git pull --ff-only and submodule update in the configured checkout, then update-user.sh (or install-user.sh) when present, then restarts the Fleet user service.",
       ];
@@ -1937,16 +2102,23 @@
 
     async function doGitSelfUpdate() {
       var btn = document.getElementById("fleet-self-update-btn");
+      var chartBtn = document.getElementById("fleet-chart-update-btn");
       var st = document.getElementById("fleet-self-update-status");
       var logEl = document.getElementById("fleet-self-update-log");
-      if (!btn || btn.disabled) return;
+      if (!__fleetSelfUpdateConfigured) {
+        setErr(
+          "Git self-update is not configured. Set FLEET_GIT_ROOT to your forge-fleet checkout (with .git), or run this Fleet process from that clone."
+        );
+        return;
+      }
       setErr("");
       if (st) st.textContent = "Running git pull…";
       if (logEl) {
         logEl.style.display = "none";
         logEl.textContent = "";
       }
-      btn.disabled = true;
+      if (btn) btn.disabled = true;
+      if (chartBtn) chartBtn.disabled = true;
       try {
         var res = await fetch("/v1/admin/git-self-update", {
           method: "POST",
@@ -1966,7 +2138,8 @@
         if (!res.ok || !j.ok) {
           if (st) st.textContent = "Failed (" + res.status + ").";
           setErr(String(j.detail || j.error || "git-self-update failed"));
-          btn.disabled = false;
+          if (btn) btn.disabled = false;
+          if (chartBtn) chartBtn.disabled = false;
           return;
         }
         if (st) st.textContent = j.note || "OK.";
@@ -1978,13 +2151,18 @@
           var ok = await waitFleetBack(45000);
           if (st) st.textContent = ok ? "Reloading…" : "Fleet did not respond in time — reload manually.";
           if (ok) window.location.reload();
-          else btn.disabled = false;
+          else {
+            if (btn) btn.disabled = false;
+            if (chartBtn) chartBtn.disabled = false;
+          }
         } else {
-          btn.disabled = false;
+          if (btn) btn.disabled = false;
+          if (chartBtn) chartBtn.disabled = false;
         }
       } catch (e) {
         setErr(String(e));
-        btn.disabled = false;
+        if (btn) btn.disabled = false;
+        if (chartBtn) chartBtn.disabled = false;
         if (st) st.textContent = "";
       }
     }
@@ -2123,6 +2301,8 @@
       if (hid !== chartHostIdentity) {
         chartHostIdentity = hid;
         chartBuf = [];
+        chartBlend = null;
+        cancelChartRaf();
       }
       document.getElementById("fleet-tiles").innerHTML = renderTiles(host, meta.energy_ledger_kwh || null);
       applyKpiTileAnims(host);
@@ -2266,18 +2446,16 @@
       });
     }
 
+    var chartUpdateBtn = document.getElementById("fleet-chart-update-btn");
+    if (chartUpdateBtn) {
+      chartUpdateBtn.addEventListener("click", function () {
+        doGitSelfUpdate();
+      });
+    }
+
     document.addEventListener("visibilitychange", function () {
       scheduleNext();
     });
-
-    var refreshBtn = document.getElementById("refresh");
-    if (refreshBtn) {
-      refreshBtn.addEventListener("click", function () {
-        loadSnapshot().then(function () {
-          scheduleNext();
-        });
-      });
-    }
 
     setInterval(tick, 500);
     loadSnapshot().then(function () { scheduleNext(); });
