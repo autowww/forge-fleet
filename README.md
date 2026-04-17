@@ -10,9 +10,10 @@ Small **HTTP + bearer** orchestrator for **Docker argv** workloads (MVP: same ho
 | POST | `/v1/jobs` | Body: `{ "kind": "docker_argv", "argv": ["docker", "run", ...], "session_id": "..." }` → `{ "id": "..." }` |
 | GET | `/v1/jobs/{id}` | Status: `queued`, `running`, `completed`, `failed`, `cancelled` + `stdout` / `stderr` / `exit_code` |
 | POST | `/v1/jobs/{id}/cancel` | Best-effort kill |
-| GET | `/v1/admin/snapshot` | **Read-only** JSON: host load/memory, **`host.gpu`** (NVIDIA via `nvidia-smi` when available), `jobs_by_status`, `jobs_recent` (argv preview, no full logs), `active_workers` (PID + argv preview for running subprocesses) |
-| GET | `/admin/` | Browser admin UI (same bearer token as API when auth is enabled) |
-| GET | `/admin/theme.css` | Optional **kitchensink** stylesheet when the `kitchensink/` submodule is checked out |
+| GET | `/v1/admin/snapshot` | **Read-only** JSON: `meta` (`auth_enforced`, `server_version`), host load/memory, **`host.gpu`** bundle (`nvidia`, `amdgpu_sysfs`, `intel_drm_est`, `rocm`), `jobs_by_status`, `jobs_recent`, `active_workers` |
+| GET | `/admin/` | Admin UI — **kitchensink** `forge-theme.css` + `forge-theme.js` (Light / Dark / System), Bootstrap 5; polls snapshot (no full page reload) |
+| GET | `/admin/ks/css/*` `GET` `/admin/ks/js/*` | Static **kitchensink** assets (only files under `kitchensink/css/` and `kitchensink/js/`) |
+| GET | `/admin/theme.css` | Legacy minimal pack (optional); admin prefers `/admin/ks/css/forge-theme.css` |
 
 Auth:
 

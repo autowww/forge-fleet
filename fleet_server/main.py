@@ -64,6 +64,41 @@ class FleetHandler(BaseHTTPRequestHandler):
             return
         self._send_raw(200, data, "text/css; charset=utf-8")
 
+    def _serve_kitchensink_asset(self, rel: str) -> None:
+        """Serve read-only CSS/JS from the ``kitchensink`` submodule (css/ or js/ only)."""
+        rel = rel.replace("\\", "/").strip("/")
+        if not rel or ".." in rel.split("/"):
+            self._send_raw(404, b"", "text/plain; charset=utf-8")
+            return
+        root = (self._repo_root() / "kitchensink").resolve()
+        target = (root / rel).resolve()
+        try:
+            target.relative_to(root)
+        except ValueError:
+            self._send_raw(404, b"", "text/plain; charset=utf-8")
+            return
+        if not target.is_file():
+            self._send_raw(404, b"/* not found */\n", "text/css; charset=utf-8")
+            return
+        ext = target.suffix.lower()
+        if ext == ".css":
+            ct = "text/css; charset=utf-8"
+        elif ext == ".js":
+            ct = "application/javascript; charset=utf-8"
+        else:
+            self._send_raw(403, b"", "text/plain; charset=utf-8")
+            return
+        parts_lower = {p.lower() for p in target.parts}
+        if "css" not in parts_lower and "js" not in parts_lower:
+            self._send_raw(403, b"", "text/plain; charset=utf-8")
+            return
+        try:
+            data = target.read_bytes()
+        except OSError:
+            self._send_raw(404, b"", "text/plain; charset=utf-8")
+            return
+        self._send_raw(200, data, ct)
+
     def _read_json(self) -> dict[str, Any]:
         n = int(self.headers.get("Content-Length") or 0)
         if n <= 0 or n > 4_000_000:
@@ -134,18 +169,33 @@ class FleetHandler(BaseHTTPRequestHandler):
         if path == "/admin/theme.css":
             self._serve_theme_css()
             return
+        mks = re.match(r"^/admin/ks/(.+)$", path)
+        if mks:
+            self._serve_kitchensink_asset(mks.group(1))
+            return
         if not self._auth_ok():
             self._send_unauthorized()
             return
         if path == "/v1/health":
             token_set = bool(str(getattr(self.server, "expected_token", "") or "").strip())
             skip = bool(getattr(self.server, "loopback_bind_skips_auth", False))
+            snap = host_stats.snapshot()
+            mem = snap.get("memory") if isinstance(snap.get("memory"), dict) else {}
+            mem_pct = mem.get("used_pct") if isinstance(mem, dict) else None
+            cpu_pct = host_stats.cpu_usage_percent_sample(0.08)
             self._send(
                 200,
                 {
                     "ok": True,
                     "service": "forge-fleet",
                     "auth_enforced": token_set and not skip,
+                    "host": {
+                        "cpu_usage_pct": cpu_pct,
+                        "memory_used_pct": mem_pct,
+                        "loadavg_1m": (snap.get("loadavg") or [None])[0]
+                        if isinstance(snap.get("loadavg"), list) and snap.get("loadavg")
+                        else None,
+                    },
                 },
             )
             return
@@ -156,8 +206,14 @@ class FleetHandler(BaseHTTPRequestHandler):
                 recent = store.list_jobs_summary(conn, limit=150)
             finally:
                 conn.close()
+            token_set = bool(str(getattr(self.server, "expected_token", "") or "").strip())
+            skip = bool(getattr(self.server, "loopback_bind_skips_auth", False))
             body: dict[str, Any] = {
                 "ok": True,
+                "meta": {
+                    "auth_enforced": token_set and not skip,
+                    "server_version": FleetHandler.server_version,
+                },
                 "host": host_stats.snapshot(),
                 "jobs_by_status": by_status,
                 "jobs_recent": recent,

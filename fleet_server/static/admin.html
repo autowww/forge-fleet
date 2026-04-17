@@ -1,117 +1,182 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-bs-theme="dark">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Fleet — read-only status</title>
-  <link rel="stylesheet" href="/admin/theme.css" />
+  <title>Fleet — status</title>
+  <script>
+  (function () {
+    try {
+      if (!document.cookie.match(/(?:^|;)\s*forge_color_scheme=/)) {
+        document.cookie = "forge_color_scheme=auto; Path=/; Max-Age=31536000; SameSite=Lax";
+      }
+      var m = document.cookie.match(/(?:^|;)\s*forge_color_scheme=([^;]*)/);
+      var v = m ? decodeURIComponent(m[1].trim()) : "";
+      var mq = window.matchMedia("(prefers-color-scheme: dark)");
+      var t = "dark";
+      if (v === "light") t = "light";
+      else if (v === "dark") t = "dark";
+      else if (v === "auto") t = mq.matches ? "dark" : "light";
+      document.documentElement.setAttribute("data-bs-theme", t);
+    } catch (_e) { /* ignore */ }
+  })();
+  </script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" crossorigin="anonymous" />
+  <link rel="stylesheet" href="/admin/ks/css/forge-theme.css" />
   <style>
-    :root { color-scheme: light dark; }
-    body { font-family: system-ui, sans-serif; margin: 0; padding: 1.25rem 1.5rem 2rem; line-height: 1.45; max-width: 1200px; }
-    h1 { font-size: 1.35rem; margin: 0 0 0.25rem; }
-    .sub { opacity: 0.75; font-size: 0.9rem; margin-bottom: 1.25rem; }
-    .panel { border: 1px solid color-mix(in srgb, CanvasText 18%, transparent); border-radius: 8px; padding: 1rem 1.1rem; margin-bottom: 1rem; background: color-mix(in srgb, Canvas 92%, CanvasText 4%); }
-    .panel h2 { font-size: 1rem; margin: 0 0 0.65rem; }
-    .row { display: flex; flex-wrap: wrap; gap: 0.75rem 1.25rem; align-items: center; }
-    label { font-size: 0.85rem; }
-    input[type="password"], input[type="text"] { min-width: 14rem; padding: 0.35rem 0.5rem; }
-    button { padding: 0.35rem 0.75rem; cursor: pointer; }
-    .pill { display: inline-block; padding: 0.15rem 0.45rem; border-radius: 999px; font-size: 0.78rem; font-weight: 600; }
+    body.fleet-admin-body { padding-top: 4.5rem; min-height: 100vh; }
+    .fleet-admin-title { font-family: var(--font-display, inherit); }
+    .fleet-mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: 0.82rem; }
+    .fleet-stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.5rem; }
+    .fleet-stat { padding: 0.45rem 0.55rem; border-radius: 0.5rem; background: var(--forge-surface-2, var(--bs-secondary-bg)); border: 1px solid var(--forge-border, var(--bs-border-color)); }
+    .fleet-stat b { display: block; font-size: 1.05rem; }
+    .fleet-pill { display: inline-block; padding: 0.12rem 0.42rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
     .st-queued { background: #6b7280; color: #fff; }
     .st-running { background: #2563eb; color: #fff; }
     .st-completed { background: #059669; color: #fff; }
     .st-failed { background: #b91c1c; color: #fff; }
     .st-cancelled { background: #a16207; color: #fff; }
-    table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
-    th, td { text-align: left; padding: 0.35rem 0.5rem; border-bottom: 1px solid color-mix(in srgb, CanvasText 12%, transparent); vertical-align: top; }
-    th { font-weight: 600; white-space: nowrap; }
-    code { font-size: 0.78rem; word-break: break-all; }
-    .err { color: #b91c1c; font-size: 0.9rem; margin-top: 0.5rem; }
-    .muted { opacity: 0.7; font-size: 0.85rem; }
-    .grid-stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.5rem; }
-    .stat { padding: 0.4rem 0.5rem; border-radius: 6px; background: color-mix(in srgb, CanvasText 6%, transparent); }
-    .stat b { display: block; font-size: 1.1rem; }
   </style>
 </head>
-<body>
-  <h1>Forge Fleet — status</h1>
-  <p class="sub">Read-only view: host load, memory, NVIDIA GPU stats (via <code>nvidia-smi</code> when present), active workers, and jobs. When the server is bound to loopback only (<code>127.0.0.1</code> / <code>localhost</code>) bearer auth is skipped even if <code>FLEET_BEARER_TOKEN</code> is set; otherwise paste the same token as the Fleet API.</p>
-
-  <div class="panel">
-    <h2>Connection</h2>
-    <div class="row">
-      <label>Bearer token <input type="password" id="token" autocomplete="off" placeholder="optional on loopback or when no token" /></label>
-      <button type="button" id="save">Remember in this browser</button>
-      <button type="button" id="refresh">Refresh now</button>
-      <span class="muted" id="poll"></span>
-    </div>
-    <div class="err" id="err" hidden></div>
+<body class="fleet-admin-body">
+  <div class="dropdown forge-theme-dropdown position-fixed top-0 end-0 m-2" style="z-index:1050" data-forge-pref="dark">
+    <button type="button" class="forge-theme-trigger dropdown-toggle" data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false" id="forgeThemeMenu" aria-haspopup="true" aria-label="Appearance and color theme" title="Theme">
+      <span class="forge-theme-trigger__aurora" aria-hidden="true"></span>
+      <span class="forge-theme-trigger__inner">
+        <span class="forge-theme-trigger__icons" aria-hidden="true">
+          <svg class="forge-theme-ico forge-theme-ico--light" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+          <svg class="forge-theme-ico forge-theme-ico--dark" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          <svg class="forge-theme-ico forge-theme-ico--auto" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 22h8"/><path d="M12 18v4"/><path d="M8 14h.01M12 14h.01M16 14h.01"/></svg>
+        </span>
+        <span class="forge-theme-trigger__copy">
+          <span class="forge-theme-eyebrow">Appearance</span>
+          <span class="forge-theme-current">Dark</span>
+        </span>
+        <svg class="forge-theme-chevron" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+      </span>
+    </button>
+    <ul class="dropdown-menu dropdown-menu-end forge-theme-menu" aria-labelledby="forgeThemeMenu">
+      <li>
+        <button type="button" class="dropdown-item forge-theme-option" data-forge-color-scheme="light">
+          <svg class="forge-theme-opt-ico" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2"/></svg>
+          <span>Light</span>
+          <svg class="forge-theme-tick" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+        </button>
+      </li>
+      <li>
+        <button type="button" class="dropdown-item forge-theme-option" data-forge-color-scheme="dark">
+          <svg class="forge-theme-opt-ico" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          <span>Dark</span>
+          <svg class="forge-theme-tick" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+        </button>
+      </li>
+      <li>
+        <button type="button" class="dropdown-item forge-theme-option" data-forge-color-scheme="auto">
+          <svg class="forge-theme-opt-ico" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" aria-hidden="true"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 22h8"/><path d="M12 18v4"/></svg>
+          <span>System</span>
+          <svg class="forge-theme-tick" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+        </button>
+      </li>
+    </ul>
   </div>
 
-  <div class="panel">
-    <h2>Host</h2>
-    <div id="host" class="muted">Loading…</div>
-  </div>
+  <main class="container pb-5">
+    <header class="mb-4">
+      <h1 class="h3 fleet-admin-title mb-1">Forge Fleet — status</h1>
+      <p class="text-body-secondary small mb-0">Kitchensink + Bootstrap layout; theme follows Light / Dark / System. Data refreshes automatically — no full page reload.</p>
+    </header>
 
-  <div class="panel">
-    <h2>GPU</h2>
-    <div id="gpu" class="muted">Loading…</div>
-  </div>
+    <section class="card mb-3 border-secondary-subtle shadow-sm">
+      <div class="card-body">
+        <h2 class="h6 text-uppercase text-body-secondary mb-3">Connection</h2>
+        <div class="row g-3 align-items-end">
+          <div class="col-md-6">
+            <label class="form-label small mb-1" for="token">Bearer token</label>
+            <input type="password" class="form-control form-control-sm" id="token" autocomplete="off" placeholder="Not required on loopback bind" spellcheck="false" />
+          </div>
+          <div class="col-md-6 d-flex flex-wrap gap-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="save">Remember in browser</button>
+            <button type="button" class="btn btn-sm btn-primary" id="refresh">Sync now</button>
+          </div>
+        </div>
+        <div class="row mt-3 small text-body-secondary">
+          <div class="col-md-4"><span class="text-body">Auth</span> — <span id="live-auth">…</span></div>
+          <div class="col-md-4"><span class="text-body">Last snapshot</span> — <span id="live-last-sync">…</span></div>
+          <div class="col-md-4"><span class="text-body">Next sync</span> — <span id="live-countdown">…</span></div>
+        </div>
+        <div class="alert alert-danger py-2 px-3 mt-3 mb-0 small d-none" id="err" role="alert"></div>
+      </div>
+    </section>
 
-  <div class="panel">
-    <h2>Jobs by status</h2>
-    <div id="by-status" class="grid-stats"></div>
-  </div>
+    <section class="card mb-3 border-secondary-subtle shadow-sm">
+      <div class="card-body">
+        <h2 class="h6 text-uppercase text-body-secondary mb-3">Host</h2>
+        <div id="host" class="small text-body-secondary">Loading host metrics…</div>
+      </div>
+    </section>
 
-  <div class="panel">
-    <h2>Active workers</h2>
-    <div id="active">—</div>
-  </div>
+    <section class="card mb-3 border-secondary-subtle shadow-sm">
+      <div class="card-body">
+        <h2 class="h6 text-uppercase text-body-secondary mb-3">GPU</h2>
+        <div id="gpu" class="small text-body-secondary">Loading GPU metrics…</div>
+      </div>
+    </section>
 
-  <div class="panel">
-    <h2>Recent jobs</h2>
-    <div style="overflow-x:auto">
-      <table>
-        <thead>
-          <tr>
-            <th>Status</th>
-            <th>ID</th>
-            <th>Session</th>
-            <th>Exit</th>
-            <th>Updated (local)</th>
-            <th>Argv preview</th>
-          </tr>
-        </thead>
-        <tbody id="rows"></tbody>
-      </table>
-    </div>
-  </div>
+    <section class="card mb-3 border-secondary-subtle shadow-sm">
+      <div class="card-body">
+        <h2 class="h6 text-uppercase text-body-secondary mb-3">Jobs by status</h2>
+        <div id="by-status" class="fleet-stat-grid text-body-secondary">Loading job counts…</div>
+      </div>
+    </section>
 
+    <section class="card mb-3 border-secondary-subtle shadow-sm">
+      <div class="card-body">
+        <h2 class="h6 text-uppercase text-body-secondary mb-3">Active workers</h2>
+        <div id="active" class="small text-body-secondary">Loading workers…</div>
+      </div>
+    </section>
+
+    <section class="card mb-3 border-secondary-subtle shadow-sm">
+      <div class="card-body">
+        <h2 class="h6 text-uppercase text-body-secondary mb-3">Recent jobs</h2>
+        <div class="table-responsive">
+          <table class="table table-sm table-hover align-middle mb-0 fleet-mono">
+            <thead class="table-light">
+              <tr>
+                <th>Status</th>
+                <th>ID</th>
+                <th>Session</th>
+                <th>Exit</th>
+                <th>Updated</th>
+                <th>Argv preview</th>
+              </tr>
+            </thead>
+            <tbody id="rows"><tr><td colspan="6" class="text-body-secondary">Loading jobs…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
+  <script src="/admin/ks/js/forge-theme.js"></script>
   <script>
-    const LS = "forgeFleetAdminToken";
-    const tokenEl = document.getElementById("token");
-    const errEl = document.getElementById("err");
-    const pollEl = document.getElementById("poll");
+  (function () {
+    "use strict";
+    var LS = "forgeFleetAdminToken";
+    var POLL_VISIBLE_MS = 2500;
+    var POLL_HIDDEN_MS = 9000;
+    var tokenEl = document.getElementById("token");
+    var errEl = document.getElementById("err");
+    var liveAuth = document.getElementById("live-auth");
+    var liveLast = document.getElementById("live-last-sync");
+    var liveNext = document.getElementById("live-countdown");
+    var nextFire = Date.now();
+    var debounceTimer = null;
+    var lastHostUtc = null;
 
-    tokenEl.value = localStorage.getItem(LS) || "";
-
-    document.getElementById("save").onclick = () => {
-      localStorage.setItem(LS, tokenEl.value.trim());
-      tokenEl.value = localStorage.getItem(LS) || "";
-    };
-
-    function authHeaders() {
-      const t = (tokenEl.value || "").trim();
-      const h = { "Accept": "application/json" };
-      if (t) h["Authorization"] = "Bearer " + t;
-      return h;
-    }
-
-    function fmtTime(ts) {
-      if (ts == null || ts === "") return "—";
-      const d = new Date(typeof ts === "number" ? ts * 1000 : Number(ts) * 1000);
-      if (Number.isNaN(d.getTime())) return String(ts);
-      return d.toLocaleString();
+    function pollMs() {
+      return document.hidden ? POLL_HIDDEN_MS : POLL_VISIBLE_MS;
     }
 
     function esc(s) {
@@ -122,108 +187,217 @@
         .replace(/"/g, "&quot;");
     }
 
-    function statusPill(st) {
-      const c = "st-" + String(st || "").toLowerCase();
-      return '<span class="pill ' + c + '">' + esc(st || "?") + "</span>";
+    function fmtTime(ts) {
+      if (ts == null || ts === "") return "—";
+      var d = new Date(typeof ts === "number" ? ts * 1000 : Number(ts) * 1000);
+      if (isNaN(d.getTime())) return String(ts);
+      return d.toLocaleString();
     }
 
-    async function load() {
-      errEl.hidden = true;
-      errEl.textContent = "";
-      let res;
-      try {
-        res = await fetch("/v1/admin/snapshot", { headers: authHeaders() });
-      } catch (e) {
-        errEl.textContent = "Network error: " + e;
-        errEl.hidden = false;
+    function relTime(iso) {
+      if (!iso) return "—";
+      var t = Date.parse(iso);
+      if (isNaN(t)) return esc(iso);
+      var sec = Math.max(0, Math.round((Date.now() - t) / 1000));
+      if (sec < 2) return "just now";
+      if (sec < 60) return sec + "s ago";
+      var m = Math.floor(sec / 60);
+      if (m < 60) return m + "m ago";
+      return Math.floor(m / 60) + "h ago";
+    }
+
+    function statusPill(st) {
+      var c = "fleet-pill st-" + String(st || "").toLowerCase();
+      return '<span class="' + c + '">' + esc(st || "?") + "</span>";
+    }
+
+    function authHeaders() {
+      var t = (tokenEl.value || "").trim();
+      var h = { Accept: "application/json" };
+      if (t) h.Authorization = "Bearer " + t;
+      return h;
+    }
+
+    function setErr(msg) {
+      if (!msg) {
+        errEl.classList.add("d-none");
+        errEl.textContent = "";
         return;
+      }
+      errEl.textContent = msg;
+      errEl.classList.remove("d-none");
+    }
+
+    function renderNvidia(nv) {
+      if (!nv || nv.available !== true || !nv.devices || !nv.devices.length) {
+        return "<p class=\"mb-2 text-body-secondary\"><strong>NVIDIA</strong> — " + esc((nv && nv.reason) || "not available") + "</p>";
+      }
+      var rows = nv.devices.map(function (d) {
+        return "<tr><td>" + esc(d.index) + "</td><td>" + esc(d.name) + "</td><td>" + esc(d.utilization_pct) + "</td><td>" +
+          esc(d.memory_used_mib != null && d.memory_total_mib != null ? d.memory_used_mib + " / " + d.memory_total_mib + " MiB" : "—") +
+          "</td><td>" + esc(d.memory_used_pct != null ? d.memory_used_pct : "—") + "</td><td>" + esc(d.temperature_c != null ? d.temperature_c : "—") + "</td></tr>";
+      }).join("");
+      return "<h3 class=\"h6 mt-0\">NVIDIA <span class=\"text-body-secondary fw-normal\">(" + esc(nv.backend || "nvidia-smi") + ")</span></h3>" +
+        "<div class=\"table-responsive mb-3\"><table class=\"table table-sm table-bordered mb-0 fleet-mono\"><thead><tr><th>#</th><th>Name</th><th>Util %</th><th>VRAM MiB</th><th>VRAM %</th><th>°C</th></tr></thead><tbody>" +
+        rows + "</tbody></table></div>";
+    }
+
+    function renderAmd(am) {
+      if (!am || am.available !== true || !am.devices || !am.devices.length) {
+        return "<p class=\"mb-2 text-body-secondary\"><strong>AMD (sysfs)</strong> — " + esc((am && am.reason) || "not available") + "</p>";
+      }
+      var rows = am.devices.map(function (d) {
+        return "<tr><td>" + esc(d.card) + "</td><td>" + esc(d.pci_slot || "—") + "</td><td>" + esc(d.utilization_pct) + "</td><td>" + esc(d.driver || "amdgpu") + "</td></tr>";
+      }).join("");
+      return "<h3 class=\"h6\">AMD <span class=\"text-body-secondary fw-normal\">(gpu_busy_percent)</span></h3>" +
+        "<div class=\"table-responsive mb-3\"><table class=\"table table-sm table-bordered mb-0 fleet-mono\"><thead><tr><th>Card</th><th>PCI</th><th>Busy %</th><th>Driver</th></tr></thead><tbody>" + rows + "</tbody></table></div>";
+    }
+
+    function renderIntel(intel) {
+      if (!intel || intel.available !== true || !intel.devices || !intel.devices.length) {
+        return "<p class=\"mb-2 text-body-secondary\"><strong>Intel / Xe (estimate)</strong> — " + esc((intel && intel.reason) || "not available") + "</p>";
+      }
+      var note = intel.sample_wall_ms != null ? " <span class=\"text-body-secondary\">(~" + esc(intel.sample_wall_ms) + " ms window)</span>" : "";
+      var rows = intel.devices.map(function (d) {
+        return "<tr><td>" + esc(d.card) + "</td><td>" + esc(d.utilization_pct_est) + "</td><td>" + esc(d.engines_sampled) + "</td></tr>";
+      }).join("");
+      return "<h3 class=\"h6\">Intel / Xe <span class=\"text-body-secondary fw-normal\">(engine busy Δ)" + note + "</span></h3>" +
+        "<div class=\"table-responsive mb-3\"><table class=\"table table-sm table-bordered mb-0 fleet-mono\"><thead><tr><th>Card</th><th>Util % est.</th><th>Engines</th></tr></thead><tbody>" + rows + "</tbody></table></div>";
+    }
+
+    function renderRocm(rc) {
+      if (!rc || rc.available !== true || !rc.devices || !rc.devices.length) {
+        return "<p class=\"mb-0 text-body-secondary\"><strong>AMD ROCm</strong> — " + esc((rc && rc.reason) || "not available") + "</p>";
+      }
+      var rows = rc.devices.map(function (d) {
+        return "<tr><td>" + esc(d.index) + "</td><td>" + esc(d.utilization_pct) + "</td></tr>";
+      }).join("");
+      return "<h3 class=\"h6\">AMD ROCm <span class=\"text-body-secondary fw-normal\">(" + esc(Array.isArray(rc.argv) ? rc.argv.join(" ") : "") + ")</span></h3>" +
+        "<div class=\"table-responsive\"><table class=\"table table-sm table-bordered mb-0 fleet-mono\"><thead><tr><th>GPU</th><th>Use %</th></tr></thead><tbody>" + rows + "</tbody></table></div>";
+    }
+
+    function renderGpuBundle(g) {
+      if (!g) return "<p class=\"text-body-secondary mb-0\">No GPU bundle.</p>";
+      return renderNvidia(g.nvidia) + renderAmd(g.amdgpu_sysfs) + renderIntel(g.intel_drm_est) + renderRocm(g.rocm);
+    }
+
+    async function loadSnapshot() {
+      setErr("");
+      var res;
+      try {
+        res = await fetch("/v1/admin/snapshot", { headers: authHeaders(), cache: "no-store" });
+      } catch (e) {
+        setErr("Network: " + e);
+        return false;
       }
       if (res.status === 401) {
-        errEl.textContent = "Unauthorized — set the bearer token to match FLEET_BEARER_TOKEN.";
-        errEl.hidden = false;
-        return;
+        setErr("Unauthorized — set bearer token to match FLEET_BEARER_TOKEN (unless loopback-only bind skips auth).");
+        liveAuth.textContent = "enforced (401)";
+        return false;
       }
       if (!res.ok) {
-        errEl.textContent = "HTTP " + res.status;
-        errEl.hidden = false;
-        return;
+        setErr("HTTP " + res.status);
+        return false;
       }
-      const data = await res.json();
+      var data = await res.json();
       if (!data.ok) {
-        errEl.textContent = JSON.stringify(data);
-        errEl.hidden = false;
-        return;
+        setErr(JSON.stringify(data));
+        return false;
       }
 
-      const host = data.host || {};
-      const mem = host.memory || {};
-      const la = host.loadavg;
+      var meta = data.meta || {};
+      liveAuth.textContent = meta.auth_enforced ? "bearer required" : "not required (loopback or no token)";
+      var host = data.host || {};
+      lastHostUtc = host.time_utc || null;
+      liveLast.textContent = relTime(lastHostUtc) + " · " + esc(lastHostUtc || "—");
+
+      var mem = host.memory || {};
+      var la = host.loadavg;
       document.getElementById("host").innerHTML =
-        "<div><strong>Time (UTC)</strong> " + (host.time_utc || "—") + "</div>" +
-        "<div class=\"row\" style=\"margin-top:0.5rem\">" +
-        "<span><strong>CPUs</strong> " + (host.cpus ?? "—") + "</span>" +
-        "<span><strong>Load (1/5/15)</strong> " + (Array.isArray(la) ? la.join(" / ") : "—") + "</span>" +
-        "<span><strong>Memory</strong> " +
-          (mem.used_pct != null ? mem.used_pct + "% used" : "—") +
-          (mem.total_kb ? " (" + Math.round(mem.total_kb / 1024) + " MiB total)" : "") +
+        "<div class=\"mb-2\"><strong>Time (UTC)</strong> — <span class=\"fleet-mono\">" + esc(host.time_utc) + "</span></div>" +
+        "<div class=\"d-flex flex-wrap gap-3\">" +
+        "<span><strong>CPUs</strong> — " + esc(host.cpus != null ? host.cpus : "—") + "</span>" +
+        "<span><strong>Load 1/5/15</strong> — " + esc(Array.isArray(la) ? la.join(" / ") : "—") + "</span>" +
+        "<span><strong>Memory</strong> — " +
+          esc(mem.used_pct != null ? mem.used_pct + "% used" : "—") +
+          esc(mem.total_kb ? " (" + Math.round(mem.total_kb / 1024) + " MiB total)" : "") +
         "</span>" +
-        "<span><strong>Python</strong> " + (host.python || "—") + "</span>" +
+        "<span><strong>Python</strong> — " + esc(host.python || "—") + "</span>" +
         "</div>";
 
-      const gpu = host.gpu || {};
-      if (gpu.available === true && Array.isArray(gpu.devices) && gpu.devices.length) {
-        document.getElementById("gpu").innerHTML =
-          "<div class=\"muted\" style=\"margin-bottom:0.5rem\">Backend: <code>" + esc(gpu.backend || "?") + "</code></div>" +
-          "<table><thead><tr><th>GPU</th><th>Name</th><th>Util %</th><th>VRAM</th><th>VRAM %</th><th>Temp °C</th></tr></thead><tbody>" +
-          gpu.devices.map((d) =>
-            "<tr><td>" + esc(d.index != null ? d.index : "—") + "</td><td>" + esc(d.name || "—") + "</td><td>" +
-            esc(d.utilization_pct != null ? d.utilization_pct : "—") + "</td><td>" +
-            esc(d.memory_used_mib != null && d.memory_total_mib != null
-              ? d.memory_used_mib + " / " + d.memory_total_mib + " MiB"
-              : "—") + "</td><td>" +
-            esc(d.memory_used_pct != null ? d.memory_used_pct : "—") + "</td><td>" +
-            esc(d.temperature_c != null ? d.temperature_c : "—") + "</td></tr>"
-          ).join("") + "</tbody></table>";
-      } else {
-        document.getElementById("gpu").innerHTML =
-          "<span class=\"muted\">" + esc((gpu && gpu.reason) || "No GPU telemetry.") + "</span>";
-      }
+      document.getElementById("gpu").innerHTML = renderGpuBundle(host.gpu);
 
-      const bs = data.jobs_by_status || {};
-      const keys = Object.keys(bs).sort();
+      var bs = data.jobs_by_status || {};
+      var keys = Object.keys(bs).sort();
       document.getElementById("by-status").innerHTML = keys.length
-        ? keys.map((k) => "<div class=\"stat\"><b>" + bs[k] + "</b>" + k + "</div>").join("")
-        : "<span class=\"muted\">No jobs yet.</span>";
+        ? keys.map(function (k) { return "<div class=\"fleet-stat\"><b>" + esc(bs[k]) + "</b>" + esc(k) + "</div>"; }).join("")
+        : "<span class=\"text-body-secondary\">No jobs yet.</span>";
 
-      const act = data.active_workers || [];
+      var act = data.active_workers || [];
       document.getElementById("active").innerHTML = act.length
-        ? "<table><thead><tr><th>PID</th><th>Job</th><th>Session</th><th>Argv preview</th></tr></thead><tbody>" +
-          act.map((w) =>
-            "<tr><td>" + esc(w.pid) + "</td><td><code>" + esc(w.job_id) + "</code></td><td>" + esc(w.session_id || "—") +
-            "</td><td><code>" + esc(w.argv_preview || "") + "</code></td></tr>"
-          ).join("") + "</tbody></table>"
-        : "<span class=\"muted\">No subprocesses running right now.</span>";
+        ? "<div class=\"table-responsive\"><table class=\"table table-sm table-bordered mb-0 fleet-mono\"><thead><tr><th>PID</th><th>Job</th><th>Session</th><th>Argv</th></tr></thead><tbody>" +
+          act.map(function (w) {
+            return "<tr><td>" + esc(w.pid) + "</td><td>" + esc(w.job_id) + "</td><td>" + esc(w.session_id || "—") +
+              "</td><td>" + esc(w.argv_preview || "") + "</td></tr>";
+          }).join("") + "</tbody></table></div>"
+        : "<span class=\"text-body-secondary\">No subprocesses running.</span>";
 
-      const rows = data.jobs_recent || [];
-      document.getElementById("rows").innerHTML = rows.map((j) =>
-        "<tr>" +
-        "<td>" + statusPill(j.status) + "</td>" +
-        "<td><code>" + esc(j.id) + "</code></td>" +
-        "<td>" + esc(j.session_id || "—") + "</td>" +
-        "<td>" + esc(j.exit_code != null ? j.exit_code : "—") + "</td>" +
-        "<td>" + esc(fmtTime(j.updated)) + "</td>" +
-        "<td><code>" + esc(j.argv_preview || "") + "</code></td>" +
-        "</tr>"
-      ).join("");
+      var rows = data.jobs_recent || [];
+      document.getElementById("rows").innerHTML = rows.length
+        ? rows.map(function (j) {
+            return "<tr>" +
+              "<td>" + statusPill(j.status) + "</td>" +
+              "<td>" + esc(j.id) + "</td>" +
+              "<td>" + esc(j.session_id || "—") + "</td>" +
+              "<td>" + esc(j.exit_code != null ? j.exit_code : "—") + "</td>" +
+              "<td>" + esc(fmtTime(j.updated)) + "</td>" +
+              "<td>" + esc(j.argv_preview || "") + "</td></tr>";
+          }).join("")
+        : "<tr><td colspan=\"6\" class=\"text-body-secondary\">No jobs recorded.</td></tr>";
 
-      pollEl.textContent = "Last updated " + new Date().toLocaleTimeString();
+      return true;
     }
 
-    document.getElementById("refresh").onclick = () => load();
+    function scheduleNext() {
+      nextFire = Date.now() + pollMs();
+    }
 
-    let timer = setInterval(load, 4000);
-    load();
-    window.addEventListener("beforeunload", () => clearInterval(timer));
+    function tick() {
+      var ms = Math.max(0, nextFire - Date.now());
+      liveNext.textContent = ms < 1500 ? (Math.ceil(ms / 100) / 10) + "s" : Math.ceil(ms / 1000) + "s";
+      if (lastHostUtc) {
+        liveLast.textContent = relTime(lastHostUtc) + " · " + esc(lastHostUtc);
+      }
+      if (ms <= 0) {
+        loadSnapshot().then(function () { scheduleNext(); });
+      }
+    }
+
+    tokenEl.value = localStorage.getItem(LS) || "";
+    tokenEl.placeholder = "Optional when auth not enforced";
+
+    document.getElementById("save").onclick = function () {
+      localStorage.setItem(LS, tokenEl.value.trim());
+      tokenEl.value = localStorage.getItem(LS) || "";
+      loadSnapshot().then(function () { scheduleNext(); });
+    };
+    document.getElementById("refresh").onclick = function () {
+      loadSnapshot().then(function () { scheduleNext(); });
+    };
+    tokenEl.addEventListener("input", function () {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(function () {
+        loadSnapshot().then(function () { scheduleNext(); });
+      }, 350);
+    });
+
+    document.addEventListener("visibilitychange", function () {
+      scheduleNext();
+    });
+
+    setInterval(tick, 200);
+    loadSnapshot().then(function () { scheduleNext(); });
+  })();
   </script>
 </body>
 </html>
