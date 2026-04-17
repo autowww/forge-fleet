@@ -68,6 +68,38 @@
   </div>
 
   <main class="container pb-5">
+    <section class="card mb-3 border-secondary-subtle shadow-sm">
+      <div class="card-body py-3">
+        <h2 class="h6 text-uppercase text-body-secondary mb-3">Overview</h2>
+        <div id="fleet-tiles" class="fleet-tile-row fleet-one-row mb-2" aria-live="polite">Loading tiles…</div>
+        <div id="fleet-chart-wrap" class="mb-3">
+          <div class="small text-body-secondary mb-1 d-flex flex-wrap align-items-center justify-content-between gap-2">
+            <span>
+              <span class="text-body">CPU and memory</span>
+              <span class="ms-1" style="color:#34d399" aria-hidden="true">●</span> CPU
+              <span class="ms-2" style="color:#38bdf8" aria-hidden="true">●</span> RAM
+            </span>
+            <span class="fleet-chart-time-hint">Older left · recent right · curved % scale (0–1–10–50–100)</span>
+            <span class="d-flex flex-wrap align-items-center gap-2">
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-refresh-metrics-btn" title="Fetch host metrics now">Refresh metrics</button>
+              <button
+                type="button"
+                class="btn btn-sm btn-outline-primary"
+                id="fleet-chart-update-btn"
+                disabled
+                title="Configure git self-update (FLEET_GIT_ROOT or run from a clone with .git) to enable."
+              >
+                Update from git
+              </button>
+            </span>
+          </div>
+          <div id="fleet-load-chart" class="fleet-chart-box" role="img" aria-label="CPU and RAM history, oldest on the left, curved percent scale"></div>
+        </div>
+        <hr class="my-3 opacity-25" />
+        <div class="alert alert-danger py-2 px-3 mb-0 small d-none" id="err" role="alert"></div>
+      </div>
+    </section>
+
     <header class="mb-4">
       <h1 class="h3 fleet-admin-title mb-1">Forge Fleet — status</h1>
       <p class="text-body-secondary small mb-1 d-flex flex-wrap align-items-center gap-2">
@@ -112,7 +144,7 @@
         <div class="fw-semibold mb-1">Container types (<code class="fleet-mono">etc/containers/types.json</code>)</div>
         <div id="fleet-container-types-table"></div>
       </div>
-      <p class="text-body-secondary small mb-0">Kitchensink + Bootstrap layout; theme follows Light / Dark / System. Overview metrics poll automatically. <strong>Update</strong> (by the chart) runs git pull and your user install script when self-update is configured; GitHub <code class="fleet-mono">master</code> is checked every 3 minutes for newer commits.</p>
+      <p class="text-body-secondary small mb-0">Kitchensink + Bootstrap layout; theme follows Light / Dark / System. Overview metrics poll automatically. <strong>Refresh metrics</strong> (by the chart) pulls a snapshot now. <strong>Update from git</strong> runs git pull and your user install script when self-update is configured; GitHub <code class="fleet-mono">master</code> is checked every 3 minutes for newer commits.</p>
       <div class="d-none border border-secondary-subtle rounded p-2 mb-2 small mt-2" id="fleet-self-update-wrap">
         <div class="fw-semibold mb-1">Update from Git</div>
         <p class="text-body-secondary mb-2 small" id="fleet-self-update-help"></p>
@@ -129,35 +161,6 @@
         ></pre>
       </div>
     </header>
-
-    <section class="card mb-3 border-secondary-subtle shadow-sm">
-      <div class="card-body py-3">
-        <h2 class="h6 text-uppercase text-body-secondary mb-3">Overview</h2>
-        <div id="fleet-tiles" class="fleet-tile-row fleet-one-row mb-2" aria-live="polite">Loading tiles…</div>
-        <div id="fleet-chart-wrap" class="mb-3">
-          <div class="small text-body-secondary mb-1 d-flex flex-wrap align-items-center justify-content-between gap-2">
-            <span>
-              <span class="text-body">CPU and memory</span>
-              <span class="ms-1" style="color:#34d399" aria-hidden="true">●</span> CPU
-              <span class="ms-2" style="color:#38bdf8" aria-hidden="true">●</span> RAM
-            </span>
-            <span class="fleet-chart-time-hint">Older left · recent right · log % scale (0–1–10–100)</span>
-            <button
-              type="button"
-              class="btn btn-sm btn-outline-primary"
-              id="fleet-chart-update-btn"
-              disabled
-              title="Configure git self-update (FLEET_GIT_ROOT or run from a clone with .git) to enable."
-            >
-              Update
-            </button>
-          </div>
-          <div id="fleet-load-chart" class="fleet-chart-box" role="img" aria-label="CPU and RAM history, oldest on the left, logarithmic percent scale"></div>
-        </div>
-        <hr class="my-3 opacity-25" />
-        <div class="alert alert-danger py-2 px-3 mb-0 small d-none" id="err" role="alert"></div>
-      </div>
-    </section>
 
     <section class="card mb-3 border-secondary-subtle shadow-sm">
       <div class="card-body">
@@ -275,7 +278,8 @@
     /** Smooth last segment between Fleet polls (same timestamps, eased value). */
     var chartBlend = null;
     var __fleetChartRaf = null;
-    var CHART_SAMPLES = 60;
+    var CHART_MS = 3600000;
+    var MAX_CHART_RENDER = 480;
     var TREND_MS = 20000;
     var __fleetTrendBuf = [];
     /** Stabilize disk tile background band (low/mid/high) across polls to avoid flash. */
@@ -473,19 +477,17 @@
     }
 
     function syncLoadHeroBarFromPct(clamped) {
-      var elHf = document.getElementById("fleet-load-hero-fill");
-      var elHs = document.getElementById("fleet-load-hero-shell");
+      var needle = document.getElementById("fleet-load-gauge-needle");
       var elHp = document.getElementById("fleet-load-hero-pct");
       if (clamped == null || isNaN(Number(clamped))) {
-        if (elHf) elHf.style.width = "0%";
-        if (elHs) elHs.className = "fleet-cpu-compact__shell fleet-load-hero__shell fleet-cpu-wide--z0";
+        if (needle) needle.setAttribute("transform", "rotate(-180 40 38)");
         if (elHp) elHp.textContent = "—";
         return;
       }
       var w = Math.min(100, Math.max(0, Number(clamped)));
-      if (elHf) elHf.style.width = String(Math.round(w * 100) / 100) + "%";
-      if (elHs) elHs.className = "fleet-cpu-compact__shell fleet-load-hero__shell fleet-cpu-wide--z" + loadZone4(w);
-      if (elHp) elHp.textContent = String(Math.round(w)) + "% of scale (1m)";
+      var ang = -180 + (w / 100) * 180;
+      if (needle) needle.setAttribute("transform", "rotate(" + ang + " 40 38)");
+      if (elHp) elHp.textContent = String(Math.round(w)) + "% · 1m";
     }
 
     var fleetCpuAnim = makeSmoothPercentBarAnim(
@@ -797,7 +799,7 @@
         '<div class="fleet-tile fleet-cpu-compact' +
         trendCls +
         '">' +
-        '<div class="fleet-tile__brand"><span class="fleet-tile__label">CPU</span></div>' +
+        '<div class="fleet-tile__brand">' + tileMark(MARK_CPU, "CPU") + "</div>" +
         '<div class="fleet-cpu-stack">' +
         '<div class="fleet-cpu-wide__value fleet-cpu-wide__value--above fleet-mono" id="fleet-cpu-value">' +
         mainPct +
@@ -908,6 +910,8 @@
       "<svg class=\"fleet-tile__mark\" viewBox=\"0 0 40 40\" xmlns=\"http://www.w3.org/2000/svg\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.65\" stroke-linejoin=\"round\"><path d=\"M22 5L9 23h10l-5 18 16-22H21l1-14z\"/></svg>";
     var MARK_LOAD =
       "<svg class=\"fleet-tile__mark\" viewBox=\"0 0 40 32\" xmlns=\"http://www.w3.org/2000/svg\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.55\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M7 26V14M20 26V6M33 26V18\"/><path d=\"M5 26h30\" opacity=\"0.85\"/></svg>";
+    var MARK_THERMAL =
+      "<svg class=\"fleet-tile__mark\" viewBox=\"0 0 40 40\" xmlns=\"http://www.w3.org/2000/svg\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.55\" stroke-linejoin=\"round\"><path d=\"M22 7v23a6 6 0 1 1-4 0V7a2 2 0 1 1 4 0z\"/></svg>";
 
     var __fleetRaplPrev = { uj: null, tMs: null };
 
@@ -1020,11 +1024,11 @@
       };
     }
 
-    /** Hero %% for Storage: fullest-mount space when known (stable); else I/O busy estimate. */
+    /** Hero %% for Storage: I/O busy (max) when present; else fullest-mount used %%. */
     function diskPrimaryPct(dk) {
       if (!dk || !dk.has) return null;
-      if (dk.maxU != null && !isNaN(Number(dk.maxU))) return Number(dk.maxU);
       if (dk.busy != null && !isNaN(Number(dk.busy))) return Number(dk.busy);
+      if (dk.maxU != null && !isNaN(Number(dk.maxU))) return Number(dk.maxU);
       return null;
     }
 
@@ -1148,15 +1152,60 @@
       return u * u * (3 - 2 * u);
     }
 
-    /** Map 0–100%% to chart height using log10(1+p) so low %% (0,1,10,100) spread like a log axis. */
-    function chartPctToY(p, padT, ih) {
+    /**
+     * Map 0–100%% to normalized height g in [0,1] (piecewise linear: 10 lower, 50 at 75%% band).
+     * y = padT + ih - g*ih so larger g is higher on screen.
+     */
+    function chartPctNormG(p) {
       var u = Math.min(100, Math.max(0, Number(p)));
-      var g = Math.log(1 + u) / Math.log(101);
+      var g10 = 0.38;
+      if (u <= 10) return (u / 10) * g10;
+      if (u <= 50) return g10 + ((u - 10) / 40) * (0.75 - g10);
+      return 0.75 + ((u - 50) / 50) * 0.25;
+    }
+
+    function chartPctToY(p, padT, ih) {
+      var g = chartPctNormG(p);
       return padT + ih - g * ih;
     }
 
     function chartTickPercents() {
-      return [0, 1, 10, 100];
+      return [0, 1, 10, 50, 100];
+    }
+
+    /** Uniform index decimation; last sample always kept for live edge. */
+    function chartBufForRender(buf) {
+      var m = buf.length;
+      if (m <= MAX_CHART_RENDER) return buf;
+      var out = [];
+      var maxR = MAX_CHART_RENDER;
+      for (var j = 0; j < maxR; j++) {
+        var idx = Math.round((j * (m - 1)) / Math.max(1, maxR - 1));
+        out.push(buf[idx]);
+      }
+      return out;
+    }
+
+    /** Catmull–Rom segment → SVG cubic Bézier through points (open curve). */
+    function chartSmoothPathD(pts) {
+      if (!pts || pts.length < 2) return "";
+      var n = pts.length;
+      if (n === 2) {
+        return "M " + pts[0].x + " " + pts[0].y + " L " + pts[1].x + " " + pts[1].y;
+      }
+      var d = "M " + pts[0].x + " " + pts[0].y;
+      for (var i = 0; i < n - 1; i++) {
+        var p0 = pts[Math.max(0, i - 1)];
+        var p1 = pts[i];
+        var p2 = pts[i + 1];
+        var p3 = pts[Math.min(n - 1, i + 2)];
+        var c1x = p1.x + (p2.x - p0.x) / 6;
+        var c1y = p1.y + (p2.y - p0.y) / 6;
+        var c2x = p2.x - (p3.x - p1.x) / 6;
+        var c2y = p2.y - (p3.y - p1.y) / 6;
+        d += " C " + c1x + " " + c1y + " " + c2x + " " + c2y + " " + p2.x + " " + p2.y;
+      }
+      return d;
     }
 
     function cancelChartRaf() {
@@ -1212,8 +1261,14 @@
           fromM = prevRow.mem;
         }
       }
-      chartBuf.push({ cpu: newC, mem: newM });
-      if (chartBuf.length > CHART_SAMPLES) chartBuf.shift();
+      var nowT = Date.now();
+      chartBuf.push({ t: nowT, cpu: newC, mem: newM });
+      while (chartBuf.length && chartBuf[0].t < nowT - CHART_MS) {
+        chartBuf.shift();
+      }
+      while (chartBuf.length > 2400) {
+        chartBuf.shift();
+      }
       if (chartBuf.length >= 2) {
         chartBlend = {
           fc: fromC,
@@ -1297,6 +1352,16 @@
       var hintLine = formatLedgerKwhShort(energyLedger) || formatLedgerKwhLine(energyLedger);
 
       if (!hasSignal) {
+        var rr = en.rapl_reason != null ? String(en.rapl_reason).trim() : "";
+        var diagBlock =
+          '<p class="small text-body-secondary mb-1">Run on the Fleet host (copy as needed):</p>' +
+          '<pre class="fleet-mono small text-body-secondary mb-0 p-2 rounded border bg-body-secondary fleet-power-diag">' +
+          esc(
+            "ls /sys/class/powercap 2>/dev/null | head\n" +
+              "for z in /sys/class/powercap/*; do [ -f \"$z/name\" ] && echo \"---\" && cat \"$z/name\" \"$z/energy_uj\" 2>/dev/null; done | head -n 40\n" +
+              "command -v nvidia-smi >/dev/null && nvidia-smi -q -d POWER 2>/dev/null | head -n 40"
+          ) +
+          "</pre>";
         return (
           '<div class="fleet-tile fleet-tile--inactive">' +
           '<div class="fleet-tile__brand">' +
@@ -1306,7 +1371,18 @@
           '<div class="fleet-tile__mem">Live power use isn’t available on this host.</div>' +
           '<div class="fleet-tile__hint">' +
           hintLine +
-          "</div></div>"
+          "</div>" +
+          '<details class="mt-2 small fleet-power-details">' +
+          '<summary class="text-body">Why no watts / diagnostics</summary>' +
+          (rr
+            ? '<p class="small mb-2"><strong>rapl_reason:</strong> ' + esc(rr) + "</p>"
+            : "") +
+          '<ul class="small mb-2 ps-3">' +
+          "<li>Processor energy (RAPL) lives under <code class=\"fleet-mono\">/sys/class/powercap</code> on many bare-metal Linux hosts — not an apt package.</li>" +
+          "<li>NVIDIA GPU watts need working <code class=\"fleet-mono\">nvidia-smi</code> in PATH.</li>" +
+          "<li>VMs and some laptops omit RAPL or hide it behind permissions.</li></ul>" +
+          diagBlock +
+          "</details></div>"
         );
       }
 
@@ -1329,6 +1405,16 @@
       else if (raplOk) memParts.push("Processor: hang on — watts fill in on the next refresh");
       if (gpuW != null) memParts.push("GPU about " + esc(fmtWatts(gpuW)) + " W");
       var memLine = memParts.length ? memParts.join(" · ") : "Power draw";
+      var rrOn = en.rapl_reason != null ? String(en.rapl_reason).trim() : "";
+      var diagOn =
+        '<p class="small text-body-secondary mb-1">Run on the Fleet host (copy as needed):</p>' +
+        '<pre class="fleet-mono small text-body-secondary mb-0 p-2 rounded border bg-body-secondary fleet-power-diag">' +
+        esc(
+          "ls /sys/class/powercap 2>/dev/null | head\n" +
+            "for z in /sys/class/powercap/*; do [ -f \"$z/name\" ] && echo \"---\" && cat \"$z/name\" \"$z/energy_uj\" 2>/dev/null; done | head -n 40\n" +
+            "command -v nvidia-smi >/dev/null && nvidia-smi -q -d POWER 2>/dev/null | head -n 40"
+        ) +
+        "</pre>";
       return (
         '<div class="fleet-tile fleet-tile--power-' +
         pHeat +
@@ -1344,7 +1430,51 @@
         "</div>" +
         '<div class="fleet-tile__hint">' +
         hintLine +
-        "</div></div>"
+        "</div>" +
+        '<details class="mt-2 small fleet-power-details">' +
+        '<summary class="text-body">Diagnostics</summary>' +
+        (rrOn ? '<p class="small mb-2"><strong>rapl_reason:</strong> ' + esc(rrOn) + "</p>" : "") +
+        '<ul class="small mb-2 ps-3">' +
+        "<li>RAPL: <code class=\"fleet-mono\">/sys/class/powercap</code>; NVIDIA: <code class=\"fleet-mono\">nvidia-smi</code>.</li>" +
+        "<li>VMs may lack RAPL; check permissions if zones exist but watts stay empty.</li></ul>" +
+        diagOn +
+        "</details></div>"
+      );
+    }
+
+    function renderThermalTile(host) {
+      var th = (host && host.thermal) || {};
+      var mc = th.max_c;
+      if (mc != null && !isNaN(Number(mc))) {
+        var v = Number(mc);
+        var hz = heat3(Math.min(100, Math.max(0, v)));
+        return (
+          '<div class="fleet-tile fleet-tile--mem-' +
+          hz +
+          '">' +
+          '<div class="fleet-tile__brand">' +
+          tileMark(MARK_THERMAL, "Thermal") +
+          "</div>" +
+          '<div class="fleet-tile__value fleet-mono">' +
+          esc(String(Math.round(v * 10) / 10)) +
+          "°C</div>" +
+          '<div class="fleet-tile__mem">' +
+          esc(String(th.source || "sysfs")) +
+          "</div>" +
+          '<div class="fleet-tile__hint">Linux thermal / hwmon (max zone)</div></div>'
+        );
+      }
+      var rs = th.reason != null ? String(th.reason) : "no sysfs readings";
+      return (
+        '<div class="fleet-tile fleet-tile--inactive">' +
+        '<div class="fleet-tile__brand">' +
+        tileMark(MARK_THERMAL, "Thermal") +
+        "</div>" +
+        '<div class="fleet-tile__value fleet-mono">—</div>' +
+        '<div class="fleet-tile__mem">No CPU temperature</div>' +
+        '<div class="fleet-tile__hint">' +
+        esc(rs) +
+        ". For extra tooling: <code class=\"fleet-mono\">sudo apt install lm-sensors</code> then <code class=\"fleet-mono\">sudo sensors-detect</code> — Fleet still reads sysfs only.</div></div>"
       );
     }
 
@@ -1359,8 +1489,8 @@
       var padB = 14;
       var iw = w - padL - padR;
       var ih = h - padT - padB;
-      var n = chartBuf.length;
-      if (n === 0) {
+      var bufFull = chartBuf;
+      if (!bufFull.length) {
         el.innerHTML =
           "<svg class=\"fleet-chart-svg\" xmlns=\"http://www.w3.org/2000/svg\" width=\"100%\" height=\"100%\" viewBox=\"0 0 " +
           w +
@@ -1373,10 +1503,19 @@
           "\" fill=\"currentColor\" opacity=\"0.45\" font-size=\"12\">Waiting for samples…</text></svg>";
         return;
       }
+      var chartRows = chartBufForRender(bufFull);
+      var n = chartRows.length;
+      var tMin = chartRows[0].t != null ? chartRows[0].t : 0;
+      var tMax = chartRows[n - 1].t != null ? chartRows[n - 1].t : tMin + 1;
+      var span = Math.max(1, tMax - tMin);
+      var lastFull = bufFull[bufFull.length - 1];
+
       function duoAt(i) {
-        var row = chartBuf[i];
+        var row = chartRows[i];
         if (!row) return { c: 0, m: 0 };
-        if (i !== n - 1 || !chartBlend || n < 2) return { c: row.cpu, m: row.mem };
+        var isLiveEdge =
+          chartBlend && n >= 2 && i === n - 1 && lastFull && row === lastFull;
+        if (!isLiveEdge) return { c: row.cpu, m: row.mem };
         var u = (performance.now() - chartBlend.t0) / chartBlend.dur;
         u = chartSmoothstep(Math.max(0, Math.min(1, u)));
         return {
@@ -1384,29 +1523,33 @@
           m: chartBlend.fm + (chartBlend.tm - chartBlend.fm) * u,
         };
       }
-      var denom = Math.max(1, n - 1);
-      var ptsCpu = [];
-      var ptsMem = [];
+
+      function xAt(i) {
+        var row = chartRows[i];
+        var ti = row && row.t != null ? row.t : tMin;
+        return padL + ((ti - tMin) / span) * iw;
+      }
+
+      var dCpu;
+      var dMem;
       if (n === 1) {
         var d0 = duoAt(0);
         var yc0 = chartPctToY(d0.c, padT, ih);
         var ym0 = chartPctToY(d0.m, padT, ih);
-        ptsCpu.push(padL.toFixed(2) + "," + yc0.toFixed(2));
-        ptsCpu.push((padL + iw).toFixed(2) + "," + yc0.toFixed(2));
-        ptsMem.push(padL.toFixed(2) + "," + ym0.toFixed(2));
-        ptsMem.push((padL + iw).toFixed(2) + "," + ym0.toFixed(2));
+        dCpu = "M " + padL + " " + yc0.toFixed(2) + " L " + (padL + iw).toFixed(2) + " " + yc0.toFixed(2);
+        dMem = "M " + padL + " " + ym0.toFixed(2) + " L " + (padL + iw).toFixed(2) + " " + ym0.toFixed(2);
       } else {
+        var ptsCpu = [];
+        var ptsMem = [];
         for (var i = 0; i < n; i++) {
-          var x = padL + (i / denom) * iw;
+          var xi = xAt(i);
           var di = duoAt(i);
-          var yc = chartPctToY(di.c, padT, ih);
-          var ym = chartPctToY(di.m, padT, ih);
-          ptsCpu.push(x.toFixed(2) + "," + yc.toFixed(2));
-          ptsMem.push(x.toFixed(2) + "," + ym.toFixed(2));
+          ptsCpu.push({ x: xi, y: chartPctToY(di.c, padT, ih) });
+          ptsMem.push({ x: xi, y: chartPctToY(di.m, padT, ih) });
         }
+        dCpu = chartSmoothPathD(ptsCpu);
+        dMem = chartSmoothPathD(ptsMem);
       }
-      var ptsC = ptsCpu.join(" ");
-      var ptsM = ptsMem.join(" ");
       var gridParts = [];
       chartTickPercents().forEach(function (tp) {
         var gy = chartPctToY(tp, padT, ih);
@@ -1452,11 +1595,11 @@
           "\" y2=\"" +
           (padT + ih) +
           "\" stroke=\"currentColor\" stroke-opacity=\"0.14\" stroke-width=\"1\"/>" +
-          "<polyline id=\"fleet-chart-cpu\" fill=\"none\" stroke=\"#34d399\" stroke-width=\"2.25\" stroke-linejoin=\"round\" stroke-linecap=\"round\" vector-effect=\"non-scaling-stroke\" shape-rendering=\"geometricPrecision\" points=\"" +
-          ptsC +
+          "<path id=\"fleet-chart-cpu\" fill=\"none\" stroke=\"#34d399\" stroke-width=\"2.25\" stroke-linejoin=\"round\" stroke-linecap=\"round\" vector-effect=\"non-scaling-stroke\" shape-rendering=\"geometricPrecision\" d=\"" +
+          esc(dCpu) +
           "\"/>" +
-          "<polyline id=\"fleet-chart-mem\" fill=\"none\" stroke=\"#38bdf8\" stroke-width=\"2.25\" stroke-linejoin=\"round\" stroke-linecap=\"round\" vector-effect=\"non-scaling-stroke\" shape-rendering=\"geometricPrecision\" points=\"" +
-          ptsM +
+          "<path id=\"fleet-chart-mem\" fill=\"none\" stroke=\"#38bdf8\" stroke-width=\"2.25\" stroke-linejoin=\"round\" stroke-linecap=\"round\" vector-effect=\"non-scaling-stroke\" shape-rendering=\"geometricPrecision\" d=\"" +
+          esc(dMem) +
           "\"/>" +
           "</svg>";
         return;
@@ -1478,8 +1621,8 @@
       }
       var cpuLine = svg.querySelector("#fleet-chart-cpu");
       var memLine = svg.querySelector("#fleet-chart-mem");
-      if (cpuLine) cpuLine.setAttribute("points", ptsC);
-      if (memLine) memLine.setAttribute("points", ptsM);
+      if (cpuLine) cpuLine.setAttribute("d", dCpu);
+      if (memLine) memLine.setAttribute("d", dMem);
       if (chartBlend) {
         var ufin = (performance.now() - chartBlend.t0) / chartBlend.dur;
         if (ufin >= 1) chartBlend = null;
@@ -1554,11 +1697,15 @@
             '</div><div class="fleet-tile__fine">Approx. % using divisor n=' +
             esc(String(lm.cpus)) +
             " (CPU count missing or invalid)</div>"
-          : '<div class="fleet-tile__mem">% of max scale (see Advanced)</div>';
+          : '<div class="fleet-tile__mem fleet-load-inline fleet-mono">L ' +
+            esc(String(lm.l1)) +
+            " · " +
+            esc(String(lm.l5)) +
+            " · " +
+            esc(String(lm.l15)) +
+            "</div>";
         var w1Hero = fleetLoad1Anim.widthForRender(Number(lm.pct1));
         var w1p = w1Hero != null && !isNaN(w1Hero) ? Math.min(100, Math.max(0, Number(w1Hero))) : Math.min(100, Math.max(0, Number(lm.pct1)));
-        var z1h = loadZone4(w1p);
-        var wBar1h = esc(String(Math.round(w1p * 100) / 100));
         loadTile =
           '<div class="fleet-tile fleet-tile--load-' +
           loadHeat +
@@ -1568,18 +1715,18 @@
           '<div class="fleet-tile__brand">' +
           tileMark(MARK_LOAD, "System load") +
           '</div><div class="fleet-load-hero-stack">' +
+          '<div class="fleet-load-hero-row">' +
+          '<div class="fleet-load-hero-left">' +
           '<div class="fleet-tile__value fleet-mono" id="fleet-load-hero-l1">' +
           esc(fmtLoadAvg1m(lm.l1)) +
           '</div><div class="fleet-tile__fine fleet-mono" id="fleet-load-hero-pct">' +
           esc(String(Math.round(w1p))) +
-          "% of scale (1m)</div>" +
-          '<div id="fleet-load-hero-shell" class="fleet-cpu-compact__shell fleet-load-hero__shell fleet-cpu-wide--z' +
-          z1h +
-          '">' +
-          '<div class="fleet-cpu-wide__track"></div>' +
-          '<div id="fleet-load-hero-fill" class="fleet-cpu-wide__fill" style="width:' +
-          wBar1h +
-          '%"></div></div></div>' +
+          '% · 1m</div></div>' +
+          '<div class="fleet-load-gauge-wrap" aria-hidden="true">' +
+          '<svg class="fleet-load-gauge-svg" viewBox="0 0 80 44" xmlns="http://www.w3.org/2000/svg">' +
+          '<path d="M 12 38 A 28 28 0 0 1 68 38" fill="none" stroke="currentColor" stroke-opacity="0.22" stroke-width="3" stroke-linecap="round"/>' +
+          '<line id="fleet-load-gauge-needle" x1="40" y1="38" x2="68" y2="38" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" transform="rotate(-180 40 38)"/>' +
+          "</svg></div></div></div>" +
           '<div class="fleet-load-gauges">' +
           loadGaugeRow("1m", "1", lm.pct1) +
           loadGaugeRow("5m", "5", lm.pct5) +
@@ -1712,14 +1859,15 @@
             '%"></div></div></div>';
           if (dk.maxU != null && dk.busy != null) {
             dFine =
-              '<div class="fleet-tile__fine">Recent activity up to ' +
-              esc(String(Math.round(Number(dk.busy)))) +
-              "% busy (not the same as space used)</div>";
+              '<div class="fleet-tile__fine">Fullest mount about ' +
+              esc(String(Math.round(Number(dk.maxU)))) +
+              "% used</div>";
           }
         } else {
           diskHeroHtml = '<div class="fleet-tile__value fleet-mono">—</div>';
         }
-        var memLabel = dk.maxU != null ? "Space" : "I/O";
+        var memLabel =
+          dk.busy != null ? "I/O" : dk.maxU != null ? "Space" : "I/O";
         var dSub = '<div class="fleet-tile__mem">' + memLabel + "</div>";
         var dHint =
           dk.ioAgg && dk.ioAgg.total_mbps != null && !isNaN(Number(dk.ioAgg.total_mbps))
@@ -1800,7 +1948,16 @@
       }
 
       var powerTile = renderPowerTile(host, energyLedger);
-      return renderCpuCompactTile(host, tCpu) + memTile + loadTile + diskTile + powerTile + gpuBlock;
+      var thermalTile = renderThermalTile(host);
+      return (
+        renderCpuCompactTile(host, tCpu) +
+        thermalTile +
+        memTile +
+        loadTile +
+        diskTile +
+        powerTile +
+        gpuBlock
+      );
     }
 
     function applyKpiTileAnims(host) {
@@ -2388,6 +2545,9 @@
       } else if (t.classList.contains("fleet-svc-stop")) {
         var sid2 = t.getAttribute("data-svc-id");
         if (sid2) forgeSvcPost("/v1/container-services/" + encodeURIComponent(sid2) + "/stop", "stop sent for " + sid2);
+      } else if (t.id === "fleet-header-git-update-btn" || (t.closest && t.closest("#fleet-header-git-update-btn"))) {
+        ev.preventDefault();
+        doGitSelfUpdate();
       }
     });
 
@@ -2443,6 +2603,15 @@
     if (suBtn) {
       suBtn.addEventListener("click", function () {
         doGitSelfUpdate();
+      });
+    }
+
+    var refreshMetricsBtn = document.getElementById("fleet-refresh-metrics-btn");
+    if (refreshMetricsBtn) {
+      refreshMetricsBtn.addEventListener("click", function () {
+        loadSnapshot().then(function () {
+          scheduleNext();
+        });
       });
     }
 

@@ -715,6 +715,63 @@ def disk_space_snapshot() -> list[dict[str, Any]]:
     return rows
 
 
+def thermal_cpu_snapshot() -> dict[str, Any]:
+    """Best-effort CPU-ish temperature from Linux sysfs (millidegree C in thermal zones)."""
+    if not sys.platform.startswith("linux"):
+        return {"max_c": None, "source": "unavailable", "reason": "non-linux"}
+    readings: list[tuple[float, str]] = []
+    tz_root = Path("/sys/class/thermal")
+    try:
+        if tz_root.is_dir():
+            for zdir in sorted(tz_root.glob("thermal_zone*"), key=lambda p: p.name):
+                tpath = zdir / "temp"
+                if not tpath.is_file():
+                    continue
+                typ = "zone"
+                try:
+                    nfile = zdir / "type"
+                    if nfile.is_file():
+                        typ = nfile.read_text(encoding="utf-8", errors="replace").strip() or "zone"
+                except OSError:
+                    pass
+                try:
+                    raw = int(tpath.read_text(encoding="utf-8", errors="replace").strip())
+                except (OSError, ValueError):
+                    continue
+                c = raw / 1000.0
+                if -55.0 < c < 130.0:
+                    readings.append((c, f"thermal:{typ}"))
+    except OSError:
+        pass
+
+    hwmon_labels = ("coretemp", "k10temp", "zenpower")
+    try:
+        hw = Path("/sys/class/hwmon")
+        if hw.is_dir():
+            for hdir in sorted(hw.glob("hwmon*"), key=lambda p: p.name):
+                try:
+                    label = (hdir / "name").read_text(encoding="utf-8", errors="replace").strip().lower()
+                except OSError:
+                    continue
+                if not any(x in label for x in hwmon_labels):
+                    continue
+                for tp in sorted(hdir.glob("temp*_input")):
+                    try:
+                        raw = int(tp.read_text(encoding="utf-8", errors="replace").strip())
+                    except (OSError, ValueError):
+                        continue
+                    c = raw / 1000.0
+                    if -55.0 < c < 130.0:
+                        readings.append((c, f"hwmon:{label}:{tp.name}"))
+    except OSError:
+        pass
+
+    if not readings:
+        return {"max_c": None, "source": "unavailable", "reason": "no thermal sysfs"}
+    best = max(readings, key=lambda t: t[0])
+    return {"max_c": round(best[0], 1), "source": best[1]}
+
+
 def snapshot() -> dict[str, Any]:
     """Lightweight machine snapshot for admin dashboard."""
     now = datetime.now(UTC).isoformat()
@@ -763,4 +820,8 @@ def snapshot() -> dict[str, Any]:
         out["disks"] = {"space": [], "io": {"available": False, "reason": "non-linux"}}
     out["gpu"] = gpu_bundle()
     out["energy"] = energy_observation(out["gpu"])
+    if sys.platform.startswith("linux"):
+        out["thermal"] = thermal_cpu_snapshot()
+    else:
+        out["thermal"] = {"max_c": None, "source": "unavailable", "reason": "non-linux"}
     return out
