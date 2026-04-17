@@ -48,7 +48,8 @@
     .fleet-tile .fleet-tile__hint { color: rgba(248,250,252,0.95) !important; opacity: 1 !important; text-shadow: 0 1px 2px rgba(0,0,0,0.55); }
     .fleet-tile .fleet-tile__label { color: rgba(248,250,252,0.95) !important; opacity: 1 !important; }
     .fleet-tile .fleet-tile__value { color: #ffffff !important; }
-    .fleet-tile .fleet-tile__logo { color: #f1f5f9; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.5)); }
+    .fleet-tile .fleet-tile__logo,
+    .fleet-tile .fleet-brand-mark { color: #f1f5f9; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.5)); }
     [data-bs-theme="light"] .fleet-tile {
       text-shadow: none;
       box-shadow: 0 1px 4px rgba(15,23,42,0.12);
@@ -56,7 +57,8 @@
     [data-bs-theme="light"] .fleet-tile .fleet-tile__value { color: #0f172a !important; }
     [data-bs-theme="light"] .fleet-tile .fleet-tile__label { color: #334155 !important; }
     [data-bs-theme="light"] .fleet-tile .fleet-tile__hint { color: #475569 !important; }
-    [data-bs-theme="light"] .fleet-tile .fleet-tile__logo { color: #0f172a; filter: none; }
+    [data-bs-theme="light"] .fleet-tile .fleet-tile__logo,
+    [data-bs-theme="light"] .fleet-tile .fleet-brand-mark { color: #0f172a; filter: none; }
     .fleet-tile--inactive {
       opacity: 1 !important;
       filter: none !important;
@@ -100,6 +102,15 @@
     [data-bs-theme="light"] .fleet-tile--intel-hot { background: linear-gradient(145deg, #ddd6fe 0%, #c4b5fd 100%); border-color: #7c3aed; }
     .fleet-uptime-strip { font-size: 0.85rem; }
     .fleet-uptime-strip strong { font-weight: 650; }
+    .fleet-brand-mark { height: 1.75rem; width: auto; max-width: 100%; display: block; }
+    .fleet-tile__brand { min-height: 2rem; margin-bottom: 0.35rem; display: flex; align-items: center; }
+    .fleet-tile__mem { font-size: 0.8rem; font-weight: 650; margin: 0.15rem 0 0.2rem; opacity: 0.95; }
+    .fleet-chart-box {
+      width: 100%; height: 4.5rem; border-radius: 0.5rem;
+      background: color-mix(in srgb, var(--forge-surface-2, var(--bs-secondary-bg)) 88%, transparent);
+      border: 1px solid var(--forge-border, var(--bs-border-color));
+    }
+    [data-bs-theme="light"] .fleet-chart-box { background: #f1f5f9; }
   </style>
 </head>
 <body class="fleet-admin-body">
@@ -153,7 +164,14 @@
     <section class="card mb-3 border-secondary-subtle shadow-sm">
       <div class="card-body py-3">
         <h2 class="h6 text-uppercase text-body-secondary mb-3">Overview</h2>
-        <div id="fleet-tiles" class="fleet-tile-row mb-3" aria-live="polite">Loading tiles…</div>
+        <div id="fleet-tiles" class="fleet-tile-row mb-2" aria-live="polite">Loading tiles…</div>
+        <div id="fleet-chart-wrap" class="mb-3">
+          <div class="d-flex flex-wrap justify-content-between align-items-center small text-body-secondary mb-1">
+            <span><span class="text-body">Load chart</span> — CPU % <span style="color:#34d399" aria-hidden="true">●</span> RAM % <span style="color:#38bdf8" aria-hidden="true">●</span> · <span class="fleet-mono">3s</span> · resets each sync</span>
+            <span class="fleet-mono">next sync <span id="fleet-chart-countdown">—</span></span>
+          </div>
+          <div id="fleet-load-chart" class="fleet-chart-box" role="img" aria-label="CPU and RAM percentage over three seconds"></div>
+        </div>
         <div id="fleet-uptime" class="fleet-uptime-strip text-body-secondary" aria-live="polite">Loading uptime…</div>
       </div>
     </section>
@@ -177,6 +195,7 @@
           <div class="col-md-4"><span class="text-body">Next sync</span> — <span id="live-countdown">…</span></div>
         </div>
         <div class="alert alert-danger py-2 px-3 mt-3 mb-0 small d-none" id="err" role="alert"></div>
+        <div id="fleet-storage" class="mt-3 small text-body-secondary" aria-live="polite">Loading job store…</div>
       </div>
     </section>
 
@@ -296,7 +315,7 @@
   (function () {
     "use strict";
     var LS = "forgeFleetAdminToken";
-    var POLL_VISIBLE_MS = 2500;
+    var POLL_VISIBLE_MS = 3000;
     var POLL_HIDDEN_MS = 9000;
     var tokenEl = document.getElementById("token");
     var errEl = document.getElementById("err");
@@ -311,6 +330,9 @@
     var lastSnapWallMs = 0;
     var fleetStartedEpoch = null;
     var lastCoreHours = null;
+    var lastHostForChart = null;
+    var chartBuf = [];
+    var CHART_SAMPLES = 15;
 
     function pollMs() {
       return document.hidden ? POLL_HIDDEN_MS : POLL_VISIBLE_MS;
@@ -407,10 +429,97 @@
       return g && g.intel_drm_est && g.intel_drm_est.available ? maxList(g.intel_drm_est.devices, "utilization_pct_est") : null;
     }
 
-    var SVG_CPU = "<svg class=\"fleet-tile__logo\" viewBox=\"0 0 32 32\" aria-hidden=\"true\" fill=\"none\"><rect x=\"7\" y=\"9\" width=\"18\" height=\"14\" rx=\"2\" stroke=\"currentColor\" stroke-width=\"1.6\"/><path d=\"M11 9V6M21 9V6M11 26v-3M21 26v-3M7 15H4M7 19H4M28 15h-3M28 19h-3\" stroke=\"currentColor\" stroke-width=\"1.5\"/></svg>";
-    var SVG_NV = "<svg class=\"fleet-tile__logo\" viewBox=\"0 0 32 32\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M5 23 11 9h4l-6 14H5Z\" opacity=\"0.95\"/><path fill=\"currentColor\" d=\"M12 23 18 9h5l-6 14h-5Z\" opacity=\"0.85\"/><path fill=\"currentColor\" d=\"M20 23 26 9h5l-5.5 14H20Z\" opacity=\"0.75\"/></svg>";
-    var SVG_AMD = "<svg class=\"fleet-tile__logo\" viewBox=\"0 0 32 32\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M6 24 14 8h6L12 24H6Z\"/><path fill=\"currentColor\" opacity=\"0.75\" d=\"M14 24 22 8h6l-8 16h-6Z\"/></svg>";
-    var SVG_INTEL = "<svg class=\"fleet-tile__logo\" viewBox=\"0 0 32 32\" aria-hidden=\"true\"><rect x=\"7\" y=\"10\" width=\"18\" height=\"12\" rx=\"1.5\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\"/><path fill=\"currentColor\" d=\"M10 7h12v3H10z\" opacity=\"0.9\"/></svg>";
+    function maxNvVramPct(g) {
+      return g && g.nvidia && g.nvidia.available ? maxList(g.nvidia.devices, "memory_used_pct") : null;
+    }
+
+    function tileMemRow(label, pct) {
+      if (pct == null || isNaN(pct)) {
+        return "<div class=\"fleet-tile__mem\">" + esc(label) + " —</div>";
+      }
+      var v = Math.round(Number(pct) * 10) / 10;
+      return "<div class=\"fleet-tile__mem\">" + esc(label) + " " + esc(v) + "%</div>";
+    }
+
+    /* Stylized marks (not vendor trademark artwork). */
+    var SVG_CPU = "<svg class=\"fleet-brand-mark\" viewBox=\"0 0 40 32\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.55\"><rect x=\"8\" y=\"8\" width=\"24\" height=\"16\" rx=\"2\"/><path d=\"M12 8V5M28 8V5M12 27v-3M28 27v-3M8 14H5M8 20H5M35 14h-3M35 20h-3\"/></svg>";
+    var SVG_NV = "<svg class=\"fleet-brand-mark\" viewBox=\"0 0 96 26\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M4 22 18 4h10L14 22H4zm22 0L46 4h11L32 22H26zm24 0L70 4h10L56 22H50z\"/></svg>";
+    var SVG_AMD = "<svg class=\"fleet-brand-mark\" viewBox=\"0 0 88 28\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M6 5 44 26 82 5H64L44 18 24 5H6z\"/></svg>";
+    var SVG_INTEL = "<svg class=\"fleet-brand-mark\" viewBox=\"0 0 80 26\" aria-hidden=\"true\"><ellipse cx=\"40\" cy=\"13\" rx=\"34\" ry=\"10\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\"/><rect x=\"10\" y=\"8\" width=\"18\" height=\"10\" rx=\"1.5\" fill=\"currentColor\"/></svg>";
+
+    function pushChartSample() {
+      if (!lastHostForChart) return;
+      var cpus = lastHostForChart.cpus || 1;
+      var la = Array.isArray(lastHostForChart.loadavg) ? lastHostForChart.loadavg[0] : 0;
+      var loadPct = Math.min(100, Math.max(0, (100 * la) / cpus));
+      var memP =
+        lastHostForChart.memory && lastHostForChart.memory.used_pct != null
+          ? Number(lastHostForChart.memory.used_pct)
+          : 0;
+      var cpuP =
+        lastHostForChart.cpu_usage_pct != null ? Number(lastHostForChart.cpu_usage_pct) : loadPct;
+      chartBuf.push({
+        cpu: Math.min(100, Math.max(0, cpuP)),
+        mem: Math.min(100, Math.max(0, memP)),
+      });
+      if (chartBuf.length > CHART_SAMPLES) chartBuf.shift();
+    }
+
+    function renderFleetChart() {
+      var el = document.getElementById("fleet-load-chart");
+      if (!el) return;
+      var w = 600;
+      var h = 90;
+      var pad = 6;
+      var iw = w - 2 * pad;
+      var ih = h - 2 * pad;
+      var n = chartBuf.length;
+      if (n === 0) {
+        el.innerHTML =
+          "<svg width=\"100%\" height=\"100%\" viewBox=\"0 0 " +
+          w +
+          " " +
+          h +
+          "\"><text x=\"" +
+          pad +
+          "\" y=\"" +
+          (h / 2) +
+          "\" fill=\"currentColor\" opacity=\"0.45\" font-size=\"12\">Waiting for samples…</text></svg>";
+        return;
+      }
+      var denom = Math.max(1, n - 1);
+      var ptsCpu = [];
+      var ptsMem = [];
+      for (var i = 0; i < n; i++) {
+        var x = pad + (i / denom) * iw;
+        var yc = pad + ih - (chartBuf[i].cpu / 100) * ih;
+        var ym = pad + ih - (chartBuf[i].mem / 100) * ih;
+        ptsCpu.push(Math.round(x * 10) / 10 + "," + Math.round(yc * 10) / 10);
+        ptsMem.push(Math.round(x * 10) / 10 + "," + Math.round(ym * 10) / 10);
+      }
+      el.innerHTML =
+        "<svg width=\"100%\" height=\"100%\" preserveAspectRatio=\"none\" viewBox=\"0 0 " +
+        w +
+        " " +
+        h +
+        "\">" +
+        "<line x1=\"" +
+        pad +
+        "\" y1=\"" +
+        (pad + ih) +
+        "\" x2=\"" +
+        (pad + iw) +
+        "\" y2=\"" +
+        (pad + ih) +
+        "\" stroke=\"currentColor\" stroke-opacity=\"0.15\" stroke-width=\"1\"/>" +
+        "<polyline fill=\"none\" stroke=\"#34d399\" stroke-width=\"2.2\" stroke-linejoin=\"round\" stroke-linecap=\"round\" points=\"" +
+        ptsCpu.join(" ") +
+        "\"/>" +
+        "<polyline fill=\"none\" stroke=\"#38bdf8\" stroke-width=\"2.2\" stroke-linejoin=\"round\" stroke-linecap=\"round\" points=\"" +
+        ptsMem.join(" ") +
+        "\"/>" +
+        "</svg>";
+    }
 
     function renderTiles(host, node) {
       var g = host.gpu || {};
@@ -420,8 +529,10 @@
       var cpuCls = "fleet-tile fleet-tile--cpu-" + heat3(cpuP);
       var cpuMain = cpuP != null ? esc(cpuP) + "%" : esc(la.split(" · ")[0] || "—");
       var cpuHint = cpuP != null ? "Load " + esc(la) + " · " + esc(cpus) + " cores" : esc(cpus) + " cores · load " + esc(la);
+      var ramPct = host.memory && host.memory.used_pct != null ? host.memory.used_pct : null;
 
       var nv = maxNvUtil(g);
+      var nvVram = maxNvVramPct(g);
       var nvCls = "fleet-tile fleet-tile--nv" + (nv == null ? "" : nv < 55 ? "" : nv < 82 ? "-mid" : "-hot");
       if (nv == null) nvCls += " fleet-tile--inactive";
       var nvMain = nv != null ? esc(nv) + "%" : "—";
@@ -438,22 +549,50 @@
       var irHint = ir != null ? "Engine busy Δ" : "No Intel / Xe counters";
 
       return (
-        "<div class=\"" + cpuCls + "\">" + SVG_CPU +
-        "<div class=\"fleet-tile__label\">CPU</div>" +
-        "<div class=\"fleet-tile__value\">" + cpuMain + "</div>" +
-        "<div class=\"fleet-tile__hint\">" + cpuHint + "</div></div>" +
-        "<div class=\"" + nvCls + "\">" + SVG_NV +
-        "<div class=\"fleet-tile__label\">NVIDIA</div>" +
-        "<div class=\"fleet-tile__value\">" + nvMain + "</div>" +
-        "<div class=\"fleet-tile__hint\">" + nvHint + "</div></div>" +
-        "<div class=\"" + amCls + "\">" + SVG_AMD +
-        "<div class=\"fleet-tile__label\">AMD</div>" +
-        "<div class=\"fleet-tile__value\">" + amMain + "</div>" +
-        "<div class=\"fleet-tile__hint\">" + amHint + "</div></div>" +
-        "<div class=\"" + irCls + "\">" + SVG_INTEL +
-        "<div class=\"fleet-tile__label\">Intel</div>" +
-        "<div class=\"fleet-tile__value\">" + irMain + "</div>" +
-        "<div class=\"fleet-tile__hint\">" + irHint + "</div></div>"
+        "<div class=\"" +
+        cpuCls +
+        "\"><div class=\"fleet-tile__brand\">" +
+        SVG_CPU +
+        "<span class=\"visually-hidden\">CPU</span></div><div class=\"fleet-tile__value\">" +
+        cpuMain +
+        "</div>" +
+        tileMemRow("RAM", ramPct) +
+        "<div class=\"fleet-tile__hint\">" +
+        cpuHint +
+        "</div></div>" +
+        "<div class=\"" +
+        nvCls +
+        "\"><div class=\"fleet-tile__brand\">" +
+        SVG_NV +
+        "<span class=\"visually-hidden\">NVIDIA</span></div><div class=\"fleet-tile__value\">" +
+        nvMain +
+        "</div>" +
+        tileMemRow("VRAM", nvVram) +
+        "<div class=\"fleet-tile__hint\">" +
+        nvHint +
+        "</div></div>" +
+        "<div class=\"" +
+        amCls +
+        "\"><div class=\"fleet-tile__brand\">" +
+        SVG_AMD +
+        "<span class=\"visually-hidden\">AMD</span></div><div class=\"fleet-tile__value\">" +
+        amMain +
+        "</div>" +
+        tileMemRow("VRAM", null) +
+        "<div class=\"fleet-tile__hint\">" +
+        amHint +
+        "</div></div>" +
+        "<div class=\"" +
+        irCls +
+        "\"><div class=\"fleet-tile__brand\">" +
+        SVG_INTEL +
+        "<span class=\"visually-hidden\">Intel</span></div><div class=\"fleet-tile__value\">" +
+        irMain +
+        "</div>" +
+        tileMemRow("VRAM", null) +
+        "<div class=\"fleet-tile__hint\">" +
+        irHint +
+        "</div></div>"
       );
     }
 
@@ -576,6 +715,29 @@
 
       var meta = data.meta || {};
       liveAuth.textContent = meta.auth_enforced ? "bearer required" : "not required (loopback or no token)";
+      var stEl = document.getElementById("fleet-storage");
+      if (stEl) {
+        var nj = meta.jobs_total != null ? Number(meta.jobs_total) : NaN;
+        var njTxt = !isNaN(nj) ? String(nj) : "—";
+        var hint =
+          !isNaN(nj) && nj === 0
+            ? "<div class=\"alert alert-info py-2 px-2 mt-2 mb-0 small\">" +
+              "<strong>No rows in this server\u2019s SQLite job store.</strong> " +
+              "Forge Lenses must call <span class=\"fleet-mono\">POST /v1/jobs</span> on <em>this</em> process (same host, port, and token). " +
+              "If you run multiple Fleet servers (host vs Docker vs another port), the admin page only shows jobs for the one you opened. " +
+              "With Docker Compose, mount a volume on <span class=\"fleet-mono\">FLEET_DATA_DIR</span> so history survives container restarts.</div>"
+            : "";
+        stEl.innerHTML =
+          "<div><strong>SQLite (job history)</strong> — <span class=\"fleet-mono text-break\">" +
+          esc(meta.sqlite_path || "—") +
+          "</span></div>" +
+          "<div class=\"mt-1\"><strong>Listen host</strong> — <span class=\"fleet-mono\">" +
+          esc(meta.listen_host || "—") +
+          "</span> · <strong>Jobs recorded (all statuses)</strong> — " +
+          esc(njTxt) +
+          "</div>" +
+          hint;
+      }
       var host = data.host || {};
       lastHostUtc = host.time_utc || null;
       liveLast.textContent = relTime(lastHostUtc) + " · " + esc(lastHostUtc || "—");
@@ -586,6 +748,10 @@
       fleetStartedEpoch = lastNode.fleet_started_epoch != null ? Number(lastNode.fleet_started_epoch) : null;
       if (lastNode.core_hours_1c != null) lastCoreHours = Number(lastNode.core_hours_1c);
       document.getElementById("fleet-tiles").innerHTML = renderTiles(host, lastNode);
+      lastHostForChart = host;
+      chartBuf = [];
+      pushChartSample();
+      renderFleetChart();
       updateUptimeLive();
 
       var mem = host.memory || {};
@@ -644,11 +810,16 @@
 
     function tick() {
       var ms = Math.max(0, nextFire - Date.now());
-      liveNext.textContent = ms < 1500 ? (Math.ceil(ms / 100) / 10) + "s" : Math.ceil(ms / 1000) + "s";
+      var cd = ms < 1500 ? (Math.ceil(ms / 100) / 10) + "s" : Math.ceil(ms / 1000) + "s";
+      liveNext.textContent = cd;
+      var fccd = document.getElementById("fleet-chart-countdown");
+      if (fccd) fccd.textContent = cd;
       if (lastHostUtc) {
         liveLast.textContent = relTime(lastHostUtc) + " · " + esc(lastHostUtc);
       }
       updateUptimeLive();
+      pushChartSample();
+      renderFleetChart();
       if (ms <= 0) {
         loadSnapshot().then(function () { scheduleNext(); });
       }
