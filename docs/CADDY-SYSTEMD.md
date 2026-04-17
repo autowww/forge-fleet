@@ -2,19 +2,23 @@
 
 Primary installer (interactive prompts for layout, bearer, ports; Ubuntu `apt` for Caddy):
 
+Run from the **forge-fleet repository root** (the directory that contains `scripts/`, `fleet_server/`, etc. — clone path is arbitrary: `$HOME/forge-fleet`, `$HOME/src/forge-fleet`, or any folder you chose):
+
 ```bash
+cd /path/to/forge-fleet
 ./scripts/install-caddy-fleet.sh
 ```
 
-From **`$HOME`** (clone at `~/Code/forge-fleet`):
+Or call the script by **absolute path** without `cd`:
 
 ```bash
-bash "$HOME/Code/forge-fleet/scripts/install-caddy-fleet.sh"
+bash /path/to/forge-fleet/scripts/install-caddy-fleet.sh
 ```
 
-**Non-interactive** (e.g. remote):
+**Non-interactive** (e.g. remote): same `cd` (or absolute path to the script):
 
 ```bash
+cd /path/to/forge-fleet
 # User Fleet (systemctl --user): Fleet 127.0.0.1:18766, Caddy :18767
 LAYOUT=user FLEET_BEARER_TOKEN='your-token' bash ./scripts/install-caddy-fleet.sh --non-interactive
 
