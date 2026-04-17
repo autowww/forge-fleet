@@ -35,8 +35,15 @@ def connect(db_path: Path) -> sqlite3.Connection:
         )
         """
     )
+    _migrate_jobs_schema(conn)
     conn.commit()
     return conn
+
+
+def _migrate_jobs_schema(conn: sqlite3.Connection) -> None:
+    cols = {str(r[1]) for r in conn.execute("PRAGMA table_info(jobs)").fetchall()}
+    if "running_started" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN running_started REAL")
 
 
 def insert_job(conn: sqlite3.Connection, *, kind: str, argv: list[str], session_id: str, meta: dict[str, Any]) -> str:
@@ -71,6 +78,7 @@ def update_job(
     stderr: str | None = None,
     exit_code: int | None = None,
     container_id: str | None = None,
+    running_started: float | None = None,
 ) -> None:
     now = time.time()
     fields: list[str] = ["updated = ?"]
@@ -90,6 +98,9 @@ def update_job(
     if container_id is not None:
         fields.append("container_id = ?")
         vals.append(container_id)
+    if running_started is not None:
+        fields.append("running_started = ?")
+        vals.append(running_started)
     vals.append(jid)
     with _lock:
         conn.execute(f"UPDATE jobs SET {', '.join(fields)} WHERE id = ?", vals)
@@ -105,6 +116,27 @@ def get_job(conn: sqlite3.Connection, jid: str) -> dict[str, Any] | None:
     d["argv"] = json.loads(d.pop("argv_json") or "[]")
     d["meta"] = json.loads(d.pop("meta_json") or "{}")
     return d
+
+
+def sum_accounted_core_seconds(conn: sqlite3.Connection) -> float:
+    """Wall seconds jobs spent in ``running`` until a terminal status (1 logical core per job)."""
+    cur = conn.execute(
+        """
+        SELECT COALESCE(SUM(
+            CASE
+                WHEN status IN ('completed', 'failed', 'cancelled')
+                     AND running_started IS NOT NULL
+                THEN MAX(0.0, updated - running_started)
+                ELSE 0.0
+            END
+        ), 0.0) AS s
+        FROM jobs
+        """
+    )
+    row = cur.fetchone()
+    if row is None:
+        return 0.0
+    return float(row["s"] or 0.0)
 
 
 def count_jobs_by_status(conn: sqlite3.Connection) -> dict[str, int]:

@@ -36,7 +36,7 @@ def run_job(db_path: Path, job_id: str) -> None:
         row = store.get_job(conn, job_id)
         if row is None or row["status"] != "queued":
             return
-        store.update_job(conn, job_id, status="running")
+        store.update_job(conn, job_id, status="running", running_started=time.time())
     finally:
         conn.close()
     conn = store.connect(db_path)

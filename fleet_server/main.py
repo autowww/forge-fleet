@@ -6,6 +6,8 @@ import argparse
 import json
 import os
 import re
+import time
+from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
 from pathlib import Path
@@ -204,10 +206,12 @@ class FleetHandler(BaseHTTPRequestHandler):
             try:
                 by_status = store.count_jobs_by_status(conn)
                 recent = store.list_jobs_summary(conn, limit=150)
+                core_s = store.sum_accounted_core_seconds(conn)
             finally:
                 conn.close()
             token_set = bool(str(getattr(self.server, "expected_token", "") or "").strip())
             skip = bool(getattr(self.server, "loopback_bind_skips_auth", False))
+            fleet_epoch = float(getattr(self.server, "fleet_started_epoch", time.time()))
             body: dict[str, Any] = {
                 "ok": True,
                 "meta": {
@@ -215,6 +219,13 @@ class FleetHandler(BaseHTTPRequestHandler):
                     "server_version": FleetHandler.server_version,
                 },
                 "host": host_stats.snapshot(),
+                "node": {
+                    "fleet_started_utc": getattr(self.server, "fleet_started_utc", ""),
+                    "fleet_started_epoch": fleet_epoch,
+                    "fleet_uptime_s": round(time.time() - fleet_epoch, 3),
+                    "core_hours_1c": round(core_s / 3600.0, 5),
+                    "core_seconds_1c": round(core_s, 3),
+                },
                 "jobs_by_status": by_status,
                 "jobs_recent": recent,
                 "active_workers": runner.list_active_workers(self.server.db_path),
@@ -315,6 +326,8 @@ def main() -> None:
     httpd.db_path = db_path
     httpd.expected_token = token
     httpd.loopback_bind_skips_auth = loopback_skips_auth
+    httpd.fleet_started_epoch = time.time()
+    httpd.fleet_started_utc = datetime.now(UTC).isoformat()
     if loopback_skips_auth:
         auth_note = "off (loopback bind — bearer not required; set FLEET_ENFORCE_BEARER=1 to force)"
     elif token:

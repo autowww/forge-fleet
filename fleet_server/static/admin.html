@@ -36,6 +36,33 @@
     .st-completed { background: #059669; color: #fff; }
     .st-failed { background: #b91c1c; color: #fff; }
     .st-cancelled { background: #a16207; color: #fff; }
+    .fleet-tile-row { display: flex; flex-wrap: nowrap; gap: 0.75rem; overflow-x: auto; padding-bottom: 0.15rem; scroll-snap-type: x mandatory; }
+    .fleet-tile {
+      flex: 1 1 0; min-width: 10.5rem; max-width: 16rem; scroll-snap-align: start;
+      border-radius: 0.7rem; padding: 0.85rem 0.95rem; position: relative; overflow: hidden;
+      border: 1px solid rgba(255,255,255,0.1); color: #f8fafc;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.25);
+    }
+    [data-bs-theme="light"] .fleet-tile { color: #0f172a; border-color: rgba(15,23,42,0.12); box-shadow: 0 1px 6px rgba(15,23,42,0.08); }
+    .fleet-tile--inactive { opacity: 0.42; filter: grayscale(0.9); }
+    .fleet-tile__logo { width: 2.25rem; height: 2.25rem; margin-bottom: 0.4rem; display: block; }
+    .fleet-tile__label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.88; font-weight: 600; }
+    .fleet-tile__value { font-size: 1.45rem; font-weight: 800; line-height: 1.15; letter-spacing: -0.02em; }
+    .fleet-tile__hint { font-size: 0.72rem; opacity: 0.78; margin-top: 0.25rem; line-height: 1.3; }
+    .fleet-tile--cpu-low { background: linear-gradient(145deg, #064e3b 0%, #022c22 100%); border-color: rgba(16,185,129,0.35); }
+    .fleet-tile--cpu-mid { background: linear-gradient(145deg, #713f12 0%, #422006 100%); border-color: rgba(245,158,11,0.35); }
+    .fleet-tile--cpu-high { background: linear-gradient(145deg, #7f1d1d 0%, #3f0f0f 100%); border-color: rgba(248,113,113,0.4); }
+    .fleet-tile--nv { background: linear-gradient(145deg, #166534 0%, #052e16 100%); border-color: rgba(118,185,0,0.45); }
+    .fleet-tile--nv-mid { background: linear-gradient(145deg, #3f6212 0%, #1a2e05 100%); }
+    .fleet-tile--nv-hot { background: linear-gradient(145deg, #854d0e 0%, #422006 100%); }
+    .fleet-tile--amd { background: linear-gradient(145deg, #7f1d1d 0%, #450a0a 100%); border-color: rgba(237,28,36,0.4); }
+    .fleet-tile--amd-mid { background: linear-gradient(145deg, #9a3412 0%, #431407 100%); }
+    .fleet-tile--amd-hot { background: linear-gradient(145deg, #a16207 0%, #422006 100%); }
+    .fleet-tile--intel { background: linear-gradient(145deg, #1e40af 0%, #0f172a 100%); border-color: rgba(0,113,197,0.45); }
+    .fleet-tile--intel-mid { background: linear-gradient(145deg, #1d4ed8 0%, #172554 100%); }
+    .fleet-tile--intel-hot { background: linear-gradient(145deg, #6d28d9 0%, #2e1065 100%); }
+    .fleet-uptime-strip { font-size: 0.85rem; }
+    .fleet-uptime-strip strong { font-weight: 650; }
   </style>
 </head>
 <body class="fleet-admin-body">
@@ -85,6 +112,14 @@
       <h1 class="h3 fleet-admin-title mb-1">Forge Fleet — status</h1>
       <p class="text-body-secondary small mb-0">Kitchensink + Bootstrap layout; theme follows Light / Dark / System. Data refreshes automatically — no full page reload.</p>
     </header>
+
+    <section class="card mb-3 border-secondary-subtle shadow-sm">
+      <div class="card-body py-3">
+        <h2 class="h6 text-uppercase text-body-secondary mb-3">Overview</h2>
+        <div id="fleet-tiles" class="fleet-tile-row mb-3" aria-live="polite">Loading tiles…</div>
+        <div id="fleet-uptime" class="fleet-uptime-strip text-body-secondary" aria-live="polite">Loading uptime…</div>
+      </div>
+    </section>
 
     <section class="card mb-3 border-secondary-subtle shadow-sm">
       <div class="card-body">
@@ -174,6 +209,11 @@
     var nextFire = Date.now();
     var debounceTimer = null;
     var lastHostUtc = null;
+    var lastNode = {};
+    var lastSysUp = null;
+    var lastSnapWallMs = 0;
+    var fleetStartedEpoch = null;
+    var lastCoreHours = null;
 
     function pollMs() {
       return document.hidden ? POLL_HIDDEN_MS : POLL_VISIBLE_MS;
@@ -204,6 +244,138 @@
       var m = Math.floor(sec / 60);
       if (m < 60) return m + "m ago";
       return Math.floor(m / 60) + "h ago";
+    }
+
+    function formatDuration(sec) {
+      if (sec == null || isNaN(sec)) return "—";
+      var x = Math.max(0, Number(sec));
+      var d = Math.floor(x / 86400);
+      x -= d * 86400;
+      var h = Math.floor(x / 3600);
+      x -= h * 3600;
+      var mi = Math.floor(x / 60);
+      var s = Math.floor(x - mi * 60);
+      var o = [];
+      if (d) o.push(d + "d");
+      if (d || h) o.push(h + "h");
+      o.push(mi + "m");
+      o.push(s + "s");
+      return o.join(" ");
+    }
+
+    function heat3(p) {
+      if (p == null || isNaN(p)) return "mid";
+      if (p < 52) return "low";
+      if (p < 80) return "mid";
+      return "high";
+    }
+
+    function cpuPct(host) {
+      var p = host.cpu_usage_pct;
+      if (p == null && Array.isArray(host.loadavg) && host.cpus) {
+        p = Math.min(100, (100 * host.loadavg[0]) / host.cpus);
+      }
+      return p == null ? null : Math.round(p * 10) / 10;
+    }
+
+    function maxList(arr, key) {
+      var m = null;
+      if (!arr) return null;
+      arr.forEach(function (o) {
+        var v = o[key];
+        if (v != null && !isNaN(v)) m = m == null ? v : Math.max(m, v);
+      });
+      return m;
+    }
+
+    function maxNvUtil(g) {
+      return g && g.nvidia && g.nvidia.available ? maxList(g.nvidia.devices, "utilization_pct") : null;
+    }
+
+    function maxAmdUtil(g) {
+      var a = 0;
+      var ok = false;
+      if (g && g.amdgpu_sysfs && g.amdgpu_sysfs.available && g.amdgpu_sysfs.devices) {
+        var m = maxList(g.amdgpu_sysfs.devices, "utilization_pct");
+        if (m != null) { a = Math.max(a, m); ok = true; }
+      }
+      if (g && g.rocm && g.rocm.available && g.rocm.devices) {
+        var r = maxList(g.rocm.devices, "utilization_pct");
+        if (r != null) { a = Math.max(a, r); ok = true; }
+      }
+      return ok ? a : null;
+    }
+
+    function maxIntelUtil(g) {
+      return g && g.intel_drm_est && g.intel_drm_est.available ? maxList(g.intel_drm_est.devices, "utilization_pct_est") : null;
+    }
+
+    var SVG_CPU = "<svg class=\"fleet-tile__logo\" viewBox=\"0 0 32 32\" aria-hidden=\"true\" fill=\"none\"><rect x=\"7\" y=\"9\" width=\"18\" height=\"14\" rx=\"2\" stroke=\"currentColor\" stroke-width=\"1.6\"/><path d=\"M11 9V6M21 9V6M11 26v-3M21 26v-3M7 15H4M7 19H4M28 15h-3M28 19h-3\" stroke=\"currentColor\" stroke-width=\"1.5\"/></svg>";
+    var SVG_NV = "<svg class=\"fleet-tile__logo\" viewBox=\"0 0 32 32\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M5 23 11 9h4l-6 14H5Z\" opacity=\"0.95\"/><path fill=\"currentColor\" d=\"M12 23 18 9h5l-6 14h-5Z\" opacity=\"0.85\"/><path fill=\"currentColor\" d=\"M20 23 26 9h5l-5.5 14H20Z\" opacity=\"0.75\"/></svg>";
+    var SVG_AMD = "<svg class=\"fleet-tile__logo\" viewBox=\"0 0 32 32\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M6 24 14 8h6L12 24H6Z\"/><path fill=\"currentColor\" opacity=\"0.75\" d=\"M14 24 22 8h6l-8 16h-6Z\"/></svg>";
+    var SVG_INTEL = "<svg class=\"fleet-tile__logo\" viewBox=\"0 0 32 32\" aria-hidden=\"true\"><rect x=\"7\" y=\"10\" width=\"18\" height=\"12\" rx=\"1.5\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\"/><path fill=\"currentColor\" d=\"M10 7h12v3H10z\" opacity=\"0.9\"/></svg>";
+
+    function renderTiles(host, node) {
+      var g = host.gpu || {};
+      var cpus = host.cpus != null ? host.cpus : "—";
+      var la = Array.isArray(host.loadavg) ? host.loadavg.map(function (x) { return Math.round(x * 100) / 100; }).join(" · ") : "—";
+      var cpuP = cpuPct(host);
+      var cpuCls = "fleet-tile fleet-tile--cpu-" + heat3(cpuP);
+      var cpuMain = cpuP != null ? esc(cpuP) + "%" : esc(la.split(" · ")[0] || "—");
+      var cpuHint = cpuP != null ? "Load " + esc(la) + " · " + esc(cpus) + " cores" : esc(cpus) + " cores · load " + esc(la);
+
+      var nv = maxNvUtil(g);
+      var nvCls = "fleet-tile fleet-tile--nv" + (nv == null ? "" : nv < 55 ? "" : nv < 82 ? "-mid" : "-hot");
+      if (nv == null) nvCls += " fleet-tile--inactive";
+      var nvMain = nv != null ? esc(nv) + "%" : "—";
+      var nvHint = nv != null ? "CUDA / GL" : (g.nvidia && g.nvidia.reason) ? esc(g.nvidia.reason) : "No NVIDIA telemetry";
+
+      var am = maxAmdUtil(g);
+      var amCls = "fleet-tile fleet-tile--amd" + (am == null ? " fleet-tile--inactive" : am < 55 ? "" : am < 82 ? "-mid" : "-hot");
+      var amMain = am != null ? esc(am) + "%" : "—";
+      var amHint = am != null ? "sysfs / ROCm" : "No AMD telemetry";
+
+      var ir = maxIntelUtil(g);
+      var irCls = "fleet-tile fleet-tile--intel" + (ir == null ? " fleet-tile--inactive" : ir < 55 ? "" : ir < 82 ? "-mid" : "-hot");
+      var irMain = ir != null ? esc(ir) + "% est." : "—";
+      var irHint = ir != null ? "Engine busy Δ" : "No Intel / Xe counters";
+
+      return (
+        "<div class=\"" + cpuCls + "\">" + SVG_CPU +
+        "<div class=\"fleet-tile__label\">CPU</div>" +
+        "<div class=\"fleet-tile__value\">" + cpuMain + "</div>" +
+        "<div class=\"fleet-tile__hint\">" + cpuHint + "</div></div>" +
+        "<div class=\"" + nvCls + "\">" + SVG_NV +
+        "<div class=\"fleet-tile__label\">NVIDIA</div>" +
+        "<div class=\"fleet-tile__value\">" + nvMain + "</div>" +
+        "<div class=\"fleet-tile__hint\">" + nvHint + "</div></div>" +
+        "<div class=\"" + amCls + "\">" + SVG_AMD +
+        "<div class=\"fleet-tile__label\">AMD</div>" +
+        "<div class=\"fleet-tile__value\">" + amMain + "</div>" +
+        "<div class=\"fleet-tile__hint\">" + amHint + "</div></div>" +
+        "<div class=\"" + irCls + "\">" + SVG_INTEL +
+        "<div class=\"fleet-tile__label\">Intel</div>" +
+        "<div class=\"fleet-tile__value\">" + irMain + "</div>" +
+        "<div class=\"fleet-tile__hint\">" + irHint + "</div></div>"
+      );
+    }
+
+    function updateUptimeLive() {
+      var el = document.getElementById("fleet-uptime");
+      if (!el) return;
+      var fleetSec = fleetStartedEpoch != null ? Date.now() / 1000 - fleetStartedEpoch : null;
+      var sysSec = lastSysUp;
+      if (lastSnapWallMs && lastSysUp != null) {
+        sysSec = lastSysUp + (Date.now() - lastSnapWallMs) / 1000;
+      }
+      var chs = lastCoreHours != null && !isNaN(lastCoreHours) ? Math.round(lastCoreHours * 1000) / 1000 : "—";
+      el.innerHTML =
+        "<div class=\"d-flex flex-wrap gap-4\">" +
+        "<div><strong>Fleet process</strong><br/><span class=\"fleet-mono\">" + esc(formatDuration(fleetSec)) + "</span></div>" +
+        "<div><strong>System uptime</strong><br/><span class=\"fleet-mono\">" + esc(formatDuration(sysSec)) + "</span></div>" +
+        "<div><strong>Core·hours booked</strong><br/><span class=\"fleet-mono\">" + esc(String(chs)) + "</span> <span class=\"text-body-secondary small\">(at last sync)</span></div>" +
+        "</div>" +
+        "<div class=\"mt-2 small text-body-secondary\">Fleet started <span class=\"fleet-mono\">" + esc((lastNode && lastNode.fleet_started_utc) || "—") + "</span></div>";
     }
 
     function statusPill(st) {
@@ -311,17 +483,28 @@
       lastHostUtc = host.time_utc || null;
       liveLast.textContent = relTime(lastHostUtc) + " · " + esc(lastHostUtc || "—");
 
+      lastNode = data.node || {};
+      lastSnapWallMs = Date.now();
+      lastSysUp = host.system_uptime_s != null ? Number(host.system_uptime_s) : null;
+      fleetStartedEpoch = lastNode.fleet_started_epoch != null ? Number(lastNode.fleet_started_epoch) : null;
+      if (lastNode.core_hours_1c != null) lastCoreHours = Number(lastNode.core_hours_1c);
+      document.getElementById("fleet-tiles").innerHTML = renderTiles(host, lastNode);
+      updateUptimeLive();
+
       var mem = host.memory || {};
       var la = host.loadavg;
+      var cup = host.cpu_usage_pct;
       document.getElementById("host").innerHTML =
         "<div class=\"mb-2\"><strong>Time (UTC)</strong> — <span class=\"fleet-mono\">" + esc(host.time_utc) + "</span></div>" +
         "<div class=\"d-flex flex-wrap gap-3\">" +
+        "<span><strong>CPU busy (sample)</strong> — " + esc(cup != null ? cup + "%" : "—") + "</span>" +
         "<span><strong>CPUs</strong> — " + esc(host.cpus != null ? host.cpus : "—") + "</span>" +
         "<span><strong>Load 1/5/15</strong> — " + esc(Array.isArray(la) ? la.join(" / ") : "—") + "</span>" +
         "<span><strong>Memory</strong> — " +
           esc(mem.used_pct != null ? mem.used_pct + "% used" : "—") +
           esc(mem.total_kb ? " (" + Math.round(mem.total_kb / 1024) + " MiB total)" : "") +
         "</span>" +
+        "<span><strong>System up</strong> — " + esc(formatDuration(host.system_uptime_s)) + "</span>" +
         "<span><strong>Python</strong> — " + esc(host.python || "—") + "</span>" +
         "</div>";
 
@@ -368,6 +551,7 @@
       if (lastHostUtc) {
         liveLast.textContent = relTime(lastHostUtc) + " · " + esc(lastHostUtc);
       }
+      updateUptimeLive();
       if (ms <= 0) {
         loadSnapshot().then(function () { scheduleNext(); });
       }

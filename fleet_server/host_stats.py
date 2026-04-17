@@ -335,8 +335,16 @@ def snapshot() -> dict[str, Any]:
             out["memory"] = mem or None
         except OSError:
             out["memory"] = None
+        try:
+            up0 = Path("/proc/uptime").read_text(encoding="utf-8").split()[0]
+            out["system_uptime_s"] = float(up0)
+        except (OSError, ValueError, IndexError):
+            out["system_uptime_s"] = None
+        out["cpu_usage_pct"] = cpu_usage_percent_sample(0.05)
     else:
         out["loadavg"] = None
         out["memory"] = None
+        out["system_uptime_s"] = None
+        out["cpu_usage_pct"] = None
     out["gpu"] = gpu_bundle()
     return out
