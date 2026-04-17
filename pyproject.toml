@@ -1,6 +1,6 @@
 [project]
 name = "forge-fleet"
-version = "0.1.0"
+version = "0.3.0"
 description = "HTTP orchestrator for local Docker (and future remote) Docs Health / tasklet jobs"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -17,4 +17,4 @@ build-backend = "setuptools.build_meta"
 packages = ["fleet_server"]
 
 [tool.setuptools.package-data]
-fleet_server = ["static/*.html"]
+fleet_server = ["static/*.html", "static/gpu-logos/*.png"]
