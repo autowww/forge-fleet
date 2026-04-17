@@ -777,7 +777,7 @@
         var elS = document.getElementById("fleet-cpu-shell");
         if (!elV || !elF || !elS) return false;
         var clamped = Math.min(100, Math.max(0, Number(val)));
-        var wText = Math.round(clamped * 10) / 10;
+        var wText = Math.round(clamped);
         elV.textContent = String(wText) + "%";
         elF.style.width = String(Math.round(clamped * 100) / 100) + "%";
         elS.className = "fleet-cpu-compact__shell fleet-cpu-wide--z" + loadZone4(clamped);
@@ -862,7 +862,7 @@
     function cpuPct(host) {
       var p = host.cpu_usage_pct;
       if (p == null || isNaN(Number(p))) return null;
-      return Math.round(Number(p) * 10) / 10;
+      return Math.round(Number(p));
     }
 
     function memQuarterFills(usedPct) {
@@ -897,9 +897,7 @@
       if (epp) modeLine.push(epp);
       var modeStr = modeLine.length ? modeLine.join(" · ") : "—";
       var mainPct =
-        cpuP != null && !isNaN(cpuP)
-          ? esc(String(Math.round(w * 10) / 10)) + "%"
-          : "—";
+        cpuP != null && !isNaN(cpuP) ? esc(String(Math.round(w))) + "%" : "—";
       var wBar = esc(String(Math.round(w * 100) / 100));
       return (
         '<div class="fleet-tile fleet-cpu-compact' +
@@ -1002,7 +1000,7 @@
       if (pct == null || isNaN(pct)) {
         return "<div class=\"fleet-tile__mem\">" + esc(label) + " —</div>";
       }
-      var v = Math.round(Number(pct) * 10) / 10;
+      var v = Math.round(Number(pct));
       return "<div class=\"fleet-tile__mem\">" + esc(label) + " " + esc(v) + "%</div>";
     }
 
@@ -1080,7 +1078,7 @@
 
     function mergeLoadPeakPct(pct) {
       if (pct == null || isNaN(pct)) return;
-      var v = Math.round(Number(pct) * 10) / 10;
+      var v = Math.round(Number(pct));
       var cur = parseFloat(localStorage.getItem(LS_LOAD_PEAK) || "");
       if (!isFinite(cur)) cur = 0;
       if (v > cur) localStorage.setItem(LS_LOAD_PEAK, String(v));
@@ -1098,7 +1096,7 @@
         if (u != null && !isNaN(Number(u))) {
           var nu = Number(u);
           maxU = maxU == null ? nu : Math.max(maxU, nu);
-          if (r.mount) parts.push(esc(String(r.mount)) + " " + esc(Math.round(nu * 10) / 10) + "%");
+          if (r.mount) parts.push(esc(String(r.mount)) + " " + esc(Math.round(nu)) + "%");
         }
       }
       var ioAgg = io && io.available === true && io.aggregated ? io.aggregated : null;
@@ -1234,9 +1232,7 @@
 
     function fmtWatts(w) {
       if (w == null || isNaN(Number(w)) || Number(w) < 0) return "—";
-      var x = Number(w);
-      if (x >= 100) return String(Math.round(x));
-      return String(Math.round(x * 10) / 10);
+      return String(Math.round(Number(w)));
     }
 
     function formatLedgerKwhLine(ledger) {
@@ -1244,16 +1240,11 @@
         return "No kWh logged yet — starts after Fleet records telemetry on this machine.";
       }
       var t = Number(ledger.total_kwh);
-      var s =
-        t >= 100
-          ? t.toFixed(1)
-          : t >= 1
-            ? t.toFixed(2)
-            : t.toFixed(4);
+      var s = t < 1 ? String(Math.round(t * 1000)) + " Wh" : String(Math.round(t)) + " kWh";
       return (
         "Total " +
         esc(s) +
-        " kWh while Forge-Fleet was sampling (SQLite ledger: package RAPL + NVIDIA draw)."
+        " while Forge-Fleet was sampling (SQLite ledger: package RAPL + NVIDIA draw)."
       );
     }
 
@@ -1262,8 +1253,8 @@
         return "No kWh recorded yet for this host.";
       }
       var t = Number(ledger.total_kwh);
-      var s = t >= 100 ? t.toFixed(1) : t >= 1 ? t.toFixed(2) : t.toFixed(4);
-      return "Logged so far: " + esc(s) + " kWh (see Details).";
+      var s = t < 1 ? String(Math.round(t * 1000)) + " Wh" : String(Math.round(t)) + " kWh";
+      return "Logged so far: " + esc(s) + " (see Details).";
     }
 
     function renderPowerTile(host, energyLedger) {
@@ -1422,12 +1413,12 @@
 
       function pctOneLine(v) {
         if (v == null || isNaN(v)) return "—";
-        return esc(String(Math.round(v * 10) / 10)) + "%";
+        return esc(String(Math.round(v))) + "%";
       }
 
       var loadTile = "";
       if (lm) {
-        mergeLoadPeakPct(Math.round(lm.pct1 * 10) / 10);
+        mergeLoadPeakPct(Math.round(lm.pct1));
         var loadHeat = heat3(Math.max(lm.pct1, lm.pct5, lm.pct15));
         var oneLine =
           "1m " +
@@ -1457,12 +1448,12 @@
 
       var memTile = "";
       if (ramPct != null) {
-        var rp = Math.round(ramPct * 10) / 10;
+        var rp = Math.round(ramPct);
         var mz = loadZone4(rp);
         var fills = memQuarterFills(rp);
         var banks = "";
         for (var bi = 0; bi < 4; bi++) {
-          var fh = Math.round(fills[bi] * 10) / 10;
+          var fh = Math.round(fills[bi]);
           banks +=
             '<div class="fleet-mem-bank" title="RAM quarter ' +
             (bi + 1) +
@@ -1471,7 +1462,7 @@
             esc(String(fh)) +
             '%"></div></div>';
         }
-        var gbt = memHost.total_kb != null ? Math.round((memHost.total_kb / 1024 / 1024) * 10) / 10 : null;
+        var gbt = memHost.total_kb != null ? Math.round(memHost.total_kb / 1024 / 1024) : null;
         var memSub =
           gbt != null
             ? '<div class="fleet-tile__mem">' + esc(String(gbt)) + " GiB total</div>"
@@ -1528,30 +1519,30 @@
         var diskPrimaryBusy = false;
         if (dk.busy != null) {
           diskPrimaryBusy = true;
-          dMain = "~" + esc(Math.round(dk.busy * 10) / 10) + "%";
+          dMain = "~" + esc(Math.round(dk.busy)) + "%";
           if (dk.maxU != null) {
             dFine =
               '<div class="fleet-tile__fine">Space: up to ' +
-              esc(String(Math.round(dk.maxU * 10) / 10)) +
+              esc(String(Math.round(dk.maxU))) +
               "% used (fullest mount)</div>";
           }
         } else if (hasValidTput) {
-          dMain = esc(Math.round(Number(dk.ioAgg.total_mbps) * 10) / 10) + " MB/s";
+          dMain = esc(Math.round(Number(dk.ioAgg.total_mbps))) + " MB/s";
           if (dk.maxU != null) {
             dFine =
               '<div class="fleet-tile__fine">Space: up to ' +
-              esc(String(Math.round(dk.maxU * 10) / 10)) +
+              esc(String(Math.round(dk.maxU))) +
               "% used</div>";
           }
         } else if (dk.maxU != null) {
-          dMain = esc(Math.round(dk.maxU * 10) / 10) + "%";
+          dMain = esc(Math.round(dk.maxU)) + "%";
         } else dMain = "—";
         var memLabel =
           dk.maxU != null && !diskPrimaryBusy && !hasValidTput ? "Space" : "I/O";
         var dSub = '<div class="fleet-tile__mem">' + memLabel + "</div>";
         var dHint =
           dk.ioAgg && dk.ioAgg.total_mbps != null && !isNaN(Number(dk.ioAgg.total_mbps))
-            ? esc(String(Math.round(Number(dk.ioAgg.total_mbps) * 10) / 10)) + " MB/s"
+            ? esc(String(Math.round(Number(dk.ioAgg.total_mbps)))) + " MB/s"
             : "— MB/s";
         diskTile =
           "<div class=\"" +
@@ -1593,7 +1584,7 @@
             '"><div class="fleet-tile__brand">' +
             gpuLogoBrand("nvidia", "NVIDIA") +
             '</div><div class="fleet-tile__value fleet-mono">' +
-            (nv != null ? esc(nv) + "%" : "—") +
+            (nv != null ? esc(Math.round(nv)) + "%" : "—") +
             "</div>" +
             tileMemRow("VRAM", nvVram) +
             '<div class="fleet-tile__hint">CUDA / GL</div></div>';
@@ -1607,7 +1598,7 @@
             '"><div class="fleet-tile__brand">' +
             gpuLogoBrand("amd", "AMD") +
             '</div><div class="fleet-tile__value fleet-mono">' +
-            (am != null ? esc(am) + "%" : "—") +
+            (am != null ? esc(Math.round(am)) + "%" : "—") +
             "</div>" +
             tileMemRow("VRAM", null) +
             '<div class="fleet-tile__hint">sysfs / ROCm</div></div>';
@@ -1621,7 +1612,7 @@
             '"><div class="fleet-tile__brand">' +
             gpuLogoBrand("intel", "Intel") +
             '</div><div class="fleet-tile__value fleet-mono">' +
-            (ir != null ? esc(ir) + "% est." : "—") +
+            (ir != null ? esc(Math.round(ir)) + "% est." : "—") +
             "</div>" +
             tileMemRow("VRAM", null) +
             '<div class="fleet-tile__hint">Engine busy Δ</div></div>';
