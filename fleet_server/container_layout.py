@@ -3,7 +3,8 @@
 Layout (created at startup, same ``--data-dir`` as ``fleet.sqlite`` — matches
 ``install-user.sh`` / ``install-update.sh`` state directories):
 
-- ``etc/containers/types.json`` — catalog: which classes exist and what Fleet admin/API may do.
+- ``etc/containers/types.json`` — catalog: **categories** (MECE policy defaults) + **types**
+  (each references ``category_id`` and inherits ``capabilities`` unless overridden).
 - ``etc/services/<id>.json`` — one **managed** stack per file (today: ``forge_llm`` compose roots).
 
 If ``FLEET_FORGE_LLM_ROOT`` is set and ``etc/services/`` is empty, a ``default.json``
@@ -12,6 +13,7 @@ service is written once so existing env-based installs keep working.
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import re
@@ -22,34 +24,77 @@ from fleet_server import forge_llm_service
 
 _SERVICE_ID_RE = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 
+_CAPABILITY_KEYS = ("admin_spawnable", "api_manage_services", "allow_docker_argv_jobs")
+
+
+def _default_categories() -> list[dict[str, Any]]:
+    """MECE orchestration contract: system | job | service."""
+    return [
+        {
+            "id": "system",
+            "title": "System",
+            "description": "Internal orchestrator types; not operator workloads.",
+            "capabilities": {
+                "admin_spawnable": False,
+                "api_manage_services": False,
+                "allow_docker_argv_jobs": False,
+            },
+        },
+        {
+            "id": "job",
+            "title": "Job",
+            "description": "Run-to-completion workloads (probes, docker_argv batch steps).",
+            "capabilities": {
+                "admin_spawnable": False,
+                "api_manage_services": False,
+                "allow_docker_argv_jobs": True,
+            },
+        },
+        {
+            "id": "service",
+            "title": "Managed service",
+            "description": "Long-lived stacks with persisted configuration (compose under etc/services/).",
+            "capabilities": {
+                "admin_spawnable": True,
+                "api_manage_services": True,
+                "allow_docker_argv_jobs": False,
+            },
+        },
+    ]
+
+
 DEFAULT_TYPES: dict[str, Any] = {
-    "version": 1,
+    "version": 2,
+    "categories": _default_categories(),
     "types": [
         {
             "id": "empty",
+            "category_id": "system",
             "container_class": "empty",
             "title": "Empty (smoke)",
-            "admin_spawnable": False,
-            "api_manage_services": False,
             "notes": "Hierarchy anchor / unit tests only — not offered in Fleet admin or managed-service APIs.",
         },
         {
             "id": "host_cpu_probe",
+            "category_id": "job",
             "container_class": "host_cpu_probe",
             "title": "Host CPU probe",
-            "admin_spawnable": False,
-            "api_manage_services": False,
             "notes": "Short-lived probe jobs via POST /v1/admin/test-fleet (not a persisted compose service).",
         },
         {
             "id": "forge_llm",
+            "category_id": "service",
             "container_class": "forge_llm",
             "title": "Forge LLM (Compose)",
-            "admin_spawnable": True,
-            "api_manage_services": True,
             "notes": "Docker Compose stack; add instances under etc/services/*.json or POST /v1/container-services.",
         },
     ],
+}
+
+_DEFAULT_TYPE_TO_CATEGORY: dict[str, str] = {
+    "empty": "system",
+    "host_cpu_probe": "job",
+    "forge_llm": "service",
 }
 
 
@@ -135,6 +180,69 @@ def _migrate_env_llm_service(data_dir: Path) -> None:
     _write_json_atomic(service_file(data_dir, "default"), rec)
 
 
+def _migrate_types_doc_if_needed(doc: dict[str, Any]) -> dict[str, Any]:
+    """Inject ``categories`` / ``category_id`` for v1 on-disk catalogs (read-time merge, no disk write)."""
+    out = copy.deepcopy(doc)
+    changed = False
+    if not isinstance(out.get("categories"), list) or len(out.get("categories") or []) == 0:
+        out["categories"] = copy.deepcopy(_default_categories())
+        changed = True
+    cats = {str(c.get("id")): c for c in out["categories"] if isinstance(c, dict) and c.get("id")}
+    for row in out.get("types", []):
+        if not isinstance(row, dict):
+            continue
+        tid = str(row.get("id") or "")
+        if not row.get("category_id"):
+            row["category_id"] = _DEFAULT_TYPE_TO_CATEGORY.get(tid, "job")
+            changed = True
+        cid = str(row.get("category_id") or "")
+        if cid not in cats:
+            row["category_id"] = _DEFAULT_TYPE_TO_CATEGORY.get(tid, "job")
+            changed = True
+    if changed:
+        try:
+            v = int(out.get("version") or 1)
+        except (TypeError, ValueError):
+            v = 1
+        out["version"] = max(v, 2)
+    return out
+
+
+def _categories_by_id(doc: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    out: dict[str, dict[str, Any]] = {}
+    for c in doc.get("categories", []):
+        if isinstance(c, dict) and c.get("id"):
+            out[str(c["id"])] = c
+    return out
+
+
+def effective_capabilities_for_type(type_row: dict[str, Any], doc: dict[str, Any]) -> dict[str, bool]:
+    """Merge category defaults with per-type overrides (``admin_spawnable``, etc.)."""
+    cats = _categories_by_id(doc)
+    cid = str(type_row.get("category_id") or "job")
+    cat = cats.get(cid) or {}
+    caps = cat.get("capabilities") if isinstance(cat.get("capabilities"), dict) else {}
+    eff: dict[str, bool] = {}
+    for k in _CAPABILITY_KEYS:
+        if k in type_row:
+            eff[k] = bool(type_row[k])
+        else:
+            eff[k] = bool(caps.get(k, False))
+    return eff
+
+
+def materialize_types(doc: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return ``types`` rows with ``effective_capabilities`` for API/admin."""
+    out: list[dict[str, Any]] = []
+    for row in doc.get("types", []):
+        if not isinstance(row, dict):
+            continue
+        r = copy.deepcopy(row)
+        r["effective_capabilities"] = effective_capabilities_for_type(row, doc)
+        out.append(r)
+    return out
+
+
 def load_types(data_dir: Path) -> dict[str, Any]:
     ensure_layout(data_dir)
     p = types_file(data_dir)
@@ -142,8 +250,22 @@ def load_types(data_dir: Path) -> dict[str, Any]:
         raw = p.read_text(encoding="utf-8")
         o = json.loads(raw)
     except (OSError, json.JSONDecodeError):
-        return dict(DEFAULT_TYPES)
-    return o if isinstance(o, dict) else dict(DEFAULT_TYPES)
+        return copy.deepcopy(DEFAULT_TYPES)
+    doc = o if isinstance(o, dict) else copy.deepcopy(DEFAULT_TYPES)
+    return _migrate_types_doc_if_needed(doc)
+
+
+def types_api_payload(data_dir: Path) -> dict[str, Any]:
+    """Payload for ``GET /v1/container-types``."""
+    doc = load_types(data_dir)
+    return {
+        "ok": True,
+        "version": doc.get("version"),
+        "categories": doc.get("categories"),
+        "types": doc.get("types"),
+        "types_materialized": materialize_types(doc),
+        "paths": layout_paths_payload(data_dir),
+    }
 
 
 def type_by_id(data_dir: Path, type_id: str) -> dict[str, Any] | None:
@@ -152,6 +274,17 @@ def type_by_id(data_dir: Path, type_id: str) -> dict[str, Any] | None:
         if isinstance(t, dict) and str(t.get("id") or "") == type_id:
             return t
     return None
+
+
+def effective_type_by_id(data_dir: Path, type_id: str) -> dict[str, Any] | None:
+    """Type row plus ``effective_capabilities`` (for service API gates)."""
+    row = type_by_id(data_dir, type_id)
+    if row is None:
+        return None
+    doc = load_types(data_dir)
+    out = copy.deepcopy(row)
+    out["effective_capabilities"] = effective_capabilities_for_type(row, doc)
+    return out
 
 
 def validate_service_id(service_id: str) -> str:
@@ -228,10 +361,11 @@ def upsert_service(
 ) -> dict[str, Any]:
     ensure_layout(data_dir)
     sid = validate_service_id(service_id)
-    tmeta = type_by_id(data_dir, type_id)
-    if tmeta is None:
+    eff = effective_type_by_id(data_dir, type_id)
+    if eff is None:
         raise ValueError("unknown_type_id")
-    if not bool(tmeta.get("api_manage_services")):
+    caps = eff.get("effective_capabilities") if isinstance(eff.get("effective_capabilities"), dict) else {}
+    if not bool(caps.get("api_manage_services")):
         raise ValueError("type_not_api_manageable")
     root = _validate_compose_root(compose_root)
     extras = [str(x) for x in (compose_files or [])]

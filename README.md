@@ -16,7 +16,7 @@ Small **HTTP + bearer** orchestrator for **Docker argv** workloads (MVP: same ho
 | GET | `/v1/admin/snapshot` | **Read-only** JSON: `meta.integrations` includes **`forge_console_url`**, **`container_layout`** (paths to `etc/containers/types.json` and `etc/services/`), **`container_types_version`**, and **`forge_llm_services`** (per-service compose ps summary). Plus **`meta.version`**, **`meta.energy_ledger_kwh`** (same shape as health), `host` (includes **`energy`** observation), **`node`**, `jobs_by_status`, `jobs_recent`, `active_workers`. Throttled telemetry append from `host` (see `/v1/telemetry`). |
 | POST | `/v1/containers/dispose` | Body `{ "container_id": "<docker id>" }` → `docker rm -f` (for **long-lived** agent containers). Id must match `^[0-9a-f]{12,64}$`. Studio should call this only after the workload signals completion. |
 | POST | `/v1/admin/test-fleet` | Body optional `{ "count": 5 }` (capped 1–20): enqueue **host CPU probe** Docker jobs (`host_cpu_probe`). Intended for **Lenses Studio** (`POST /api/fleet/test-fleet`); not surfaced in `/admin/`. Workspace integration (**`FLEET_LENSES_WORKSPACE_ROOT`**, Attention file) is documented under **Test Fleet → Lenses Attention** below. |
-| GET | `/v1/container-types` | On-disk **type catalog** from **`$FLEET_DATA_DIR/etc/containers/types.json`** (`admin_spawnable`, `api_manage_services`, notes). |
+| GET | `/v1/container-types` | On-disk **type catalog** from **`$FLEET_DATA_DIR/etc/containers/types.json`**: `version`, `categories[]` (MECE **system** / **job** / **service** with inherited `capabilities`), raw `types[]` (each has `category_id`; per-type booleans are optional overrides), `types_materialized[]` (same rows plus `effective_capabilities`), and `paths`. |
 | GET | `/v1/container-services` | Lists **`etc/services/*.json`** with live **`forge_llm`** compose status (`docker compose ps`). |
 | GET | `/v1/container-services/{id}` | One service record + status. |
 | POST | `/v1/container-services` | Add a managed service: `{ "id", "type_id": "forge_llm", "compose_root", "compose_files"?: [], "label"?: "..." }`. |
@@ -86,15 +86,13 @@ cd forge-fleet
 
 **Default (what “update fleet” should do):** submodules; **patch** SemVer bump in `pyproject.toml`; **`git add -A`** and a single commit; **`git push`** to **`origin`** (creates upstream on first push); **`sudo ./install-update.sh`** (rsync → `/opt`, unit, **restart** `forge-fleet.service`). Requires remote **`origin`**.
 
+**User-level Fleet** (`~/.local/share/forge-fleet`, systemd **`--user`**, default port **18766**): if **`~/.config/systemd/user/forge-fleet.service`** exists, the same script then runs **`./update-user.sh`** (no sudo): rsync from this checkout into the user install tree and **restarts** `forge-fleet.service` for that user. Use **`./scripts/update-fleet.sh --no-user`** to skip that step. With **`--no-install`**, the user step still runs when the unit file is present (so you can refresh a user install without touching `/opt`).
+
 **Strict release** (clean tree, version-only commit): `./scripts/update-fleet.sh --strict`
 
-**User-level Fleet on localhost (port 18766, `~/.local/share/forge-fleet`):** after push, refresh that tree **without sudo**:
+You can always run **`./update-user.sh`** alone after a `git pull` (same as `install-user.sh` for an existing user layout).
 
-`./scripts/update-fleet.sh --user-install`
-
-(or run **`./update-user.sh`** any time after a `git pull`).
-
-Other flags: **`--minor`**, **`--no-push`**, **`--no-install`**, **`--dry-run`**. In Cursor: slash command **`/update-fleet`** or say **“update fleet”** (rule **forge-fleet-update-fleet**). New host from clone: **`./git-install.sh`** — **[docs/GIT-INSTALL.md](docs/GIT-INSTALL.md)**.
+Other flags: **`--minor`**, **`--no-push`**, **`--no-install`**, **`--no-user`**, **`--dry-run`**. In Cursor: slash command **`/update-fleet`** or say **“update fleet”** (rule **forge-fleet-update-fleet**). New host from clone: **`./git-install.sh`** — **[docs/GIT-INSTALL.md](docs/GIT-INSTALL.md)**.
 
 ### Versioning (Studio-style semver)
 
@@ -110,12 +108,12 @@ Set **`FLEET_FORGE_CONSOLE_URL`** (e.g. `http://127.0.0.1:8787`) so `/admin/` sh
 
 Fleet persists **container class metadata** and **forge-llm compose instances** under the same **`--data-dir`** as `fleet.sqlite` — the directory **`install-user.sh`** sets as `FLEET_USER_DATA` or **`install-update.sh`** sets as `FLEET_DATA`:
 
-- **`etc/containers/types.json`** — which `container_class` values exist and whether Fleet **admin** or **API** may create/manage them (`empty` is never admin-spawnable and cannot be queued via `/v1/jobs`).
+- **`etc/containers/types.json`** — **versioned** catalog: top-level **`categories[]`** define MECE orchestration contracts (**system** = internal, **job** = run-to-completion including probes, **service** = long-lived compose under `etc/services/`). Each **`types[]`** row has **`category_id`** and inherits **`capabilities`** (`admin_spawnable`, `api_manage_services`, `allow_docker_argv_jobs`) from its category unless a field is set on the type. Older v1 files without `categories` / `category_id` are merged **on read** into this shape (no automatic disk rewrite). `empty` stays internal-only (not queued via `/v1/jobs`).
 - **`etc/services/<id>.json`** — each **forge_llm** stack: `compose_root`, `compose_files` overlays, `label`. **Start/stop** always read this file (no ad-hoc compose list on start).
 
 If **`FLEET_FORGE_LLM_ROOT`** is set and `etc/services/` is empty, Fleet writes **`default.json` once** (same behavior as before for env-first installs). Prefer **`POST /v1/container-services`** for explicit registration.
 
-**`/admin/`** lists types (read-only), shows configured paths, lists each **forge_llm** service with **Start/Stop**, and includes a small form to **POST** new services.
+**`/admin/`** shows container types as **three swimlanes** (System / Job / Service) from the catalog API; configured paths; each **forge_llm** service with **Start/Stop**; and a small form to **POST** new services.
 
 Deeper integration (Fleet-issued batch jobs wrapping forge-llm CLI) remains optional future work.
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # update-fleet.sh — propagate **this dev checkout** to **git** and **local production** (systemd):
 #   submodule sync → semver bump → git commit (all changes by default) → git push → sudo install-update.sh
+#   → optional: update-user.sh when ~/.config/systemd/user/forge-fleet.service exists (no sudo)
 #
 # Run from the forge-fleet repo root:
 #   ./scripts/update-fleet.sh
@@ -16,6 +17,7 @@
 #   --minor        bump minor (0.2.1 → 0.3.0) instead of patch (default: patch)
 #   --no-push      commit only, do not push
 #   --no-install   skip sudo install-update (no local /opt refresh)
+#   --no-user      skip update-user.sh even when a user systemd unit is present
 #   --dry-run      print plan only
 #   --allow-dirty  (ignored unless --strict) with --strict, allow dirty tree — rarely needed
 #   --commit-all   (default in non-strict) no-op kept for compatibility
@@ -30,6 +32,7 @@ BUMP_KIND=patch
 STRICT=0
 NO_PUSH=0
 NO_INSTALL=0
+NO_USER=0
 ALLOW_DIRTY_STRICT=0
 DRY_RUN=0
 
@@ -45,6 +48,7 @@ while [[ $# -gt 0 ]]; do
     --patch) BUMP_KIND=patch; shift ;;
     --no-push) NO_PUSH=1; shift ;;
     --no-install) NO_INSTALL=1; shift ;;
+    --no-user) NO_USER=1; shift ;;
     --allow-dirty) ALLOW_DIRTY_STRICT=1; shift ;;
     --commit-all) shift ;; # default in dev mode; kept for scripts that still pass it
     --dry-run) DRY_RUN=1; shift ;;
@@ -60,7 +64,7 @@ done
 [[ -d "$ROOT/fleet_server" ]] || { echo "update-fleet: missing fleet_server/" >&2; exit 1; }
 
 if [[ "$DRY_RUN" -eq 1 ]]; then
-  echo "[dry-run] mode=$([[ "$STRICT" -eq 1 ]] && echo strict || echo dev), bump=$BUMP_KIND, push=$([[ "$NO_PUSH" -eq 1 ]] && echo no || echo yes), install=$([[ "$NO_INSTALL" -eq 1 ]] && echo no || echo yes)"
+  echo "[dry-run] mode=$([[ "$STRICT" -eq 1 ]] && echo strict || echo dev), bump=$BUMP_KIND, push=$([[ "$NO_PUSH" -eq 1 ]] && echo no || echo yes), install=$([[ "$NO_INSTALL" -eq 1 ]] && echo no || echo yes), user=$([[ "$NO_USER" -eq 1 ]] && echo no || echo yes)"
   exit 0
 fi
 
@@ -121,6 +125,20 @@ if [[ "$NO_INSTALL" -eq 0 ]]; then
   sudo env FLEET_SRC="$ROOT" "$ROOT/install-update.sh"
 else
   echo "[update-fleet] skipped install-update (--no-install)"
+fi
+
+if [[ "$NO_USER" -eq 0 ]]; then
+  _fleet_user_unit="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/forge-fleet.service"
+  if [[ -f "$_fleet_user_unit" ]] && command -v systemctl >/dev/null 2>&1; then
+    echo "[update-fleet] update-user.sh (rsync + systemd --user restart)…"
+    if ! env FLEET_SRC="$ROOT" "$ROOT/update-user.sh"; then
+      echo "[update-fleet] warning: update-user.sh failed (git push already completed)." >&2
+    fi
+  else
+    echo "[update-fleet] skip user install (no $_fleet_user_unit or systemctl missing)"
+  fi
+else
+  echo "[update-fleet] skipped update-user (--no-user)"
 fi
 
 echo "[update-fleet] done (v$NEW_VER)."

@@ -415,16 +415,7 @@ class FleetHandler(BaseHTTPRequestHandler):
         data_dir = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
         container_layout.ensure_layout(data_dir)
         if path == "/v1/container-types":
-            doc = container_layout.load_types(data_dir)
-            self._send(
-                200,
-                {
-                    "ok": True,
-                    "version": doc.get("version"),
-                    "types": doc.get("types"),
-                    "paths": container_layout.layout_paths_payload(data_dir),
-                },
-            )
+            self._send(200, container_layout.types_api_payload(data_dir))
             return
         if path == "/v1/container-services":
             rows: list[dict[str, Any]] = []

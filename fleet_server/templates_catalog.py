@@ -52,7 +52,9 @@ TEMPLATE_LIB: list[dict[str, Any]] = [
         "notes": (
             "Managed stacks are defined on disk under the same ``--data-dir`` as ``fleet.sqlite`` (install scripts: "
             "``FLEET_USER_DATA`` / ``FLEET_DATA``). ``FLEET_FORGE_LLM_ROOT`` seeds ``etc/services/default.json`` once "
-            "when no services exist. Start/stop always use the compose_files saved in each service JSON."
+            "when no services exist. Start/stop always use the compose_files saved in each service JSON. "
+            "``GET /v1/container-types`` returns ``categories`` (MECE policy: system / job / service), raw ``types``, "
+            "and ``types_materialized`` (each type with ``effective_capabilities`` merged from its category)."
         ),
     },
 ]

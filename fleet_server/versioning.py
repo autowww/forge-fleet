@@ -11,7 +11,7 @@ from pathlib import Path
 FLEET_DB_SCHEMA_VERSION = 4
 
 # Bump when ``templates_catalog.TEMPLATE_LIB`` gains a breaking contract change.
-FLEET_TEMPLATE_LIB_VERSION = 3
+FLEET_TEMPLATE_LIB_VERSION = 4
 
 
 def _read_pyproject_semver() -> str:

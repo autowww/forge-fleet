@@ -6,8 +6,8 @@
 #   FLEET_SRC          — checkout (same rules as install-update.sh)
 #   FLEET_USER_DEST    — copy target (default: $HOME/.local/share/forge-fleet)
 #   FLEET_USER_DATA    — SQLite dir (default: $HOME/.local/state/forge-fleet)
-#                      — Fleet also writes ``etc/containers/types.json`` and ``etc/services/*.json`` here
-#                        (same as --data-dir in the unit; see GET /v1/container-types).
+#                      — Fleet also writes ``etc/containers/types.json`` (versioned: categories + types) and
+#                        ``etc/services/*.json`` here (same as --data-dir in the unit; see GET /v1/container-types).
 #   FLEET_USER_HOST    — bind (default: 127.0.0.1)
 #   FLEET_USER_PORT    — default 18766 (avoids clash with system prod on 18765)
 #   FLEET_PYTHON       — interpreter (default: /usr/bin/python3)

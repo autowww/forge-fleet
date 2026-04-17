@@ -264,6 +264,53 @@
     var CHART_SAMPLES = 60;
     var TREND_MS = 20000;
     var __fleetTrendBuf = [];
+    /** Stabilize disk tile background band (low/mid/high) across polls to avoid flash. */
+    var __fleetDiskBandHyst = { stable: null, pend: null, streak: 0, lastTintNum: null };
+
+    function diskBandHysteresis(rawHeatTintVal) {
+      var num = rawHeatTintVal == null || isNaN(Number(rawHeatTintVal)) ? 0 : Number(rawHeatTintVal);
+      var want = heat3(num);
+      var h = __fleetDiskBandHyst;
+      if (h.lastTintNum != null && Math.abs(num - h.lastTintNum) >= 14) {
+        h.stable = want;
+        h.pend = null;
+        h.streak = 0;
+        h.lastTintNum = num;
+        return want;
+      }
+      h.lastTintNum = num;
+      if (h.stable == null) {
+        h.stable = want;
+        h.pend = null;
+        h.streak = 0;
+        return want;
+      }
+      if (want === h.stable) {
+        h.pend = null;
+        h.streak = 0;
+        return want;
+      }
+      if (want !== h.pend) {
+        h.pend = want;
+        h.streak = 1;
+        return h.stable;
+      }
+      h.streak++;
+      if (h.streak >= 2) {
+        h.stable = want;
+        h.pend = null;
+        h.streak = 0;
+        return want;
+      }
+      return h.stable;
+    }
+
+    function resetDiskBandHysteresis() {
+      __fleetDiskBandHyst.stable = null;
+      __fleetDiskBandHyst.pend = null;
+      __fleetDiskBandHyst.streak = 0;
+      __fleetDiskBandHyst.lastTintNum = null;
+    }
 
     function esc(s) {
       return String(s ?? "")
@@ -956,7 +1003,7 @@
       if (host.memory && host.memory.used_pct != null && !isNaN(Number(host.memory.used_pct))) {
         ram = Number(host.memory.used_pct);
       }
-      var lm = loadMetrics(host);
+      var lm = hostLoadForUi(host);
       var l1 = lm != null && lm.pct1 != null && !isNaN(lm.pct1) ? lm.pct1 : null;
       var dk = diskAgg(host);
       var dkTput =
@@ -1017,6 +1064,35 @@
         pct5: Math.min(100, Math.max(0, (100 * l5) / den)),
         pct15: Math.min(100, Math.max(0, (100 * l15) / den)),
       };
+    }
+
+    /** When ``loadMetrics`` is null but ``/proc``-style loadavg exists (e.g. bad CPU count), still show bars. */
+    function approxLoadMetrics(host) {
+      if (loadMetrics(host) != null) return null;
+      var la = host && host.loadavg;
+      if (!Array.isArray(la) || la.length < 3) return null;
+      var l1 = Number(la[0]);
+      var l5 = Number(la[1]);
+      var l15 = Number(la[2]);
+      if (isNaN(l1) || isNaN(l5) || isNaN(l15)) return null;
+      var c = host.cpus != null ? Number(host.cpus) : NaN;
+      var den = isFinite(c) && c >= 1 ? c : 1;
+      return {
+        l1: l1,
+        l5: l5,
+        l15: l15,
+        cpus: den,
+        scaleDen: den,
+        scaleSaved: false,
+        pct1: Math.min(100, Math.max(0, (100 * l1) / den)),
+        pct5: Math.min(100, Math.max(0, (100 * l5) / den)),
+        pct15: Math.min(100, Math.max(0, (100 * l15) / den)),
+        approx: true,
+      };
+    }
+
+    function hostLoadForUi(host) {
+      return loadMetrics(host) || approxLoadMetrics(host);
     }
 
     function pushChartSample() {
@@ -1098,6 +1174,10 @@
       else if (raplW != null) totalW = raplW;
       else if (gpuW != null) totalW = gpuW;
 
+      var heroW = null;
+      if (totalW != null && !isNaN(Number(totalW))) heroW = Number(totalW);
+      else if (gpuW != null && !isNaN(Number(gpuW))) heroW = Number(gpuW);
+
       var hasSignal = totalW != null || raplOk || gpuW != null;
       if (!hasSignal) {
         var why =
@@ -1120,16 +1200,15 @@
         );
       }
 
-      __fleetLastPowerTotalW = totalW;
-      var heatIn = totalW != null ? Math.min(100, Math.max(0, (totalW / 320) * 100)) : 0;
+      __fleetLastPowerTotalW = heroW;
+      var heatIn = heroW != null ? Math.min(100, Math.max(0, (heroW / 320) * 100)) : 0;
       var pHeat = heat3(heatIn);
-      var pwDisp =
-        totalW != null && !isNaN(totalW) ? fleetPowerWAnim.widthForRender(totalW) : null;
+      var pwDisp = heroW != null && !isNaN(heroW) ? fleetPowerWAnim.widthForRender(heroW) : null;
       var wPow =
         pwDisp != null && !isNaN(pwDisp)
           ? Math.round(Number(pwDisp))
-          : totalW != null && !isNaN(totalW)
-            ? Math.round(Number(totalW))
+          : heroW != null && !isNaN(heroW)
+            ? Math.round(Number(heroW))
             : null;
       var main =
         wPow != null
@@ -1137,7 +1216,7 @@
           : '<span id="fleet-power-val" class="fleet-mono">—</span>';
       var memParts = [];
       if (raplW != null) memParts.push("Package ~" + esc(fmtWatts(raplW)) + " W");
-      else if (raplOk) memParts.push("Package (next sample)");
+      else if (raplOk) memParts.push("Package (calibrating — needs two timestamps)");
       if (gpuW != null) memParts.push("GPU ~" + esc(fmtWatts(gpuW)) + " W");
       var memLine = memParts.length ? memParts.join(" · ") : "Draw estimate";
       var hintShort = formatLedgerKwhShort(energyLedger);
@@ -1253,7 +1332,8 @@
       var ramPct = memHost.used_pct != null ? Number(memHost.used_pct) : null;
       if (ramPct != null && isNaN(ramPct)) ramPct = null;
 
-      var lm = loadMetrics(host);
+      var lm = hostLoadForUi(host);
+      var loadIsApprox = !!(lm && lm.approx);
       var dkPre = diskAgg(host);
       var diskHasTput =
         dkPre.ioAgg &&
@@ -1306,6 +1386,17 @@
       if (lm) {
         mergeLoadPeakPct(Math.round(lm.pct1));
         var loadHeat = heat3(Math.max(lm.pct1, lm.pct5, lm.pct15));
+        var loadFoot = loadIsApprox
+          ? '<div class="fleet-tile__mem fleet-load-inline fleet-mono">L ' +
+            esc(String(lm.l1)) +
+            " · " +
+            esc(String(lm.l5)) +
+            " · " +
+            esc(String(lm.l15)) +
+            '</div><div class="fleet-tile__fine">Approx. % using divisor n=' +
+            esc(String(lm.cpus)) +
+            " (CPU count missing or invalid)</div>"
+          : '<div class="fleet-tile__mem">% of max scale (see Advanced)</div>';
         loadTile =
           '<div class="fleet-tile fleet-tile--load-' +
           loadHeat +
@@ -1318,7 +1409,8 @@
           loadGaugeRow("5m", "5", lm.pct5) +
           loadGaugeRow("15m", "15", lm.pct15) +
           "</div>" +
-          '<div class="fleet-tile__mem">% of max scale (see Advanced)</div></div>';
+          loadFoot +
+          "</div>";
       } else {
         loadTile =
           '<div class="fleet-tile fleet-tile--inactive fleet-load-split">' +
@@ -1395,6 +1487,7 @@
       var dk = dkPre;
       var diskTile = "";
       if (!dk.has) {
+        resetDiskBandHysteresis();
         var dh = dk.ioReason ? esc(String(dk.ioReason).slice(0, 140)) : "No disk metrics";
         diskTile =
           "<div class=\"fleet-tile fleet-tile--inactive\"><div class=\"fleet-tile__brand\">" +
@@ -1405,7 +1498,7 @@
           dh +
           "</div></div>";
       } else {
-        var dTint = heat3(dk.heatTintVal);
+        var dTint = diskBandHysteresis(dk.heatTintVal);
         var dcls = "fleet-tile fleet-tile--disk-" + dTint + tDisk;
         var hasValidTput =
           dk.ioAgg &&
@@ -1558,7 +1651,7 @@
 
     function applyKpiTileAnims(host) {
       fleetCpuAnim.onSnapshotTarget(cpuPct(host));
-      var lm = loadMetrics(host);
+      var lm = hostLoadForUi(host);
       if (lm) {
         fleetLoad1Anim.onSnapshotTarget(lm.pct1);
         fleetLoad5Anim.onSnapshotTarget(lm.pct5);
@@ -1700,32 +1793,83 @@
         if (!res.ok) return;
         var doc = await res.json();
         if (!doc.ok || !Array.isArray(doc.types)) return;
+        var mat = Array.isArray(doc.types_materialized) ? doc.types_materialized : [];
+        if (!mat.length) return;
         __fleetTypesLoaded = true;
         var wrap = document.getElementById("fleet-container-types-wrap");
         var tbl = document.getElementById("fleet-container-types-table");
         if (!wrap || !tbl) return;
         wrap.classList.remove("d-none");
-        var rows = doc.types
-          .map(function (t) {
-            return (
-              "<tr><td>" +
-              esc(t.id || "") +
-              "</td><td>" +
-              esc(t.container_class || "") +
-              "</td><td>" +
-              (t.admin_spawnable ? "yes" : "no") +
-              "</td><td>" +
-              (t.api_manage_services ? "yes" : "no") +
-              "</td><td class=\"small\">" +
-              esc(t.notes || "") +
-              "</td></tr>"
-            );
-          })
-          .join("");
-        tbl.innerHTML =
-          "<table class=\"table table-sm table-bordered mb-0 fleet-mono\"><thead><tr><th>id</th><th>container_class</th><th>admin</th><th>API add</th><th>notes</th></tr></thead><tbody>" +
-          rows +
-          "</tbody></table>";
+        var catsById = {};
+        (Array.isArray(doc.categories) ? doc.categories : []).forEach(function (c) {
+          if (c && c.id) catsById[String(c.id)] = c;
+        });
+        var order = ["system", "job", "service"];
+        function effCaps(t) {
+          var e = t && t.effective_capabilities;
+          return e && typeof e === "object" ? e : {};
+        }
+        function typeCard(t) {
+          var ec = effCaps(t);
+          var note = (t && t.notes) || "";
+          return (
+            "<div class=\"fleet-type-card fleet-mono\">" +
+            "<div class=\"fleet-type-card__id\">" +
+            esc((t && t.id) || "") +
+            "</div>" +
+            "<div class=\"fleet-type-card__meta\">" +
+            esc((t && t.container_class) || "") +
+            "</div>" +
+            "<div class=\"fleet-type-card__flags\">admin " +
+            (ec.admin_spawnable ? "yes" : "no") +
+            " · API services " +
+            (ec.api_manage_services ? "yes" : "no") +
+            " · docker_argv jobs " +
+            (ec.allow_docker_argv_jobs ? "yes" : "no") +
+            "</div>" +
+            (note
+              ? "<div class=\"small text-body-secondary mt-1\" style=\"line-height:1.35\">" + esc(note) + "</div>"
+              : "") +
+            "</div>"
+          );
+        }
+        function laneHtml(cid) {
+          var cat = catsById[cid] || {};
+          var title = (cat.title || cid).toString();
+          var desc = (cat.description || "").toString();
+          var laneCls = "fleet-type-lane";
+          if (cid === "service") laneCls += " fleet-type-lane--primary";
+          else if (cid === "system") laneCls += " fleet-type-lane--muted";
+          var hint = "";
+          if (cid === "service") {
+            hint =
+              "<p class=\"fleet-type-lane__hint mb-0\">Managed stacks use the <strong>Managed services</strong> section below " +
+              "(<a href=\"#fleet-managed-services-wrap\">jump</a>).</p>";
+          } else if (cid === "job") {
+            hint =
+              "<p class=\"fleet-type-lane__hint mb-0\">Run-to-completion workloads (e.g. CPU probes via <code class=\"fleet-mono\">POST /v1/admin/test-fleet</code>); no compose daemon controls here.</p>";
+          } else {
+            hint =
+              "<p class=\"fleet-type-lane__hint mb-0\">Internal orchestrator types; not operator-managed services.</p>";
+          }
+          var inLane = mat.filter(function (t) {
+            return String((t && t.category_id) || "") === cid;
+          });
+          var cards = inLane.map(typeCard).join("");
+          return (
+            "<div class=\"" +
+            laneCls +
+            "\">" +
+            "<div class=\"fleet-type-lane__strip\">" +
+            esc(title) +
+            "</div>" +
+            (desc ? "<p class=\"small text-body-secondary mb-2\" style=\"line-height:1.35\">" + esc(desc) + "</p>" : "") +
+            hint +
+            (cards || "<p class=\"small text-body-secondary mb-0\">No types in this lane.</p>") +
+            "</div>"
+          );
+        }
+        tbl.innerHTML = '<div class="fleet-type-swimlanes">' + order.map(laneHtml).join("") + "</div>";
       } catch (_e) {
         /* ignore */
       }
