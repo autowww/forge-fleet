@@ -657,7 +657,8 @@ def disk_io_snapshot() -> dict[str, Any]:
     devices.sort(key=lambda d: d["total_mbps"], reverse=True)
     agg_r = sum(d["read_mbps"] for d in devices)
     agg_w = sum(d["write_mbps"] for d in devices)
-    busy_max = max((d["busy_pct_est"] for d in devices if d.get("busy_pct_est") is not None), default=None)
+    busy_estimates = [d["busy_pct_est"] for d in devices if d.get("busy_pct_est") is not None]
+    busy_max = max(busy_estimates) if busy_estimates else (0.0 if devices else None)
     return {
         "available": True,
         "sample_ms": round(wall_ms, 1),

@@ -79,7 +79,7 @@
               <span class="ms-1" style="color:#34d399" aria-hidden="true">●</span> CPU
               <span class="ms-2" style="color:#38bdf8" aria-hidden="true">●</span> RAM
             </span>
-            <span class="fleet-chart-time-hint">Older left · recent right · curved % scale (0–1–10–50–100)</span>
+            <span class="fleet-chart-time-hint">Older left · recent right · ~1h while this tab is open (restored after reload) · Y scale 0–1–10–50–100</span>
             <span class="d-flex flex-wrap align-items-center gap-2">
               <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-refresh-metrics-btn" title="Fetch host metrics now">Refresh metrics</button>
               <button
@@ -280,6 +280,8 @@
     var __fleetChartRaf = null;
     var CHART_MS = 3600000;
     var MAX_CHART_RENDER = 480;
+    var CHART_EMA_ALPHA = 0.38;
+    var CHART_SS_PREFIX = "forgeFleetChartBuf:";
     var TREND_MS = 20000;
     var __fleetTrendBuf = [];
     /** Stabilize disk tile background band (low/mid/high) across polls to avoid flash. */
@@ -799,7 +801,7 @@
         '<div class="fleet-tile fleet-cpu-compact' +
         trendCls +
         '">' +
-        '<div class="fleet-tile__brand">' + tileMark(MARK_CPU, "CPU") + "</div>" +
+        '<div class="fleet-tile__brand">' + tileMark(MARK_CPU, "") + "</div>" +
         '<div class="fleet-cpu-stack">' +
         '<div class="fleet-cpu-wide__value fleet-cpu-wide__value--above fleet-mono" id="fleet-cpu-value">' +
         mainPct +
@@ -901,7 +903,7 @@
     /* Tile header marks (inline SVG, currentColor from .fleet-tile__brand). */
     /* Inline SVG marks (no hotlinked images — works offline and matches tile contrast). */
     var MARK_CPU =
-      "<svg class=\"fleet-tile__mark\" viewBox=\"0 0 40 32\" xmlns=\"http://www.w3.org/2000/svg\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.55\" stroke-linejoin=\"round\"><rect x=\"8\" y=\"8\" width=\"24\" height=\"16\" rx=\"2\"/><path d=\"M12 8V5M28 8V5M12 27v-3M28 27v-3M8 14H5M8 20H5M35 14h-3M35 20h-3\"/></svg>";
+      "<svg class=\"fleet-tile__mark\" viewBox=\"0 0 40 32\" xmlns=\"http://www.w3.org/2000/svg\" role=\"img\" aria-label=\"CPU\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.55\" stroke-linejoin=\"round\"><rect x=\"8\" y=\"8\" width=\"24\" height=\"16\" rx=\"2\"/><path d=\"M12 8V5M28 8V5M12 27v-3M28 27v-3M8 14H5M8 20H5M35 14h-3M35 20h-3\"/></svg>";
     var MARK_RAM =
       "<svg class=\"fleet-tile__mark\" viewBox=\"0 0 40 28\" xmlns=\"http://www.w3.org/2000/svg\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linejoin=\"round\"><rect x=\"5\" y=\"5\" width=\"12\" height=\"20\" rx=\"1.5\"/><rect x=\"23\" y=\"5\" width=\"12\" height=\"20\" rx=\"1.5\"/><path d=\"M9 9h4M9 13h4M9 17h4M27 9h4M27 13h4M27 17h4\"/></svg>";
     var MARK_DISK =
@@ -958,6 +960,7 @@
     }
 
     function tileMark(svg, hiddenLabel) {
+      if (hiddenLabel == null || String(hiddenLabel).trim() === "") return svg;
       return svg + "<span class=\"visually-hidden\">" + esc(hiddenLabel) + "</span>";
     }
 
@@ -1024,10 +1027,23 @@
       };
     }
 
-    /** Hero %% for Storage: I/O busy (max) when present; else fullest-mount used %%. */
+    /** Map aggregate MB/s to 0–100 for tile bar when kernel busy%% is missing (display scale only). */
+    var DISK_IO_REF_MBPS = 600;
+
+    function diskMbpsToUiPct(mbps) {
+      var m = Number(mbps);
+      if (isNaN(m) || m < 0) return null;
+      return Math.min(100, Math.max(0, (m / DISK_IO_REF_MBPS) * 100));
+    }
+
+    /** Hero %% for Storage: I/O busy (max) when present; else MB/s-scaled %% when I/O aggregate exists; else mount used %%. */
     function diskPrimaryPct(dk) {
       if (!dk || !dk.has) return null;
       if (dk.busy != null && !isNaN(Number(dk.busy))) return Number(dk.busy);
+      if (dk.ioAgg && dk.ioAgg.total_mbps != null && !isNaN(Number(dk.ioAgg.total_mbps))) {
+        var mp = diskMbpsToUiPct(dk.ioAgg.total_mbps);
+        if (mp != null) return mp;
+      }
       if (dk.maxU != null && !isNaN(Number(dk.maxU))) return Number(dk.maxU);
       return null;
     }
@@ -1208,6 +1224,79 @@
       return d;
     }
 
+    /** Ensure every row has monotonic ms timestamps (fixes vertical collapse when t missing or stuck). */
+    function chartNormalizeTimes(buf) {
+      if (!buf || !buf.length) return [];
+      var out = [];
+      var lastT = null;
+      for (var i = 0; i < buf.length; i++) {
+        var r = buf[i];
+        var t = r.t != null && !isNaN(Number(r.t)) ? Number(r.t) : null;
+        if (t == null) {
+          t = lastT != null ? lastT + POLL_MS : Date.now() - (buf.length - 1 - i) * POLL_MS;
+        }
+        if (lastT != null && t <= lastT) t = lastT + 1;
+        lastT = t;
+        out.push({ t: t, cpu: r.cpu, mem: r.mem });
+      }
+      return out;
+    }
+
+    function chartEma1d(vals, alpha) {
+      var a = alpha != null ? alpha : CHART_EMA_ALPHA;
+      var out = [];
+      var prev = null;
+      for (var i = 0; i < vals.length; i++) {
+        var v = vals[i];
+        if (v == null || isNaN(v)) {
+          out.push(prev);
+          continue;
+        }
+        prev = prev == null ? v : a * v + (1 - a) * prev;
+        out.push(prev);
+      }
+      return out;
+    }
+
+    function fleetChartStorageKey(hid) {
+      return CHART_SS_PREFIX + (hid || "none");
+    }
+
+    function persistChartBuf() {
+      if (!chartHostIdentity || !chartBuf.length) return;
+      try {
+        var cap = chartBuf.slice(-900);
+        sessionStorage.setItem(
+          fleetChartStorageKey(chartHostIdentity),
+          JSON.stringify({ savedAt: Date.now(), points: cap })
+        );
+      } catch (_e) {
+        /* quota / private mode */
+      }
+    }
+
+    function restoreChartBufForHost(hid) {
+      if (!hid || chartBuf.length) return;
+      try {
+        var raw = sessionStorage.getItem(fleetChartStorageKey(hid));
+        if (!raw) return;
+        var o = JSON.parse(raw);
+        if (!o || !Array.isArray(o.points)) return;
+        var now = Date.now();
+        var pts = [];
+        for (var i = 0; i < o.points.length; i++) {
+          var p = o.points[i];
+          if (!p) continue;
+          if (p.t == null || isNaN(Number(p.t))) continue;
+          if (Number(p.t) < now - CHART_MS) continue;
+          pts.push({ t: Number(p.t), cpu: p.cpu, mem: p.mem });
+        }
+        if (pts.length) chartBuf = pts;
+      } catch (_e) {
+        /* ignore */
+      }
+    }
+
     function cancelChartRaf() {
       if (__fleetChartRaf != null) {
         cancelAnimationFrame(__fleetChartRaf);
@@ -1282,6 +1371,7 @@
       } else {
         chartBlend = null;
       }
+      persistChartBuf();
     }
 
     function fmtWatts(w) {
@@ -1372,6 +1462,7 @@
           '<div class="fleet-tile__hint">' +
           hintLine +
           "</div>" +
+          '<p class="small mb-1 mt-1"><button type="button" class="btn btn-link btn-sm p-0 fleet-power-open-diag">How to see watts / diagnostics</button></p>' +
           '<details class="mt-2 small fleet-power-details">' +
           '<summary class="text-body">Why no watts / diagnostics</summary>' +
           (rr
@@ -1431,6 +1522,7 @@
         '<div class="fleet-tile__hint">' +
         hintLine +
         "</div>" +
+        '<p class="small mb-1 mt-1"><button type="button" class="btn btn-link btn-sm p-0 fleet-power-open-diag">How to see watts / diagnostics</button></p>' +
         '<details class="mt-2 small fleet-power-details">' +
         '<summary class="text-body">Diagnostics</summary>' +
         (rrOn ? '<p class="small mb-2"><strong>rapl_reason:</strong> ' + esc(rrOn) + "</p>" : "") +
@@ -1489,7 +1581,7 @@
       var padB = 14;
       var iw = w - padL - padR;
       var ih = h - padT - padB;
-      var bufFull = chartBuf;
+      var bufFull = chartNormalizeTimes(chartBuf);
       if (!bufFull.length) {
         el.innerHTML =
           "<svg class=\"fleet-chart-svg\" xmlns=\"http://www.w3.org/2000/svg\" width=\"100%\" height=\"100%\" viewBox=\"0 0 " +
@@ -1514,7 +1606,12 @@
         var row = chartRows[i];
         if (!row) return { c: 0, m: 0 };
         var isLiveEdge =
-          chartBlend && n >= 2 && i === n - 1 && lastFull && row === lastFull;
+          chartBlend &&
+          n >= 2 &&
+          i === n - 1 &&
+          lastFull &&
+          row &&
+          row.t === lastFull.t;
         if (!isLiveEdge) return { c: row.cpu, m: row.mem };
         var u = (performance.now() - chartBlend.t0) / chartBlend.dur;
         u = chartSmoothstep(Math.max(0, Math.min(1, u)));
@@ -1524,28 +1621,55 @@
         };
       }
 
-      function xAt(i) {
-        var row = chartRows[i];
-        var ti = row && row.t != null ? row.t : tMin;
-        return padL + ((ti - tMin) / span) * iw;
+      var xsTime = [];
+      for (var xi = 0; xi < n; xi++) {
+        var rw = chartRows[xi];
+        var ti = rw && rw.t != null ? rw.t : tMin;
+        xsTime.push(padL + ((ti - tMin) / span) * iw);
       }
+      var useIdxX = false;
+      if (n >= 2) {
+        var spanMs = tMax - tMin;
+        var dupc = 0;
+        for (var xj = 1; xj < n; xj++) {
+          if (Math.abs(xsTime[xj] - xsTime[xj - 1]) < 0.6) dupc++;
+        }
+        if (spanMs < 2000 || dupc >= Math.max(2, Math.floor(n * 0.35))) useIdxX = true;
+      }
+
+      function xAt(i) {
+        if (useIdxX) return padL + (n <= 1 ? 0 : (i / Math.max(1, n - 1)) * iw);
+        return xsTime[i];
+      }
+
+      var rawC = [];
+      var rawM = [];
+      for (var ri = 0; ri < n; ri++) {
+        var d = duoAt(ri);
+        rawC.push(d.c != null && !isNaN(d.c) ? Number(d.c) : 0);
+        rawM.push(d.m != null && !isNaN(d.m) ? Number(d.m) : 0);
+      }
+      var smC = chartEma1d(rawC, CHART_EMA_ALPHA);
+      var smM = chartEma1d(rawM, CHART_EMA_ALPHA);
 
       var dCpu;
       var dMem;
       if (n === 1) {
-        var d0 = duoAt(0);
-        var yc0 = chartPctToY(d0.c, padT, ih);
-        var ym0 = chartPctToY(d0.m, padT, ih);
+        var d0c = smC[0] != null ? smC[0] : rawC[0];
+        var d0m = smM[0] != null ? smM[0] : rawM[0];
+        var yc0 = chartPctToY(d0c, padT, ih);
+        var ym0 = chartPctToY(d0m, padT, ih);
         dCpu = "M " + padL + " " + yc0.toFixed(2) + " L " + (padL + iw).toFixed(2) + " " + yc0.toFixed(2);
         dMem = "M " + padL + " " + ym0.toFixed(2) + " L " + (padL + iw).toFixed(2) + " " + ym0.toFixed(2);
       } else {
         var ptsCpu = [];
         var ptsMem = [];
         for (var i = 0; i < n; i++) {
-          var xi = xAt(i);
-          var di = duoAt(i);
-          ptsCpu.push({ x: xi, y: chartPctToY(di.c, padT, ih) });
-          ptsMem.push({ x: xi, y: chartPctToY(di.m, padT, ih) });
+          var xi2 = xAt(i);
+          var ycv = smC[i] != null ? smC[i] : rawC[i];
+          var ymv = smM[i] != null ? smM[i] : rawM[i];
+          ptsCpu.push({ x: xi2, y: chartPctToY(ycv, padT, ih) });
+          ptsMem.push({ x: xi2, y: chartPctToY(ymv, padT, ih) });
         }
         dCpu = chartSmoothPathD(ptsCpu);
         dMem = chartSmoothPathD(ptsMem);
@@ -1724,8 +1848,8 @@
           '% · 1m</div></div>' +
           '<div class="fleet-load-gauge-wrap" aria-hidden="true">' +
           '<svg class="fleet-load-gauge-svg" viewBox="0 0 80 44" xmlns="http://www.w3.org/2000/svg">' +
-          '<path d="M 12 38 A 28 28 0 0 1 68 38" fill="none" stroke="currentColor" stroke-opacity="0.22" stroke-width="3" stroke-linecap="round"/>' +
-          '<line id="fleet-load-gauge-needle" x1="40" y1="38" x2="68" y2="38" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" transform="rotate(-180 40 38)"/>' +
+          '<path class="fleet-load-gauge-track" d="M 12 38 A 28 28 0 0 1 68 38" fill="none" stroke-linecap="round"/>' +
+          '<line id="fleet-load-gauge-needle" class="fleet-load-gauge-needle-line" x1="40" y1="38" x2="68" y2="38" stroke-linecap="round" transform="rotate(-180 40 38)"/>' +
           "</svg></div></div></div>" +
           '<div class="fleet-load-gauges">' +
           loadGaugeRow("1m", "1", lm.pct1) +
@@ -1857,11 +1981,11 @@
             '<div id="fleet-disk-pct-fill" class="fleet-cpu-wide__fill" style="width:' +
             wBarP +
             '%"></div></div></div>';
-          if (dk.maxU != null && dk.busy != null) {
+          if (dk.maxU != null && (dk.busy != null || dk.ioAgg)) {
             dFine =
               '<div class="fleet-tile__fine">Fullest mount about ' +
               esc(String(Math.round(Number(dk.maxU)))) +
-              "% used</div>";
+              "% used (disk space)</div>";
           }
         } else {
           diskHeroHtml = '<div class="fleet-tile__value fleet-mono">—</div>';
@@ -1974,6 +2098,16 @@
       }
       var loadHeroL1 = document.getElementById("fleet-load-hero-l1");
       if (loadHeroL1) loadHeroL1.textContent = lm ? fmtLoadAvg1m(lm.l1) : "—";
+      if (lm) {
+        var pw0 = Math.min(100, Math.max(0, Number(lm.pct1)));
+        requestAnimationFrame(function () {
+          requestAnimationFrame(function () {
+            syncLoadHeroBarFromPct(pw0);
+          });
+        });
+      } else {
+        syncLoadHeroBarFromPct(null);
+      }
       var memHost = host.memory || {};
       var rp = memHost.used_pct != null ? Number(memHost.used_pct) : null;
       if (rp != null && !isNaN(rp)) fleetMemAnim.onSnapshotTarget(rp);
@@ -2460,6 +2594,7 @@
         chartBuf = [];
         chartBlend = null;
         cancelChartRaf();
+        restoreChartBufForHost(hid);
       }
       document.getElementById("fleet-tiles").innerHTML = renderTiles(host, meta.energy_ledger_kwh || null);
       applyKpiTileAnims(host);
@@ -2548,6 +2683,20 @@
       } else if (t.id === "fleet-header-git-update-btn" || (t.closest && t.closest("#fleet-header-git-update-btn"))) {
         ev.preventDefault();
         doGitSelfUpdate();
+      } else if (t.classList && t.classList.contains("fleet-power-open-diag")) {
+        ev.preventDefault();
+        var pTile = t.closest(".fleet-tile");
+        if (pTile) {
+          var det = pTile.querySelector("details.fleet-power-details");
+          if (det) {
+            det.open = true;
+            try {
+              det.scrollIntoView({ block: "nearest", behavior: "smooth" });
+            } catch (_e2) {
+              /* ignore */
+            }
+          }
+        }
       }
     });
 
