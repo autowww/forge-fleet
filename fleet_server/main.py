@@ -298,8 +298,10 @@ class FleetHandler(BaseHTTPRequestHandler):
                 data_dir = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
                 container_layout.ensure_layout(data_dir)
                 types_doc = container_layout.load_types(data_dir)
+                llm_root_hint = str(os.environ.get("FLEET_FORGE_LLM_ROOT") or "").strip()
                 integrations: dict[str, Any] = {
                     "forge_console_url": forge_console or None,
+                    "suggested_forge_llm_compose_root": llm_root_hint or None,
                     "container_layout": container_layout.layout_paths_payload(data_dir),
                     "container_types_version": types_doc.get("version"),
                     "forge_llm_services": container_layout.services_status_snapshot(data_dir),
@@ -599,9 +601,14 @@ class FleetHandler(BaseHTTPRequestHandler):
             return
         if path == "/v1/container-services":
             try:
+                raw_sid = str(body.get("id") or "").strip().lower()
+                if raw_sid:
+                    service_id = raw_sid
+                else:
+                    service_id = container_layout.allocate_forge_llm_service_id(data_dir_p)
                 rec = container_layout.upsert_service(
                     data_dir_p,
-                    service_id=str(body.get("id") or "").strip().lower(),
+                    service_id=service_id,
                     type_id=str(body.get("type_id") or "").strip(),
                     compose_root=str(body.get("compose_root") or "").strip(),
                     compose_files=body.get("compose_files") if isinstance(body.get("compose_files"), list) else [],

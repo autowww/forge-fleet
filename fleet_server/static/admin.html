@@ -116,26 +116,35 @@
         <div id="fleet-managed-services-rows" class="mb-2"></div>
         <p class="fleet-mono small text-body-secondary mb-1" id="fleet-svc-action-msg" aria-live="polite"></p>
         <details class="mt-1">
-          <summary class="text-body">Add <strong>forge_llm</strong> compose service</summary>
-          <form id="fleet-add-service-form" class="row g-2 mt-2 small">
-            <div class="col-md-3">
-              <label class="form-label small mb-0" for="fleet-new-svc-id">Service id</label>
-              <input class="form-control form-control-sm fleet-mono" id="fleet-new-svc-id" placeholder="lab" autocomplete="off" />
+          <summary class="text-body">Add <strong>Forge LLM</strong> compose stack</summary>
+          <form id="fleet-add-service-form" class="mt-2 small">
+            <div class="mb-2">
+              <label class="form-label small mb-0" for="fleet-new-svc-root">Forge LLM directory on this host (must contain <code class="fleet-mono">compose.yaml</code>)</label>
+              <input class="form-control form-control-sm fleet-mono mt-1" id="fleet-new-svc-root" placeholder="/home/you/Code/forge-llm" autocomplete="off" />
             </div>
-            <div class="col-md-6">
-              <label class="form-label small mb-0" for="fleet-new-svc-root">compose_root</label>
-              <input class="form-control form-control-sm fleet-mono" id="fleet-new-svc-root" placeholder="/abs/path/forge-llm" autocomplete="off" />
+            <p class="text-body-secondary mb-2" style="font-size: 0.8rem">
+              Registers the stack in Fleet. After it appears in the list above, use <strong>Start</strong> to run <code class="fleet-mono">docker compose up -d</code>.
+            </p>
+            <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+              <button type="submit" class="btn btn-sm btn-primary">Register stack</button>
             </div>
-            <div class="col-md-3 d-flex align-items-end">
-              <button type="submit" class="btn btn-sm btn-primary w-100">POST /v1/container-services</button>
-            </div>
-            <div class="col-12">
-              <span class="form-label small d-block mb-1">compose_files overlays (optional)</span>
-              <label class="me-3"><input type="checkbox" class="form-check-input fleet-svc-overlay me-1" value="compose.cpu.yaml" />compose.cpu.yaml</label>
-              <label class="me-3"><input type="checkbox" class="form-check-input fleet-svc-overlay me-1" value="compose.gpu.yaml" />compose.gpu.yaml</label>
-              <label class="me-3"><input type="checkbox" class="form-check-input fleet-svc-overlay me-1" value="compose.observability-ports.yaml" />observability-ports</label>
-              <label class="me-3"><input type="checkbox" class="form-check-input fleet-svc-overlay me-1" value="compose.observability-dcgm.yaml" />observability-dcgm</label>
-            </div>
+            <details class="border border-secondary-subtle rounded p-2 mt-1">
+              <summary class="text-body small" style="cursor: pointer">Advanced</summary>
+              <div class="row g-2 mt-2">
+                <div class="col-md-6">
+                  <label class="form-label small mb-0" for="fleet-new-svc-id">Service id (optional)</label>
+                  <input class="form-control form-control-sm fleet-mono" id="fleet-new-svc-id" placeholder="Leave blank — Fleet picks default, lab, llm2…" autocomplete="off" />
+                </div>
+                <div class="col-12">
+                  <span class="form-label small d-block mb-1">Compose overlays (optional)</span>
+                  <label class="me-3"><input type="checkbox" class="form-check-input fleet-svc-overlay me-1" value="compose.cpu.yaml" />compose.cpu.yaml</label>
+                  <label class="me-3"><input type="checkbox" class="form-check-input fleet-svc-overlay me-1" value="compose.gpu.yaml" />compose.gpu.yaml</label>
+                  <label class="me-3"><input type="checkbox" class="form-check-input fleet-svc-overlay me-1" value="compose.observability-ports.yaml" />observability-ports</label>
+                  <label class="me-3"><input type="checkbox" class="form-check-input fleet-svc-overlay me-1" value="compose.observability-dcgm.yaml" />observability-dcgm</label>
+                </div>
+                <div class="col-12 text-body-secondary fleet-mono" style="font-size: 0.72rem">API: <code class="fleet-mono">POST /v1/container-services</code> · omit <code class="fleet-mono">id</code> for auto-assigned service id</div>
+              </div>
+            </details>
           </form>
           <p class="text-body-secondary fleet-mono small mt-2 mb-0" id="fleet-add-service-msg"></p>
         </details>
@@ -2193,7 +2202,7 @@
       var svcs = integ.forge_llm_services || [];
       if (!svcs.length) {
         rowsEl.innerHTML =
-          "<p class=\"text-body-secondary mb-0\">No <code class=\"fleet-mono\">forge_llm</code> services yet. Add one below, or set <code class=\"fleet-mono\">FLEET_FORGE_LLM_ROOT</code> and restart Fleet once to auto-create <code class=\"fleet-mono\">default.json</code>.</p>";
+          "<p class=\"text-body-secondary mb-0\">No <code class=\"fleet-mono\">forge_llm</code> services yet. Use <strong>Register stack</strong> below, or set <code class=\"fleet-mono\">FLEET_FORGE_LLM_ROOT</code> and restart Fleet once to auto-create <code class=\"fleet-mono\">default.json</code>.</p>";
         return;
       }
       var head =
@@ -2577,6 +2586,15 @@
         wrap.classList.add("d-none");
       }
 
+      if (!window.__fleetApplyRootHintOnce) {
+        window.__fleetApplyRootHintOnce = true;
+        var rootIn = document.getElementById("fleet-new-svc-root");
+        var hint = integ.suggested_forge_llm_compose_root;
+        if (rootIn && hint && !String(rootIn.value || "").trim()) {
+          rootIn.value = String(hint);
+        }
+      }
+
       applySelfUpdateMeta(meta.self_update || {});
 
       renderManagedServices(integ);
@@ -2715,20 +2733,23 @@
         document.querySelectorAll(".fleet-svc-overlay:checked").forEach(function (c) {
           overlays.push(c.value);
         });
-        if (!sid || !root) {
-          if (msg) msg.textContent = "id and compose_root required.";
+        if (!root) {
+          if (msg) msg.textContent = "Enter the Forge LLM directory path (folder with compose.yaml).";
           return;
+        }
+        var payload = {
+          type_id: "forge_llm",
+          compose_root: root,
+          compose_files: overlays,
+        };
+        if (sid) {
+          payload.id = sid;
         }
         try {
           var res = await fetch("/v1/container-services", {
             method: "POST",
             headers: Object.assign({ "Content-Type": "application/json" }, authHeaders()),
-            body: JSON.stringify({
-              id: sid,
-              type_id: "forge_llm",
-              compose_root: root,
-              compose_files: overlays,
-            }),
+            body: JSON.stringify(payload),
           });
           var j = {};
           try {
@@ -2737,10 +2758,17 @@
             j = {};
           }
           if (msg) {
-            if (res.ok && j.ok) msg.textContent = "Created service " + sid + ".";
-            else msg.textContent = "HTTP " + res.status + " — " + esc(String(j.error || j.detail || ""));
+            if (res.ok && j.ok) {
+              var createdId = j.service && j.service.id ? String(j.service.id) : sid || "—";
+              msg.textContent = "Registered service " + createdId + ".";
+            } else {
+              msg.textContent = "HTTP " + res.status + " — " + esc(String(j.error || j.detail || ""));
+            }
           }
-          if (res.ok && j.ok && idEl) idEl.value = "";
+          if (res.ok && j.ok) {
+            if (rootEl) rootEl.value = "";
+            if (idEl) idEl.value = "";
+          }
         } catch (e) {
           if (msg) msg.textContent = esc(String(e));
         }

@@ -111,3 +111,15 @@ def test_delete_not_found(tmp_path: Path) -> None:
     ok, detail = cl.delete_service(tmp_path, "missing")
     assert ok is False
     assert detail == "not_found"
+
+
+def test_allocate_forge_llm_service_id_prefers_default_then_lab_then_llm_n(tmp_path: Path) -> None:
+    cl.ensure_layout(tmp_path)
+    assert cl.allocate_forge_llm_service_id(tmp_path) == "default"
+    cl.services_dir(tmp_path).mkdir(parents=True, exist_ok=True)
+    (cl.service_file(tmp_path, "default")).write_text('{"id":"default","version":1}\n', encoding="utf-8")
+    assert cl.allocate_forge_llm_service_id(tmp_path) == "lab"
+    (cl.service_file(tmp_path, "lab")).write_text('{"id":"lab","version":1}\n', encoding="utf-8")
+    assert cl.allocate_forge_llm_service_id(tmp_path) == "llm2"
+    (cl.service_file(tmp_path, "llm2")).write_text('{"id":"llm2","version":1}\n', encoding="utf-8")
+    assert cl.allocate_forge_llm_service_id(tmp_path) == "llm3"

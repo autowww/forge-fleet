@@ -294,6 +294,23 @@ def validate_service_id(service_id: str) -> str:
     return sid
 
 
+def allocate_forge_llm_service_id(data_dir: Path) -> str:
+    """
+    Pick a new service id for ``POST /v1/container-services`` when the client omits ``id``.
+
+    Order: ``default``, ``lab``, then ``llm2`` … ``llm99`` for the first basename
+    not already present under ``etc/services/*.json``.
+    """
+    ensure_layout(data_dir)
+    sdir = services_dir(data_dir)
+    candidates = ["default", "lab"] + [f"llm{n}" for n in range(2, 100)]
+    for cand in candidates:
+        sid = validate_service_id(cand)
+        if not service_file(data_dir, sid).is_file():
+            return sid
+    raise ValueError("no_free_service_id")
+
+
 def list_service_records(data_dir: Path) -> list[dict[str, Any]]:
     ensure_layout(data_dir)
     out: list[dict[str, Any]] = []
