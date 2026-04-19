@@ -1290,15 +1290,52 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       return [0, 1, 10, 50, 100];
     }
 
-    /** Uniform index decimation; last sample always kept for live edge. */
-    function chartBufForRender(buf) {
-      var m = buf.length;
-      if (m <= MAX_CHART_RENDER) return buf;
+    /**
+     * Downsample to ``maxPts`` points along the time axis with linear interpolation.
+     * Uniform index decimation was unstable: each time the buffer length changed, every
+     * visible vertex could jump to a different raw sample, so the whole curve reshaped
+     * on every poll. Time resampling keeps the same ``t`` targets and only moves values
+     * as the underlying series slides.
+     */
+    function chartBufResampleTime(buf, maxPts) {
+      if (!buf || !buf.length) return [];
+      if (buf.length <= maxPts) return buf;
+      var t0 = Number(buf[0].t);
+      var t1 = Number(buf[buf.length - 1].t);
+      var span = Math.max(1, t1 - t0);
       var out = [];
-      var maxR = MAX_CHART_RENDER;
-      for (var j = 0; j < maxR; j++) {
-        var idx = Math.round((j * (m - 1)) / Math.max(1, maxR - 1));
-        out.push(buf[idx]);
+      var k = 0;
+      for (var j = 0; j < maxPts; j++) {
+        var u = maxPts <= 1 ? 0 : j / (maxPts - 1);
+        var tt = t0 + u * span;
+        while (k + 1 < buf.length && Number(buf[k + 1].t) < tt) k++;
+        if (k + 1 >= buf.length) {
+          out.push({
+            t: tt,
+            cpu: buf[buf.length - 1].cpu,
+            mem: buf[buf.length - 1].mem,
+          });
+          continue;
+        }
+        var a = buf[k];
+        var b = buf[k + 1];
+        var ta = Number(a.t);
+        var tb = Number(b.t);
+        var dt = tb - ta;
+        if (!(dt > 0)) {
+          out.push({ t: tt, cpu: a.cpu, mem: a.mem });
+        } else {
+          var w = (tt - ta) / dt;
+          var ca = Number(a.cpu);
+          var cb = Number(b.cpu);
+          var ma = Number(a.mem);
+          var mb = Number(b.mem);
+          out.push({
+            t: tt,
+            cpu: ca + (cb - ca) * w,
+            mem: ma + (mb - ma) * w,
+          });
+        }
       }
       return out;
     }
@@ -1663,7 +1700,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
           "\" fill=\"currentColor\" opacity=\"0.45\" font-size=\"12\">Waiting for samples…</text></svg>";
         return;
       }
-      var chartRows = chartBufForRender(bufFull);
+      var chartRows = chartBufResampleTime(bufFull, MAX_CHART_RENDER);
       var n = chartRows.length;
       var tMin = chartRows[0].t != null ? chartRows[0].t : 0;
       var tMax = chartRows[n - 1].t != null ? chartRows[n - 1].t : tMin + 1;
@@ -1679,7 +1716,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
           i === n - 1 &&
           lastFull &&
           row &&
-          row.t === lastFull.t;
+          Math.abs(Number(row.t) - Number(lastFull.t)) <= 8;
         if (!isLiveEdge) return { c: row.cpu, m: row.mem };
         var u = (performance.now() - chartBlend.t0) / chartBlend.dur;
         u = chartSmoothstep(Math.max(0, Math.min(1, u)));
