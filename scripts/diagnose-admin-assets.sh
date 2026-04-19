@@ -53,7 +53,9 @@ echo
 echo "--- on-disk kitchensink (needed for /admin/ks/css) ---"
 for row in \
   "checkout|$FLEET_SRC/kitchensink/css/forge-theme.css" \
-  "user install|$FLEET_USER_DEST/kitchensink/css/forge-theme.css"; do
+  "checkout|$FLEET_SRC/kitchensink/css/forge-fleet-admin.css" \
+  "user install|$FLEET_USER_DEST/kitchensink/css/forge-theme.css" \
+  "user install|$FLEET_USER_DEST/kitchensink/css/forge-fleet-admin.css"; do
   label="${row%%|*}"
   path="${row#*|}"
   if [[ -f "$path" ]]; then
