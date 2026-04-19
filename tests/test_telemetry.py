@@ -23,6 +23,22 @@ def test_telemetry_table_created(tmp_path: Path) -> None:
         conn.close()
 
 
+def test_telemetry_throttle_across_connections(tmp_path: Path) -> None:
+    """Throttle uses SQLite MAX(ts), not in-process memory (background sampler + HTTP)."""
+    db = tmp_path / "two.sqlite"
+    host = {"cpu_usage_pct": 5.0, "time_utc": "x"}
+    c1 = store.connect(db)
+    try:
+        assert store.maybe_record_telemetry_sample(c1, db, host) is True
+    finally:
+        c1.close()
+    c2 = store.connect(db)
+    try:
+        assert store.maybe_record_telemetry_sample(c2, db, host) is False
+    finally:
+        c2.close()
+
+
 def test_record_and_query(tmp_path: Path) -> None:
     db = tmp_path / "u.sqlite"
     conn = store.connect(db)

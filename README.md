@@ -122,6 +122,10 @@ If **`FLEET_FORGE_LLM_ROOT`** is set and `etc/services/` is empty, Fleet writes 
 
 Deeper integration (Fleet-issued batch jobs wrapping forge-llm CLI) remains optional future work.
 
+### SQLite telemetry when the HTTP server is stopped
+
+**`install-user.sh`** / **`install-update.sh`** install **`forge-fleet-telemetry.timer`**, which runs **`python -m fleet_server.telemetry_sampler`** (or **`fleet-telemetry-sample`**) into the same **`fleet.sqlite`** as **`fleet-server`**, honoring **`FLEET_TELEMETRY_INTERVAL_S`**. Throttling uses the latest row in **`telemetry_samples`**, so the timer and **`/v1/health`** / **`/v1/admin/snapshot`** do not double-write inside the interval.
+
 ### Test Fleet → Lenses Attention
 
 1. Run Fleet on a host with Docker; optional: `export FLEET_LENSES_WORKSPACE_ROOT=/abs/path/to/your/lenses-workspace` (must match the workspace Lenses Studio is serving).

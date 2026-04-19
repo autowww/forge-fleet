@@ -149,8 +149,52 @@ if [[ "$INSTALL_SYSTEMD" -eq 1 ]] && [[ "$DRY_RUN" -eq 0 ]]; then
     "${SYS_SUDO[@]}" install -m0644 "$UFILE" /etc/systemd/system/forge-fleet.service
     rm -f "$UFILE"
 
+    UTELEM="$(mktemp "${TMPDIR:-/tmp}/forge-fleet-telemetry.service.XXXXXX")"
+    {
+      echo "[Unit]"
+      echo "Description=Forge Fleet — SQLite telemetry sample (one-shot)"
+      echo "After=network.target"
+      echo ""
+      echo "[Service]"
+      echo "Type=oneshot"
+      echo "SyslogIdentifier=forge-fleet-telemetry"
+      echo "Environment=PYTHONUNBUFFERED=1"
+      echo "User=forge-fleet"
+      echo "Group=forge-fleet"
+      echo "SupplementaryGroups=docker"
+      echo "WorkingDirectory=$esc_dest"
+      echo "EnvironmentFile=-/etc/forge-fleet/forge-fleet.env"
+      echo "ExecStart=$esc_py -m fleet_server.telemetry_sampler --data-dir $esc_data"
+    } >"$UTELEM"
+    "${SYS_SUDO[@]}" install -m0644 "$UTELEM" /etc/systemd/system/forge-fleet-telemetry.service
+    rm -f "$UTELEM"
+
+    UTTIMER="$(mktemp "${TMPDIR:-/tmp}/forge-fleet-telemetry.timer.XXXXXX")"
+    {
+      echo "[Unit]"
+      echo "Description=Timer — Forge Fleet telemetry to SQLite (works when HTTP is stopped)"
+      echo ""
+      echo "[Timer]"
+      echo "OnBootSec=45s"
+      echo "OnUnitActiveSec=1min"
+      echo "AccuracySec=1min"
+      echo "Unit=forge-fleet-telemetry.service"
+      echo ""
+      echo "[Install]"
+      echo "WantedBy=timers.target"
+    } >"$UTTIMER"
+    "${SYS_SUDO[@]}" install -m0644 "$UTTIMER" /etc/systemd/system/forge-fleet-telemetry.timer
+    rm -f "$UTTIMER"
+
     "${SYS_SUDO[@]}" systemctl daemon-reload
     echo "[install-update] systemd unit -> /etc/systemd/system/forge-fleet.service (port $FLEET_PORT)"
+    echo "[install-update] telemetry timer -> /etc/systemd/system/forge-fleet-telemetry.timer"
+
+    if "${SYS_SUDO[@]}" systemctl enable --now forge-fleet-telemetry.timer 2>/dev/null; then
+      echo "[install-update] enabled forge-fleet-telemetry.timer (SQLite telemetry when HTTP is stopped)"
+    else
+      echo "[install-update] warning: could not enable forge-fleet-telemetry.timer" >&2
+    fi
 
     if [[ "$RESTART_SERVICE" -eq 1 ]]; then
       if "${SYS_SUDO[@]}" systemctl restart forge-fleet.service; then

@@ -14,7 +14,6 @@ from typing import Any
 from fleet_server import versioning
 
 _lock = threading.Lock()
-_last_telemetry_wall: dict[str, float] = {}
 
 
 def _ensure_telemetry_table(conn: sqlite3.Connection) -> None:
@@ -439,9 +438,11 @@ def maybe_record_telemetry_sample(conn: sqlite3.Connection, db_path: Path, host:
     """
     Append one host snapshot row if the wall interval has elapsed (default 60s, ``FLEET_TELEMETRY_INTERVAL_S``).
 
+    Throttle uses the latest row timestamp in ``telemetry_samples`` so separate processes (HTTP server vs
+    ``fleet-telemetry-sample`` timer) share one cadence.
+
     Returns True when a row was written.
     """
-    key = str(db_path.resolve())
     try:
         interval = float(os.environ.get("FLEET_TELEMETRY_INTERVAL_S") or "60")
     except ValueError:
@@ -449,27 +450,39 @@ def maybe_record_telemetry_sample(conn: sqlite3.Connection, db_path: Path, host:
     interval = max(5.0, interval)
     now = time.time()
     with _lock:
-        last = _last_telemetry_wall.get(key, 0.0)
-        if now - last < interval:
-            return False
-        _last_telemetry_wall[key] = now
-        energy_in = host.get("energy") if isinstance(host.get("energy"), dict) else {}
         try:
-            ledger = apply_energy_ledger_delta(conn, now, energy_in)
+            conn.execute("BEGIN IMMEDIATE")
         except sqlite3.Error:
-            ledger = None
-        host_out = dict(host)
-        e_out = dict(energy_in)
-        if ledger is not None:
-            e_out["cumulative_kwh"] = ledger
-        host_out["energy"] = e_out
-        payload = json.dumps(host_out, separators=(",", ":"), default=str)
-        conn.execute(
-            "INSERT INTO telemetry_samples (ts, payload_json) VALUES (?, ?)",
-            (now, payload),
-        )
-        _telemetry_prune(conn)
-        conn.commit()
+            return False
+        try:
+            row = conn.execute("SELECT MAX(ts) AS m FROM telemetry_samples").fetchone()
+            last_ts = float(row["m"]) if row and row["m"] is not None else None
+            if last_ts is not None and (now - last_ts) < interval:
+                conn.rollback()
+                return False
+            energy_in = host.get("energy") if isinstance(host.get("energy"), dict) else {}
+            try:
+                ledger = apply_energy_ledger_delta(conn, now, energy_in)
+            except sqlite3.Error:
+                ledger = None
+            host_out = dict(host)
+            e_out = dict(energy_in)
+            if ledger is not None:
+                e_out["cumulative_kwh"] = ledger
+            host_out["energy"] = e_out
+            payload = json.dumps(host_out, separators=(",", ":"), default=str)
+            conn.execute(
+                "INSERT INTO telemetry_samples (ts, payload_json) VALUES (?, ?)",
+                (now, payload),
+            )
+            _telemetry_prune(conn)
+            conn.commit()
+        except sqlite3.Error:
+            conn.rollback()
+            raise
+        except Exception:
+            conn.rollback()
+            raise
     return True
 
 

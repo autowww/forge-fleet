@@ -237,6 +237,43 @@
     </div>
   </div>
 
+  <div
+    class="modal fade"
+    id="fleet-power-diag-modal"
+    tabindex="-1"
+    aria-labelledby="fleet-power-diag-modal-label"
+    aria-hidden="true"
+  >
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="fleet-power-diag-modal-label">Power &amp; watts diagnostics</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p class="small text-body-secondary mb-2">
+            Fleet shows <strong>CPU package</strong> draw (Linux RAPL) plus <strong>NVIDIA</strong> <code class="fleet-mono">power.draw</code> when
+            <code class="fleet-mono">nvidia-smi</code> works. This dialog stays open across page refreshes.
+          </p>
+          <div id="fleet-power-diag-rapl-wrap" class="d-none"></div>
+          <ul class="small mb-3 ps-3">
+            <li>Processor energy (RAPL) is exposed under <code class="fleet-mono">/sys/class/powercap</code> on many bare-metal hosts — not a separate apt package.</li>
+            <li>NVIDIA GPU watts need a working driver and <code class="fleet-mono">nvidia-smi</code> on <code class="fleet-mono">PATH</code> for the Fleet process.</li>
+            <li>VMs often lack RAPL; some kernels omit instant <code class="fleet-mono">power_uw</code> — watts may appear only after the next poll.</li>
+          </ul>
+          <p class="small text-body-secondary mb-1">Run on the Fleet host (copy as needed):</p>
+          <pre
+            class="fleet-mono small p-2 rounded border bg-body-secondary mb-0"
+            id="fleet-power-diag-commands"
+            style="white-space: pre-wrap; max-height: 16rem; overflow: auto"
+          >ls /sys/class/powercap 2>/dev/null | head
+for z in /sys/class/powercap/*; do [ -f &quot;$z/name&quot; ] &amp;&amp; echo &quot;---&quot; &amp;&amp; cat &quot;$z/name&quot; &quot;$z/energy_uj&quot; 2&gt;/dev/null; done | head -n 40
+command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/null | head -n 40</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
   <script src="/admin/ks/js/forge-theme.js"></script>
   <script>
@@ -381,6 +418,27 @@
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;");
+    }
+
+    /** Latest RAPL reason from the power tile (updated each snapshot); shown in the diagnostics modal. */
+    var __fleetPowerDiagRaplReason = "";
+
+    function openFleetPowerDiagModal() {
+      var wrap = document.getElementById("fleet-power-diag-rapl-wrap");
+      var rr = __fleetPowerDiagRaplReason || "";
+      if (wrap) {
+        if (rr) {
+          wrap.innerHTML = '<p class="small mb-2"><strong>rapl_reason:</strong> ' + esc(rr) + "</p>";
+          wrap.classList.remove("d-none");
+        } else {
+          wrap.innerHTML = "";
+          wrap.classList.add("d-none");
+        }
+      }
+      var el = document.getElementById("fleet-power-diag-modal");
+      if (el && typeof bootstrap !== "undefined" && bootstrap.Modal) {
+        bootstrap.Modal.getOrCreateInstance(el).show();
+      }
     }
 
     function fmtTime(ts) {
@@ -1486,15 +1544,7 @@
 
       if (!hasSignal) {
         var rr = en.rapl_reason != null ? String(en.rapl_reason).trim() : "";
-        var diagBlock =
-          '<p class="small text-body-secondary mb-1">Run on the Fleet host (copy as needed):</p>' +
-          '<pre class="fleet-mono small text-body-secondary mb-0 p-2 rounded border bg-body-secondary fleet-power-diag">' +
-          esc(
-            "ls /sys/class/powercap 2>/dev/null | head\n" +
-              "for z in /sys/class/powercap/*; do [ -f \"$z/name\" ] && echo \"---\" && cat \"$z/name\" \"$z/energy_uj\" 2>/dev/null; done | head -n 40\n" +
-              "command -v nvidia-smi >/dev/null && nvidia-smi -q -d POWER 2>/dev/null | head -n 40"
-          ) +
-          "</pre>";
+        __fleetPowerDiagRaplReason = rr;
         return (
           '<div class="fleet-tile fleet-tile--inactive">' +
           '<div class="fleet-tile__brand">' +
@@ -1506,17 +1556,7 @@
           hintLine +
           "</div>" +
           '<p class="small mb-1 mt-1"><button type="button" class="btn btn-link btn-sm p-0 fleet-power-open-diag">How to see watts / diagnostics</button></p>' +
-          '<details class="mt-2 small fleet-power-details">' +
-          '<summary class="text-body">Why no watts / diagnostics</summary>' +
-          (rr
-            ? '<p class="small mb-2"><strong>rapl_reason:</strong> ' + esc(rr) + "</p>"
-            : "") +
-          '<ul class="small mb-2 ps-3">' +
-          "<li>Processor energy (RAPL) lives under <code class=\"fleet-mono\">/sys/class/powercap</code> on many bare-metal Linux hosts — not an apt package.</li>" +
-          "<li>NVIDIA GPU watts need working <code class=\"fleet-mono\">nvidia-smi</code> in PATH.</li>" +
-          "<li>VMs and some laptops omit RAPL or hide it behind permissions.</li></ul>" +
-          diagBlock +
-          "</details></div>"
+          "</div>"
         );
       }
 
@@ -1540,15 +1580,7 @@
       if (gpuW != null) memParts.push("GPU about " + esc(fmtWatts(gpuW)) + " W");
       var memLine = memParts.length ? memParts.join(" · ") : "Power draw";
       var rrOn = en.rapl_reason != null ? String(en.rapl_reason).trim() : "";
-      var diagOn =
-        '<p class="small text-body-secondary mb-1">Run on the Fleet host (copy as needed):</p>' +
-        '<pre class="fleet-mono small text-body-secondary mb-0 p-2 rounded border bg-body-secondary fleet-power-diag">' +
-        esc(
-          "ls /sys/class/powercap 2>/dev/null | head\n" +
-            "for z in /sys/class/powercap/*; do [ -f \"$z/name\" ] && echo \"---\" && cat \"$z/name\" \"$z/energy_uj\" 2>/dev/null; done | head -n 40\n" +
-            "command -v nvidia-smi >/dev/null && nvidia-smi -q -d POWER 2>/dev/null | head -n 40"
-        ) +
-        "</pre>";
+      __fleetPowerDiagRaplReason = rrOn;
       return (
         '<div class="fleet-tile fleet-tile--power-' +
         pHeat +
@@ -1566,14 +1598,7 @@
         hintLine +
         "</div>" +
         '<p class="small mb-1 mt-1"><button type="button" class="btn btn-link btn-sm p-0 fleet-power-open-diag">How to see watts / diagnostics</button></p>' +
-        '<details class="mt-2 small fleet-power-details">' +
-        '<summary class="text-body">Diagnostics</summary>' +
-        (rrOn ? '<p class="small mb-2"><strong>rapl_reason:</strong> ' + esc(rrOn) + "</p>" : "") +
-        '<ul class="small mb-2 ps-3">' +
-        "<li>RAPL: <code class=\"fleet-mono\">/sys/class/powercap</code>; NVIDIA: <code class=\"fleet-mono\">nvidia-smi</code>.</li>" +
-        "<li>VMs may lack RAPL; check permissions if zones exist but watts stay empty.</li></ul>" +
-        diagOn +
-        "</details></div>"
+        "</div>"
       );
     }
 
@@ -2821,18 +2846,7 @@
         doGitSelfUpdate();
       } else if (t.classList && t.classList.contains("fleet-power-open-diag")) {
         ev.preventDefault();
-        var pTile = t.closest(".fleet-tile");
-        if (pTile) {
-          var det = pTile.querySelector("details.fleet-power-details");
-          if (det) {
-            det.open = true;
-            try {
-              det.scrollIntoView({ block: "nearest", behavior: "smooth" });
-            } catch (_e2) {
-              /* ignore */
-            }
-          }
-        }
+        openFleetPowerDiagModal();
       }
     });
 

@@ -14,6 +14,8 @@
 #
 # Boot without login session:  loginctl enable-linger "$USER"  (once, may prompt for polkit)
 #
+# SQLite telemetry when HTTP is down: forge-fleet-telemetry.timer (see systemd/environment.example).
+#
 # Flags: --no-systemd  --no-restart  --dry-run  -h/--help
 
 set -euo pipefail
@@ -147,9 +149,49 @@ if [[ "$INSTALL_SYSTEMD" -eq 1 ]] && [[ "$DRY_RUN" -eq 0 ]]; then
     install -m0644 "$UFILE" "$UNIT_DIR/forge-fleet.service"
     rm -f "$UFILE"
 
+    TTSVC="$(mktemp "${TMPDIR:-/tmp}/forge-fleet-telemetry.service.XXXXXX")"
+    {
+      echo "[Unit]"
+      echo "Description=Forge Fleet — SQLite telemetry sample (one-shot)"
+      echo "After=network.target"
+      echo ""
+      echo "[Service]"
+      echo "Type=oneshot"
+      echo "SyslogIdentifier=forge-fleet-telemetry"
+      echo "Environment=PYTHONUNBUFFERED=1"
+      echo "WorkingDirectory=$esc_dest"
+      echo "EnvironmentFile=-${ENV_DIR}/forge-fleet.env"
+      echo "ExecStart=$esc_py -m fleet_server.telemetry_sampler --data-dir $esc_data"
+    } >"$TTSVC"
+    install -m0644 "$TTSVC" "$UNIT_DIR/forge-fleet-telemetry.service"
+    rm -f "$TTSVC"
+
+    TTMER="$(mktemp "${TMPDIR:-/tmp}/forge-fleet-telemetry.timer.XXXXXX")"
+    {
+      echo "[Unit]"
+      echo "Description=Timer — Forge Fleet telemetry to SQLite (works when HTTP is stopped)"
+      echo ""
+      echo "[Timer]"
+      echo "OnBootSec=45s"
+      echo "OnUnitActiveSec=1min"
+      echo "AccuracySec=1min"
+      echo "Unit=forge-fleet-telemetry.service"
+      echo ""
+      echo "[Install]"
+      echo "WantedBy=timers.target"
+    } >"$TTMER"
+    install -m0644 "$TTMER" "$UNIT_DIR/forge-fleet-telemetry.timer"
+    rm -f "$TTMER"
+
     systemctl --user daemon-reload
     echo "[install-user] unit -> $UNIT_DIR/forge-fleet.service ($FLEET_USER_HOST:$FLEET_USER_PORT)"
     echo "[install-user] env (optional): $ENV_DIR/forge-fleet.env"
+
+    if systemctl --user enable --now forge-fleet-telemetry.timer 2>/dev/null; then
+      echo "[install-user] enabled forge-fleet-telemetry.timer → SQLite telemetry (incl. when HTTP is stopped)"
+    else
+      echo "[install-user] warning: could not enable forge-fleet-telemetry.timer" >&2
+    fi
 
     if [[ "$RESTART_SERVICE" -eq 1 ]]; then
       systemctl --user enable forge-fleet.service 2>/dev/null || true

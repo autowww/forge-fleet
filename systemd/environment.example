@@ -26,6 +26,10 @@ FLEET_BEARER_TOKEN=change-me
 # FLEET_TELEMETRY_RETENTION_DAYS=730
 # (0 = never delete old samples)
 #
+# install-user.sh / install-update.sh install forge-fleet-telemetry.timer, which runs
+# ``python -m fleet_server.telemetry_sampler`` (~1/min) so rows are written even when the
+# HTTP service is stopped. Same FLEET_DATA_DIR and interval as above.
+#
 # Energy uses the same sampling cadence as telemetry. RAPL needs readable
 # /sys/class/powercap/*/energy_uj for the service user; NVIDIA uses nvidia-smi in PATH.
 #

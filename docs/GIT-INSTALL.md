@@ -73,6 +73,6 @@ cd forge-fleet
 | Script | Role |
 |--------|------|
 | **`git-install.sh`** | Clone → submodules → **`install-update.sh`** or **`install-user.sh`**. |
-| **`install-update.sh`** | Rsync checkout → **`FLEET_DEST`**, systemd system unit, restart. |
-| **`install-user.sh`** / **`setup.sh`** | User-level tree + systemd --user. |
+| **`install-update.sh`** | Rsync checkout → **`FLEET_DEST`**, systemd system unit + **`forge-fleet-telemetry.timer`**, restart. |
+| **`install-user.sh`** / **`setup.sh`** | User-level tree + systemd --user + **`forge-fleet-telemetry.timer`** (SQLite samples when HTTP is stopped). |
 | **`scripts/update-fleet.sh`** | Bump version, commit, push, then **`install-update.sh`** (system install); if **`~/.config/systemd/user/forge-fleet.service`** exists, also **`update-user.sh`** unless **`--no-user`**. |

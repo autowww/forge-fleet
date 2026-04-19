@@ -46,6 +46,8 @@ CFG="${XDG_CONFIG_HOME:-${HOME}/.config}"
 UNIT_DIR="${CFG}/systemd/user"
 ENV_DIR="${CFG}/forge-fleet"
 UNIT="${UNIT_DIR}/forge-fleet.service"
+TTIMER="${UNIT_DIR}/forge-fleet-telemetry.timer"
+TSVC="${UNIT_DIR}/forge-fleet-telemetry.service"
 DROPIN="${UNIT_DIR}/forge-fleet.service.d"
 
 die() { echo "uninstall-user.sh: $*" >&2; exit 1; }
@@ -66,16 +68,20 @@ echo "[uninstall-user] data dir: $FLEET_USER_DATA"
 echo "[uninstall-user] env file: $ENV_DIR/forge-fleet.env"
 
 if [[ "$DRY_RUN" -eq 1 ]]; then
+  echo "[dry-run] systemctl --user disable --now forge-fleet-telemetry.timer"
+  echo "[dry-run] systemctl --user disable --now forge-fleet-telemetry.service"
   echo "[dry-run] systemctl --user disable --now forge-fleet.service"
 else
+  command -v systemctl >/dev/null 2>&1 && systemctl --user disable --now forge-fleet-telemetry.timer 2>/dev/null || true
+  command -v systemctl >/dev/null 2>&1 && systemctl --user disable --now forge-fleet-telemetry.service 2>/dev/null || true
   command -v systemctl >/dev/null 2>&1 && systemctl --user disable --now forge-fleet.service 2>/dev/null || true
 fi
 
 if [[ "$DRY_RUN" -eq 1 ]]; then
-  echo "[dry-run] rm -f \"$UNIT\""
+  echo "[dry-run] rm -f \"$UNIT\" \"$TSVC\" \"$TTIMER\""
   echo "[dry-run] rm -rf \"$DROPIN\""
 else
-  rm -f "$UNIT"
+  rm -f "$UNIT" "$TSVC" "$TTIMER"
   rm -rf "$DROPIN"
 fi
 
