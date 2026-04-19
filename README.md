@@ -40,7 +40,12 @@ Auth:
 
 ### Admin self-update (git pull from UI)
 
-When **`FLEET_GIT_ROOT`** points at a checkout with **`.git`** (required for typical **user** installs that rsync without `.git`), **`/admin/`** shows **Update from Git**: `git pull --ff-only`, submodule sync, then **`update-user.sh`** / **`install-user.sh`** if present, then **`systemctl --user restart forge-fleet.service`**. API: **`POST /v1/admin/git-self-update`** (same bearer auth as other `/v1/` routes). Optional **`FLEET_SELF_UPDATE_POST_GIT_COMMAND`** runs instead of the update scripts. See **`systemd/environment.example`**.
+When **`FLEET_GIT_ROOT`** points at a checkout with **`.git`** (required for typical installs that rsync without `.git`), **`/admin/`** can run **Update from Git** — but only when **GitHub `master` is ahead** of the running build (same commit check as the version line).
+
+- **User / dev tree** (not under **`/opt/forge-fleet`**): **`POST /v1/admin/git-self-update`** runs `git pull --ff-only`, submodule sync, then **`update-user.sh`** / **`install-user.sh`** if present, then **`systemctl --user restart forge-fleet.service`**. Optional **`FLEET_SELF_UPDATE_POST_GIT_COMMAND`** runs instead of those scripts.
+- **System install** (process tree under **`/opt/forge-fleet`**, or **`FLEET_SELF_UPDATE_INSTALL_PROFILE=system`**): the API returns **`system_install_requires_root`**; the admin UI shows a **modal** with a one-line **`sudo ./install-update.sh`** command to paste as root instead of running user scripts.
+
+API: **`POST /v1/admin/git-self-update`** (same bearer auth as other `/v1/` routes). See **`systemd/environment.example`**.
 
 ## Submodules (blueprints + kitchensink)
 

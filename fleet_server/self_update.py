@@ -3,11 +3,41 @@
 from __future__ import annotations
 
 import os
+import shlex
 import subprocess
 import threading
 import time
 from pathlib import Path
 from typing import Any
+
+
+def infer_install_profile(runtime_repo_root: Path) -> str:
+    """
+    ``user`` — typical checkout or ``~/.local/share/forge-fleet`` install; admin UI may run
+    ``update-user.sh`` and ``systemctl --user restart``.
+
+    ``system`` — code under ``/opt/forge-fleet``; refreshing production requires
+    ``sudo ./install-update.sh`` (see admin modal / ``system_root_install_command``).
+
+    Override: ``FLEET_SELF_UPDATE_INSTALL_PROFILE=user|system``.
+    """
+    override = (os.environ.get("FLEET_SELF_UPDATE_INSTALL_PROFILE") or "").strip().lower()
+    if override in ("user", "system"):
+        return override
+    s = str(runtime_repo_root.resolve())
+    if s.startswith("/opt/forge-fleet"):
+        return "system"
+    return "user"
+
+
+def build_system_root_install_command(git_root: Path) -> str:
+    """One shell line: pull, submodules, then ``install-update.sh`` with ``FLEET_SRC`` set."""
+    g = str(git_root.resolve())
+    q = shlex.quote(g)
+    return (
+        f"cd {q} && git pull --ff-only && git submodule update --init --recursive && "
+        f"sudo env FLEET_SRC={q} ./install-update.sh"
+    )
 
 
 def resolve_git_root(repo_root: Path) -> Path | None:
@@ -25,18 +55,24 @@ def resolve_git_root(repo_root: Path) -> Path | None:
 
 
 def self_update_meta(repo_root: Path) -> dict[str, Any]:
+    profile = infer_install_profile(repo_root)
     root = resolve_git_root(repo_root)
     if root is None:
         return {
             "configured": False,
             "git_root": None,
+            "install_profile": profile,
+            "system_root_install_command": None,
             "has_update_user_script": False,
             "has_install_user_script": False,
             "has_post_git_command": bool(str(os.environ.get("FLEET_SELF_UPDATE_POST_GIT_COMMAND", "") or "").strip()),
         }
+    sys_cmd = build_system_root_install_command(root) if profile == "system" else None
     return {
         "configured": True,
         "git_root": str(root),
+        "install_profile": profile,
+        "system_root_install_command": sys_cmd,
         "has_update_user_script": (root / "update-user.sh").is_file(),
         "has_install_user_script": (root / "install-user.sh").is_file(),
         "has_post_git_command": bool(str(os.environ.get("FLEET_SELF_UPDATE_POST_GIT_COMMAND", "") or "").strip()),
@@ -162,6 +198,15 @@ def run_git_self_update(repo_root: Path) -> dict[str, Any]:
             "ok": False,
             "error": "self_update_unconfigured",
             "detail": "Set FLEET_GIT_ROOT to a git checkout (with .git), or run Fleet from a clone that includes .git.",
+        }
+    if infer_install_profile(repo_root) == "system":
+        return {
+            "ok": False,
+            "error": "system_install_requires_root",
+            "detail": "Fleet is installed system-wide (e.g. under /opt). Run install-update.sh as root on the host — see admin UI for a copy-paste command.",
+            "install_profile": "system",
+            "git_root": str(git_root),
+            "system_root_install_command": build_system_root_install_command(git_root),
         }
     steps, rc = run_git_steps(git_root)
     if rc != 0:

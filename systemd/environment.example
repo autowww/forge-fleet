@@ -14,6 +14,9 @@ FLEET_BEARER_TOKEN=change-me
 # running tree has no .git (e.g. user install rsync’d to ~/.local/share/forge-fleet). Example:
 # FLEET_GIT_ROOT=/home/you/forge-fleet
 # Optional shell after successful git (instead of update-user.sh): FLEET_SELF_UPDATE_POST_GIT_COMMAND
+# Optional: force admin "Update from git" behavior — user (default) vs system (/opt install shows root paste command):
+# FLEET_SELF_UPDATE_INSTALL_PROFILE=user
+# FLEET_SELF_UPDATE_INSTALL_PROFILE=system
 # FLEET_LENSES_WORKSPACE_ROOT=/path/to/workspace
 # FLEET_FORGE_CONSOLE_URL=http://127.0.0.1:8787
 # FLEET_GIT_SHA=

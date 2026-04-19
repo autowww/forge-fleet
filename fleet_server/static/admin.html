@@ -84,10 +84,10 @@
               <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-refresh-metrics-btn" title="Fetch host metrics now">Refresh metrics</button>
               <button
                 type="button"
-                class="btn btn-sm btn-outline-primary"
+                class="btn btn-sm btn-outline-primary d-none"
                 id="fleet-chart-update-btn"
                 disabled
-                title="Configure git self-update (FLEET_GIT_ROOT or run from a clone with .git) to enable."
+                title="Shown when GitHub master is ahead of this host and git self-update is configured."
               >
                 Update from git
               </button>
@@ -153,7 +153,7 @@
         <div class="fw-semibold mb-1">Container types (<code class="fleet-mono">etc/containers/types.json</code>)</div>
         <div id="fleet-container-types-table"></div>
       </div>
-      <p class="text-body-secondary small mb-0">Kitchensink + Bootstrap layout; theme follows Light / Dark / System. Overview metrics poll automatically. <strong>Refresh metrics</strong> (by the chart) pulls a snapshot now. <strong>Update from git</strong> runs git pull and your user install script when self-update is configured; GitHub <code class="fleet-mono">master</code> is checked every 3 minutes for newer commits.</p>
+      <p class="text-body-secondary small mb-0">Kitchensink + Bootstrap layout; theme follows Light / Dark / System. Overview metrics poll automatically. <strong>Refresh metrics</strong> (by the chart) pulls a snapshot now. When GitHub <code class="fleet-mono">master</code> is ahead of this host, <strong>Update from git</strong> appears: user installs run <code class="fleet-mono">update-user.sh</code> and restart the user service; system installs (<code class="fleet-mono">/opt/forge-fleet</code>) show a root command to paste. GitHub is checked every 3 minutes.</p>
       <div class="d-none border border-secondary-subtle rounded p-2 mb-2 small mt-2" id="fleet-self-update-wrap">
         <div class="fw-semibold mb-1">Update from Git</div>
         <p class="text-body-secondary mb-2 small" id="fleet-self-update-help"></p>
@@ -206,6 +206,36 @@
       </div>
     </section>
   </main>
+
+  <div
+    class="modal fade"
+    id="fleet-system-update-modal"
+    tabindex="-1"
+    aria-labelledby="fleet-system-update-modal-label"
+    aria-hidden="true"
+  >
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="fleet-system-update-modal-label">System install — run as root</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p class="small text-body-secondary mb-2">
+            Paste this into a root shell. It fast-forwards the git checkout, syncs submodules, and runs
+            <code class="fleet-mono">install-update.sh</code> so the systemd service under
+            <code class="fleet-mono">/opt/forge-fleet</code> picks up the new tree.
+          </p>
+          <pre
+            class="fleet-mono small p-2 rounded border bg-body-secondary mb-2"
+            id="fleet-system-update-command"
+            style="white-space: pre-wrap; max-height: 14rem; overflow: auto"
+          ></pre>
+          <button type="button" class="btn btn-sm btn-outline-primary" id="fleet-system-update-copy">Copy command</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
   <script src="/admin/ks/js/forge-theme.js"></script>
@@ -278,6 +308,10 @@
     var POLL_MS = 3000;
     var __fleetLocalGitSha = "";
     var __fleetSelfUpdateConfigured = false;
+    /** Snapshot ``meta.self_update`` (install_profile, system_root_install_command, …). */
+    var __fleetSelfUpdateMeta = null;
+    /** True when GitHub master commit differs from ``ver.git_sha`` (newer code on remote). */
+    var __fleetGitUpdateAvailable = false;
     var __fleetRemoteGitTimerStarted = false;
     var errEl = document.getElementById("err");
     var nextFire = Date.now();
@@ -912,17 +946,17 @@
     /* Tile header marks (inline SVG, currentColor from .fleet-tile__brand). */
     /* Inline SVG marks (no hotlinked images — works offline and matches tile contrast). */
     var MARK_CPU =
-      "<svg class=\"fleet-tile__mark\" viewBox=\"0 0 40 32\" xmlns=\"http://www.w3.org/2000/svg\" role=\"img\" aria-label=\"CPU\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.55\" stroke-linejoin=\"round\"><rect x=\"8\" y=\"8\" width=\"24\" height=\"16\" rx=\"2\"/><path d=\"M12 8V5M28 8V5M12 27v-3M28 27v-3M8 14H5M8 20H5M35 14h-3M35 20h-3\"/></svg>";
+      "<svg class=\"fleet-tile__mark\" width=\"40\" height=\"32\" viewBox=\"0 0 40 32\" xmlns=\"http://www.w3.org/2000/svg\" role=\"img\" aria-label=\"CPU\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.55\" stroke-linejoin=\"round\"><rect x=\"8\" y=\"8\" width=\"24\" height=\"16\" rx=\"2\"/><path d=\"M12 8V5M28 8V5M12 27v-3M28 27v-3M8 14H5M8 20H5M35 14h-3M35 20h-3\"/></svg>";
     var MARK_RAM =
-      "<svg class=\"fleet-tile__mark\" viewBox=\"0 0 40 28\" xmlns=\"http://www.w3.org/2000/svg\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linejoin=\"round\"><rect x=\"5\" y=\"5\" width=\"12\" height=\"20\" rx=\"1.5\"/><rect x=\"23\" y=\"5\" width=\"12\" height=\"20\" rx=\"1.5\"/><path d=\"M9 9h4M9 13h4M9 17h4M27 9h4M27 13h4M27 17h4\"/></svg>";
+      "<svg class=\"fleet-tile__mark\" width=\"40\" height=\"28\" viewBox=\"0 0 40 28\" xmlns=\"http://www.w3.org/2000/svg\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linejoin=\"round\"><rect x=\"5\" y=\"5\" width=\"12\" height=\"20\" rx=\"1.5\"/><rect x=\"23\" y=\"5\" width=\"12\" height=\"20\" rx=\"1.5\"/><path d=\"M9 9h4M9 13h4M9 17h4M27 9h4M27 13h4M27 17h4\"/></svg>";
     var MARK_DISK =
-      "<svg class=\"fleet-tile__mark\" viewBox=\"0 0 40 32\" xmlns=\"http://www.w3.org/2000/svg\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.45\" stroke-linejoin=\"round\"><ellipse cx=\"20\" cy=\"11\" rx=\"13\" ry=\"5\"/><path d=\"M7 11v7c0 2.5 5.8 4.5 13 4.5S33 20.5 33 18v-7\"/><path d=\"M7 18v5c0 2.5 5.8 4.5 13 4.5S33 25.5 33 23v-5\"/></svg>";
+      "<svg class=\"fleet-tile__mark\" width=\"40\" height=\"32\" viewBox=\"0 0 40 32\" xmlns=\"http://www.w3.org/2000/svg\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.45\" stroke-linejoin=\"round\"><ellipse cx=\"20\" cy=\"11\" rx=\"13\" ry=\"5\"/><path d=\"M7 11v7c0 2.5 5.8 4.5 13 4.5S33 20.5 33 18v-7\"/><path d=\"M7 18v5c0 2.5 5.8 4.5 13 4.5S33 25.5 33 23v-5\"/></svg>";
     var MARK_POWER =
-      "<svg class=\"fleet-tile__mark\" viewBox=\"0 0 40 40\" xmlns=\"http://www.w3.org/2000/svg\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.65\" stroke-linejoin=\"round\"><path d=\"M22 5L9 23h10l-5 18 16-22H21l1-14z\"/></svg>";
+      "<svg class=\"fleet-tile__mark\" width=\"40\" height=\"40\" viewBox=\"0 0 40 40\" xmlns=\"http://www.w3.org/2000/svg\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.65\" stroke-linejoin=\"round\"><path d=\"M22 5L9 23h10l-5 18 16-22H21l1-14z\"/></svg>";
     var MARK_LOAD =
-      "<svg class=\"fleet-tile__mark\" viewBox=\"0 0 40 32\" xmlns=\"http://www.w3.org/2000/svg\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.55\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M7 26V14M20 26V6M33 26V18\"/><path d=\"M5 26h30\" opacity=\"0.85\"/></svg>";
+      "<svg class=\"fleet-tile__mark\" width=\"40\" height=\"32\" viewBox=\"0 0 40 32\" xmlns=\"http://www.w3.org/2000/svg\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.55\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M7 26V14M20 26V6M33 26V18\"/><path d=\"M5 26h30\" opacity=\"0.85\"/></svg>";
     var MARK_THERMAL =
-      "<svg class=\"fleet-tile__mark\" viewBox=\"0 0 40 40\" xmlns=\"http://www.w3.org/2000/svg\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.55\" stroke-linejoin=\"round\"><path d=\"M22 7v23a6 6 0 1 1-4 0V7a2 2 0 1 1 4 0z\"/></svg>";
+      "<svg class=\"fleet-tile__mark\" width=\"40\" height=\"40\" viewBox=\"0 0 40 40\" xmlns=\"http://www.w3.org/2000/svg\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.55\" stroke-linejoin=\"round\"><path d=\"M22 7v23a6 6 0 1 1-4 0V7a2 2 0 1 1 4 0z\"/></svg>";
 
     var __fleetRaplPrev = { uj: null, tMs: null };
 
@@ -2329,6 +2363,57 @@
       }
     }
 
+    function fleetUpdateUiRefresh() {
+      var su = __fleetSelfUpdateMeta || {};
+      var configured = !!su.configured;
+      var avail = !!__fleetGitUpdateAvailable;
+      var profile = String(su.install_profile || "user").toLowerCase();
+      var enable = configured && avail;
+
+      var wrap = document.getElementById("fleet-self-update-wrap");
+      var btn = document.getElementById("fleet-self-update-btn");
+      var chartUp = document.getElementById("fleet-chart-update-btn");
+      if (!wrap || !btn) return;
+
+      if (!configured) {
+        wrap.classList.add("d-none");
+        btn.disabled = true;
+        if (chartUp) {
+          chartUp.classList.add("d-none");
+          chartUp.disabled = true;
+          chartUp.title =
+            "Git self-update is off: set FLEET_GIT_ROOT to your forge-fleet checkout (with .git), or run Fleet from that clone.";
+        }
+        return;
+      }
+
+      if (!enable) {
+        wrap.classList.add("d-none");
+        btn.disabled = true;
+        if (chartUp) {
+          chartUp.classList.add("d-none");
+          chartUp.disabled = true;
+          chartUp.title = "No newer commits on GitHub master (or could not compare).";
+        }
+        return;
+      }
+
+      wrap.classList.remove("d-none");
+      btn.disabled = false;
+      if (chartUp) {
+        chartUp.classList.remove("d-none");
+        chartUp.disabled = false;
+        chartUp.title =
+          profile === "system"
+            ? "Opens a dialog with a command to run as root (git pull + install-update.sh)."
+            : "Pull from git (ff-only), sync submodules, then update-user.sh when present, and restart the Forge Fleet user service.";
+      }
+      btn.title =
+        profile === "system"
+          ? "Opens a dialog with a command to run as root (install-update.sh)."
+          : "Pull from git, run update-user.sh, restart the Fleet user service.";
+    }
+
     function applySelfUpdateMeta(su) {
       var wrap = document.getElementById("fleet-self-update-wrap");
       var btn = document.getElementById("fleet-self-update-btn");
@@ -2336,33 +2421,48 @@
       var chartUp = document.getElementById("fleet-chart-update-btn");
       if (!wrap || !btn || !help) return;
       su = su || {};
+      __fleetSelfUpdateMeta = su;
       if (!su.configured) {
-        wrap.classList.add("d-none");
-        btn.disabled = true;
         help.textContent = "";
         if (chartUp) {
-          chartUp.disabled = true;
           chartUp.title =
             "Git self-update is off: set FLEET_GIT_ROOT to your forge-fleet checkout (with .git), or run Fleet from that clone.";
         }
+        fleetUpdateUiRefresh();
         return;
       }
-      wrap.classList.remove("d-none");
-      btn.disabled = false;
-      if (chartUp) {
-        chartUp.disabled = false;
-        chartUp.title =
-          "Pull from git (ff-only), sync submodules, then update-user.sh or install-user.sh when present, and restart the Forge Fleet user service.";
+      var profile = String(su.install_profile || "user").toLowerCase();
+      var parts = [];
+      if (profile === "system") {
+        parts.push(
+          "System install: Update opens a dialog with a shell command to run as root (git pull + sudo install-update.sh)."
+        );
+      } else {
+        parts.push(
+          "Runs git pull --ff-only and submodule update in the configured checkout, then update-user.sh (or install-user.sh) when present, then restarts the Fleet user service."
+        );
       }
-      var parts = [
-        "Runs git pull --ff-only and submodule update in the configured checkout, then update-user.sh (or install-user.sh) when present, then restarts the Fleet user service.",
-      ];
       if (su.git_root) parts.push("Git root: " + su.git_root);
       if (su.has_post_git_command) parts.push("After git: custom FLEET_SELF_UPDATE_POST_GIT_COMMAND.");
       else if (su.has_update_user_script) parts.push("After git: update-user.sh.");
       else if (su.has_install_user_script) parts.push("After git: install-user.sh.");
       else parts.push("After git: systemd --user restart only (no update script in clone).");
       help.textContent = parts.join(" ");
+      fleetUpdateUiRefresh();
+    }
+
+    function showSystemUpdateModal(commandText) {
+      var pre = document.getElementById("fleet-system-update-command");
+      var el = document.getElementById("fleet-system-update-modal");
+      if (pre) {
+        pre.textContent =
+          commandText && String(commandText).trim()
+            ? String(commandText)
+            : "(No command — check FLEET_GIT_ROOT and install-update.sh in the clone.)";
+      }
+      if (el && typeof bootstrap !== "undefined" && bootstrap.Modal) {
+        bootstrap.Modal.getOrCreateInstance(el).show();
+      }
     }
 
     function formatSelfUpdateSteps(steps) {
@@ -2409,6 +2509,12 @@
         setErr(
           "Git self-update is not configured. Set FLEET_GIT_ROOT to your forge-fleet checkout (with .git), or run this Fleet process from that clone."
         );
+        return;
+      }
+      var su = __fleetSelfUpdateMeta || {};
+      if (String(su.install_profile || "user").toLowerCase() === "system") {
+        var cmd = su.system_root_install_command || "";
+        showSystemUpdateModal(cmd);
         return;
       }
       setErr("");
@@ -2481,6 +2587,8 @@
       if (!localRaw) {
         row.innerHTML =
           '<span class="opacity-75">No git SHA from server — cannot compare to GitHub.</span>';
+        __fleetGitUpdateAvailable = false;
+        fleetUpdateUiRefresh();
         return;
       }
       try {
@@ -2492,20 +2600,27 @@
             '<span class="opacity-75">GitHub check failed (HTTP ' +
             esc(String(res.status)) +
             ").</span>";
+          __fleetGitUpdateAvailable = false;
+          fleetUpdateUiRefresh();
           return;
         }
         var j = await res.json();
         var remoteFull = (j.sha || "").trim();
         if (!remoteFull) {
           row.textContent = "";
+          __fleetGitUpdateAvailable = false;
+          fleetUpdateUiRefresh();
           return;
         }
         var a = gitShaPrefix7(localRaw);
         var b = gitShaPrefix7(remoteFull);
         if (a && b && a === b) {
           row.innerHTML = '<span class="opacity-75">GitHub master matches this host.</span>';
+          __fleetGitUpdateAvailable = false;
+          fleetUpdateUiRefresh();
           return;
         }
+        __fleetGitUpdateAvailable = !!(a && b && a !== b);
         var commitsHref = "https://github.com/" + FLEET_GITHUB_REPO + "/commits/master";
         if (__fleetSelfUpdateConfigured) {
           row.innerHTML =
@@ -2522,8 +2637,11 @@
             '" target="_blank" rel="noopener">View commits</a>' +
             '<span class="text-body-secondary ms-1" style="font-size:0.72rem">Enable git self-update on Fleet to pull here.</span>';
         }
+        fleetUpdateUiRefresh();
       } catch (_e) {
         row.innerHTML = '<span class="opacity-75">Could not reach GitHub.</span>';
+        __fleetGitUpdateAvailable = false;
+        fleetUpdateUiRefresh();
       }
     }
 
@@ -2796,6 +2914,27 @@
     if (chartUpdateBtn) {
       chartUpdateBtn.addEventListener("click", function () {
         doGitSelfUpdate();
+      });
+    }
+
+    var fleetSysCopy = document.getElementById("fleet-system-update-copy");
+    if (fleetSysCopy) {
+      fleetSysCopy.addEventListener("click", function () {
+        var pre = document.getElementById("fleet-system-update-command");
+        var t = pre ? pre.textContent : "";
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(t).then(
+            function () {
+              fleetSysCopy.textContent = "Copied";
+              window.setTimeout(function () {
+                fleetSysCopy.textContent = "Copy command";
+              }, 2000);
+            },
+            function () {
+              /* ignore */
+            }
+          );
+        }
       });
     }
 
