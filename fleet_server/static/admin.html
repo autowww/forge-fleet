@@ -341,17 +341,13 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
     var __fleetRemoteGitTimerStarted = false;
     var errEl = document.getElementById("err");
     var nextFire = Date.now();
-    var lastHostForChart = null;
     var chartBuf = [];
     var chartHostIdentity = null;
-    /** Smooth last segment between Fleet polls (same timestamps, eased value). */
-    var chartBlend = null;
-    var __fleetChartRaf = null;
     var CHART_MS = 3600000;
     var MAX_CHART_RENDER = 480;
-    var CHART_SS_PREFIX = "forgeFleetChartBuf:";
     var orchBuf = [];
-    var __orchChartRaf = null;
+    /** Latest orchestration dict for container-type cards (snapshot overrides DB tail). */
+    var __fleetLastOrchestration = null;
     var TREND_MS = 20000;
     var __fleetTrendBuf = [];
     /** Stabilize disk tile background band (low/mid/high) across polls to avoid flash. */
@@ -1271,11 +1267,6 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       return loadMetrics(host) || approxLoadMetrics(host);
     }
 
-    function chartSmoothstep(u) {
-      u = Math.max(0, Math.min(1, u));
-      return u * u * (3 - 2 * u);
-    }
-
     function chartLinearYEnabled() {
       try {
         return localStorage.getItem(LS_CHART_LINEAR_Y) === "1";
@@ -1392,120 +1383,55 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       return out;
     }
 
-    function fleetChartStorageKey(hid) {
-      return CHART_SS_PREFIX + (hid || "none");
-    }
-
-    function persistChartBuf() {
-      if (!chartHostIdentity || !chartBuf.length) return;
+    /**
+     * Load CPU/RAM + orchestration chart series from ``telemetry_samples`` via GET /v1/telemetry.
+     * Populates chartBuf / orchBuf; does not use sessionStorage or live snapshot interpolation.
+     */
+    async function refreshTelemetryChartsFromDb() {
+      chartBuf = [];
+      orchBuf = [];
       try {
-        var cap = chartBuf.slice(-900);
-        sessionStorage.setItem(
-          fleetChartStorageKey(chartHostIdentity),
-          JSON.stringify({ savedAt: Date.now(), points: cap })
-        );
-      } catch (_e) {
-        /* quota / private mode */
-      }
-    }
-
-    function restoreChartBufForHost(hid) {
-      if (!hid || chartBuf.length) return;
-      try {
-        var raw = sessionStorage.getItem(fleetChartStorageKey(hid));
-        if (!raw) return;
-        var o = JSON.parse(raw);
-        if (!o || !Array.isArray(o.points)) return;
+        var res = await fetch("/v1/telemetry?period=last_1_hour&limit=100000", {
+          headers: authHeaders(),
+          cache: "no-store",
+        });
+        if (!res.ok) {
+          renderFleetChart();
+          renderOrchestrationChart();
+          return;
+        }
+        var doc = await res.json();
+        if (!doc.ok || !Array.isArray(doc.samples)) {
+          renderFleetChart();
+          renderOrchestrationChart();
+          return;
+        }
         var now = Date.now();
-        var pts = [];
-        for (var i = 0; i < o.points.length; i++) {
-          var p = o.points[i];
-          if (!p) continue;
-          if (p.t == null || isNaN(Number(p.t))) continue;
-          if (Number(p.t) < now - CHART_MS) continue;
-          pts.push({ t: Number(p.t), cpu: p.cpu, mem: p.mem });
+        var tCut = now - CHART_MS;
+        var lastOrch = null;
+        for (var i = 0; i < doc.samples.length; i++) {
+          var sample = doc.samples[i];
+          if (!sample) continue;
+          var tsMs = Number(sample.ts) * 1000;
+          if (isNaN(tsMs) || tsMs < tCut) continue;
+          var h = sample.host && typeof sample.host === "object" ? sample.host : {};
+          var cpuRaw = h.cpu_usage_pct;
+          var cpu = cpuRaw != null && !isNaN(Number(cpuRaw)) ? Math.min(100, Math.max(0, Number(cpuRaw))) : 0;
+          var memH = h.memory && typeof h.memory === "object" ? h.memory : {};
+          var memRaw = memH.used_pct;
+          var mem = memRaw != null && !isNaN(Number(memRaw)) ? Math.min(100, Math.max(0, Number(memRaw))) : 0;
+          chartBuf.push({ t: tsMs, cpu: cpu, mem: mem });
+          var orch = sample.orchestration;
+          var sc = orchestrationScalars(orch && typeof orch === "object" ? orch : null);
+          orchBuf.push({ t: tsMs, managed: sc.managed, jobs: sc.jobs });
+          if (orch && typeof orch === "object") lastOrch = orch;
         }
-        if (pts.length) chartBuf = pts;
+        if (lastOrch) __fleetLastOrchestration = lastOrch;
       } catch (_e) {
-        /* ignore */
+        /* network / parse */
       }
-    }
-
-    function cancelChartRaf() {
-      if (__fleetChartRaf != null) {
-        cancelAnimationFrame(__fleetChartRaf);
-        __fleetChartRaf = null;
-      }
-    }
-
-    function kickChartRaf() {
-      if (__fleetChartRaf != null) return;
-      function loop() {
-        __fleetChartRaf = null;
-        if (!chartBuf.length) return;
-        renderFleetChart();
-        if (chartBlend) {
-          var u = (performance.now() - chartBlend.t0) / chartBlend.dur;
-          if (u < 1) {
-            __fleetChartRaf = requestAnimationFrame(loop);
-          }
-        }
-      }
-      __fleetChartRaf = requestAnimationFrame(loop);
-    }
-
-    function pushChartSample() {
-      if (!lastHostForChart) return;
-      var cpus = lastHostForChart.cpus || 1;
-      var la = Array.isArray(lastHostForChart.loadavg) ? lastHostForChart.loadavg[0] : 0;
-      var den = getLoadScaleDenominator(cpus).den;
-      var loadPct = Math.min(100, Math.max(0, (100 * la) / den));
-      var memP =
-        lastHostForChart.memory && lastHostForChart.memory.used_pct != null
-          ? Number(lastHostForChart.memory.used_pct)
-          : 0;
-      var cpuP =
-        lastHostForChart.cpu_usage_pct != null && !isNaN(Number(lastHostForChart.cpu_usage_pct))
-          ? Number(lastHostForChart.cpu_usage_pct)
-          : 0;
-      var newC = Math.min(100, Math.max(0, cpuP));
-      var newM = Math.min(100, Math.max(0, memP));
-      var fromC = newC;
-      var fromM = newM;
-      if (chartBuf.length) {
-        var prevRow = chartBuf[chartBuf.length - 1];
-        if (chartBlend) {
-          var u = (performance.now() - chartBlend.t0) / chartBlend.dur;
-          u = chartSmoothstep(Math.max(0, Math.min(1, u)));
-          fromC = chartBlend.fc + (chartBlend.tc - chartBlend.fc) * u;
-          fromM = chartBlend.fm + (chartBlend.tm - chartBlend.fm) * u;
-        } else {
-          fromC = prevRow.cpu;
-          fromM = prevRow.mem;
-        }
-      }
-      var nowT = Date.now();
-      chartBuf.push({ t: nowT, cpu: newC, mem: newM });
-      while (chartBuf.length && chartBuf[0].t < nowT - CHART_MS) {
-        chartBuf.shift();
-      }
-      while (chartBuf.length > 2400) {
-        chartBuf.shift();
-      }
-      if (chartBuf.length >= 2) {
-        chartBlend = {
-          fc: fromC,
-          tc: newC,
-          fm: fromM,
-          tm: newM,
-          t0: performance.now(),
-          dur: Math.min(2800, Math.max(700, POLL_MS * 0.92)),
-        };
-        kickChartRaf();
-      } else {
-        chartBlend = null;
-      }
-      persistChartBuf();
+      renderFleetChart();
+      renderOrchestrationChart();
     }
 
     function fmtWatts(w) {
@@ -1678,26 +1604,6 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       var tMin = chartRows[0].t != null ? chartRows[0].t : 0;
       var tMax = chartRows[n - 1].t != null ? chartRows[n - 1].t : tMin + 1;
       var span = Math.max(1, tMax - tMin);
-      var lastFull = bufFull[bufFull.length - 1];
-
-      function duoAt(i) {
-        var row = chartRows[i];
-        if (!row) return { c: 0, m: 0 };
-        var isLiveEdge =
-          chartBlend &&
-          n >= 2 &&
-          i === n - 1 &&
-          lastFull &&
-          row &&
-          Math.abs(Number(row.t) - Number(lastFull.t)) <= 8;
-        if (!isLiveEdge) return { c: row.cpu, m: row.mem };
-        var u = (performance.now() - chartBlend.t0) / chartBlend.dur;
-        u = chartSmoothstep(Math.max(0, Math.min(1, u)));
-        return {
-          c: chartBlend.fc + (chartBlend.tc - chartBlend.fc) * u,
-          m: chartBlend.fm + (chartBlend.tm - chartBlend.fm) * u,
-        };
-      }
 
       var xsTime = [];
       for (var xi = 0; xi < n; xi++) {
@@ -1723,9 +1629,9 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       var rawC = [];
       var rawM = [];
       for (var ri = 0; ri < n; ri++) {
-        var d = duoAt(ri);
-        rawC.push(d.c != null && !isNaN(d.c) ? Number(d.c) : 0);
-        rawM.push(d.m != null && !isNaN(d.m) ? Number(d.m) : 0);
+        var rowR = chartRows[ri];
+        rawC.push(rowR && rowR.cpu != null && !isNaN(rowR.cpu) ? Number(rowR.cpu) : 0);
+        rawM.push(rowR && rowR.mem != null && !isNaN(rowR.mem) ? Number(rowR.mem) : 0);
       }
 
       var dCpu;
@@ -1807,17 +1713,13 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       var memLine = svg.querySelector("#fleet-chart-mem");
       if (cpuLine) cpuLine.setAttribute("d", dCpu);
       if (memLine) memLine.setAttribute("d", dMem);
-      if (chartBlend) {
-        var ufin = (performance.now() - chartBlend.t0) / chartBlend.dur;
-        if (ufin >= 1) chartBlend = null;
-      }
     }
 
     function refreshChartYHint() {
       var el = document.getElementById("fleet-chart-y-hint");
       if (!el) return;
       var base =
-        "Older left · recent right · ~1h while this tab is open (restored after reload) · ";
+        "Older left · recent right · last hour from SQLite telemetry (GET /v1/telemetry) · ";
       el.textContent =
         base + (chartLinearYEnabled() ? "Y linear 0–100%" : "Y scale 0–1–10–50–100");
     }
@@ -1839,7 +1741,12 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
 
     function renderOrchestrationChart() {
       var el = document.getElementById("fleet-orch-chart");
-      if (!el || !orchBuf.length) return;
+      if (!el) return;
+      if (!orchBuf.length) {
+        el.innerHTML =
+          "<svg class=\"fleet-chart-svg\" xmlns=\"http://www.w3.org/2000/svg\" width=\"100%\" height=\"100%\" viewBox=\"0 0 600 88\"><text x=\"32\" y=\"44\" fill=\"currentColor\" opacity=\"0.45\" font-size=\"11\">No workload history in SQLite yet (telemetry_samples).</text></svg>";
+        return;
+      }
       var w = 600;
       var h = 88;
       var padL = 32;
@@ -1906,8 +1813,6 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       el.innerHTML = svg;
     }
 
-    var __fleetLastOrchestration = null;
-
     function formatTypeTelemetry(tid, categoryId, containerClass, orch) {
       var o = orch || __fleetLastOrchestration;
       if (!o || typeof o !== "object") return "Telemetry: —";
@@ -1944,22 +1849,26 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       }
     }
 
-    function pushOrchestrationSample(orch) {
-      __fleetLastOrchestration = orch && typeof orch === "object" ? orch : null;
-      var s = orchestrationScalars(orch);
-      var nowT = Date.now();
-      orchBuf.push({ t: nowT, managed: s.managed, jobs: s.jobs });
-      while (orchBuf.length && orchBuf[0].t < nowT - CHART_MS) orchBuf.shift();
-      while (orchBuf.length > 2400) orchBuf.shift();
-      var sumEl = document.getElementById("fleet-orch-summary");
+    /**
+     * Header text + container-type cards from live snapshot orchestration (fresher than last DB row).
+     * Chart series come from ``refreshTelemetryChartsFromDb``; this only updates summary + cards.
+     */
+    function paintOrchestrationHeader(orch) {
+      if (orch && typeof orch === "object") __fleetLastOrchestration = orch;
       var wrap = document.getElementById("fleet-orchestration-wrap");
+      var sumEl = document.getElementById("fleet-orch-summary");
+      if (!__fleetLastOrchestration) {
+        if (wrap) wrap.classList.add("d-none");
+        return;
+      }
+      var s = orchestrationScalars(__fleetLastOrchestration);
       if (sumEl) {
         var line1 =
           "Compose services running (forge_llm total): " +
           s.managed +
           " · Running jobs (all classes): " +
           s.jobs;
-        var bt = (orch && orch.by_type_id) || {};
+        var bt = __fleetLastOrchestration.by_type_id || {};
         var keys = Object.keys(bt).sort();
         var parts = [];
         for (var ki = 0; ki < keys.length; ki++) {
@@ -1979,7 +1888,6 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         sumEl.textContent = line1 + (parts.length ? "\nPer type_id: " + parts.join(" · ") : "");
       }
       if (wrap) wrap.classList.remove("d-none");
-      renderOrchestrationChart();
       refreshContainerTypesTelemetry(__fleetLastOrchestration);
     }
 
@@ -2803,7 +2711,6 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
 
       renderManagedServices(integ);
       loadContainerTypesOnce();
-      if (integ.orchestration) pushOrchestrationSample(integ.orchestration);
 
       var host = data.host || {};
       var hid =
@@ -2815,16 +2722,14 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       if (hid !== chartHostIdentity) {
         chartHostIdentity = hid;
         chartBuf = [];
-        chartBlend = null;
-        cancelChartRaf();
-        restoreChartBufForHost(hid);
+        orchBuf = [];
       }
+      await refreshTelemetryChartsFromDb();
+      paintOrchestrationHeader(integ.orchestration);
+
       document.getElementById("fleet-tiles").innerHTML = renderTiles(host, meta.energy_ledger_kwh || null);
       applyKpiTileAnims(host);
       pushFleetTrendSample(host);
-      lastHostForChart = host;
-      pushChartSample();
-      renderFleetChart();
       refreshChartYHint();
 
       var bs = data.jobs_by_status || {};
