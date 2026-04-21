@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 
 # Bump when ``fleet_server/store.py`` ships a new SQLite migration for ``fleet_schema`` / jobs.
-FLEET_DB_SCHEMA_VERSION = 4
+FLEET_DB_SCHEMA_VERSION = 5
 
 # Bump when ``templates_catalog.TEMPLATE_LIB`` gains a breaking contract change.
 FLEET_TEMPLATE_LIB_VERSION = 4

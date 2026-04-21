@@ -349,8 +349,47 @@ class FleetHandler(BaseHTTPRequestHandler):
                     body["meta"]["energy_ledger_kwh"] = store.get_energy_ledger(conn)
                 except (OSError, RuntimeError, TypeError, ValueError, sqlite3.Error):
                     body["meta"]["energy_ledger_kwh"] = None
+                try:
+                    body["meta"]["cooldown_summary"] = store.cooldown_summary_presets(conn)
+                except (OSError, RuntimeError, TypeError, ValueError, sqlite3.Error):
+                    body["meta"]["cooldown_summary"] = {}
                 body["meta"]["self_update"] = self_update.self_update_meta(self._repo_root())
                 self._send(200, body)
+            finally:
+                conn.close()
+            return
+        if path == "/v1/cooldown-summary":
+            q = parse_qs(urlparse(self.path).query)
+            period_raw = (q.get("period") or [""])[0].strip()
+            if not period_raw:
+                self._send(
+                    400,
+                    {
+                        "ok": False,
+                        "error": "bad_request",
+                        "detail": "Missing required query parameter period.",
+                        "periods": list(telemetry_periods.ALL_PERIODS),
+                        "aliases": dict(telemetry_periods.PERIOD_ALIASES),
+                    },
+                )
+                return
+            conn = store.connect(self.server.db_path)
+            try:
+                try:
+                    payload = store.cooldown_summary_payload(conn, period=period_raw)
+                except ValueError as ex:
+                    self._send(
+                        400,
+                        {
+                            "ok": False,
+                            "error": "bad_request",
+                            "detail": str(ex),
+                            "periods": list(telemetry_periods.ALL_PERIODS),
+                            "aliases": dict(telemetry_periods.PERIOD_ALIASES),
+                        },
+                    )
+                    return
+                self._send(200, payload)
             finally:
                 conn.close()
             return
@@ -498,6 +537,32 @@ class FleetHandler(BaseHTTPRequestHandler):
             return
         path = urlparse(self.path).path
         body = self._read_json()
+        if path == "/v1/cooldown-events":
+            raw_d = body.get("duration_s")
+            try:
+                dur = float(raw_d) if raw_d is not None else -1.0
+            except (TypeError, ValueError):
+                dur = -1.0
+            if dur < 0:
+                self._send(400, {"ok": False, "error": "invalid_body", "detail": "duration_s must be a non-negative number"})
+                return
+            kind = str(body.get("kind") or "thermal_llm_guard").strip() or "thermal_llm_guard"
+            meta = body.get("meta") if isinstance(body.get("meta"), dict) else None
+            conn = store.connect(self.server.db_path)
+            try:
+                row_id = store.insert_cooldown_event(
+                    conn,
+                    duration_s=dur,
+                    kind=kind,
+                    meta=meta,
+                )
+            except ValueError as ex:
+                self._send(400, {"ok": False, "error": "invalid_body", "detail": str(ex)[:800]})
+                return
+            finally:
+                conn.close()
+            self._send(201, {"ok": True, "id": row_id})
+            return
         if path == "/v1/jobs":
             kind = str(body.get("kind") or "").strip()
             argv = body.get("argv")

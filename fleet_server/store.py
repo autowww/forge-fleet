@@ -11,7 +11,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from fleet_server import versioning
+from fleet_server import telemetry_periods, versioning
 
 _lock = threading.Lock()
 
@@ -56,6 +56,22 @@ def _ensure_energy_ledger(conn: sqlite3.Connection) -> None:
         )
 
 
+def _ensure_cooldown_table(conn: sqlite3.Connection) -> None:
+    """LLM thermal guard (and similar) report wall-clock delay intervals here."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS fleet_cooldown_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts REAL NOT NULL,
+            duration_s REAL NOT NULL,
+            kind TEXT,
+            meta_json TEXT
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_fleet_cooldown_ts ON fleet_cooldown_events (ts)")
+
+
 def connect(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path), check_same_thread=False)
@@ -83,6 +99,7 @@ def connect(db_path: Path) -> sqlite3.Connection:
     _sync_fleet_version_row(conn)
     _ensure_telemetry_table(conn)
     _ensure_energy_ledger(conn)
+    _ensure_cooldown_table(conn)
     conn.commit()
     return conn
 
@@ -146,6 +163,8 @@ def _run_fleet_schema_migrations(conn: sqlite3.Connection, from_v: int, to_v: in
             _ensure_telemetry_table(conn)
         elif next_v == 4:
             _ensure_energy_ledger(conn)
+        elif next_v == 5:
+            _ensure_cooldown_table(conn)
         else:
             raise RuntimeError(f"fleet_schema migration missing for {v} -> {next_v}")
         v = next_v
@@ -558,3 +577,128 @@ def list_telemetry_samples(
         rows.append({"ts": float(r["ts"]), "host": host_payload, "orchestration": orch_out})
     truncated = total > len(rows)
     return rows, truncated
+
+
+def _cooldown_prune(conn: sqlite3.Connection) -> None:
+    raw = str(os.environ.get("FLEET_TELEMETRY_RETENTION_DAYS") or "").strip()
+    if not raw or raw == "0":
+        return
+    try:
+        days = int(raw)
+    except ValueError:
+        return
+    if days <= 0:
+        return
+    cutoff = time.time() - float(days) * 86400.0
+    try:
+        conn.execute("DELETE FROM fleet_cooldown_events WHERE ts < ?", (cutoff,))
+    except sqlite3.OperationalError:
+        pass
+
+
+def insert_cooldown_event(
+    conn: sqlite3.Connection,
+    *,
+    duration_s: float,
+    ts: float | None = None,
+    kind: str = "thermal_llm_guard",
+    meta: dict[str, Any] | None = None,
+) -> int:
+    """
+    Record one cooldown wait. ``ts`` is wall time when the wait **finished** (defaults to now).
+    ``duration_s`` must be non-negative.
+    """
+    d = float(duration_s)
+    if d < 0 or d != d:  # NaN
+        raise ValueError("duration_s must be a non-negative number")
+    now = float(ts) if ts is not None else time.time()
+    meta_json = json.dumps(meta, separators=(",", ":"), default=str) if meta else None
+    k = (kind or "thermal_llm_guard").strip() or "thermal_llm_guard"
+    with _lock:
+        cur = conn.execute(
+            """
+            INSERT INTO fleet_cooldown_events (ts, duration_s, kind, meta_json)
+            VALUES (?, ?, ?, ?)
+            """,
+            (now, d, k, meta_json),
+        )
+        _cooldown_prune(conn)
+        conn.commit()
+        return int(cur.lastrowid or 0)
+
+
+def cooldown_time_bounds(conn: sqlite3.Connection) -> tuple[float | None, float | None, int]:
+    """``(min_ts, max_ts, row_count)`` for cooldown events."""
+    try:
+        row = conn.execute(
+            "SELECT MIN(ts) AS t0, MAX(ts) AS t1, COUNT(*) AS n FROM fleet_cooldown_events"
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return None, None, 0
+    if row is None or int(row["n"] or 0) == 0:
+        return None, None, 0
+    t0 = float(row["t0"]) if row["t0"] is not None else None
+    t1 = float(row["t1"]) if row["t1"] is not None else None
+    return t0, t1, int(row["n"] or 0)
+
+
+def cooldown_aggregate_s(conn: sqlite3.Connection, *, t0: float, t1: float) -> tuple[float, int]:
+    """``(sum(duration_s), event_count)`` for ``t0 <= ts <= t1``."""
+    try:
+        row = conn.execute(
+            """
+            SELECT COALESCE(SUM(duration_s), 0.0) AS s, COUNT(*) AS c
+            FROM fleet_cooldown_events
+            WHERE ts >= ? AND ts <= ?
+            """,
+            (t0, t1),
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return 0.0, 0
+    if row is None:
+        return 0.0, 0
+    s = float(row["s"] or 0.0)
+    c = int(row["c"] or 0)
+    return s, c
+
+
+def cooldown_summary_payload(conn: sqlite3.Connection, *, period: str) -> dict[str, Any]:
+    """Single-period summary for ``GET /v1/cooldown-summary``."""
+    t_min, t_max, n_ev = cooldown_time_bounds(conn)
+    period_key = telemetry_periods.PERIOD_ALIASES.get(period, period)
+    t0, t1 = telemetry_periods.resolve_period_window(period_key, first_sample_ts=t_min)
+    total_s, count = cooldown_aggregate_s(conn, t0=t0, t1=t1)
+    return {
+        "ok": True,
+        "period": period_key,
+        "period_requested": period,
+        "timezone": "UTC",
+        "window": {"start_epoch": t0, "end_epoch": t1},
+        "total_cooldown_s": round(total_s, 6),
+        "event_count": count,
+        "store_bounds": {"first_ts": t_min, "last_ts": t_max if n_ev else None},
+    }
+
+
+def cooldown_summary_presets(conn: sqlite3.Connection) -> dict[str, Any]:
+    """
+    Preset windows for admin UI: today, this_week, this_month, this_year, since_first.
+
+    Keys match :func:`telemetry_periods.resolve_period_window` where applicable.
+    """
+    t_min, t_max, n = cooldown_time_bounds(conn)
+    presets = ("today", "this_week", "this_month", "this_year", "since_first")
+    out: dict[str, Any] = {}
+    for key in presets:
+        try:
+            t0, t1 = telemetry_periods.resolve_period_window(key, first_sample_ts=t_min)
+        except ValueError:
+            continue
+        total_s, count = cooldown_aggregate_s(conn, t0=t0, t1=t1)
+        out[key] = {
+            "window": {"start_epoch": t0, "end_epoch": t1},
+            "total_cooldown_s": round(total_s, 6),
+            "event_count": count,
+        }
+    out["_store"] = {"first_ts": t_min, "last_ts": t_max, "event_count": n}
+    return out

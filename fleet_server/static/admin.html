@@ -72,6 +72,7 @@
       <div class="card-body py-3">
         <h2 class="h6 text-uppercase text-body-secondary mb-3">Overview</h2>
         <div id="fleet-tiles" class="fleet-tile-row fleet-one-row mb-2" aria-live="polite">Loading tiles…</div>
+        <div id="fleet-cooldown-strip" class="fleet-cooldown-strip mb-2 d-none" aria-live="polite"></div>
         <div id="fleet-chart-wrap" class="mb-3">
           <div class="small text-body-secondary mb-1 d-flex flex-wrap align-items-center justify-content-between gap-2">
             <span>
@@ -1384,10 +1385,11 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
     }
 
     /**
-     * Load CPU/RAM + orchestration chart series from ``telemetry_samples`` via GET /v1/telemetry.
-     * Populates chartBuf / orchBuf; does not use sessionStorage or live snapshot interpolation.
+     * Load CPU/RAM + orchestration chart series from ``telemetry_samples`` via GET /v1/telemetry,
+     * then append one **live** point from the current snapshot so the right edge updates every
+     * poll (~3s). DB rows alone are sparse (``FLEET_TELEMETRY_INTERVAL_S``, default 60s).
      */
-    async function refreshTelemetryChartsFromDb() {
+    async function refreshTelemetryChartsFromDb(host, snapshotOrch) {
       chartBuf = [];
       orchBuf = [];
       try {
@@ -1396,12 +1398,14 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
           cache: "no-store",
         });
         if (!res.ok) {
+          appendLiveTelemetryTail(host, snapshotOrch);
           renderFleetChart();
           renderOrchestrationChart();
           return;
         }
         var doc = await res.json();
         if (!doc.ok || !Array.isArray(doc.samples)) {
+          appendLiveTelemetryTail(host, snapshotOrch);
           renderFleetChart();
           renderOrchestrationChart();
           return;
@@ -1430,8 +1434,25 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       } catch (_e) {
         /* network / parse */
       }
+      appendLiveTelemetryTail(host, snapshotOrch);
       renderFleetChart();
       renderOrchestrationChart();
+    }
+
+    /** Right-edge point from current ``/v1/admin/snapshot`` so charts move between DB writes. */
+    function appendLiveTelemetryTail(host, snapshotOrch) {
+      var nowT = Date.now();
+      if (host && typeof host === "object") {
+        var cpuRaw = host.cpu_usage_pct;
+        var cpu = cpuRaw != null && !isNaN(Number(cpuRaw)) ? Math.min(100, Math.max(0, Number(cpuRaw))) : 0;
+        var memH = host.memory && typeof host.memory === "object" ? host.memory : {};
+        var memRaw = memH.used_pct;
+        var mem = memRaw != null && !isNaN(Number(memRaw)) ? Math.min(100, Math.max(0, Number(memRaw))) : 0;
+        chartBuf.push({ t: nowT, cpu: cpu, mem: mem });
+      }
+      var orch = snapshotOrch && typeof snapshotOrch === "object" ? snapshotOrch : __fleetLastOrchestration;
+      var sc = orchestrationScalars(orch);
+      orchBuf.push({ t: nowT, managed: sc.managed, jobs: sc.jobs });
     }
 
     function fmtWatts(w) {
@@ -1719,7 +1740,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       var el = document.getElementById("fleet-chart-y-hint");
       if (!el) return;
       var base =
-        "Older left · recent right · last hour from SQLite telemetry (GET /v1/telemetry) · ";
+        "Older left · recent right · SQLite history + live snapshot tail each refresh · ";
       el.textContent =
         base + (chartLinearYEnabled() ? "Y linear 0–100%" : "Y scale 0–1–10–50–100");
     }
@@ -1889,6 +1910,68 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       }
       if (wrap) wrap.classList.remove("d-none");
       refreshContainerTypesTelemetry(__fleetLastOrchestration);
+    }
+
+    function formatCooldownS(sec) {
+      var s = sec != null && !isNaN(Number(sec)) ? Number(sec) : 0;
+      if (s <= 0) return "0s";
+      if (s < 60) return Math.round(s * 10) / 10 + "s";
+      var m = Math.floor(s / 60);
+      var r = s - m * 60;
+      if (s < 3600) {
+        return m + "m" + (r >= 0.5 ? " " + Math.round(r) + "s" : "");
+      }
+      var h = Math.floor(s / 3600);
+      var s2 = s - h * 3600;
+      var m2 = Math.floor(s2 / 60);
+      return h + "h" + (m2 ? " " + m2 + "m" : "");
+    }
+
+    function renderFleetCooldownStrip(cs) {
+      var el = document.getElementById("fleet-cooldown-strip");
+      if (!el) return;
+      if (!cs || typeof cs !== "object" || !Object.keys(cs).length) {
+        el.classList.add("d-none");
+        el.innerHTML = "";
+        return;
+      }
+      var order = [
+        ["today", "Today"],
+        ["this_week", "Week"],
+        ["this_month", "Month"],
+        ["this_year", "Year"],
+        ["since_first", "All-time"],
+      ];
+      var parts = [];
+      for (var i = 0; i < order.length; i++) {
+        var key = order[i][0];
+        var label = order[i][1];
+        if (key.charAt(0) === "_") continue;
+        var row = cs[key];
+        if (!row || typeof row !== "object") continue;
+        var ev = row.event_count != null ? Number(row.event_count) : 0;
+        var tot = row.total_cooldown_s != null ? Number(row.total_cooldown_s) : 0;
+        parts.push(
+          "<span class=\"me-3\"><strong>" +
+            esc(label) +
+            "</strong> " +
+            esc(formatCooldownS(tot)) +
+            " <span class=\"text-body-secondary\">(" +
+            esc(String(ev)) +
+            " ev)</span></span>"
+        );
+      }
+      if (!parts.length) {
+        el.classList.add("d-none");
+        el.innerHTML = "";
+        return;
+      }
+      el.classList.remove("d-none");
+      el.innerHTML =
+        "<div class=\"border border-secondary-subtle rounded-2 px-3 py-2 bg-body-tertiary\">" +
+        "<span class=\"text-body-secondary me-2\">LLM cooldown wait</span>" +
+        parts.join("") +
+        "</div>";
     }
 
     function renderTiles(host, energyLedger) {
@@ -2724,10 +2807,11 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         chartBuf = [];
         orchBuf = [];
       }
-      await refreshTelemetryChartsFromDb();
+      await refreshTelemetryChartsFromDb(host, integ.orchestration);
       paintOrchestrationHeader(integ.orchestration);
 
       document.getElementById("fleet-tiles").innerHTML = renderTiles(host, meta.energy_ledger_kwh || null);
+      renderFleetCooldownStrip(meta.cooldown_summary || null);
       applyKpiTileAnims(host);
       pushFleetTrendSample(host);
       refreshChartYHint();
