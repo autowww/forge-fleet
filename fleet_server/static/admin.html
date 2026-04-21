@@ -87,9 +87,8 @@
               <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-refresh-metrics-btn" title="Fetch host metrics now">Refresh metrics</button>
             </span>
           </div>
-          <div id="fleet-load-chart" class="fleet-chart-box" role="img" aria-label="CPU and RAM history, oldest on the left, curved percent scale"></div>
+          <div id="fleet-load-chart" class="fleet-chart-box" role="img" aria-label="CPU and RAM history, oldest on the left, newest on the right, piecewise linear"></div>
         </div>
-        <hr class="my-3 opacity-25" />
         <div class="alert alert-danger py-2 px-3 mb-0 small d-none" id="err" role="alert"></div>
       </div>
     </section>
@@ -146,12 +145,12 @@
       </div>
       <div class="d-none border border-secondary-subtle rounded p-2 mb-2 small" id="fleet-container-types-wrap">
         <div class="fw-semibold mb-1">Container types (<code class="fleet-mono">etc/containers/types.json</code>)</div>
+        <div class="d-none border border-secondary-subtle rounded p-2 mb-2 fleet-orch-nested" id="fleet-orchestration-wrap">
+          <div class="fw-semibold mb-1 small">Workloads (compose + running jobs)</div>
+          <p class="text-body-secondary small mb-2" id="fleet-orch-summary"></p>
+          <div id="fleet-orch-chart" class="fleet-chart-box" role="img" aria-label="Workload counts over time"></div>
+        </div>
         <div id="fleet-container-types-table"></div>
-      </div>
-      <div class="d-none border border-secondary-subtle rounded p-2 mb-2 small" id="fleet-orchestration-wrap">
-        <div class="fw-semibold mb-1">Workloads (compose + running jobs)</div>
-        <p class="text-body-secondary small mb-2" id="fleet-orch-summary"></p>
-        <div id="fleet-orch-chart" class="fleet-chart-box" role="img" aria-label="Workload counts over time"></div>
       </div>
       <pre
         class="fleet-mono small text-body-secondary mb-2 p-2 rounded border bg-body-secondary d-none"
@@ -350,8 +349,6 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
     var __fleetChartRaf = null;
     var CHART_MS = 3600000;
     var MAX_CHART_RENDER = 480;
-    var CHART_EMA_ALPHA_CPU = 0.25;
-    var CHART_EMA_ALPHA_MEM = 0.45;
     var CHART_SS_PREFIX = "forgeFleetChartBuf:";
     var orchBuf = [];
     var __orchChartRaf = null;
@@ -624,6 +621,18 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       "fleet-load1-shell",
       "fleet-cpu-compact__shell fleet-load-g--compact ",
       syncLoadHeroBarFromPct
+    );
+    var fleetLoad5Anim = makeSmoothPercentBarAnim(
+      "fleet-load5-val",
+      "fleet-load5-fill",
+      "fleet-load5-shell",
+      "fleet-cpu-compact__shell fleet-load-g--compact "
+    );
+    var fleetLoad15Anim = makeSmoothPercentBarAnim(
+      "fleet-load15-val",
+      "fleet-load15-fill",
+      "fleet-load15-shell",
+      "fleet-cpu-compact__shell fleet-load-g--compact "
     );
     var fleetDiskPctAnim = makeSmoothPercentBarAnim(
       "fleet-disk-pct-val",
@@ -1302,53 +1311,45 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
     }
 
     /**
-     * Downsample to ``maxPts`` points along the time axis with linear interpolation.
-     * Uniform index decimation was unstable: each time the buffer length changed, every
-     * visible vertex could jump to a different raw sample, so the whole curve reshaped
-     * on every poll. Time resampling keeps the same ``t`` targets and only moves values
-     * as the underlying series slides.
+     * Downsample to ``maxPts`` targets along the visible window. Each target time ``tt``
+     * takes the **nearest** raw sample (by timestamp), not linear interpolation — so past
+     * vertices stay tied to real polls and do not “breathe” when new points arrive.
      */
     function chartBufResampleTime(buf, maxPts) {
       if (!buf || !buf.length) return [];
-      if (buf.length <= maxPts) return buf;
+      if (buf.length <= maxPts) return buf.slice();
       var t0 = Number(buf[0].t);
       var t1 = Number(buf[buf.length - 1].t);
       var span = Math.max(1, t1 - t0);
       var out = [];
-      var k = 0;
       for (var j = 0; j < maxPts; j++) {
         var u = maxPts <= 1 ? 0 : j / (maxPts - 1);
         var tt = t0 + u * span;
-        while (k + 1 < buf.length && Number(buf[k + 1].t) < tt) k++;
-        if (k + 1 >= buf.length) {
-          out.push({
-            t: tt,
-            cpu: buf[buf.length - 1].cpu,
-            mem: buf[buf.length - 1].mem,
-          });
-          continue;
+        var best = buf[0];
+        var bestD = Math.abs(Number(buf[0].t) - tt);
+        for (var i = 1; i < buf.length; i++) {
+          var d = Math.abs(Number(buf[i].t) - tt);
+          if (d < bestD) {
+            bestD = d;
+            best = buf[i];
+          }
         }
-        var a = buf[k];
-        var b = buf[k + 1];
-        var ta = Number(a.t);
-        var tb = Number(b.t);
-        var dt = tb - ta;
-        if (!(dt > 0)) {
-          out.push({ t: tt, cpu: a.cpu, mem: a.mem });
-        } else {
-          var w = (tt - ta) / dt;
-          var ca = Number(a.cpu);
-          var cb = Number(b.cpu);
-          var ma = Number(a.mem);
-          var mb = Number(b.mem);
-          out.push({
-            t: tt,
-            cpu: ca + (cb - ca) * w,
-            mem: ma + (mb - ma) * w,
-          });
-        }
+        out.push({ t: tt, cpu: best.cpu, mem: best.mem });
       }
       return out;
+    }
+
+    /** Open polyline (piecewise linear) — stable under sliding windows (no spline tangents). */
+    function chartPolylineD(pts) {
+      if (!pts || !pts.length) return "";
+      if (pts.length === 1) {
+        return "M " + pts[0].x + " " + pts[0].y;
+      }
+      var d = "M " + pts[0].x + " " + pts[0].y;
+      for (var i = 1; i < pts.length; i++) {
+        d += " L " + pts[i].x + " " + pts[i].y;
+      }
+      return d;
     }
 
     /** Catmull–Rom segment → SVG cubic Bézier through points (open curve). */
@@ -1387,22 +1388,6 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         if (lastT != null && t <= lastT) t = lastT + 1;
         lastT = t;
         out.push({ t: t, cpu: r.cpu, mem: r.mem });
-      }
-      return out;
-    }
-
-    function chartEma1d(vals, alpha) {
-      var a = alpha != null ? alpha : CHART_EMA_ALPHA_CPU;
-      var out = [];
-      var prev = null;
-      for (var i = 0; i < vals.length; i++) {
-        var v = vals[i];
-        if (v == null || isNaN(v)) {
-          out.push(prev);
-          continue;
-        }
-        prev = prev == null ? v : a * v + (1 - a) * prev;
-        out.push(prev);
       }
       return out;
     }
@@ -1742,14 +1727,12 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         rawC.push(d.c != null && !isNaN(d.c) ? Number(d.c) : 0);
         rawM.push(d.m != null && !isNaN(d.m) ? Number(d.m) : 0);
       }
-      var smC = chartEma1d(rawC, CHART_EMA_ALPHA_CPU);
-      var smM = chartEma1d(rawM, CHART_EMA_ALPHA_MEM);
 
       var dCpu;
       var dMem;
       if (n === 1) {
-        var d0c = smC[0] != null ? smC[0] : rawC[0];
-        var d0m = smM[0] != null ? smM[0] : rawM[0];
+        var d0c = rawC[0];
+        var d0m = rawM[0];
         var yc0 = chartPctToY(d0c, padT, ih);
         var ym0 = chartPctToY(d0m, padT, ih);
         dCpu = "M " + padL + " " + yc0.toFixed(2) + " L " + (padL + iw).toFixed(2) + " " + yc0.toFixed(2);
@@ -1759,13 +1742,13 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         var ptsMem = [];
         for (var i = 0; i < n; i++) {
           var xi2 = xAt(i);
-          var ycv = smC[i] != null ? smC[i] : rawC[i];
-          var ymv = smM[i] != null ? smM[i] : rawM[i];
+          var ycv = rawC[i];
+          var ymv = rawM[i];
           ptsCpu.push({ x: xi2, y: chartPctToY(ycv, padT, ih) });
           ptsMem.push({ x: xi2, y: chartPctToY(ymv, padT, ih) });
         }
-        dCpu = chartSmoothPathD(ptsCpu);
-        dMem = chartSmoothPathD(ptsMem);
+        dCpu = chartPolylineD(ptsCpu);
+        dMem = chartPolylineD(ptsMem);
       }
       var gridParts = [];
       chartTickPercents().forEach(function (tp) {
@@ -1923,7 +1906,46 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       el.innerHTML = svg;
     }
 
+    var __fleetLastOrchestration = null;
+
+    function formatTypeTelemetry(tid, categoryId, containerClass, orch) {
+      var o = orch || __fleetLastOrchestration;
+      if (!o || typeof o !== "object") return "Telemetry: —";
+      var bt = o.by_type_id || {};
+      var jb = o.job_running_by_container_class || {};
+      var row = bt[tid] || {};
+      var sr = Number(row.services_running) || 0;
+      var st = row.services_total != null ? Number(row.services_total) : null;
+      var cc = String(containerClass || tid || "");
+      var jobs = Number(jb[cc] || 0) || 0;
+      var cat = String(categoryId || "");
+      if (cat === "service") {
+        var tot = st != null && !isNaN(st) ? String(Math.round(st)) : "—";
+        return "Compose services running: " + sr + " / " + tot + " (per stack)";
+      }
+      if (cat === "job") {
+        return "Running jobs: " + jobs + " (container_class " + cc + ")";
+      }
+      return "Compose services: " + sr + " · Running jobs (class " + cc + "): " + jobs;
+    }
+
+    function refreshContainerTypesTelemetry(orch) {
+      var tbl = document.getElementById("fleet-container-types-table");
+      if (!tbl) return;
+      var cards = tbl.querySelectorAll(".fleet-type-card[data-fleet-type-id]");
+      var src = orch || __fleetLastOrchestration;
+      for (var ci = 0; ci < cards.length; ci++) {
+        var card = cards[ci];
+        var tid = card.getAttribute("data-fleet-type-id") || "";
+        var cat = card.getAttribute("data-category-id") || "";
+        var ccl = card.getAttribute("data-container-class") || "";
+        var tel = card.querySelector("[data-fleet-type-tel]");
+        if (tel) tel.textContent = formatTypeTelemetry(tid, cat, ccl, src);
+      }
+    }
+
     function pushOrchestrationSample(orch) {
+      __fleetLastOrchestration = orch && typeof orch === "object" ? orch : null;
       var s = orchestrationScalars(orch);
       var nowT = Date.now();
       orchBuf.push({ t: nowT, managed: s.managed, jobs: s.jobs });
@@ -1932,14 +1954,33 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       var sumEl = document.getElementById("fleet-orch-summary");
       var wrap = document.getElementById("fleet-orchestration-wrap");
       if (sumEl) {
-        sumEl.textContent =
+        var line1 =
           "Compose services running (forge_llm total): " +
           s.managed +
           " · Running jobs (all classes): " +
           s.jobs;
+        var bt = (orch && orch.by_type_id) || {};
+        var keys = Object.keys(bt).sort();
+        var parts = [];
+        for (var ki = 0; ki < keys.length; ki++) {
+          var k = keys[ki];
+          var r = bt[k] || {};
+          var run = Number(r.services_running) || 0;
+          var tot = r.services_total != null ? Number(r.services_total) : null;
+          parts.push(
+            k +
+              ": " +
+              run +
+              "/" +
+              (tot != null && !isNaN(tot) ? String(Math.round(tot)) : "—") +
+              " svc"
+          );
+        }
+        sumEl.textContent = line1 + (parts.length ? "\nPer type_id: " + parts.join(" · ") : "");
       }
       if (wrap) wrap.classList.remove("d-none");
       renderOrchestrationChart();
+      refreshContainerTypesTelemetry(__fleetLastOrchestration);
     }
 
     function renderTiles(host, energyLedger) {
@@ -1964,6 +2005,37 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
           : "";
       var tLoad = lm != null && lm.pct1 != null && !isNaN(lm.pct1) ? trendClassFor("load1", lm.pct1) : "";
       var tDisk = diskTrendPct != null ? trendClassFor("disk", diskTrendPct) : "";
+
+      function loadGaugeRow(label, idBase, pctRaw) {
+        var p = pctRaw != null && !isNaN(pctRaw) ? Number(pctRaw) : null;
+        var anim =
+          idBase === "1" ? fleetLoad1Anim : idBase === "5" ? fleetLoad5Anim : fleetLoad15Anim;
+        var disp = p != null ? anim.widthForRender(p) : null;
+        var w = disp != null ? Math.min(100, Math.max(0, Number(disp))) : 0;
+        var z = loadZone4(w);
+        var wBar = esc(String(Math.round(w * 100) / 100));
+        var vTxt = p != null && !isNaN(p) ? esc(String(Math.round(w))) + "%" : "—";
+        return (
+          '<div class="fleet-load-g-row">' +
+          '<span class="fleet-load-g-label">' +
+          esc(label) +
+          '</span><div class="fleet-load-g-barflex"><div id="fleet-load' +
+          idBase +
+          '-shell" class="fleet-cpu-compact__shell fleet-load-g--compact fleet-cpu-wide--z' +
+          z +
+          '">' +
+          '<div class="fleet-cpu-wide__track"></div>' +
+          '<div id="fleet-load' +
+          idBase +
+          '-fill" class="fleet-cpu-wide__fill" style="width:' +
+          wBar +
+          '%"></div></div></div><span id="fleet-load' +
+          idBase +
+          '-val" class="fleet-load-g-val fleet-mono">' +
+          vTxt +
+          "</span></div>"
+        );
+      }
 
       var loadTile = "";
       if (lm) {
@@ -2010,11 +2082,11 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
           '<line id="fleet-load-gauge-needle-ghost" class="fleet-load-gauge-needle-ghost" x1="40" y1="38" x2="68" y2="38" stroke-linecap="round" transform="rotate(-180 40 38)" opacity="0"/>' +
           '<line id="fleet-load-gauge-needle" class="fleet-load-gauge-needle-line" x1="40" y1="38" x2="68" y2="38" stroke-linecap="round" transform="rotate(-180 40 38)"/>' +
           "</svg></div></div></div>" +
-          '<div class="visually-hidden" aria-hidden="true">' +
-          '<span id="fleet-load1-val">0</span>' +
-          '<div id="fleet-load1-shell" class="fleet-cpu-compact__shell fleet-load-g--compact fleet-cpu-wide--z0">' +
-          '<div class="fleet-cpu-wide__track"></div>' +
-          '<div id="fleet-load1-fill" class="fleet-cpu-wide__fill" style="width:0%"></div></div></div>' +
+          '<div class="fleet-load-gauges">' +
+          loadGaugeRow("1m", "1", lm.pct1) +
+          loadGaugeRow("5m", "5", lm.pct5) +
+          loadGaugeRow("15m", "15", lm.pct15) +
+          "</div>" +
           loadFoot +
           "</div>";
       } else {
@@ -2023,6 +2095,11 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
           '<div class="fleet-tile__brand">' +
           tileMark(MARK_LOAD, "System load") +
           '</div><div class="fleet-tile__value fleet-mono">—</div>' +
+          '<div class="fleet-load-gauges">' +
+          loadGaugeRow("1m", "1", null) +
+          loadGaugeRow("5m", "5", null) +
+          loadGaugeRow("15m", "15", null) +
+          "</div>" +
           '<div class="fleet-tile__mem">Load averages unavailable</div></div>';
       }
 
@@ -2228,10 +2305,14 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       var loadHeroL1 = document.getElementById("fleet-load-hero-l1");
       if (loadHeroL1) loadHeroL1.textContent = lm ? fmtLoadAvg1m(lm.l1) : "—";
       if (lm) {
-        kickLoadGaugeGhost();
         fleetLoad1Anim.onSnapshotTarget(lm.pct1);
+        fleetLoad5Anim.onSnapshotTarget(lm.pct5);
+        fleetLoad15Anim.onSnapshotTarget(lm.pct15);
+        kickLoadGaugeGhost();
       } else {
         fleetLoad1Anim.onSnapshotTarget(null);
+        fleetLoad5Anim.onSnapshotTarget(null);
+        fleetLoad15Anim.onSnapshotTarget(null);
         syncLoadHeroBarFromPct(null);
       }
       var memHost = host.memory || {};
@@ -2383,14 +2464,24 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         function typeCard(t) {
           var ec = effCaps(t);
           var note = (t && t.notes) || "";
+          var tid = (t && t.id) || "";
+          var cid = (t && t.category_id) || "";
+          var cclass = (t && t.container_class) || "";
           return (
-            "<div class=\"fleet-type-card fleet-mono\">" +
+            "<div class=\"fleet-type-card fleet-mono\" data-fleet-type-id=\"" +
+            esc(tid) +
+            "\" data-category-id=\"" +
+            esc(cid) +
+            "\" data-container-class=\"" +
+            esc(cclass) +
+            "\">" +
             "<div class=\"fleet-type-card__id\">" +
-            esc((t && t.id) || "") +
+            esc(tid) +
             "</div>" +
             "<div class=\"fleet-type-card__meta\">" +
-            esc((t && t.container_class) || "") +
+            esc(cclass) +
             "</div>" +
+            "<div class=\"fleet-type-card__tel small mt-1\" data-fleet-type-tel>Telemetry: —</div>" +
             "<div class=\"fleet-type-card__flags\">admin " +
             (ec.admin_spawnable ? "yes" : "no") +
             " · API services " +
@@ -2441,6 +2532,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
           );
         }
         tbl.innerHTML = '<div class="fleet-type-swimlanes">' + order.map(laneHtml).join("") + "</div>";
+        refreshContainerTypesTelemetry(__fleetLastOrchestration);
       } catch (_e) {
         /* ignore */
       }
