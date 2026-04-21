@@ -266,6 +266,27 @@ def count_jobs_by_status(conn: sqlite3.Connection) -> dict[str, int]:
     return {str(r["status"]): int(r["n"]) for r in cur.fetchall()}
 
 
+def count_running_jobs_by_container_class(conn: sqlite3.Connection) -> dict[str, int]:
+    """Count ``running`` jobs by ``meta.container_class`` (missing → ``_none``)."""
+    out: dict[str, int] = {}
+    cur = conn.execute(
+        "SELECT meta_json FROM jobs WHERE status = ?",
+        ("running",),
+    )
+    for r in cur.fetchall():
+        try:
+            m = json.loads(r["meta_json"] or "{}")
+        except json.JSONDecodeError:
+            m = {}
+        if not isinstance(m, dict):
+            m = {}
+        cc = str(m.get("container_class") or "").strip().lower()
+        if not cc:
+            cc = "_none"
+        out[cc] = out.get(cc, 0) + 1
+    return out
+
+
 def list_jobs_summary(conn: sqlite3.Connection, *, limit: int = 150) -> list[dict[str, Any]]:
     cur = conn.execute(
         """
@@ -434,7 +455,12 @@ def apply_energy_ledger_delta(conn: sqlite3.Connection, ts: float, energy: dict[
     }
 
 
-def maybe_record_telemetry_sample(conn: sqlite3.Connection, db_path: Path, host: dict[str, Any]) -> bool:
+def maybe_record_telemetry_sample(
+    conn: sqlite3.Connection,
+    db_path: Path,
+    host: dict[str, Any],
+    orchestration: dict[str, Any] | None = None,
+) -> bool:
     """
     Append one host snapshot row if the wall interval has elapsed (default 60s, ``FLEET_TELEMETRY_INTERVAL_S``).
 
@@ -470,7 +496,9 @@ def maybe_record_telemetry_sample(conn: sqlite3.Connection, db_path: Path, host:
             if ledger is not None:
                 e_out["cumulative_kwh"] = ledger
             host_out["energy"] = e_out
-            payload = json.dumps(host_out, separators=(",", ":"), default=str)
+            orch = orchestration if isinstance(orchestration, dict) else {}
+            payload_obj: dict[str, Any] = {"host": host_out, "orchestration": orch}
+            payload = json.dumps(payload_obj, separators=(",", ":"), default=str)
             conn.execute(
                 "INSERT INTO telemetry_samples (ts, payload_json) VALUES (?, ?)",
                 (now, payload),
@@ -515,11 +543,18 @@ def list_telemetry_samples(
     rows: list[dict[str, Any]] = []
     for r in cur.fetchall():
         try:
-            host = json.loads(r["payload_json"] or "{}")
+            raw = json.loads(r["payload_json"] or "{}")
         except json.JSONDecodeError:
-            host = {}
-        if not isinstance(host, dict):
-            host = {}
-        rows.append({"ts": float(r["ts"]), "host": host})
+            raw = {}
+        if not isinstance(raw, dict):
+            raw = {}
+        if "host" in raw and isinstance(raw.get("host"), dict):
+            host_payload: dict[str, Any] = raw["host"]
+            orch = raw.get("orchestration")
+            orch_out: dict[str, Any] = orch if isinstance(orch, dict) else {}
+        else:
+            host_payload = raw
+            orch_out = {}
+        rows.append({"ts": float(r["ts"]), "host": host_payload, "orchestration": orch_out})
     truncated = total > len(rows)
     return rows, truncated

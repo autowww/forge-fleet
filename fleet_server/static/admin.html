@@ -79,18 +79,12 @@
               <span class="ms-1" style="color:#34d399" aria-hidden="true">●</span> CPU
               <span class="ms-2" style="color:#38bdf8" aria-hidden="true">●</span> RAM
             </span>
-            <span class="fleet-chart-time-hint">Older left · recent right · ~1h while this tab is open (restored after reload) · Y scale 0–1–10–50–100</span>
+            <span class="fleet-chart-time-hint" id="fleet-chart-y-hint"
+              >Older left · recent right · ~1h while this tab is open (restored after reload) · Y scale 0–1–10–50–100</span>
             <span class="d-flex flex-wrap align-items-center gap-2">
+              <label class="small text-body-secondary mb-0 d-flex align-items-center gap-1"
+                ><input type="checkbox" id="fleet-chart-linear-y" class="form-check-input" /> Linear 0–100% Y</label>
               <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-refresh-metrics-btn" title="Fetch host metrics now">Refresh metrics</button>
-              <button
-                type="button"
-                class="btn btn-sm btn-outline-primary d-none"
-                id="fleet-chart-update-btn"
-                disabled
-                title="Shown when GitHub master is ahead of this host and git self-update is configured."
-              >
-                Update from git
-              </button>
             </span>
           </div>
           <div id="fleet-load-chart" class="fleet-chart-box" role="img" aria-label="CPU and RAM history, oldest on the left, curved percent scale"></div>
@@ -105,6 +99,7 @@
       <p class="text-body-secondary small mb-1 d-flex flex-wrap align-items-center gap-2">
         <span id="fleet-version-line" class="fleet-mono" aria-live="polite">Loading version…</span>
         <span id="fleet-git-remote-row" class="small fleet-mono" aria-live="polite"></span>
+        <span id="fleet-self-update-status" class="fleet-mono small" aria-live="polite"></span>
       </p>
       <p class="text-body-secondary small mb-1 d-none" id="fleet-forge-console-wrap">
         <a id="fleet-forge-console" href="#" target="_blank" rel="noopener">Open Forge LLM console</a>
@@ -153,22 +148,16 @@
         <div class="fw-semibold mb-1">Container types (<code class="fleet-mono">etc/containers/types.json</code>)</div>
         <div id="fleet-container-types-table"></div>
       </div>
-      <p class="text-body-secondary small mb-0">Kitchensink + Bootstrap layout; theme follows Light / Dark / System. Overview metrics poll automatically. <strong>Refresh metrics</strong> (by the chart) pulls a snapshot now. When GitHub <code class="fleet-mono">master</code> is ahead of this host, <strong>Update from git</strong> appears: user installs run <code class="fleet-mono">update-user.sh</code> and restart the user service; system installs (<code class="fleet-mono">/opt/forge-fleet</code>) show a root command to paste. GitHub is checked every 3 minutes.</p>
-      <div class="d-none border border-secondary-subtle rounded p-2 mb-2 small mt-2" id="fleet-self-update-wrap">
-        <div class="fw-semibold mb-1">Update from Git</div>
-        <p class="text-body-secondary mb-2 small" id="fleet-self-update-help"></p>
-        <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
-          <button type="button" class="btn btn-sm btn-outline-primary" id="fleet-self-update-btn" disabled>
-            Pull, submodule sync, refresh install &amp; restart…
-          </button>
-          <span class="text-body-secondary fleet-mono small" id="fleet-self-update-status" aria-live="polite"></span>
-        </div>
-        <pre
-          class="fleet-mono small text-body-secondary mb-0 p-2 rounded border bg-body-secondary"
-          id="fleet-self-update-log"
-          style="max-height: 14rem; overflow: auto; display: none; white-space: pre-wrap"
-        ></pre>
+      <div class="d-none border border-secondary-subtle rounded p-2 mb-2 small" id="fleet-orchestration-wrap">
+        <div class="fw-semibold mb-1">Workloads (compose + running jobs)</div>
+        <p class="text-body-secondary small mb-2" id="fleet-orch-summary"></p>
+        <div id="fleet-orch-chart" class="fleet-chart-box" role="img" aria-label="Workload counts over time"></div>
       </div>
+      <pre
+        class="fleet-mono small text-body-secondary mb-2 p-2 rounded border bg-body-secondary d-none"
+        id="fleet-self-update-log"
+        style="max-height: 14rem; overflow: auto; white-space: pre-wrap"
+      ></pre>
     </header>
 
     <section class="card mb-3 border-secondary-subtle shadow-sm">
@@ -342,6 +331,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
     var LS = "forgeFleetAdminToken";
     var LS_LOAD_SCALE = "forgeFleetLoadScaleMax";
     var LS_LOAD_PEAK = "forgeFleetLoadPeakPct";
+    var LS_CHART_LINEAR_Y = "forgeFleetChartLinearY";
     var POLL_MS = 3000;
     var __fleetLocalGitSha = "";
     var __fleetSelfUpdateConfigured = false;
@@ -360,8 +350,11 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
     var __fleetChartRaf = null;
     var CHART_MS = 3600000;
     var MAX_CHART_RENDER = 480;
-    var CHART_EMA_ALPHA = 0.38;
+    var CHART_EMA_ALPHA_CPU = 0.25;
+    var CHART_EMA_ALPHA_MEM = 0.45;
     var CHART_SS_PREFIX = "forgeFleetChartBuf:";
+    var orchBuf = [];
+    var __orchChartRaf = null;
     var TREND_MS = 20000;
     var __fleetTrendBuf = [];
     /** Stabilize disk tile background band (low/mid/high) across polls to avoid flash. */
@@ -593,6 +586,32 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       if (elHp) elHp.textContent = String(Math.round(w)) + "% · 1m";
     }
 
+    var __fleetLoadGhostFadeRaf = null;
+    function kickLoadGaugeGhost() {
+      var ghost = document.getElementById("fleet-load-gauge-needle-ghost");
+      var needle = document.getElementById("fleet-load-gauge-needle");
+      if (!ghost || !needle) return;
+      if (__fleetLoadGhostFadeRaf != null) {
+        cancelAnimationFrame(__fleetLoadGhostFadeRaf);
+        __fleetLoadGhostFadeRaf = null;
+      }
+      ghost.setAttribute("transform", needle.getAttribute("transform") || "rotate(-180 40 38)");
+      ghost.setAttribute("opacity", "0.4");
+      var t0 = performance.now();
+      var dur = 1150;
+      function fade(now) {
+        var u = (now - t0) / dur;
+        if (u >= 1) {
+          ghost.setAttribute("opacity", "0");
+          __fleetLoadGhostFadeRaf = null;
+          return;
+        }
+        ghost.setAttribute("opacity", String(0.4 * (1 - u)));
+        __fleetLoadGhostFadeRaf = requestAnimationFrame(fade);
+      }
+      __fleetLoadGhostFadeRaf = requestAnimationFrame(fade);
+    }
+
     var fleetCpuAnim = makeSmoothPercentBarAnim(
       "fleet-cpu-value",
       "fleet-cpu-fill",
@@ -605,18 +624,6 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       "fleet-load1-shell",
       "fleet-cpu-compact__shell fleet-load-g--compact ",
       syncLoadHeroBarFromPct
-    );
-    var fleetLoad5Anim = makeSmoothPercentBarAnim(
-      "fleet-load5-val",
-      "fleet-load5-fill",
-      "fleet-load5-shell",
-      "fleet-cpu-compact__shell fleet-load-g--compact "
-    );
-    var fleetLoad15Anim = makeSmoothPercentBarAnim(
-      "fleet-load15-val",
-      "fleet-load15-fill",
-      "fleet-load15-shell",
-      "fleet-cpu-compact__shell fleet-load-g--compact "
     );
     var fleetDiskPctAnim = makeSmoothPercentBarAnim(
       "fleet-disk-pct-val",
@@ -1048,16 +1055,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       return '<div class="fleet-gpu-brand">' + gpuLogoButton(vendor, alt, false) + "</div>";
     }
     function renderGpuStubTile() {
-      return (
-        '<div class="fleet-tile fleet-tile--inactive fleet-gpu-stub">' +
-        '<div class="fleet-tile__brand"><span class="fleet-tile__label">GPU</span></div>' +
-        '<div class="fleet-gpu-stub__logos">' +
-        gpuLogoButton("nvidia", "NVIDIA", true) +
-        gpuLogoButton("amd", "AMD", true) +
-        gpuLogoButton("intel", "Intel", true) +
-        "</div>" +
-        '<div class="fleet-tile__hint">No GPU telemetry on this host</div></div>'
-      );
+      return "";
     }
 
     function tileMark(svg, hiddenLabel) {
@@ -1269,6 +1267,14 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       return u * u * (3 - 2 * u);
     }
 
+    function chartLinearYEnabled() {
+      try {
+        return localStorage.getItem(LS_CHART_LINEAR_Y) === "1";
+      } catch (_e) {
+        return false;
+      }
+    }
+
     /**
      * Map 0–100%% to normalized height g in [0,1] (piecewise linear: 10 lower, 50 at 75%% band).
      * y = padT + ih - g*ih so larger g is higher on screen.
@@ -1281,8 +1287,13 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       return 0.75 + ((u - 50) / 50) * 0.25;
     }
 
+    function chartPctNormGLinear(p) {
+      var u = Math.min(100, Math.max(0, Number(p)));
+      return u / 100;
+    }
+
     function chartPctToY(p, padT, ih) {
-      var g = chartPctNormG(p);
+      var g = chartLinearYEnabled() ? chartPctNormGLinear(p) : chartPctNormG(p);
       return padT + ih - g * ih;
     }
 
@@ -1381,7 +1392,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
     }
 
     function chartEma1d(vals, alpha) {
-      var a = alpha != null ? alpha : CHART_EMA_ALPHA;
+      var a = alpha != null ? alpha : CHART_EMA_ALPHA_CPU;
       var out = [];
       var prev = null;
       for (var i = 0; i < vals.length; i++) {
@@ -1582,19 +1593,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       if (!hasSignal) {
         var rr = en.rapl_reason != null ? String(en.rapl_reason).trim() : "";
         __fleetPowerDiagRaplReason = rr;
-        return (
-          '<div class="fleet-tile fleet-tile--inactive">' +
-          '<div class="fleet-tile__brand">' +
-          tileMark(MARK_POWER, "Power") +
-          "</div>" +
-          '<div class="fleet-tile__value fleet-mono">—</div>' +
-          '<div class="fleet-tile__mem">Live power use isn’t available on this host.</div>' +
-          '<div class="fleet-tile__hint">' +
-          hintLine +
-          "</div>" +
-          '<p class="small mb-1 mt-1"><button type="button" class="btn btn-link btn-sm p-0 fleet-power-open-diag">How to see watts / diagnostics</button></p>' +
-          "</div>"
-        );
+        return "";
       }
 
       __fleetLastPowerTotalW = heroW;
@@ -1661,18 +1660,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
           '<div class="fleet-tile__hint">Linux thermal / hwmon (max zone)</div></div>'
         );
       }
-      var rs = th.reason != null ? String(th.reason) : "no sysfs readings";
-      return (
-        '<div class="fleet-tile fleet-tile--inactive">' +
-        '<div class="fleet-tile__brand">' +
-        tileMark(MARK_THERMAL, "Thermal") +
-        "</div>" +
-        '<div class="fleet-tile__value fleet-mono">—</div>' +
-        '<div class="fleet-tile__mem">No CPU temperature</div>' +
-        '<div class="fleet-tile__hint">' +
-        esc(rs) +
-        ". For extra tooling: <code class=\"fleet-mono\">sudo apt install lm-sensors</code> then <code class=\"fleet-mono\">sudo sensors-detect</code> — Fleet still reads sysfs only.</div></div>"
-      );
+      return "";
     }
 
     function renderFleetChart() {
@@ -1754,8 +1742,8 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         rawC.push(d.c != null && !isNaN(d.c) ? Number(d.c) : 0);
         rawM.push(d.m != null && !isNaN(d.m) ? Number(d.m) : 0);
       }
-      var smC = chartEma1d(rawC, CHART_EMA_ALPHA);
-      var smM = chartEma1d(rawM, CHART_EMA_ALPHA);
+      var smC = chartEma1d(rawC, CHART_EMA_ALPHA_CPU);
+      var smM = chartEma1d(rawM, CHART_EMA_ALPHA_MEM);
 
       var dCpu;
       var dMem;
@@ -1815,15 +1803,6 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
           "<g id=\"fleet-chart-grid\">" +
           gridInner +
           "</g>" +
-          "<line id=\"fleet-chart-baseline\" x1=\"" +
-          padL +
-          "\" y1=\"" +
-          (padT + ih) +
-          "\" x2=\"" +
-          (padL + iw) +
-          "\" y2=\"" +
-          (padT + ih) +
-          "\" stroke=\"currentColor\" stroke-opacity=\"0.14\" stroke-width=\"1\"/>" +
           "<path id=\"fleet-chart-cpu\" fill=\"none\" stroke=\"#34d399\" stroke-width=\"2.25\" stroke-linejoin=\"round\" stroke-linecap=\"round\" vector-effect=\"non-scaling-stroke\" shape-rendering=\"geometricPrecision\" d=\"" +
           esc(dCpu) +
           "\"/>" +
@@ -1841,13 +1820,6 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         insertG.innerHTML = gridInner;
         svg.insertBefore(insertG, svg.firstChild);
       }
-      var ln = svg.querySelector("#fleet-chart-baseline");
-      if (ln) {
-        ln.setAttribute("x1", String(padL));
-        ln.setAttribute("y1", String(padT + ih));
-        ln.setAttribute("x2", String(padL + iw));
-        ln.setAttribute("y2", String(padT + ih));
-      }
       var cpuLine = svg.querySelector("#fleet-chart-cpu");
       var memLine = svg.querySelector("#fleet-chart-mem");
       if (cpuLine) cpuLine.setAttribute("d", dCpu);
@@ -1856,6 +1828,118 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         var ufin = (performance.now() - chartBlend.t0) / chartBlend.dur;
         if (ufin >= 1) chartBlend = null;
       }
+    }
+
+    function refreshChartYHint() {
+      var el = document.getElementById("fleet-chart-y-hint");
+      if (!el) return;
+      var base =
+        "Older left · recent right · ~1h while this tab is open (restored after reload) · ";
+      el.textContent =
+        base + (chartLinearYEnabled() ? "Y linear 0–100%" : "Y scale 0–1–10–50–100");
+    }
+
+    function orchestrationScalars(orch) {
+      if (!orch || typeof orch !== "object") return { managed: 0, jobs: 0 };
+      var bt = orch.by_type_id;
+      var managed = 0;
+      if (bt && bt.forge_llm && bt.forge_llm.services_running != null) {
+        managed = Number(bt.forge_llm.services_running) || 0;
+      }
+      var jb = orch.job_running_by_container_class || {};
+      var jobs = 0;
+      Object.keys(jb).forEach(function (k) {
+        jobs += Number(jb[k]) || 0;
+      });
+      return { managed: managed, jobs: jobs };
+    }
+
+    function renderOrchestrationChart() {
+      var el = document.getElementById("fleet-orch-chart");
+      if (!el || !orchBuf.length) return;
+      var w = 600;
+      var h = 88;
+      var padL = 32;
+      var padR = 8;
+      var padT = 6;
+      var padB = 12;
+      var iw = w - padL - padR;
+      var ih = h - padT - padB;
+      var n = orchBuf.length;
+      var tMin = orchBuf[0].t;
+      var tMax = orchBuf[n - 1].t;
+      var span = Math.max(1, tMax - tMin);
+      var maxV = 1;
+      for (var i = 0; i < n; i++) {
+        maxV = Math.max(maxV, Number(orchBuf[i].managed) || 0, Number(orchBuf[i].jobs) || 0);
+      }
+      maxV = Math.ceil(maxV * 1.08) || 1;
+      function yFor(v) {
+        var vv = Math.min(maxV, Math.max(0, Number(v)));
+        return padT + ih - (vv / maxV) * ih;
+      }
+      function xFor(i) {
+        var ti = orchBuf[i].t;
+        return padL + ((ti - tMin) / span) * iw;
+      }
+      var ptsM = [];
+      var ptsJ = [];
+      for (var j = 0; j < n; j++) {
+        var xj = xFor(j);
+        ptsM.push({ x: xj, y: yFor(orchBuf[j].managed) });
+        ptsJ.push({ x: xj, y: yFor(orchBuf[j].jobs) });
+      }
+      var dM;
+      var dJ;
+      if (n < 2) {
+        var ym = yFor(orchBuf[0].managed);
+        var yj = yFor(orchBuf[0].jobs);
+        dM = "M " + padL + " " + ym + " L " + (padL + iw) + " " + ym;
+        dJ = "M " + padL + " " + yj + " L " + (padL + iw) + " " + yj;
+      } else {
+        dM = chartSmoothPathD(ptsM);
+        dJ = chartSmoothPathD(ptsJ);
+      }
+      var svg =
+        "<svg class=\"fleet-chart-svg\" xmlns=\"http://www.w3.org/2000/svg\" width=\"100%\" height=\"100%\" preserveAspectRatio=\"none\" viewBox=\"0 0 " +
+        w +
+        " " +
+        h +
+        "\">" +
+        "<text x=\"" +
+        padL +
+        "\" y=\"" +
+        (padT + 10) +
+        "\" fill=\"currentColor\" opacity=\"0.42\" font-size=\"9\">0–" +
+        esc(String(maxV)) +
+        " (count)</text>" +
+        "<path fill=\"none\" stroke=\"#34d399\" stroke-width=\"2\" stroke-linejoin=\"round\" d=\"" +
+        esc(dM) +
+        "\"/>" +
+        "<path fill=\"none\" stroke=\"#38bdf8\" stroke-width=\"2\" stroke-linejoin=\"round\" d=\"" +
+        esc(dJ) +
+        "\"/>" +
+        "</svg>";
+      el.innerHTML = svg;
+    }
+
+    function pushOrchestrationSample(orch) {
+      var s = orchestrationScalars(orch);
+      var nowT = Date.now();
+      orchBuf.push({ t: nowT, managed: s.managed, jobs: s.jobs });
+      while (orchBuf.length && orchBuf[0].t < nowT - CHART_MS) orchBuf.shift();
+      while (orchBuf.length > 2400) orchBuf.shift();
+      var sumEl = document.getElementById("fleet-orch-summary");
+      var wrap = document.getElementById("fleet-orchestration-wrap");
+      if (sumEl) {
+        sumEl.textContent =
+          "Compose services running (forge_llm total): " +
+          s.managed +
+          " · Running jobs (all classes): " +
+          s.jobs;
+      }
+      if (wrap) wrap.classList.remove("d-none");
+      renderOrchestrationChart();
     }
 
     function renderTiles(host, energyLedger) {
@@ -1880,37 +1964,6 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
           : "";
       var tLoad = lm != null && lm.pct1 != null && !isNaN(lm.pct1) ? trendClassFor("load1", lm.pct1) : "";
       var tDisk = diskTrendPct != null ? trendClassFor("disk", diskTrendPct) : "";
-
-      function loadGaugeRow(label, idBase, pctRaw) {
-        var p = pctRaw != null && !isNaN(pctRaw) ? Number(pctRaw) : null;
-        var anim =
-          idBase === "1" ? fleetLoad1Anim : idBase === "5" ? fleetLoad5Anim : fleetLoad15Anim;
-        var disp = p != null ? anim.widthForRender(p) : null;
-        var w = disp != null ? Math.min(100, Math.max(0, Number(disp))) : 0;
-        var z = loadZone4(w);
-        var wBar = esc(String(Math.round(w * 100) / 100));
-        var vTxt = p != null && !isNaN(p) ? esc(String(Math.round(w))) + "%" : "—";
-        return (
-          '<div class="fleet-load-g-row">' +
-          '<span class="fleet-load-g-label">' +
-          esc(label) +
-          '</span><div class="fleet-load-g-barflex"><div id="fleet-load' +
-          idBase +
-          '-shell" class="fleet-cpu-compact__shell fleet-load-g--compact fleet-cpu-wide--z' +
-          z +
-          '">' +
-          '<div class="fleet-cpu-wide__track"></div>' +
-          '<div id="fleet-load' +
-          idBase +
-          '-fill" class="fleet-cpu-wide__fill" style="width:' +
-          wBar +
-          '%"></div></div></div><span id="fleet-load' +
-          idBase +
-          '-val" class="fleet-load-g-val fleet-mono">' +
-          vTxt +
-          "</span></div>"
-        );
-      }
 
       var loadTile = "";
       if (lm) {
@@ -1954,13 +2007,14 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
           '<div class="fleet-load-gauge-wrap" aria-hidden="true">' +
           '<svg class="fleet-load-gauge-svg" viewBox="0 0 80 44" xmlns="http://www.w3.org/2000/svg">' +
           '<path class="fleet-load-gauge-track" d="M 12 38 A 28 28 0 0 1 68 38" fill="none" stroke-linecap="round"/>' +
+          '<line id="fleet-load-gauge-needle-ghost" class="fleet-load-gauge-needle-ghost" x1="40" y1="38" x2="68" y2="38" stroke-linecap="round" transform="rotate(-180 40 38)" opacity="0"/>' +
           '<line id="fleet-load-gauge-needle" class="fleet-load-gauge-needle-line" x1="40" y1="38" x2="68" y2="38" stroke-linecap="round" transform="rotate(-180 40 38)"/>' +
           "</svg></div></div></div>" +
-          '<div class="fleet-load-gauges">' +
-          loadGaugeRow("1m", "1", lm.pct1) +
-          loadGaugeRow("5m", "5", lm.pct5) +
-          loadGaugeRow("15m", "15", lm.pct15) +
-          "</div>" +
+          '<div class="visually-hidden" aria-hidden="true">' +
+          '<span id="fleet-load1-val">0</span>' +
+          '<div id="fleet-load1-shell" class="fleet-cpu-compact__shell fleet-load-g--compact fleet-cpu-wide--z0">' +
+          '<div class="fleet-cpu-wide__track"></div>' +
+          '<div id="fleet-load1-fill" class="fleet-cpu-wide__fill" style="width:0%"></div></div></div>' +
           loadFoot +
           "</div>";
       } else {
@@ -1969,11 +2023,6 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
           '<div class="fleet-tile__brand">' +
           tileMark(MARK_LOAD, "System load") +
           '</div><div class="fleet-tile__value fleet-mono">—</div>' +
-          '<div class="fleet-load-gauges">' +
-          loadGaugeRow("1m", "1", null) +
-          loadGaugeRow("5m", "5", null) +
-          loadGaugeRow("15m", "15", null) +
-          "</div>" +
           '<div class="fleet-tile__mem">Load averages unavailable</div></div>';
       }
 
@@ -2027,30 +2076,14 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
           banks +
           "</div></div>";
       } else {
-        memTile =
-          '<div class="fleet-tile fleet-tile--inactive fleet-mem-banks-tile">' +
-          '<div class="fleet-tile__brand">' +
-          tileMark(MARK_RAM, "Memory") +
-          '</div><div class="fleet-tile__value fleet-mono">—</div>' +
-          '<div class="fleet-tile__mem">—</div>' +
-          '<div class="fleet-mem-banks">' +
-          '<div class="fleet-mem-bank"></div><div class="fleet-mem-bank"></div><div class="fleet-mem-bank"></div><div class="fleet-mem-bank"></div>' +
-          "</div></div>";
+        memTile = "";
       }
 
       var dk = dkPre;
       var diskTile = "";
       if (!dk.has) {
         resetDiskBandHysteresis();
-        var dh = dk.ioReason ? esc(String(dk.ioReason).slice(0, 140)) : "No disk metrics";
-        diskTile =
-          "<div class=\"fleet-tile fleet-tile--inactive\"><div class=\"fleet-tile__brand\">" +
-          tileMark(MARK_DISK, "Storage") +
-          "</div><div class=\"fleet-tile__value fleet-mono\">—</div>" +
-          "<div class=\"fleet-tile__mem\">—</div>" +
-          "<div class=\"fleet-tile__hint\">" +
-          dh +
-          "</div></div>";
+        diskTile = "";
       } else {
         var dTint = diskBandHysteresis(dk.heatTintVal);
         var dcls = "fleet-tile fleet-tile--disk-" + dTint + tDisk;
@@ -2192,25 +2225,13 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
     function applyKpiTileAnims(host) {
       fleetCpuAnim.onSnapshotTarget(cpuPct(host));
       var lm = hostLoadForUi(host);
-      if (lm) {
-        fleetLoad1Anim.onSnapshotTarget(lm.pct1);
-        fleetLoad5Anim.onSnapshotTarget(lm.pct5);
-        fleetLoad15Anim.onSnapshotTarget(lm.pct15);
-      } else {
-        fleetLoad1Anim.onSnapshotTarget(null);
-        fleetLoad5Anim.onSnapshotTarget(null);
-        fleetLoad15Anim.onSnapshotTarget(null);
-      }
       var loadHeroL1 = document.getElementById("fleet-load-hero-l1");
       if (loadHeroL1) loadHeroL1.textContent = lm ? fmtLoadAvg1m(lm.l1) : "—";
       if (lm) {
-        var pw0 = Math.min(100, Math.max(0, Number(lm.pct1)));
-        requestAnimationFrame(function () {
-          requestAnimationFrame(function () {
-            syncLoadHeroBarFromPct(pw0);
-          });
-        });
+        kickLoadGaugeGhost();
+        fleetLoad1Anim.onSnapshotTarget(lm.pct1);
       } else {
+        fleetLoad1Anim.onSnapshotTarget(null);
         syncLoadHeroBarFromPct(null);
       }
       var memHost = host.memory || {};
@@ -2426,91 +2447,11 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
     }
 
     function fleetUpdateUiRefresh() {
-      var su = __fleetSelfUpdateMeta || {};
-      var configured = !!su.configured;
-      var avail = !!__fleetGitUpdateAvailable;
-      var profile = String(su.install_profile || "user").toLowerCase();
-      var enable = configured && avail;
-
-      var wrap = document.getElementById("fleet-self-update-wrap");
-      var btn = document.getElementById("fleet-self-update-btn");
-      var chartUp = document.getElementById("fleet-chart-update-btn");
-      if (!wrap || !btn) return;
-
-      if (!configured) {
-        wrap.classList.add("d-none");
-        btn.disabled = true;
-        if (chartUp) {
-          chartUp.classList.add("d-none");
-          chartUp.disabled = true;
-          chartUp.title =
-            "Git self-update is off: set FLEET_GIT_ROOT to your forge-fleet checkout (with .git), or run Fleet from that clone.";
-        }
-        return;
-      }
-
-      if (!enable) {
-        wrap.classList.add("d-none");
-        btn.disabled = true;
-        if (chartUp) {
-          chartUp.classList.add("d-none");
-          chartUp.disabled = true;
-          chartUp.title = "No newer commits on GitHub master (or could not compare).";
-        }
-        return;
-      }
-
-      wrap.classList.remove("d-none");
-      btn.disabled = false;
-      if (chartUp) {
-        chartUp.classList.remove("d-none");
-        chartUp.disabled = false;
-        chartUp.title =
-          profile === "system"
-            ? "Opens a dialog with a command to run as root (git pull + install-update.sh)."
-            : "Pull from git (ff-only), sync submodules, then update-user.sh when present, and restart the Forge Fleet user service.";
-      }
-      btn.title =
-        profile === "system"
-          ? "Opens a dialog with a command to run as root (install-update.sh)."
-          : "Pull from git, run update-user.sh, restart the Fleet user service.";
+      /* Git update affordance lives in #fleet-git-remote-row (checkRemoteAgainstGitHub). */
     }
 
     function applySelfUpdateMeta(su) {
-      var wrap = document.getElementById("fleet-self-update-wrap");
-      var btn = document.getElementById("fleet-self-update-btn");
-      var help = document.getElementById("fleet-self-update-help");
-      var chartUp = document.getElementById("fleet-chart-update-btn");
-      if (!wrap || !btn || !help) return;
-      su = su || {};
-      __fleetSelfUpdateMeta = su;
-      if (!su.configured) {
-        help.textContent = "";
-        if (chartUp) {
-          chartUp.title =
-            "Git self-update is off: set FLEET_GIT_ROOT to your forge-fleet checkout (with .git), or run Fleet from that clone.";
-        }
-        fleetUpdateUiRefresh();
-        return;
-      }
-      var profile = String(su.install_profile || "user").toLowerCase();
-      var parts = [];
-      if (profile === "system") {
-        parts.push(
-          "System install: Update opens a dialog with a shell command to run as root (git pull + sudo install-update.sh)."
-        );
-      } else {
-        parts.push(
-          "Runs git pull --ff-only and submodule update in the configured checkout, then update-user.sh (or install-user.sh) when present, then restarts the Fleet user service."
-        );
-      }
-      if (su.git_root) parts.push("Git root: " + su.git_root);
-      if (su.has_post_git_command) parts.push("After git: custom FLEET_SELF_UPDATE_POST_GIT_COMMAND.");
-      else if (su.has_update_user_script) parts.push("After git: update-user.sh.");
-      else if (su.has_install_user_script) parts.push("After git: install-user.sh.");
-      else parts.push("After git: systemd --user restart only (no update script in clone).");
-      help.textContent = parts.join(" ");
-      fleetUpdateUiRefresh();
+      __fleetSelfUpdateMeta = su || {};
     }
 
     function showSystemUpdateModal(commandText) {
@@ -2563,8 +2504,6 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
     }
 
     async function doGitSelfUpdate() {
-      var btn = document.getElementById("fleet-self-update-btn");
-      var chartBtn = document.getElementById("fleet-chart-update-btn");
       var st = document.getElementById("fleet-self-update-status");
       var logEl = document.getElementById("fleet-self-update-log");
       if (!__fleetSelfUpdateConfigured) {
@@ -2575,18 +2514,14 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       }
       var su = __fleetSelfUpdateMeta || {};
       if (String(su.install_profile || "user").toLowerCase() === "system") {
-        var cmd = su.system_root_install_command || "";
-        showSystemUpdateModal(cmd);
         return;
       }
       setErr("");
       if (st) st.textContent = "Running git pull…";
       if (logEl) {
-        logEl.style.display = "none";
         logEl.textContent = "";
+        logEl.classList.add("d-none");
       }
-      if (btn) btn.disabled = true;
-      if (chartBtn) chartBtn.disabled = true;
       try {
         var res = await fetch("/v1/admin/git-self-update", {
           method: "POST",
@@ -2601,13 +2536,11 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         }
         if (logEl && j.steps) {
           logEl.textContent = formatSelfUpdateSteps(j.steps);
-          logEl.style.display = "block";
+          logEl.classList.remove("d-none");
         }
         if (!res.ok || !j.ok) {
           if (st) st.textContent = "Failed (" + res.status + ").";
           setErr(String(j.detail || j.error || "git-self-update failed"));
-          if (btn) btn.disabled = false;
-          if (chartBtn) chartBtn.disabled = false;
           return;
         }
         if (st) st.textContent = j.note || "OK.";
@@ -2619,18 +2552,9 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
           var ok = await waitFleetBack(45000);
           if (st) st.textContent = ok ? "Reloading…" : "Fleet did not respond in time — reload manually.";
           if (ok) window.location.reload();
-          else {
-            if (btn) btn.disabled = false;
-            if (chartBtn) chartBtn.disabled = false;
-          }
-        } else {
-          if (btn) btn.disabled = false;
-          if (chartBtn) chartBtn.disabled = false;
         }
       } catch (e) {
         setErr(String(e));
-        if (btn) btn.disabled = false;
-        if (chartBtn) chartBtn.disabled = false;
         if (st) st.textContent = "";
       }
     }
@@ -2684,13 +2608,21 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         }
         __fleetGitUpdateAvailable = !!(a && b && a !== b);
         var commitsHref = "https://github.com/" + FLEET_GITHUB_REPO + "/commits/master";
-        if (__fleetSelfUpdateConfigured) {
+        var profileGh = String((__fleetSelfUpdateMeta || {}).install_profile || "user").toLowerCase();
+        if (__fleetSelfUpdateConfigured && profileGh !== "system") {
           row.innerHTML =
             '<span class="text-warning fw-semibold me-1">Update available</span>' +
-            '<button type="button" class="btn btn-sm btn-warning" id="fleet-header-git-update-btn">Update</button>' +
+            '<button type="button" class="btn btn-sm btn-warning" id="fleet-header-git-update-btn">Update Fleet</button>' +
             '<a class="btn btn-sm btn-outline-secondary ms-1" href="' +
             commitsHref +
             '" target="_blank" rel="noopener">GitHub</a>';
+        } else if (__fleetSelfUpdateConfigured && profileGh === "system") {
+          row.innerHTML =
+            '<span class="text-warning fw-semibold me-1">Update available</span>' +
+            '<a class="btn btn-sm btn-outline-warning" href="' +
+            commitsHref +
+            '" target="_blank" rel="noopener">View commits</a>' +
+            '<span class="text-body-secondary ms-1 small">System install — update on the host.</span>';
         } else {
           row.innerHTML =
             '<span class="text-warning fw-semibold me-1">Newer commits on GitHub</span>' +
@@ -2779,6 +2711,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
 
       renderManagedServices(integ);
       loadContainerTypesOnce();
+      if (integ.orchestration) pushOrchestrationSample(integ.orchestration);
 
       var host = data.host || {};
       var hid =
@@ -2800,6 +2733,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       lastHostForChart = host;
       pushChartSample();
       renderFleetChart();
+      refreshChartYHint();
 
       var bs = data.jobs_by_status || {};
       var keys = Object.keys(bs).sort();
@@ -2945,10 +2879,22 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       });
     }
 
-    var suBtn = document.getElementById("fleet-self-update-btn");
-    if (suBtn) {
-      suBtn.addEventListener("click", function () {
-        doGitSelfUpdate();
+    var linearY = document.getElementById("fleet-chart-linear-y");
+    if (linearY) {
+      try {
+        linearY.checked = localStorage.getItem(LS_CHART_LINEAR_Y) === "1";
+      } catch (_e) {
+        linearY.checked = false;
+      }
+      linearY.addEventListener("change", function () {
+        try {
+          if (linearY.checked) localStorage.setItem(LS_CHART_LINEAR_Y, "1");
+          else localStorage.removeItem(LS_CHART_LINEAR_Y);
+        } catch (_e) {
+          /* ignore */
+        }
+        refreshChartYHint();
+        renderFleetChart();
       });
     }
 
@@ -2958,13 +2904,6 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         loadSnapshot().then(function () {
           scheduleNext();
         });
-      });
-    }
-
-    var chartUpdateBtn = document.getElementById("fleet-chart-update-btn");
-    if (chartUpdateBtn) {
-      chartUpdateBtn.addEventListener("click", function () {
-        doGitSelfUpdate();
       });
     }
 

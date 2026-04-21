@@ -53,6 +53,7 @@ def test_record_and_query(tmp_path: Path) -> None:
         assert not trunc
         assert len(rows) == 1
         assert rows[0]["host"]["cpu_usage_pct"] == 12.3
+        assert rows[0].get("orchestration") == {}
     finally:
         conn.close()
 

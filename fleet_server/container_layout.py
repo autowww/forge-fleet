@@ -17,10 +17,11 @@ import copy
 import json
 import os
 import re
+import sqlite3
 from pathlib import Path
 from typing import Any
 
-from fleet_server import forge_llm_service
+from fleet_server import forge_llm_service, store
 
 _SERVICE_ID_RE = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 
@@ -426,6 +427,45 @@ def update_service(
         label=str(label) if label is not None else None,
         allow_replace=True,
     )
+
+
+def orchestration_metrics_snapshot(data_dir: Path, conn: sqlite3.Connection) -> dict[str, Any]:
+    """
+    Running workload counts for admin: compose services by ``type_id`` plus
+    ``running`` jobs keyed by ``meta.container_class``.
+    """
+    by_type: dict[str, dict[str, Any]] = {}
+    for rec in list_service_records(data_dir):
+        tid = str(rec.get("type_id") or "").strip()
+        if not tid:
+            continue
+        st = forge_llm_service.status_for_record(rec)
+        sr = st.get("services_running")
+        stt = st.get("services_total")
+        try:
+            n_run = int(sr) if sr is not None and not isinstance(sr, bool) else 0
+        except (TypeError, ValueError):
+            n_run = 0
+        try:
+            n_tot = int(stt) if stt is not None and not isinstance(stt, bool) else 0
+        except (TypeError, ValueError):
+            n_tot = 0
+        if tid not in by_type:
+            by_type[tid] = {
+                "services_running": 0,
+                "services_total": 0,
+                "ps_ok_any": False,
+            }
+        by_type[tid]["services_running"] += n_run
+        by_type[tid]["services_total"] += n_tot
+        if st.get("ps_ok") is True:
+            by_type[tid]["ps_ok_any"] = True
+
+    job_running = store.count_running_jobs_by_container_class(conn)
+    return {
+        "by_type_id": by_type,
+        "job_running_by_container_class": job_running,
+    }
 
 
 def services_status_snapshot(data_dir: Path) -> list[dict[str, Any]]:

@@ -250,8 +250,10 @@ class FleetHandler(BaseHTTPRequestHandler):
             try:
                 vrow = store.get_fleet_version_row(conn)
                 el: dict[str, Any] = {}
+                data_dir_h = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+                orch_h = container_layout.orchestration_metrics_snapshot(data_dir_h, conn)
                 try:
-                    store.maybe_record_telemetry_sample(conn, self.server.db_path, snap)
+                    store.maybe_record_telemetry_sample(conn, self.server.db_path, snap, orch_h)
                 except (OSError, RuntimeError, TypeError, ValueError, sqlite3.Error):
                     pass
                 try:
@@ -306,6 +308,8 @@ class FleetHandler(BaseHTTPRequestHandler):
                     "container_types_version": types_doc.get("version"),
                     "forge_llm_services": container_layout.services_status_snapshot(data_dir),
                 }
+                orch_snap = container_layout.orchestration_metrics_snapshot(data_dir, conn)
+                integrations["orchestration"] = orch_snap
                 host_snap = host_stats.snapshot()
                 body: dict[str, Any] = {
                     "ok": True,
@@ -338,7 +342,7 @@ class FleetHandler(BaseHTTPRequestHandler):
                     "active_workers": runner.list_active_workers(self.server.db_path),
                 }
                 try:
-                    store.maybe_record_telemetry_sample(conn, self.server.db_path, host_snap)
+                    store.maybe_record_telemetry_sample(conn, self.server.db_path, host_snap, orch_snap)
                 except (OSError, RuntimeError, TypeError, ValueError, sqlite3.Error):
                     pass
                 try:

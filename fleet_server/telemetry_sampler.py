@@ -13,7 +13,7 @@ import sys
 import time
 from pathlib import Path
 
-from fleet_server import host_stats, store
+from fleet_server import container_layout, host_stats, store
 
 
 def _interval_s() -> float:
@@ -26,9 +26,11 @@ def _interval_s() -> float:
 
 def sample_once(db_path: Path, *, verbose: bool = False) -> bool:
     snap = host_stats.snapshot()
+    data_dir = db_path.parent.resolve()
     conn = store.connect(db_path)
     try:
-        written = store.maybe_record_telemetry_sample(conn, db_path, snap)
+        orch = container_layout.orchestration_metrics_snapshot(data_dir, conn)
+        written = store.maybe_record_telemetry_sample(conn, db_path, snap, orch)
     finally:
         conn.close()
     if verbose:
