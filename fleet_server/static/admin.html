@@ -290,6 +290,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
           <p class="small text-body-secondary mb-2">
             Same series as the overview chart. Orange / yellow / violet are <strong>% of the maximum ever recorded</strong> on this browser for
             temperature (°C), load (normalized to your CPU scale), and disk activity on the same 0–100 scale as the Storage tile (busy %, MB/s-scaled activity, or disk space). Maxima update as new samples arrive.
+            <span class="d-block mt-1">Last 24 hours: <strong>5-minute averages</strong>. Longer ranges: bucket size is chosen to fit the chart. <strong>X-axis times are UTC.</strong> Sparse data does not stretch—empty parts of the range stay blank.</span>
           </p>
           <p class="small mb-3" id="fleet-tel-hist-status" aria-live="polite"></p>
           <div class="row g-3">
@@ -1541,16 +1542,280 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       return Math.min(100, Math.max(0, (Number(val) / mx) * 100));
     }
 
+    function sortMetricRows(rows) {
+      if (!rows || !rows.length) return [];
+      return rows
+        .slice()
+        .sort(function (a, b) {
+          return Number(a.t) - Number(b.t);
+        });
+    }
+
+    /** Average numeric fields per wall-clock bucket; one row per bucket that has ≥1 sample. ``t`` = bucket center ms. */
+    function averageMetricRowsIntoBuckets(rows, bucketMs, windowStartMs, windowEndMs) {
+      if (!bucketMs || bucketMs <= 0 || windowEndMs <= windowStartMs) return [];
+      var buckets = {};
+      function addSum(bk, key, val) {
+        if (val == null || isNaN(val)) return;
+        if (!buckets[bk]) buckets[bk] = { sums: {}, counts: {} };
+        var s = buckets[bk].sums;
+        var c = buckets[bk].counts;
+        s[key] = (s[key] || 0) + Number(val);
+        c[key] = (c[key] || 0) + 1;
+      }
+      for (var i = 0; i < rows.length; i++) {
+        var r = rows[i];
+        var t = r.t != null && !isNaN(Number(r.t)) ? Number(r.t) : null;
+        if (t == null || t < windowStartMs || t > windowEndMs) continue;
+        var bk = Math.floor((t - windowStartMs) / bucketMs);
+        var maxBk = Math.floor((windowEndMs - windowStartMs) / bucketMs);
+        if (bk < 0 || bk > maxBk + 1) continue;
+        addSum(bk, "cpu", r.cpu);
+        addSum(bk, "mem", r.mem);
+        addSum(bk, "tempC", r.tempC);
+        addSum(bk, "loadPct", r.loadPct);
+        addSum(bk, "diskUi", r.diskUi);
+      }
+      var out = [];
+      var keys = Object.keys(buckets)
+        .map(Number)
+        .sort(function (a, b) {
+          return a - b;
+        });
+      for (var j = 0; j < keys.length; j++) {
+        var bki = keys[j];
+        var B = buckets[bki];
+        var sums = B.sums;
+        var counts = B.counts;
+        var center = windowStartMs + bki * bucketMs + bucketMs / 2;
+        function avg(k) {
+          var cnt = counts[k] || 0;
+          if (!cnt) return null;
+          return sums[k] / cnt;
+        }
+        out.push({
+          t: center,
+          cpu: avg("cpu") != null ? avg("cpu") : 0,
+          mem: avg("mem") != null ? avg("mem") : 0,
+          tempC: avg("tempC"),
+          loadPct: avg("loadPct"),
+          diskUi: avg("diskUi"),
+        });
+      }
+      return out;
+    }
+
+    var NICE_BUCKET_MS = [
+      60 * 1000,
+      2 * 60 * 1000,
+      3 * 60 * 1000,
+      5 * 60 * 1000,
+      10 * 60 * 1000,
+      15 * 60 * 1000,
+      20 * 60 * 1000,
+      30 * 60 * 1000,
+      60 * 60 * 1000,
+      2 * 60 * 60 * 1000,
+      3 * 60 * 60 * 1000,
+      4 * 60 * 60 * 1000,
+      6 * 60 * 60 * 1000,
+      8 * 60 * 60 * 1000,
+      12 * 60 * 60 * 1000,
+      24 * 60 * 60 * 1000,
+      2 * 24 * 60 * 60 * 1000,
+      7 * 24 * 60 * 60 * 1000,
+    ];
+
+    function pickNiceBucketMs(windowMs, innerWidthPx) {
+      var iwPx = innerWidthPx != null && innerWidthPx > 0 ? innerWidthPx : 556;
+      var targetBuckets = Math.round(iwPx / 46);
+      targetBuckets = Math.max(24, Math.min(160, targetBuckets));
+      var ideal = windowMs / Math.max(1, targetBuckets);
+      var best = NICE_BUCKET_MS[Math.floor(NICE_BUCKET_MS.length / 2)];
+      var bestScore = Infinity;
+      for (var i = 0; i < NICE_BUCKET_MS.length; i++) {
+        var step = NICE_BUCKET_MS[i];
+        var nb = windowMs / step;
+        if (nb > 220 || nb < 6) continue;
+        var lo = ideal * 0.65;
+        var hi = ideal * 1.75;
+        var score = step < lo ? lo - step : step > hi ? step - hi : Math.abs(step - ideal);
+        if (score < bestScore) {
+          bestScore = score;
+          best = step;
+        }
+      }
+      if (bestScore < Infinity) return best;
+      for (var j = 0; j < NICE_BUCKET_MS.length; j++) {
+        var st = NICE_BUCKET_MS[j];
+        var nbb = windowMs / st;
+        if (nbb <= 220 && nbb >= 3) return st;
+      }
+      return 60 * 60 * 1000;
+    }
+
+    /**
+     * Prepare modal series: fixed UTC window from ``doc.window``, bucket averages (5 min for 24h; else nice step).
+     */
+    function buildModalChartRows(periodKey, rawRows, doc) {
+      var win = doc && doc.window && typeof doc.window === "object" ? doc.window : null;
+      var t0 = win && win.start_epoch != null ? Number(win.start_epoch) : NaN;
+      var t1 = win && win.end_epoch != null ? Number(win.end_epoch) : NaN;
+      if (!isFinite(t0) || !isFinite(t1)) {
+        return { averagedRows: [], windowStartMs: null, windowEndMs: null, bucketMs: null };
+      }
+      var windowStartMs = t0 * 1000;
+      var windowEndMs = t1 * 1000;
+      var sorted = sortMetricRows(rawRows || []);
+      var clipped = [];
+      for (var i = 0; i < sorted.length; i++) {
+        var tr = sorted[i].t;
+        if (tr != null && !isNaN(Number(tr)) && Number(tr) >= windowStartMs && Number(tr) <= windowEndMs) {
+          clipped.push(sorted[i]);
+        }
+      }
+      var bucketMs =
+        periodKey === "last_24_hours"
+          ? 5 * 60 * 1000
+          : pickNiceBucketMs(windowEndMs - windowStartMs, 556);
+      var averagedRows = averageMetricRowsIntoBuckets(clipped, bucketMs, windowStartMs, windowEndMs);
+      return {
+        averagedRows: averagedRows,
+        windowStartMs: windowStartMs,
+        windowEndMs: windowEndMs,
+        bucketMs: bucketMs,
+      };
+    }
+
+    /** UTC x-axis ticks and labels below the plot (returns inner SVG fragment). */
+    function fleetTelemetryXAxisMarkup(windowStartMs, windowEndMs, padL, iw, axisTopY, periodKey) {
+      if (windowStartMs == null || windowEndMs == null || windowEndMs <= windowStartMs) return "";
+      var span = windowEndMs - windowStartMs;
+      var tickCount = 7;
+      var parts = [];
+      var mode = "mdhm";
+      if (span <= 36 * 60 * 60 * 1000) mode = "hm";
+      else if (span <= 14 * 24 * 60 * 60 * 1000) mode = "mdhm";
+      else mode = "md";
+      for (var i = 0; i < tickCount; i++) {
+        var u = tickCount <= 1 ? 0 : i / (tickCount - 1);
+        var tMs = windowStartMs + u * span;
+        var x = padL + u * iw;
+        parts.push(
+          "<line x1=\"" +
+            x.toFixed(2) +
+            "\" y1=\"" +
+            axisTopY.toFixed(2) +
+            "\" x2=\"" +
+            x.toFixed(2) +
+            "\" y2=\"" +
+            (axisTopY + 5).toFixed(2) +
+            "\" stroke=\"currentColor\" stroke-opacity=\"0.35\" stroke-width=\"1\"/>"
+        );
+        var label = "";
+        try {
+          var d = new Date(tMs);
+          if (mode === "hm") {
+            label = d.toLocaleString(undefined, {
+              timeZone: "UTC",
+              month: "short",
+              day: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+              hour12: false,
+            });
+          } else if (mode === "mdhm") {
+            label = d.toLocaleString(undefined, {
+              timeZone: "UTC",
+              month: "short",
+              day: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+              hour12: false,
+            });
+          } else {
+            label = d.toLocaleString(undefined, {
+              timeZone: "UTC",
+              year: "numeric",
+              month: "short",
+              day: "numeric",
+            });
+          }
+        } catch (_e) {
+          label = "";
+        }
+        parts.push(
+          "<text x=\"" +
+            x.toFixed(2) +
+            "\" y=\"" +
+            (axisTopY + 16).toFixed(2) +
+            "\" fill=\"currentColor\" opacity=\"0.55\" font-size=\"8.5\" text-anchor=\"middle\">" +
+            esc(label) +
+            "</text>"
+        );
+      }
+      return "<g class=\"fleet-tel-x-axis\" aria-hidden=\"true\">" + parts.join("") + "</g>";
+    }
+
     /**
      * Build SVG path strings for CPU, RAM, and %%-of-max (temp, load, disk) series.
+     * Optional ``windowOpts``: { windowStartMs, windowEndMs } maps x to full period (sparse data leaves gap).
      */
-    function fleetTelemetryGridAndPaths(chartRows, mm, w, h, padL, padR, padT, padB) {
+    function fleetTelemetryGridAndPaths(chartRows, mm, w, h, padL, padR, padT, padB, windowOpts) {
       var iw = w - padL - padR;
       var ih = h - padT - padB;
       var n = chartRows.length;
-      var tMin = chartRows[0].t != null ? chartRows[0].t : 0;
-      var tMax = chartRows[n - 1].t != null ? chartRows[n - 1].t : tMin + 1;
-      var span = Math.max(1, tMax - tMin);
+      var winS = windowOpts && windowOpts.windowStartMs != null ? Number(windowOpts.windowStartMs) : null;
+      var winE = windowOpts && windowOpts.windowEndMs != null ? Number(windowOpts.windowEndMs) : null;
+      var winMode = winS != null && winE != null && winE > winS;
+      if (!n) {
+        var gridPartsEmpty = [];
+        chartTickPercents().forEach(function (tp) {
+          var gy = chartPctToY(tp, padT, ih);
+          gridPartsEmpty.push(
+            "<line x1=\"" +
+              padL +
+              "\" y1=\"" +
+              gy.toFixed(2) +
+              "\" x2=\"" +
+              (padL + iw) +
+              "\" y2=\"" +
+              gy.toFixed(2) +
+              "\" stroke=\"currentColor\" stroke-opacity=\"0.11\" stroke-width=\"1\"/>"
+          );
+          gridPartsEmpty.push(
+            "<text x=\"" +
+              (padL - 5) +
+              "\" y=\"" +
+              (gy + 3).toFixed(2) +
+              "\" fill=\"currentColor\" opacity=\"0.48\" font-size=\"9\" text-anchor=\"end\">" +
+              tp +
+              "</text>"
+          );
+        });
+        return {
+          gridInner: gridPartsEmpty.join(""),
+          dCpu: "",
+          dMem: "",
+          dTemp: "",
+          dLoad: "",
+          dDisk: "",
+          w: w,
+          h: h,
+        };
+      }
+      var tMin;
+      var tMax;
+      var span;
+      if (winMode) {
+        tMin = winS;
+        tMax = winE;
+        span = Math.max(1, tMax - tMin);
+      } else {
+        tMin = chartRows[0].t != null ? chartRows[0].t : 0;
+        tMax = chartRows[n - 1].t != null ? chartRows[n - 1].t : tMin + 1;
+        span = Math.max(1, tMax - tMin);
+      }
       var xsTime = [];
       for (var xi = 0; xi < n; xi++) {
         var rw = chartRows[xi];
@@ -1558,7 +1823,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         xsTime.push(padL + ((ti - tMin) / span) * iw);
       }
       var useIdxX = false;
-      if (n >= 2) {
+      if (!winMode && n >= 2) {
         var spanMs = tMax - tMin;
         var dupc = 0;
         for (var xj = 1; xj < n; xj++) {
@@ -1680,10 +1945,11 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       return out;
     }
 
-    function renderTelemetrySvgMarkup(gp, strokeScale, idPrefix) {
+    function renderTelemetrySvgMarkup(gp, strokeScale, idPrefix, xAxisMarkup) {
       var sw = strokeScale != null ? strokeScale : 2;
       var swThin = Math.max(1.25, sw - 0.65);
       var p = idPrefix != null && String(idPrefix).trim() !== "" ? String(idPrefix).trim() + "-" : "";
+      var xa = xAxisMarkup != null ? String(xAxisMarkup) : "";
       return (
         "<g id=\"" +
         esc(p + "fleet-chart-grid") +
@@ -1724,7 +1990,8 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         swThin +
         "\" stroke-linejoin=\"round\" stroke-linecap=\"round\" vector-effect=\"non-scaling-stroke\" shape-rendering=\"geometricPrecision\" d=\"" +
         esc(gp.dDisk) +
-        "\"/>"
+        "\"/>" +
+        xa
       );
     }
 
@@ -2007,7 +2274,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       var mm = metricMaximaLoad();
       var chartRows = chartBufResampleTime(bufFull, MAX_CHART_RENDER);
       var gp = fleetTelemetryGridAndPaths(chartRows, mm, w, h, padL, padR, padT, padB);
-      var innerMarkup = renderTelemetrySvgMarkup(gp, 2.25, "");
+      var innerMarkup = renderTelemetrySvgMarkup(gp, 2.25, "", "");
       var svg = el.querySelector("svg.fleet-chart-svg");
       if (!svg) {
         el.innerHTML =
@@ -2024,35 +2291,49 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       svg.setAttribute("viewBox", "0 0 " + w + " " + h);
     }
 
-    function renderTelemetryChartInto(el, bufLike, mm, w, h, idPrefix) {
+    function renderTelemetryChartInto(el, bufLike, mm, w, h, idPrefix, doc, periodKey) {
       if (!el) return;
       var padL = 36;
       var padR = 8;
       var padT = 6;
-      var padB = 14;
-      var norm = chartNormalizeTimes(bufLike || []);
-      if (!norm.length) {
-        el.innerHTML =
-          "<svg class=\"fleet-chart-svg\" xmlns=\"http://www.w3.org/2000/svg\" width=\"100%\" height=\"100%\" viewBox=\"0 0 " +
-          w +
-          " " +
-          h +
-          "\"><text x=\"" +
-          padL +
-          "\" y=\"" +
-          (h / 2) +
-          "\" fill=\"currentColor\" opacity=\"0.45\" font-size=\"11\">No samples in this window.</text></svg>";
-        return;
-      }
-      var chartRows = chartBufResampleTime(norm, MAX_CHART_MODAL);
-      var gp = fleetTelemetryGridAndPaths(chartRows, mm, w, h, padL, padR, padT, padB);
+      var padAxis = 26;
+      var padBPlot = 6;
+      var padB = padBPlot + padAxis;
+      var iwFull = w - padL - padR;
+      var rawRows = chartNormalizeTimes(bufLike || []);
+      var built = buildModalChartRows(periodKey || "", rawRows, doc || {});
+      var chartRows = built.averagedRows || [];
+      var windowOpts =
+        built.windowStartMs != null && built.windowEndMs != null
+          ? { windowStartMs: built.windowStartMs, windowEndMs: built.windowEndMs }
+          : null;
+      var ih = Math.max(1, h - padT - padB);
+      var axisTopY = padT + ih + 2;
+      var xAxis =
+        windowOpts && fleetTelemetryXAxisMarkup(
+          built.windowStartMs,
+          built.windowEndMs,
+          padL,
+          iwFull,
+          axisTopY,
+          periodKey || ""
+        );
+      var gp = fleetTelemetryGridAndPaths(chartRows, mm, w, h, padL, padR, padT, padB, windowOpts || undefined);
+      var emptyHint =
+        !chartRows.length && windowOpts
+          ? "<text x=\"" +
+            ((padL + iwFull) / 2).toFixed(2) +
+            "\" y=\"" +
+            (padT + ih / 2).toFixed(2) +
+            "\" fill=\"currentColor\" opacity=\"0.42\" font-size=\"11\" text-anchor=\"middle\">No samples in this window</text>"
+          : "";
       el.innerHTML =
         "<svg class=\"fleet-chart-svg\" xmlns=\"http://www.w3.org/2000/svg\" width=\"100%\" height=\"100%\" preserveAspectRatio=\"none\" viewBox=\"0 0 " +
         w +
         " " +
         h +
         "\">" +
-        renderTelemetrySvgMarkup(gp, 1.85, idPrefix || "tel") +
+        renderTelemetrySvgMarkup(gp, 1.85, idPrefix || "tel", (xAxis || "") + emptyHint) +
         "</svg>";
     }
 
@@ -2093,13 +2374,14 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         updateMetricMaximaFromAll(mergedNorm);
         var mm = metricMaximaLoad();
         var cw = 600;
-        var ch = 128;
+        var ch = 138;
         for (var ui = 0; ui < periods.length; ui++) {
           var doc2 = docs[ui];
           var slice = [];
           if (doc2 && doc2.ok && Array.isArray(doc2.samples)) slice = samplesToMetricRows(doc2.samples, null);
           var box = document.getElementById(periods[ui][1]);
-          renderTelemetryChartInto(box, slice, mm, cw, ch, periods[ui][2]);
+          var pKey = doc2 && doc2.period ? String(doc2.period) : periods[ui][0];
+          renderTelemetryChartInto(box, slice, mm, cw, ch, periods[ui][2], doc2, pKey);
         }
         if (statusEl) {
           statusEl.textContent =
