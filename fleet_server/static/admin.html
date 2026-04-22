@@ -67,6 +67,20 @@
     </ul>
   </div>
 
+  <button
+    type="button"
+    class="btn btn-sm btn-outline-secondary position-fixed bottom-0 start-0 m-3 shadow-sm"
+    style="z-index: 1040"
+    id="fleet-a11y-overview-btn"
+    data-bs-toggle="modal"
+    data-bs-target="#fleet-a11y-overview-modal"
+    aria-haspopup="dialog"
+    aria-controls="fleet-a11y-overview-modal"
+    aria-label="Open page overview for accessibility (approximate summary, not a screen reader transcript)"
+  >
+    Page overview
+  </button>
+
   <main class="container pb-5">
     <section class="card mb-3 border-secondary-subtle shadow-sm">
       <div class="card-body py-3">
@@ -338,6 +352,61 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
     </div>
   </div>
 
+  <div
+    class="modal fade"
+    id="fleet-a11y-overview-modal"
+    tabindex="-1"
+    aria-labelledby="fleet-a11y-overview-label"
+    aria-hidden="true"
+  >
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 class="modal-title h5" id="fleet-a11y-overview-label">Page overview</h2>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p class="small text-body-secondary mb-3">
+            Approximate summary from this page’s text and controls. Values below are filled when you open this dialog;
+            they are <strong>not</strong> a verbatim JAWS, NVDA, or VoiceOver transcript.
+          </p>
+          <div
+            id="fleet-a11y-transcript-wrap"
+            class="small fleet-mono border rounded p-3 bg-body-secondary text-body"
+            style="white-space: pre-wrap; max-height: min(60vh, 28rem); overflow: auto"
+            aria-live="polite"
+          >
+            <span class="d-block mb-2 fw-semibold">Main title</span>
+            <span class="d-block mb-3" data-fleet-a11y-stub="page_heading">—</span>
+
+            <span class="d-block mb-2 fw-semibold">Version and remotes</span>
+            <span class="d-block mb-1 text-body-secondary small">Version line</span>
+            <span class="d-block mb-2" data-fleet-a11y-stub="version">__STUB_VERSION__</span>
+            <span class="d-block mb-1 text-body-secondary small">Git remote row</span>
+            <span class="d-block mb-2" data-fleet-a11y-stub="git_remote">__STUB_GIT_REMOTE__</span>
+            <span class="d-block mb-1 text-body-secondary small">Self-update status</span>
+            <span class="d-block mb-3" data-fleet-a11y-stub="self_update">__STUB_SELF_UPDATE__</span>
+
+            <span class="d-block mb-2 fw-semibold">Overview tiles</span>
+            <span class="d-block mb-3" data-fleet-a11y-stub="tiles">__STUB_TILES__</span>
+
+            <span class="d-block mb-2 fw-semibold">Jobs by status</span>
+            <span class="d-block mb-3" data-fleet-a11y-stub="job_counts">__STUB_JOB_COUNTS__</span>
+
+            <span class="d-block mb-2 fw-semibold">Active workers</span>
+            <span class="d-block mb-3" data-fleet-a11y-stub="workers">__STUB_WORKERS__</span>
+
+            <span class="d-block mb-2 fw-semibold">Recent jobs (first rows)</span>
+            <span class="d-block mb-3" data-fleet-a11y-stub="recent_jobs">__STUB_RECENT_JOBS__</span>
+
+            <span class="d-block mb-2 fw-semibold">Error banner (if any)</span>
+            <span class="d-block" data-fleet-a11y-stub="error_banner">__STUB_ERROR__</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
   <script src="/admin/ks/js/forge-theme.js"></script>
   <script>
@@ -487,6 +556,57 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;");
+    }
+
+    function fleetA11yPickText(id) {
+      var el = document.getElementById(id);
+      if (!el) return "";
+      var t = (el.textContent || "").replace(/\s+/g, " ").trim();
+      return t;
+    }
+
+    function fleetA11yRecentJobsSummary() {
+      var tbody = document.getElementById("rows");
+      if (!tbody) return "";
+      var lines = [];
+      var trs = tbody.querySelectorAll("tr");
+      var max = Math.min(trs.length, 4);
+      for (var i = 0; i < max; i++) {
+        var row = trs[i];
+        var cells = row.querySelectorAll("td");
+        if (cells.length >= 3) {
+          var status = (cells[0].textContent || "").trim();
+          var what = (cells[1].textContent || "").trim();
+          var fin = (cells[2].textContent || "").trim();
+          if (status || what) {
+            lines.push("• " + status + " · " + what + (fin ? " · " + fin : ""));
+          }
+        } else {
+          var one = (row.textContent || "").trim();
+          if (one) lines.push("• " + one);
+        }
+      }
+      return lines.join("\n");
+    }
+
+    function fillFleetA11yOverviewStubs() {
+      document.querySelectorAll("[data-fleet-a11y-stub]").forEach(function (span) {
+        var key = span.getAttribute("data-fleet-a11y-stub");
+        var val = "";
+        if (key === "version") val = fleetA11yPickText("fleet-version-line");
+        else if (key === "git_remote") val = fleetA11yPickText("fleet-git-remote-row");
+        else if (key === "self_update") val = fleetA11yPickText("fleet-self-update-status");
+        else if (key === "tiles") val = fleetA11yPickText("fleet-tiles");
+        else if (key === "job_counts") val = fleetA11yPickText("by-status");
+        else if (key === "workers") val = fleetA11yPickText("active");
+        else if (key === "recent_jobs") val = fleetA11yRecentJobsSummary();
+        else if (key === "error_banner") val = fleetA11yPickText("err");
+        else if (key === "page_heading") {
+          var h = document.querySelector(".fleet-admin-title");
+          val = h ? (h.textContent || "").trim() : "";
+        }
+        span.textContent = val || "—";
+      });
     }
 
     function metricMaximaLoad() {
@@ -3953,6 +4073,13 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
     document.addEventListener("visibilitychange", function () {
       scheduleNext();
     });
+
+    var fleetA11yModalEl = document.getElementById("fleet-a11y-overview-modal");
+    if (fleetA11yModalEl) {
+      fleetA11yModalEl.addEventListener("show.bs.modal", function () {
+        fillFleetA11yOverviewStubs();
+      });
+    }
 
     setInterval(tick, 500);
     loadSnapshot().then(function () { scheduleNext(); });

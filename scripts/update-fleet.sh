@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # update-fleet.sh — propagate **this dev checkout** to **git** and **local production** (systemd):
 #   submodule sync → semver bump → git commit (all changes by default) → git push → sudo install-update.sh
-#   → optional: update-user.sh when ~/.config/systemd/user/forge-fleet.service exists (no sudo)
+#   (sudo failure is non-fatal) → update-user.sh when ~/.config/systemd/user/forge-fleet.service exists (no sudo)
 #
 # Run from the forge-fleet repo root:
 #   ./scripts/update-fleet.sh
@@ -122,7 +122,10 @@ fi
 
 if [[ "$NO_INSTALL" -eq 0 ]]; then
   echo "[update-fleet] install-update.sh (sudo)…"
-  sudo env FLEET_SRC="$ROOT" "$ROOT/install-update.sh"
+  if ! sudo env FLEET_SRC="$ROOT" "$ROOT/install-update.sh"; then
+    echo "[update-fleet] warning: install-update.sh failed (no TTY/sudo, wrong password, or not system install)." >&2
+    echo "[update-fleet] hint: user installs still refresh below via update-user.sh when a user unit exists; or run: ./scripts/update-fleet.sh --no-install" >&2
+  fi
 else
   echo "[update-fleet] skipped install-update (--no-install)"
 fi

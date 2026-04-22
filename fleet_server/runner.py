@@ -37,9 +37,14 @@ def _docker_executable() -> str:
         "/snap/bin/docker",
         "/var/lib/snapd/snap/bin/docker",
         "/usr/local/bin/docker",
+        "/etc/alternatives/docker",
+        "/usr/bin/docker.io",
     ):
-        if os.path.isfile(p) and os.access(p, os.X_OK):
-            return p
+        try:
+            if Path(p).is_file():
+                return str(Path(p).resolve())
+        except OSError:
+            continue
     return "docker"
 
 
