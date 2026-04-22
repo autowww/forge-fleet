@@ -72,7 +72,6 @@
       <div class="card-body py-3">
         <h2 class="h6 text-uppercase text-body-secondary mb-3">Overview</h2>
         <div id="fleet-tiles" class="fleet-tile-row fleet-one-row mb-2" aria-live="polite">Loading tiles…</div>
-        <div id="fleet-cooldown-strip" class="fleet-cooldown-strip mb-2 d-none" aria-live="polite"></div>
         <div id="fleet-chart-wrap" class="mb-3">
           <div class="small text-body-secondary mb-1 d-flex flex-wrap align-items-center justify-content-between gap-2">
             <span class="text-body-secondary small">
@@ -1126,8 +1125,10 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       "<svg class=\"fleet-tile__mark\" width=\"40\" height=\"32\" viewBox=\"0 0 40 32\" xmlns=\"http://www.w3.org/2000/svg\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.55\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M7 26V14M20 26V6M33 26V18\"/><path d=\"M5 26h30\" opacity=\"0.85\"/></svg>";
     var MARK_THERMAL =
       "<svg class=\"fleet-tile__mark\" width=\"40\" height=\"40\" viewBox=\"0 0 40 40\" xmlns=\"http://www.w3.org/2000/svg\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.55\" stroke-linejoin=\"round\"><path d=\"M22 7v23a6 6 0 1 1-4 0V7a2 2 0 1 1 4 0z\"/></svg>";
+    var MARK_COOLDOWN =
+      "<svg class=\"fleet-tile__mark\" width=\"40\" height=\"40\" viewBox=\"0 0 40 40\" xmlns=\"http://www.w3.org/2000/svg\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"20\" cy=\"22\" r=\"12\"/><path d=\"M20 14v8l5 3\"/></svg>";
 
-    var __fleetRaplPrev = { uj: null, tMs: null };
+  var __fleetRaplPrev = { uj: null, tMs: null };
 
     var GPU_LOGO_BASE = "/admin/static/gpu-logos/";
     function gpuLogoImg(vendor, alt, extraClass) {
@@ -2590,54 +2591,56 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       return h + "h" + (m2 ? " " + m2 + "m" : "");
     }
 
-    function renderFleetCooldownStrip(cs) {
-      var el = document.getElementById("fleet-cooldown-strip");
-      if (!el) return;
-      if (!cs || typeof cs !== "object" || !Object.keys(cs).length) {
-        el.classList.add("d-none");
-        el.innerHTML = "";
-        return;
-      }
-      var order = [
-        ["today", "Today"],
-        ["this_week", "Week"],
-        ["this_month", "Month"],
-        ["this_year", "Year"],
-        ["since_first", "All-time"],
-      ];
-      var parts = [];
-      for (var i = 0; i < order.length; i++) {
-        var key = order[i][0];
-        var label = order[i][1];
-        if (key.charAt(0) === "_") continue;
-        var row = cs[key];
-        if (!row || typeof row !== "object") continue;
-        var ev = row.event_count != null ? Number(row.event_count) : 0;
-        var tot = row.total_cooldown_s != null ? Number(row.total_cooldown_s) : 0;
-        parts.push(
-          "<span class=\"me-3\"><strong>" +
-            esc(label) +
-            "</strong> " +
-            esc(formatCooldownS(tot)) +
-            " <span class=\"text-body-secondary\">(" +
-            esc(String(ev)) +
-            " ev)</span></span>"
-        );
-      }
-      if (!parts.length) {
-        el.classList.add("d-none");
-        el.innerHTML = "";
-        return;
-      }
-      el.classList.remove("d-none");
-      el.innerHTML =
-        "<div class=\"border border-secondary-subtle rounded-2 px-3 py-2 bg-body-tertiary\">" +
-        "<span class=\"text-body-secondary me-2\">LLM cooldown wait</span>" +
-        parts.join("") +
-        "</div>";
+    /** LLM cooldown wait (SQLite), same preset keys as ``cooldown_summary`` meta. */
+    function renderCooldownTile(cs) {
+      if (!cs || typeof cs !== "object") return "";
+      var td = cs.today && typeof cs.today === "object" ? cs.today : null;
+      var tw = cs.this_week && typeof cs.this_week === "object" ? cs.this_week : null;
+      var tm = cs.this_month && typeof cs.this_month === "object" ? cs.this_month : null;
+      var ty = cs.this_year && typeof cs.this_year === "object" ? cs.this_year : null;
+      var all = cs.since_first && typeof cs.since_first === "object" ? cs.since_first : null;
+      if (!td && !tw && !tm && !ty && !all) return "";
+      var todayS = td && td.total_cooldown_s != null && !isNaN(Number(td.total_cooldown_s)) ? Number(td.total_cooldown_s) : 0;
+      var evTo = td && td.event_count != null ? Number(td.event_count) : 0;
+      /* ~90 min cumulative wait today → full “hot” band */
+      var heatIn = Math.min(100, Math.max(0, (todayS / 5400) * 100));
+      var hz = heat3(heatIn);
+      var cls = "fleet-tile fleet-tile--cooldown-" + hz;
+      var weekS = tw && tw.total_cooldown_s != null ? Number(tw.total_cooldown_s) : 0;
+      var monthS = tm && tm.total_cooldown_s != null ? Number(tm.total_cooldown_s) : 0;
+      var yearS = ty && ty.total_cooldown_s != null ? Number(ty.total_cooldown_s) : 0;
+      var allS = all && all.total_cooldown_s != null ? Number(all.total_cooldown_s) : 0;
+      var hintParts = [];
+      if (tw)
+        hintParts.push("Week " + esc(formatCooldownS(weekS)));
+      if (tm)
+        hintParts.push("Mo " + esc(formatCooldownS(monthS)));
+      if (ty)
+        hintParts.push("Yr " + esc(formatCooldownS(yearS)));
+      if (all)
+        hintParts.push("All " + esc(formatCooldownS(allS)));
+      var hint = hintParts.length ? hintParts.join(" · ") : "SQLite · LLM thermal guard";
+      var mem =
+        evTo > 0
+          ? esc(String(evTo)) + " " + (evTo === 1 ? "wait" : "waits") + " today"
+          : "No waits today";
+      return (
+        '<div class="' +
+        cls +
+        '">' +
+        '<div class="fleet-tile__brand">' +
+        tileMark(MARK_COOLDOWN, "Cooldown") +
+        '</div><div class="fleet-tile__value fleet-mono">' +
+        esc(formatCooldownS(todayS)) +
+        '</div><div class="fleet-tile__mem">' +
+        mem +
+        '</div><div class="fleet-tile__hint">' +
+        hint +
+        "</div></div>"
+      );
     }
 
-    function renderTiles(host, energyLedger) {
+    function renderTiles(host, energyLedger, cooldownSummary) {
       var g = host.gpu || {};
       var memHost = host.memory || {};
       var ramPct = memHost.used_pct != null ? Number(memHost.used_pct) : null;
@@ -2942,6 +2945,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
 
       var powerTile = renderPowerTile(host, energyLedger);
       var thermalTile = renderThermalTile(host);
+      var cooldownTile = renderCooldownTile(cooldownSummary);
       return (
         renderCpuCompactTile(host, tCpu) +
         thermalTile +
@@ -2949,6 +2953,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         loadTile +
         diskTile +
         powerTile +
+        cooldownTile +
         gpuBlock
       );
     }
@@ -3473,8 +3478,11 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       await refreshTelemetryChartsFromDb(host, integ.orchestration);
       paintOrchestrationHeader(integ.orchestration);
 
-      document.getElementById("fleet-tiles").innerHTML = renderTiles(host, meta.energy_ledger_kwh || null);
-      renderFleetCooldownStrip(meta.cooldown_summary || null);
+      document.getElementById("fleet-tiles").innerHTML = renderTiles(
+        host,
+        meta.energy_ledger_kwh || null,
+        meta.cooldown_summary || null
+      );
       applyKpiTileAnims(host);
       pushFleetTrendSample(host);
       refreshChartYHint();
