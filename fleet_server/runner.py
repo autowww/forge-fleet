@@ -87,7 +87,8 @@ def run_job(db_path: Path, job_id: str) -> None:
         return
     cid = _extract_cid(err or "", cidfile)
     code = int(proc.returncode if proc.returncode is not None else 1)
-    st = "completed" if code in (0, 1) else "failed"
+    # Container exit 1 means failure (e.g. probe exception); only 0 is success.
+    st = "completed" if code == 0 else "failed"
     conn = store.connect(db_path)
     try:
         store.update_job(

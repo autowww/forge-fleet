@@ -51,8 +51,18 @@ def run_probe() -> dict[str, Any]:
 
 
 def main() -> None:
-    out = run_probe()
-    print(json.dumps(out, sort_keys=True))
+    try:
+        out = run_probe()
+        print(json.dumps(out, sort_keys=True))
+    except Exception as e:  # noqa: BLE001 — surface any mount/parse error as one JSON line for Fleet job stdout
+        print(
+            json.dumps(
+                {"ok": False, "error": str(e), "error_type": type(e).__name__},
+                sort_keys=True,
+            ),
+            flush=True,
+        )
+        raise SystemExit(1) from e
 
 
 if __name__ == "__main__":

@@ -17,7 +17,9 @@ FLEET_BEARER_TOKEN=change-me
 # Optional: force admin "Update from git" behavior — user (default) vs system (/opt install shows root paste command):
 # FLEET_SELF_UPDATE_INSTALL_PROFILE=user
 # FLEET_SELF_UPDATE_INSTALL_PROFILE=system
-# FLEET_LENSES_WORKSPACE_ROOT=/path/to/workspace
+# Same path Lenses uses as workspace root (where ``.lenses-local/`` lives). When set, Test Fleet writes
+# ``.lenses-local/fleet-test-attention.json`` so Studio can show the Attention bell item.
+# FLEET_LENSES_WORKSPACE_ROOT=/abs/path/to/your/repo-or-workspace
 # FLEET_FORGE_CONSOLE_URL=http://127.0.0.1:8787
 # FLEET_GIT_SHA=
 
