@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import threading
 import time
@@ -14,6 +15,48 @@ from fleet_server import store
 
 _PROCS: dict[str, subprocess.Popen[str]] = {}
 _proc_lock = threading.Lock()
+
+# systemd --user often ships a tiny PATH; Docker may live under /usr/bin or Snap paths.
+_FALLBACK_PATH_PREFIX = (
+    "/snap/bin:/var/lib/snapd/snap/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+)
+
+
+def _docker_executable() -> str:
+    """Resolve ``docker`` for ``subprocess`` (override with ``FLEET_DOCKER_BIN``)."""
+    override = str(os.environ.get("FLEET_DOCKER_BIN") or "").strip()
+    if override:
+        return override
+    merged = _FALLBACK_PATH_PREFIX + os.pathsep + (os.environ.get("PATH") or "")
+    found = shutil.which("docker", path=merged)
+    if found:
+        return found
+    for p in (
+        "/usr/bin/docker",
+        "/bin/docker",
+        "/snap/bin/docker",
+        "/var/lib/snapd/snap/bin/docker",
+        "/usr/local/bin/docker",
+    ):
+        if os.path.isfile(p) and os.access(p, os.X_OK):
+            return p
+    return "docker"
+
+
+def _merge_path_for_subprocess(env: dict[str, str]) -> None:
+    cur = (env.get("PATH") or "").strip()
+    if cur:
+        env["PATH"] = _FALLBACK_PATH_PREFIX + os.pathsep + cur
+    else:
+        env["PATH"] = _FALLBACK_PATH_PREFIX
+
+
+def _resolve_argv_docker(argv: list[str]) -> list[str]:
+    if not argv or str(argv[0]) != "docker":
+        return argv
+    out = list(argv)
+    out[0] = _docker_executable()
+    return out
 
 
 def _extract_cid(stderr: str, cidfile: str | None) -> str | None:
@@ -55,6 +98,8 @@ def run_job(db_path: Path, job_id: str) -> None:
             conn.close()
         return
     env = os.environ.copy()
+    _merge_path_for_subprocess(env)
+    argv = _resolve_argv_docker(list(argv))
     cidfile: str | None = None
     if "--cidfile" in argv:
         i = argv.index("--cidfile")
@@ -131,7 +176,7 @@ def dispose_container(container_id: str) -> tuple[bool, str]:
         return False, "invalid_container_id"
     try:
         r = subprocess.run(
-            ["docker", "rm", "-f", cid],
+            [_docker_executable(), "rm", "-f", cid],
             capture_output=True,
             text=True,
             timeout=120,

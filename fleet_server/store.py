@@ -324,15 +324,24 @@ def workload_title_for_job(kind: str, session_id: str, meta: dict[str, Any]) -> 
     return k or "Job"
 
 
-def list_jobs_summary(conn: sqlite3.Connection, *, limit: int = 150) -> list[dict[str, Any]]:
+def count_jobs(conn: sqlite3.Connection) -> int:
+    row = conn.execute("SELECT COUNT(*) AS n FROM jobs").fetchone()
+    if row is None:
+        return 0
+    return int(row["n"] or 0)
+
+
+def list_jobs_summary(conn: sqlite3.Connection, *, limit: int = 10, offset: int = 0) -> list[dict[str, Any]]:
+    lim = max(1, min(int(limit), 200))
+    off = max(0, int(offset))
     cur = conn.execute(
         """
         SELECT id, kind, status, argv_json, meta_json, session_id, exit_code, container_id, created, updated
         FROM jobs
         ORDER BY updated DESC
-        LIMIT ?
+        LIMIT ? OFFSET ?
         """,
-        (limit,),
+        (lim, off),
     )
     rows: list[dict[str, Any]] = []
     for r in cur.fetchall():

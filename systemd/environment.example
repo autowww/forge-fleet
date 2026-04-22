@@ -36,5 +36,8 @@ FLEET_BEARER_TOKEN=change-me
 # /sys/class/powercap/*/energy_uj for the service user; NVIDIA uses nvidia-smi in PATH.
 #
 # systemd --user and system services often start with a minimal PATH. The install scripts set a
-# standard PATH in the unit; uncomment below only if you must override (e.g. CUDA before /usr/bin):
-# PATH=/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# standard PATH in the unit (includes /snap/bin for Docker snap). Override only if needed (e.g. CUDA first):
+# PATH=/usr/local/cuda/bin:/snap/bin:/var/lib/snapd/snap/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+#
+# If ``docker`` is still not found, set an absolute binary (Fleet resolves this for ``docker_argv`` jobs):
+# FLEET_DOCKER_BIN=/path/to/docker

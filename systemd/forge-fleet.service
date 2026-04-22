@@ -29,7 +29,7 @@ Group=forge-fleet
 SupplementaryGroups=docker
 Environment=PYTHONUNBUFFERED=1
 # systemd often starts with a minimal PATH; docker is usually under /usr/bin. Override in forge-fleet.env if needed (e.g. prepend CUDA).
-Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PATH=/snap/bin:/var/lib/snapd/snap/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # Must be the forge-fleet checkout root (git submodules: kitchensink + blueprints) so
 # `python3 -m fleet_server` resolves and /admin/ can load kitchensink assets.
 WorkingDirectory=/opt/forge-fleet

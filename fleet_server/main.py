@@ -289,7 +289,25 @@ class FleetHandler(BaseHTTPRequestHandler):
             conn = store.connect(self.server.db_path)
             try:
                 by_status = store.count_jobs_by_status(conn)
-                recent = store.list_jobs_summary(conn, limit=150)
+                qsnap = parse_qs(urlparse(self.path).query)
+
+                def _snap_int(name: str, default: int, lo: int, hi: int) -> int:
+                    raw = (qsnap.get(name) or [str(default)])[0].strip()
+                    try:
+                        v = int(raw)
+                    except (TypeError, ValueError):
+                        v = default
+                    return max(lo, min(hi, v))
+
+                jobs_limit = _snap_int("jobs_limit", 10, 1, 50)
+                jobs_offset = _snap_int("jobs_offset", 0, 0, 500_000)
+                jobs_total = store.count_jobs(conn)
+                if jobs_total > 0:
+                    max_off = max(0, ((jobs_total - 1) // jobs_limit) * jobs_limit)
+                    jobs_offset = min(jobs_offset, max_off)
+                else:
+                    jobs_offset = 0
+                recent = store.list_jobs_summary(conn, limit=jobs_limit, offset=jobs_offset)
                 core_s = store.sum_accounted_core_seconds(conn)
                 vrow = store.get_fleet_version_row(conn)
                 token_set = bool(str(getattr(self.server, "expected_token", "") or "").strip())
@@ -339,6 +357,9 @@ class FleetHandler(BaseHTTPRequestHandler):
                     },
                     "jobs_by_status": by_status,
                     "jobs_recent": recent,
+                    "jobs_recent_total": jobs_total,
+                    "jobs_recent_limit": jobs_limit,
+                    "jobs_recent_offset": jobs_offset,
                     "active_workers": runner.list_active_workers(self.server.db_path),
                 }
                 try:

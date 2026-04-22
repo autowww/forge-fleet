@@ -187,7 +187,7 @@
       <div class="card-body">
         <h2 class="h6 text-uppercase text-body-secondary mb-1">Recent jobs</h2>
         <p class="small text-body-secondary mb-3">
-          Summary below; IDs, Docker command line, and logs open under <strong>Details</strong>.
+          Latest <strong>10</strong> jobs per page; use <strong>Previous</strong> / <strong>Next</strong> for older rows. Technical fields are under <strong>Details</strong>.
         </p>
         <div class="table-responsive">
           <table class="table table-sm table-hover align-middle mb-0">
@@ -203,6 +203,7 @@
             <tbody id="rows"><tr><td colspan="5" class="text-body-secondary">Loading jobs…</td></tr></tbody>
           </table>
         </div>
+        <div id="fleet-jobs-pager" class="mt-2" aria-label="Recent jobs pagination"></div>
       </div>
     </section>
   </main>
@@ -409,6 +410,9 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
     /** JSON: { tempC, loadPct, diskUi } peaks for %-of-max series (diskUi = storage tile 0–100 scale) */
     var LS_METRIC_MAX = "forgeFleetMetricMaximaV2";
     var POLL_MS = 3000;
+    /** Recent jobs table: page size and offset (passed as ``jobs_limit`` / ``jobs_offset`` on snapshot). */
+    var fleetJobsPageSize = 10;
+    var fleetJobsOffset = 0;
     var __fleetLocalGitSha = "";
     var __fleetSelfUpdateConfigured = false;
     /** Snapshot ``meta.self_update`` (install_profile, system_root_install_command, …). */
@@ -3549,11 +3553,54 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       }
     }
 
+    function renderFleetJobsPager(data, rows) {
+      var pager = document.getElementById("fleet-jobs-pager");
+      if (!pager) return;
+      var jtot = data.jobs_recent_total != null ? Number(data.jobs_recent_total) : 0;
+      var jlim = data.jobs_recent_limit != null ? Number(data.jobs_recent_limit) : fleetJobsPageSize;
+      var joff = data.jobs_recent_offset != null ? Number(data.jobs_recent_offset) : fleetJobsOffset;
+      if (!isNaN(jlim) && jlim > 0) fleetJobsPageSize = jlim;
+      if (!isNaN(joff) && joff >= 0) fleetJobsOffset = joff;
+      if (jtot <= 0) {
+        pager.innerHTML = "";
+        return;
+      }
+      var n = rows.length;
+      var start = n === 0 ? 0 : joff + 1;
+      var end = joff + n;
+      var prevDis = joff <= 0 ? " disabled" : "";
+      var nextDis = end >= jtot ? " disabled" : "";
+      pager.innerHTML =
+        '<nav class="d-flex flex-wrap align-items-center justify-content-between gap-2 small" aria-label="Job pages">' +
+        '<span class="text-body-secondary">Showing <strong>' +
+        start +
+        "</strong>–<strong>" +
+        end +
+        '</strong> of <strong>' +
+        jtot +
+        '</strong> · ' +
+        jlim +
+        ' per page</span>' +
+        '<div class="btn-group btn-group-sm" role="group">' +
+        '<button type="button" class="btn btn-outline-secondary fleet-jobs-page-prev"' +
+        prevDis +
+        '>Previous</button>' +
+        '<button type="button" class="btn btn-outline-secondary fleet-jobs-page-next"' +
+        nextDis +
+        '>Next</button>' +
+        "</div></nav>";
+    }
+
     async function loadSnapshot() {
       setErr("");
       var res;
       try {
-        res = await fetch("/v1/admin/snapshot", { headers: authHeaders(), cache: "no-store" });
+        var snapPath =
+          "/v1/admin/snapshot?jobs_limit=" +
+          encodeURIComponent(String(fleetJobsPageSize)) +
+          "&jobs_offset=" +
+          encodeURIComponent(String(fleetJobsOffset));
+        res = await fetch(snapPath, { headers: authHeaders(), cache: "no-store" });
       } catch (e) {
         setErr("Network: " + e);
         return false;
@@ -3702,6 +3749,8 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
           }).join("")
         : "<tr><td colspan=\"5\" class=\"text-body-secondary\">No jobs recorded.</td></tr>";
 
+      renderFleetJobsPager(data, rows);
+
       return true;
     }
 
@@ -3750,6 +3799,20 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         ev.preventDefault();
         var jid = detBtn.getAttribute("data-job-id");
         if (jid) void openFleetJobDetail(jid);
+        return;
+      }
+      var prevPg = t.closest ? t.closest(".fleet-jobs-page-prev") : null;
+      if (prevPg && !prevPg.disabled) {
+        ev.preventDefault();
+        fleetJobsOffset = Math.max(0, fleetJobsOffset - fleetJobsPageSize);
+        void loadSnapshot().then(scheduleNext);
+        return;
+      }
+      var nextPg = t.closest ? t.closest(".fleet-jobs-page-next") : null;
+      if (nextPg && !nextPg.disabled) {
+        ev.preventDefault();
+        fleetJobsOffset += fleetJobsPageSize;
+        void loadSnapshot().then(scheduleNext);
         return;
       }
       if (t.classList.contains("fleet-svc-start")) {
