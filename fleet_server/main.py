@@ -521,11 +521,17 @@ class FleetHandler(BaseHTTPRequestHandler):
                 {
                     "ok": True,
                     "id": row["id"],
+                    "kind": row.get("kind"),
                     "status": row["status"],
+                    "session_id": row.get("session_id") or "",
+                    "argv": row.get("argv") if isinstance(row.get("argv"), list) else [],
+                    "meta": row.get("meta") if isinstance(row.get("meta"), dict) else {},
                     "stdout": row.get("stdout") or "",
                     "stderr": row.get("stderr") or "",
                     "exit_code": row.get("exit_code"),
                     "container_id": row.get("container_id"),
+                    "created": row.get("created"),
+                    "updated": row.get("updated"),
                 },
             )
             return

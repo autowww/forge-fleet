@@ -185,25 +185,47 @@
 
     <section class="card mb-3 border-secondary-subtle shadow-sm">
       <div class="card-body">
-        <h2 class="h6 text-uppercase text-body-secondary mb-3">Recent jobs</h2>
+        <h2 class="h6 text-uppercase text-body-secondary mb-1">Recent jobs</h2>
+        <p class="small text-body-secondary mb-3">
+          Summary below; IDs, Docker command line, and logs open under <strong>Details</strong>.
+        </p>
         <div class="table-responsive">
-          <table class="table table-sm table-hover align-middle mb-0 fleet-mono">
+          <table class="table table-sm table-hover align-middle mb-0">
             <thead class="table-light">
               <tr>
-                <th>Status</th>
-                <th>ID</th>
-                <th>Session</th>
-                <th>Exit</th>
-                <th>Updated</th>
-                <th>Argv preview</th>
+                <th scope="col">Status</th>
+                <th scope="col">What ran</th>
+                <th scope="col">Finished</th>
+                <th scope="col">Outcome</th>
+                <th scope="col" class="text-end">Details</th>
               </tr>
             </thead>
-            <tbody id="rows"><tr><td colspan="6" class="text-body-secondary">Loading jobs…</td></tr></tbody>
+            <tbody id="rows"><tr><td colspan="5" class="text-body-secondary">Loading jobs…</td></tr></tbody>
           </table>
         </div>
       </div>
     </section>
   </main>
+
+  <div
+    class="modal fade"
+    id="fleet-job-detail-modal"
+    tabindex="-1"
+    aria-labelledby="fleet-job-detail-modal-label"
+    aria-hidden="true"
+  >
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="fleet-job-detail-modal-label">Job details</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div id="fleet-job-detail-body" class="small text-body-secondary">Loading…</div>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <div
     class="modal fade"
@@ -3025,6 +3047,143 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       return '<span class="' + c + '">' + esc(st || "?") + "</span>";
     }
 
+    /** Human-readable job outcome for tables and detail header. */
+    function jobOutcomeHuman(j) {
+      var st = String(j.status || "").toLowerCase();
+      var ex = j.exit_code;
+      if (st === "queued") return { cls: "text-body-secondary", text: "Queued" };
+      if (st === "running") return { cls: "text-warning", text: "Running…" };
+      if (st === "cancelled") return { cls: "text-body-secondary", text: "Cancelled" };
+      if (st === "failed") {
+        if (ex != null && ex !== "") return { cls: "text-danger", text: "Failed · exit " + ex };
+        return { cls: "text-danger", text: "Failed" };
+      }
+      if (st === "completed") {
+        if (ex === 0 || ex === "0") return { cls: "text-success", text: "Succeeded" };
+        if (ex != null && ex !== "") return { cls: "text-danger", text: "Finished · exit " + ex };
+        return { cls: "text-success", text: "Finished" };
+      }
+      return { cls: "text-body-secondary", text: String(j.status || "—") };
+    }
+
+    function fleetJobArgvShell(argv) {
+      if (!argv || !argv.length) return "";
+      return argv
+        .map(function (x) {
+          var s = String(x);
+          if (/[\s'"\\]/.test(s)) return "'" + s.replace(/'/g, "'\\''") + "'";
+          return s;
+        })
+        .join(" ");
+    }
+
+    function renderFleetJobDetailPayload(j) {
+      if (!j || !j.ok) {
+        return "<p class=\"text-danger mb-0\">Could not load job.</p>";
+      }
+      var oid = jobOutcomeHuman(j);
+      var parts = [];
+      parts.push("<dl class=\"row mb-3 small\">");
+      parts.push("<dt class=\"col-sm-3 text-body-secondary\">Status</dt><dd class=\"col-sm-9\">" + statusPill(j.status) + "</dd>");
+      parts.push(
+        "<dt class=\"col-sm-3 text-body-secondary\">Outcome</dt><dd class=\"col-sm-9\"><span class=\"" +
+          oid.cls +
+          "\">" +
+          esc(oid.text) +
+          "</span></dd>"
+      );
+      parts.push(
+        "<dt class=\"col-sm-3 text-body-secondary\">Job ID</dt><dd class=\"col-sm-9\"><code class=\"fleet-mono user-select-all\">" +
+          esc(j.id || "") +
+          "</code></dd>"
+      );
+      if (j.session_id)
+        parts.push(
+          "<dt class=\"col-sm-3 text-body-secondary\">Session</dt><dd class=\"col-sm-9\"><code class=\"fleet-mono user-select-all\">" +
+            esc(j.session_id) +
+            "</code></dd>"
+        );
+      if (j.kind) parts.push("<dt class=\"col-sm-3 text-body-secondary\">Kind</dt><dd class=\"col-sm-9\">" + esc(j.kind) + "</dd>");
+      if (j.container_id)
+        parts.push(
+          "<dt class=\"col-sm-3 text-body-secondary\">Container</dt><dd class=\"col-sm-9\"><code class=\"fleet-mono\">" +
+            esc(j.container_id) +
+            "</code></dd>"
+        );
+      if (j.created != null)
+        parts.push("<dt class=\"col-sm-3 text-body-secondary\">Created</dt><dd class=\"col-sm-9\">" + esc(fmtTime(j.created)) + "</dd>");
+      if (j.updated != null)
+        parts.push("<dt class=\"col-sm-3 text-body-secondary\">Updated</dt><dd class=\"col-sm-9\">" + esc(fmtTime(j.updated)) + "</dd>");
+      parts.push("</dl>");
+      var meta = j.meta && typeof j.meta === "object" ? j.meta : {};
+      if (Object.keys(meta).length) {
+        parts.push("<h6 class=\"text-body-secondary text-uppercase small mb-2\">Meta (JSON)</h6>");
+        parts.push(
+          "<pre class=\"fleet-mono small bg-body-secondary border rounded p-2 mb-3\" style=\"max-height:12rem;overflow:auto\">" +
+            esc(JSON.stringify(meta, null, 2)) +
+            "</pre>"
+        );
+      }
+      if (j.argv && j.argv.length) {
+        parts.push("<h6 class=\"text-body-secondary text-uppercase small mb-2\">Docker command</h6>");
+        parts.push(
+          "<pre class=\"fleet-mono small bg-body-secondary border rounded p-2 mb-3\" style=\"max-height:14rem;overflow:auto;white-space:pre-wrap\">" +
+            esc(fleetJobArgvShell(j.argv)) +
+            "</pre>"
+        );
+      }
+      var out = (j.stdout || "").trim();
+      var err = (j.stderr || "").trim();
+      if (out) {
+        parts.push("<h6 class=\"text-body-secondary text-uppercase small mb-2\">Stdout</h6>");
+        parts.push(
+          "<pre class=\"fleet-mono small bg-body-secondary border rounded p-2 mb-3\" style=\"max-height:14rem;overflow:auto;white-space:pre-wrap\">" +
+            esc(out.length > 120000 ? out.slice(0, 120000) + "\n… truncated" : out) +
+            "</pre>"
+        );
+      }
+      if (err) {
+        parts.push("<h6 class=\"text-body-secondary text-uppercase small mb-2\">Stderr</h6>");
+        parts.push(
+          "<pre class=\"fleet-mono small bg-danger-subtle border border-danger-subtle rounded p-2 mb-0\" style=\"max-height:14rem;overflow:auto;white-space:pre-wrap\">" +
+            esc(err.length > 120000 ? err.slice(0, 120000) + "\n… truncated" : err) +
+            "</pre>"
+        );
+      }
+      return parts.join("");
+    }
+
+    async function openFleetJobDetail(jobId) {
+      var el = document.getElementById("fleet-job-detail-modal");
+      var body = document.getElementById("fleet-job-detail-body");
+      if (!el || !body) return;
+      body.innerHTML = "<p class=\"text-body-secondary mb-0\">Loading…</p>";
+      if (typeof bootstrap !== "undefined" && bootstrap.Modal) {
+        bootstrap.Modal.getOrCreateInstance(el).show();
+      }
+      try {
+        var res = await fetch("/v1/jobs/" + encodeURIComponent(jobId), { headers: authHeaders(), cache: "no-store" });
+        var j = {};
+        try {
+          j = await res.json();
+        } catch (_e) {
+          j = {};
+        }
+        if (!res.ok) {
+          body.innerHTML =
+            "<p class=\"text-danger mb-0\">HTTP " +
+            res.status +
+            " — " +
+            esc(String(j.error || res.statusText || "error")) +
+            "</p>";
+          return;
+        }
+        body.innerHTML = renderFleetJobDetailPayload(j);
+      } catch (e) {
+        body.innerHTML = "<p class=\"text-danger mb-0\">" + esc(String(e)) + "</p>";
+      }
+    }
+
     function authHeaders() {
       var t = (localStorage.getItem(LS) || "").trim();
       var h = { Accept: "application/json" };
@@ -3495,25 +3654,53 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
 
       var act = data.active_workers || [];
       document.getElementById("active").innerHTML = act.length
-        ? "<div class=\"table-responsive\"><table class=\"table table-sm table-bordered mb-0 fleet-mono\"><thead><tr><th>PID</th><th>Job</th><th>Session</th><th>Argv</th></tr></thead><tbody>" +
+        ? "<div class=\"table-responsive\"><table class=\"table table-sm table-bordered mb-0\"><thead><tr><th>PID</th><th>Job</th><th>Session</th><th class=\"text-body-secondary small\">Command (abbrev.)</th></tr></thead><tbody>" +
           act.map(function (w) {
-            return "<tr><td>" + esc(w.pid) + "</td><td>" + esc(w.job_id) + "</td><td>" + esc(w.session_id || "—") +
-              "</td><td>" + esc(w.argv_preview || "") + "</td></tr>";
+            var ap = String(w.argv_preview || "");
+            if (ap.length > 96) ap = ap.slice(0, 94) + "…";
+            return (
+              "<tr><td class=\"fleet-mono small\">" +
+              esc(w.pid) +
+              "</td><td><code class=\"fleet-mono small\">" +
+              esc(String(w.job_id || "").slice(0, 12)) +
+              (String(w.job_id || "").length > 12 ? "…" : "") +
+              "</code></td><td class=\"small\">" +
+              esc(w.session_id || "—") +
+              "</td><td class=\"fleet-mono small text-body-secondary\" title=\"" +
+              esc(w.argv_preview || "") +
+              "\">" +
+              esc(ap) +
+              "</td></tr>"
+            );
           }).join("") + "</tbody></table></div>"
         : "<span class=\"text-body-secondary\">No subprocesses running.</span>";
 
       var rows = data.jobs_recent || [];
       document.getElementById("rows").innerHTML = rows.length
         ? rows.map(function (j) {
-            return "<tr>" +
-              "<td>" + statusPill(j.status) + "</td>" +
-              "<td>" + esc(j.id) + "</td>" +
-              "<td>" + esc(j.session_id || "—") + "</td>" +
-              "<td>" + esc(j.exit_code != null ? j.exit_code : "—") + "</td>" +
-              "<td>" + esc(fmtTime(j.updated)) + "</td>" +
-              "<td>" + esc(j.argv_preview || "") + "</td></tr>";
+            var oid = jobOutcomeHuman(j);
+            var title = j.workload_title || "Job";
+            var shortId = j.id_short || (j.id ? String(j.id).slice(0, 10) + (String(j.id).length > 10 ? "…" : "") : "—");
+            return (
+              "<tr>" +
+              "<td class=\"text-nowrap\">" +
+              statusPill(j.status) +
+              "</td><td><div class=\"fw-medium\">" +
+              esc(title) +
+              "</div><div class=\"text-body-secondary small\">Id <code class=\"fleet-mono\">" +
+              esc(shortId) +
+              "</code></div></td><td class=\"small text-body-secondary text-nowrap\">" +
+              esc(fmtTime(j.updated)) +
+              "</td><td><span class=\"" +
+              oid.cls +
+              "\">" +
+              esc(oid.text) +
+              "</span></td><td class=\"text-end\"><button type=\"button\" class=\"btn btn-sm btn-outline-secondary fleet-job-detail-btn\" data-job-id=\"" +
+              esc(j.id) +
+              "\">Details</button></td></tr>"
+            );
           }).join("")
-        : "<tr><td colspan=\"6\" class=\"text-body-secondary\">No jobs recorded.</td></tr>";
+        : "<tr><td colspan=\"5\" class=\"text-body-secondary\">No jobs recorded.</td></tr>";
 
       return true;
     }
@@ -3558,6 +3745,13 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
     document.addEventListener("click", function (ev) {
       var t = ev.target;
       if (!t || !t.getAttribute) return;
+      var detBtn = t.closest ? t.closest(".fleet-job-detail-btn") : null;
+      if (detBtn && detBtn.getAttribute) {
+        ev.preventDefault();
+        var jid = detBtn.getAttribute("data-job-id");
+        if (jid) void openFleetJobDetail(jid);
+        return;
+      }
       if (t.classList.contains("fleet-svc-start")) {
         var sid = t.getAttribute("data-svc-id");
         if (sid) forgeSvcPost("/v1/container-services/" + encodeURIComponent(sid) + "/start", "start sent for " + sid);

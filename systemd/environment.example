@@ -35,5 +35,6 @@ FLEET_BEARER_TOKEN=change-me
 # Energy uses the same sampling cadence as telemetry. RAPL needs readable
 # /sys/class/powercap/*/energy_uj for the service user; NVIDIA uses nvidia-smi in PATH.
 #
-# If nvidia-smi lives outside default systemd PATH (e.g. CUDA), set a full PATH (required keys only):
+# systemd --user and system services often start with a minimal PATH. The install scripts set a
+# standard PATH in the unit; uncomment below only if you must override (e.g. CUDA before /usr/bin):
 # PATH=/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin

@@ -141,7 +141,7 @@ Optional: `FLEET_LENSES_REPO_ROOT` — if the bundled `fleet_server/host_cpu_pro
 docker compose up --build
 ```
 
-Default compose maps port **18765**, mounts **`forge-fleet-data`** on `FLEET_DATA_DIR` so **Recent jobs** in `/admin/` survive container restarts, and passes Docker socket for `docker run`. Set `FLEET_BEARER_TOKEN` in `.env` for non-dev use.
+Default compose maps port **18765**, mounts **`forge-fleet-data`** on `FLEET_DATA_DIR` so **Recent jobs** in `/admin/` survive container restarts, and passes Docker socket for `docker run`. Set `FLEET_BEARER_TOKEN` in `.env` for non-dev use. In `/admin/`, **Recent jobs** is a short human summary (status, workload label, time, outcome); **Details** opens a modal with full job id, session, Docker argv, meta JSON, and stdout/stderr (via `GET /v1/jobs/{id}`).
 
 For a **host install from git** (not Compose), prefer **`./git-install.sh`** after clone — see **[docs/GIT-INSTALL.md](docs/GIT-INSTALL.md)**.
 

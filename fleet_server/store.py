@@ -306,10 +306,28 @@ def count_running_jobs_by_container_class(conn: sqlite3.Connection) -> dict[str,
     return out
 
 
+def workload_title_for_job(kind: str, session_id: str, meta: dict[str, Any]) -> str:
+    """Short human label for admin tables (not a stable API contract)."""
+    if not isinstance(meta, dict):
+        meta = {}
+    cc = str(meta.get("container_class") or "").strip().lower()
+    sid = (session_id or "").strip()
+    if cc == "host_cpu_probe":
+        return "Test Fleet (host CPU probe)" if sid.startswith("test-fleet-") else "Host CPU probe"
+    if cc == "empty":
+        return "Empty container (internal)"
+    if cc:
+        return cc.replace("_", " ").strip().title()
+    k = str(kind or "").strip().lower()
+    if k == "docker_argv":
+        return "Docker workload"
+    return k or "Job"
+
+
 def list_jobs_summary(conn: sqlite3.Connection, *, limit: int = 150) -> list[dict[str, Any]]:
     cur = conn.execute(
         """
-        SELECT id, kind, status, argv_json, session_id, exit_code, container_id, created, updated
+        SELECT id, kind, status, argv_json, meta_json, session_id, exit_code, container_id, created, updated
         FROM jobs
         ORDER BY updated DESC
         LIMIT ?
@@ -322,12 +340,23 @@ def list_jobs_summary(conn: sqlite3.Connection, *, limit: int = 150) -> list[dic
         preview = " ".join(str(x) for x in argv[:24])
         if len(preview) > 280:
             preview = preview[:280] + "…"
+        try:
+            meta = json.loads(r["meta_json"] or "{}")
+        except json.JSONDecodeError:
+            meta = {}
+        if not isinstance(meta, dict):
+            meta = {}
+        jid = str(r["id"] or "")
+        id_short = (jid[:10] + "…") if len(jid) > 10 else jid
+        sid = r["session_id"] or ""
         rows.append(
             {
-                "id": r["id"],
+                "id": jid,
+                "id_short": id_short,
                 "kind": r["kind"],
                 "status": r["status"],
-                "session_id": r["session_id"] or "",
+                "session_id": sid,
+                "workload_title": workload_title_for_job(str(r["kind"] or ""), sid, meta),
                 "argv_preview": preview,
                 "exit_code": r["exit_code"],
                 "container_id": r["container_id"],
