@@ -75,20 +75,30 @@
         <div id="fleet-cooldown-strip" class="fleet-cooldown-strip mb-2 d-none" aria-live="polite"></div>
         <div id="fleet-chart-wrap" class="mb-3">
           <div class="small text-body-secondary mb-1 d-flex flex-wrap align-items-center justify-content-between gap-2">
-            <span>
-              <span class="text-body">CPU and memory</span>
+            <span class="text-body-secondary small">
+              <span class="text-body">Telemetry</span>
               <span class="ms-1" style="color:#34d399" aria-hidden="true">●</span> CPU
-              <span class="ms-2" style="color:#38bdf8" aria-hidden="true">●</span> RAM
+              <span class="ms-1" style="color:#38bdf8" aria-hidden="true">●</span> RAM
+              <span class="ms-1" style="color:#fb923c" aria-hidden="true">●</span> Temp %max
+              <span class="ms-1" style="color:#eab308" aria-hidden="true">●</span> Load %max
+              <span class="ms-1" style="color:#c084fc" aria-hidden="true">●</span> Disk I/O %max
             </span>
             <span class="fleet-chart-time-hint" id="fleet-chart-y-hint"
-              >Older left · recent right · ~1h while this tab is open (restored after reload) · Y scale 0–1–10–50–100</span>
+              >Older left · recent right · SQLite + live tail · Temp/load/disk vs max seen (stored)</span>
             <span class="d-flex flex-wrap align-items-center gap-2">
               <label class="small text-body-secondary mb-0 d-flex align-items-center gap-1"
                 ><input type="checkbox" id="fleet-chart-linear-y" class="form-check-input" /> Linear 0–100% Y</label>
               <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-refresh-metrics-btn" title="Fetch host metrics now">Refresh metrics</button>
             </span>
           </div>
-          <div id="fleet-load-chart" class="fleet-chart-box" role="img" aria-label="CPU and RAM history, oldest on the left, newest on the right, piecewise linear"></div>
+          <div
+            id="fleet-load-chart"
+            class="fleet-chart-box fleet-chart-box--clickable"
+            role="img"
+            tabindex="0"
+            title="Click for 24h, week, month, and year history"
+            aria-label="Host telemetry history (CPU, RAM, temperature, load, disk). Press Enter or click for extended history."
+          ></div>
         </div>
         <div class="alert alert-danger py-2 px-3 mb-0 small d-none" id="err" role="alert"></div>
       </div>
@@ -263,6 +273,48 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
     </div>
   </div>
 
+  <div
+    class="modal fade"
+    id="fleet-tel-history-modal"
+    tabindex="-1"
+    aria-labelledby="fleet-tel-history-modal-label"
+    aria-hidden="true"
+  >
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="fleet-tel-history-modal-label">Telemetry history</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p class="small text-body-secondary mb-2">
+            Same series as the overview chart. Orange / yellow / violet are <strong>% of the maximum ever recorded</strong> on this browser for
+            temperature (°C), load (normalized to your CPU scale), and disk activity on the same 0–100 scale as the Storage tile (busy %, MB/s-scaled activity, or disk space). Maxima update as new samples arrive.
+          </p>
+          <p class="small mb-3" id="fleet-tel-hist-status" aria-live="polite"></p>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <div class="small fw-semibold mb-1">Last 24 hours</div>
+              <div id="fleet-tel-chart-24h" class="fleet-chart-box fleet-tel-modal-chart"></div>
+            </div>
+            <div class="col-md-6">
+              <div class="small fw-semibold mb-1">Last 7 days</div>
+              <div id="fleet-tel-chart-7d" class="fleet-chart-box fleet-tel-modal-chart"></div>
+            </div>
+            <div class="col-md-6">
+              <div class="small fw-semibold mb-1">Last month</div>
+              <div id="fleet-tel-chart-1mo" class="fleet-chart-box fleet-tel-modal-chart"></div>
+            </div>
+            <div class="col-md-6">
+              <div class="small fw-semibold mb-1">Last year</div>
+              <div id="fleet-tel-chart-1y" class="fleet-chart-box fleet-tel-modal-chart"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
   <script src="/admin/ks/js/forge-theme.js"></script>
   <script>
@@ -332,6 +384,8 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
     var LS_LOAD_SCALE = "forgeFleetLoadScaleMax";
     var LS_LOAD_PEAK = "forgeFleetLoadPeakPct";
     var LS_CHART_LINEAR_Y = "forgeFleetChartLinearY";
+    /** JSON: { tempC, loadPct, diskUi } peaks for %-of-max series (diskUi = storage tile 0–100 scale) */
+    var LS_METRIC_MAX = "forgeFleetMetricMaximaV2";
     var POLL_MS = 3000;
     var __fleetLocalGitSha = "";
     var __fleetSelfUpdateConfigured = false;
@@ -346,6 +400,8 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
     var chartHostIdentity = null;
     var CHART_MS = 3600000;
     var MAX_CHART_RENDER = 480;
+    var MAX_CHART_MODAL = 720;
+    var __fleetTelHistBusy = false;
     var orchBuf = [];
     /** Latest orchestration dict for container-type cards (snapshot overrides DB tail). */
     var __fleetLastOrchestration = null;
@@ -405,6 +461,47 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;");
+    }
+
+    function metricMaximaLoad() {
+      try {
+        var j = localStorage.getItem(LS_METRIC_MAX);
+        if (!j) return { tempC: 0, loadPct: 0, diskUi: 0 };
+        var o = JSON.parse(j);
+        var diskM =
+          o.diskUi != null && !isNaN(o.diskUi)
+            ? Number(o.diskUi)
+            : o.diskMbps != null && !isNaN(o.diskMbps)
+              ? Number(o.diskMbps)
+              : 0;
+        return {
+          tempC: o.tempC != null && !isNaN(o.tempC) ? Number(o.tempC) : 0,
+          loadPct: o.loadPct != null && !isNaN(o.loadPct) ? Number(o.loadPct) : 0,
+          diskUi: diskM,
+        };
+      } catch (_e) {
+        return { tempC: 0, loadPct: 0, diskUi: 0 };
+      }
+    }
+
+    function metricMaximaSave(m) {
+      try {
+        localStorage.setItem(LS_METRIC_MAX, JSON.stringify(m));
+      } catch (_e) {
+        /* ignore quota */
+      }
+    }
+
+    function updateMetricMaximaFromAll(buf) {
+      if (!buf || !buf.length) return;
+      var m = metricMaximaLoad();
+      for (var i = 0; i < buf.length; i++) {
+        var r = buf[i];
+        if (r.tempC != null && !isNaN(r.tempC)) m.tempC = Math.max(m.tempC || 0, Number(r.tempC));
+        if (r.loadPct != null && !isNaN(r.loadPct)) m.loadPct = Math.max(m.loadPct || 0, Number(r.loadPct));
+        if (r.diskUi != null && !isNaN(r.diskUi)) m.diskUi = Math.max(m.diskUi || 0, Number(r.diskUi));
+      }
+      metricMaximaSave(m);
     }
 
     /** Latest RAPL reason from the power tile (updated each snapshot); shown in the diagnostics modal. */
@@ -1268,6 +1365,45 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       return loadMetrics(host) || approxLoadMetrics(host);
     }
 
+    /** Max of CPU sysfs °C and NVIDIA GPU °C when present (matches Thermal tile). */
+    function hostThermalMaxC(host) {
+      if (!host || typeof host !== "object") return null;
+      var th = host.thermal || {};
+      var mc = th.max_c;
+      var gn = host.gpu && host.gpu.nvidia;
+      var gpuMax = null;
+      if (gn && gn.available && gn.devices && gn.devices.length) {
+        var gt = [];
+        for (var gi = 0; gi < gn.devices.length; gi++) {
+          var d = gn.devices[gi];
+          var tt = d && d.temperature_c;
+          if (tt != null && !isNaN(Number(tt))) gt.push(Number(tt));
+        }
+        if (gt.length) gpuMax = Math.max.apply(null, gt);
+      }
+      var cpuOk = mc != null && !isNaN(Number(mc));
+      var gpuOk = gpuMax != null && !isNaN(Number(gpuMax));
+      if (!cpuOk && !gpuOk) return null;
+      var cpuV = cpuOk ? Number(mc) : null;
+      return cpuOk && gpuOk ? Math.max(cpuV, gpuMax) : cpuOk ? cpuV : gpuOk ? gpuMax : null;
+    }
+
+    /** Raw metrics for chart rows (CPU/RAM %% absolute; temp °C; load 0–100; disk = storage tile 0–100). */
+    function hostMetricsForChart(h) {
+      h = h && typeof h === "object" ? h : {};
+      var cpuRaw = h.cpu_usage_pct;
+      var cpu = cpuRaw != null && !isNaN(Number(cpuRaw)) ? Math.min(100, Math.max(0, Number(cpuRaw))) : 0;
+      var memH = h.memory && typeof h.memory === "object" ? h.memory : {};
+      var memRaw = memH.used_pct;
+      var mem = memRaw != null && !isNaN(Number(memRaw)) ? Math.min(100, Math.max(0, Number(memRaw))) : 0;
+      var tC = hostThermalMaxC(h);
+      var lm = hostLoadForUi(h);
+      var l1 = lm != null && lm.pct1 != null && !isNaN(lm.pct1) ? Math.min(100, Math.max(0, Number(lm.pct1))) : null;
+      var dk = diskAgg(h);
+      var dui = diskPrimaryPct(dk);
+      return { cpu: cpu, mem: mem, tempC: tC, loadPct: l1, diskUi: dui != null && !isNaN(dui) ? Number(dui) : null };
+    }
+
     function chartLinearYEnabled() {
       try {
         return localStorage.getItem(LS_CHART_LINEAR_Y) === "1";
@@ -1326,7 +1462,14 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
             best = buf[i];
           }
         }
-        out.push({ t: tt, cpu: best.cpu, mem: best.mem });
+        out.push({
+          t: tt,
+          cpu: best.cpu,
+          mem: best.mem,
+          tempC: best.tempC,
+          loadPct: best.loadPct,
+          diskUi: best.diskUi,
+        });
       }
       return out;
     }
@@ -1379,9 +1522,210 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         }
         if (lastT != null && t <= lastT) t = lastT + 1;
         lastT = t;
-        out.push({ t: t, cpu: r.cpu, mem: r.mem });
+        out.push({
+          t: t,
+          cpu: r.cpu,
+          mem: r.mem,
+          tempC: r.tempC,
+          loadPct: r.loadPct,
+          diskUi: r.diskUi,
+        });
       }
       return out;
+    }
+
+    function pctOfMaxRaw(val, maxVal) {
+      if (val == null || isNaN(val)) return 0;
+      var mx = maxVal != null && !isNaN(maxVal) && Number(maxVal) > 0 ? Number(maxVal) : 0;
+      if (mx <= 0) return 0;
+      return Math.min(100, Math.max(0, (Number(val) / mx) * 100));
+    }
+
+    /**
+     * Build SVG path strings for CPU, RAM, and %%-of-max (temp, load, disk) series.
+     */
+    function fleetTelemetryGridAndPaths(chartRows, mm, w, h, padL, padR, padT, padB) {
+      var iw = w - padL - padR;
+      var ih = h - padT - padB;
+      var n = chartRows.length;
+      var tMin = chartRows[0].t != null ? chartRows[0].t : 0;
+      var tMax = chartRows[n - 1].t != null ? chartRows[n - 1].t : tMin + 1;
+      var span = Math.max(1, tMax - tMin);
+      var xsTime = [];
+      for (var xi = 0; xi < n; xi++) {
+        var rw = chartRows[xi];
+        var ti = rw && rw.t != null ? rw.t : tMin;
+        xsTime.push(padL + ((ti - tMin) / span) * iw);
+      }
+      var useIdxX = false;
+      if (n >= 2) {
+        var spanMs = tMax - tMin;
+        var dupc = 0;
+        for (var xj = 1; xj < n; xj++) {
+          if (Math.abs(xsTime[xj] - xsTime[xj - 1]) < 0.6) dupc++;
+        }
+        if (spanMs < 2000 || dupc >= Math.max(2, Math.floor(n * 0.35))) useIdxX = true;
+      }
+      function xAt(i) {
+        if (useIdxX) return padL + (n <= 1 ? 0 : (i / Math.max(1, n - 1)) * iw);
+        return xsTime[i];
+      }
+      var rawC = [];
+      var rawM = [];
+      var rawT = [];
+      var rawL = [];
+      var rawD = [];
+      for (var ri = 0; ri < n; ri++) {
+        var rowR = chartRows[ri];
+        rawC.push(rowR && rowR.cpu != null && !isNaN(rowR.cpu) ? Number(rowR.cpu) : 0);
+        rawM.push(rowR && rowR.mem != null && !isNaN(rowR.mem) ? Number(rowR.mem) : 0);
+        rawT.push(pctOfMaxRaw(rowR && rowR.tempC, mm.tempC));
+        rawL.push(pctOfMaxRaw(rowR && rowR.loadPct, mm.loadPct));
+        rawD.push(pctOfMaxRaw(rowR && rowR.diskUi, mm.diskUi));
+      }
+      var dCpu;
+      var dMem;
+      var dTemp;
+      var dLoad;
+      var dDisk;
+      if (n === 1) {
+        var yc0 = chartPctToY(rawC[0], padT, ih);
+        var ym0 = chartPctToY(rawM[0], padT, ih);
+        var yt0 = chartPctToY(rawT[0], padT, ih);
+        var yl0 = chartPctToY(rawL[0], padT, ih);
+        var yd0 = chartPctToY(rawD[0], padT, ih);
+        var xFull = (padL + iw).toFixed(2);
+        dCpu = "M " + padL + " " + yc0.toFixed(2) + " L " + xFull + " " + yc0.toFixed(2);
+        dMem = "M " + padL + " " + ym0.toFixed(2) + " L " + xFull + " " + ym0.toFixed(2);
+        dTemp = "M " + padL + " " + yt0.toFixed(2) + " L " + xFull + " " + yt0.toFixed(2);
+        dLoad = "M " + padL + " " + yl0.toFixed(2) + " L " + xFull + " " + yl0.toFixed(2);
+        dDisk = "M " + padL + " " + yd0.toFixed(2) + " L " + xFull + " " + yd0.toFixed(2);
+      } else {
+        var ptsCpu = [];
+        var ptsMem = [];
+        var ptsTemp = [];
+        var ptsLoad = [];
+        var ptsDisk = [];
+        for (var i = 0; i < n; i++) {
+          var xi2 = xAt(i);
+          ptsCpu.push({ x: xi2, y: chartPctToY(rawC[i], padT, ih) });
+          ptsMem.push({ x: xi2, y: chartPctToY(rawM[i], padT, ih) });
+          ptsTemp.push({ x: xi2, y: chartPctToY(rawT[i], padT, ih) });
+          ptsLoad.push({ x: xi2, y: chartPctToY(rawL[i], padT, ih) });
+          ptsDisk.push({ x: xi2, y: chartPctToY(rawD[i], padT, ih) });
+        }
+        dCpu = chartPolylineD(ptsCpu);
+        dMem = chartPolylineD(ptsMem);
+        dTemp = chartPolylineD(ptsTemp);
+        dLoad = chartPolylineD(ptsLoad);
+        dDisk = chartPolylineD(ptsDisk);
+      }
+      var gridParts = [];
+      chartTickPercents().forEach(function (tp) {
+        var gy = chartPctToY(tp, padT, ih);
+        gridParts.push(
+          "<line x1=\"" +
+            padL +
+            "\" y1=\"" +
+            gy.toFixed(2) +
+            "\" x2=\"" +
+            (padL + iw) +
+            "\" y2=\"" +
+            gy.toFixed(2) +
+            "\" stroke=\"currentColor\" stroke-opacity=\"0.11\" stroke-width=\"1\"/>"
+        );
+        gridParts.push(
+          "<text x=\"" +
+            (padL - 5) +
+            "\" y=\"" +
+            (gy + 3).toFixed(2) +
+            "\" fill=\"currentColor\" opacity=\"0.48\" font-size=\"9\" text-anchor=\"end\">" +
+            tp +
+            "</text>"
+        );
+      });
+      return {
+        gridInner: gridParts.join(""),
+        dCpu: dCpu,
+        dMem: dMem,
+        dTemp: dTemp,
+        dLoad: dLoad,
+        dDisk: dDisk,
+        w: w,
+        h: h,
+      };
+    }
+
+    function samplesToMetricRows(samples, tCutMs) {
+      var out = [];
+      var now = Date.now();
+      var cut = tCutMs != null ? now - tCutMs : null;
+      for (var i = 0; i < samples.length; i++) {
+        var sample = samples[i];
+        if (!sample) continue;
+        var tsMs = Number(sample.ts) * 1000;
+        if (isNaN(tsMs)) continue;
+        if (cut != null && tsMs < cut) continue;
+        var h = sample.host && typeof sample.host === "object" ? sample.host : {};
+        var met = hostMetricsForChart(h);
+        out.push({
+          t: tsMs,
+          cpu: met.cpu,
+          mem: met.mem,
+          tempC: met.tempC,
+          loadPct: met.loadPct,
+          diskUi: met.diskUi,
+        });
+      }
+      return out;
+    }
+
+    function renderTelemetrySvgMarkup(gp, strokeScale, idPrefix) {
+      var sw = strokeScale != null ? strokeScale : 2;
+      var swThin = Math.max(1.25, sw - 0.65);
+      var p = idPrefix != null && String(idPrefix).trim() !== "" ? String(idPrefix).trim() + "-" : "";
+      return (
+        "<g id=\"" +
+        esc(p + "fleet-chart-grid") +
+        "\">" +
+        gp.gridInner +
+        "</g>" +
+        "<path id=\"" +
+        esc(p + "fleet-chart-cpu") +
+        "\" fill=\"none\" stroke=\"#34d399\" stroke-width=\"" +
+        sw +
+        "\" stroke-linejoin=\"round\" stroke-linecap=\"round\" vector-effect=\"non-scaling-stroke\" shape-rendering=\"geometricPrecision\" d=\"" +
+        esc(gp.dCpu) +
+        "\"/>" +
+        "<path id=\"" +
+        esc(p + "fleet-chart-mem") +
+        "\" fill=\"none\" stroke=\"#38bdf8\" stroke-width=\"" +
+        sw +
+        "\" stroke-linejoin=\"round\" stroke-linecap=\"round\" vector-effect=\"non-scaling-stroke\" shape-rendering=\"geometricPrecision\" d=\"" +
+        esc(gp.dMem) +
+        "\"/>" +
+        "<path id=\"" +
+        esc(p + "fleet-chart-temp") +
+        "\" fill=\"none\" stroke=\"#fb923c\" stroke-width=\"" +
+        swThin +
+        "\" stroke-linejoin=\"round\" stroke-linecap=\"round\" vector-effect=\"non-scaling-stroke\" shape-rendering=\"geometricPrecision\" d=\"" +
+        esc(gp.dTemp) +
+        "\"/>" +
+        "<path id=\"" +
+        esc(p + "fleet-chart-load") +
+        "\" fill=\"none\" stroke=\"#eab308\" stroke-width=\"" +
+        swThin +
+        "\" stroke-linejoin=\"round\" stroke-linecap=\"round\" vector-effect=\"non-scaling-stroke\" shape-rendering=\"geometricPrecision\" d=\"" +
+        esc(gp.dLoad) +
+        "\"/>" +
+        "<path id=\"" +
+        esc(p + "fleet-chart-disk") +
+        "\" fill=\"none\" stroke=\"#c084fc\" stroke-width=\"" +
+        swThin +
+        "\" stroke-linejoin=\"round\" stroke-linecap=\"round\" vector-effect=\"non-scaling-stroke\" shape-rendering=\"geometricPrecision\" d=\"" +
+        esc(gp.dDisk) +
+        "\"/>"
+      );
     }
 
     /**
@@ -1419,12 +1763,15 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
           var tsMs = Number(sample.ts) * 1000;
           if (isNaN(tsMs) || tsMs < tCut) continue;
           var h = sample.host && typeof sample.host === "object" ? sample.host : {};
-          var cpuRaw = h.cpu_usage_pct;
-          var cpu = cpuRaw != null && !isNaN(Number(cpuRaw)) ? Math.min(100, Math.max(0, Number(cpuRaw))) : 0;
-          var memH = h.memory && typeof h.memory === "object" ? h.memory : {};
-          var memRaw = memH.used_pct;
-          var mem = memRaw != null && !isNaN(Number(memRaw)) ? Math.min(100, Math.max(0, Number(memRaw))) : 0;
-          chartBuf.push({ t: tsMs, cpu: cpu, mem: mem });
+          var met = hostMetricsForChart(h);
+          chartBuf.push({
+            t: tsMs,
+            cpu: met.cpu,
+            mem: met.mem,
+            tempC: met.tempC,
+            loadPct: met.loadPct,
+            diskUi: met.diskUi,
+          });
           var orch = sample.orchestration;
           var sc = orchestrationScalars(orch && typeof orch === "object" ? orch : null);
           orchBuf.push({ t: tsMs, managed: sc.managed, jobs: sc.jobs });
@@ -1443,12 +1790,15 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
     function appendLiveTelemetryTail(host, snapshotOrch) {
       var nowT = Date.now();
       if (host && typeof host === "object") {
-        var cpuRaw = host.cpu_usage_pct;
-        var cpu = cpuRaw != null && !isNaN(Number(cpuRaw)) ? Math.min(100, Math.max(0, Number(cpuRaw))) : 0;
-        var memH = host.memory && typeof host.memory === "object" ? host.memory : {};
-        var memRaw = memH.used_pct;
-        var mem = memRaw != null && !isNaN(Number(memRaw)) ? Math.min(100, Math.max(0, Number(memRaw))) : 0;
-        chartBuf.push({ t: nowT, cpu: cpu, mem: mem });
+        var met = hostMetricsForChart(host);
+        chartBuf.push({
+          t: nowT,
+          cpu: met.cpu,
+          mem: met.mem,
+          tempC: met.tempC,
+          loadPct: met.loadPct,
+          diskUi: met.diskUi,
+        });
       }
       var orch = snapshotOrch && typeof snapshotOrch === "object" ? snapshotOrch : __fleetLastOrchestration;
       var sc = orchestrationScalars(orch);
@@ -1634,13 +1984,11 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       var el = document.getElementById("fleet-load-chart");
       if (!el) return;
       var w = 600;
-      var h = 100;
+      var h = 108;
       var padL = 36;
       var padR = 8;
       var padT = 6;
       var padB = 14;
-      var iw = w - padL - padR;
-      var ih = h - padT - padB;
       var bufFull = chartNormalizeTimes(chartBuf);
       if (!bufFull.length) {
         el.innerHTML =
@@ -1655,88 +2003,11 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
           "\" fill=\"currentColor\" opacity=\"0.45\" font-size=\"12\">Waiting for samples…</text></svg>";
         return;
       }
+      updateMetricMaximaFromAll(bufFull);
+      var mm = metricMaximaLoad();
       var chartRows = chartBufResampleTime(bufFull, MAX_CHART_RENDER);
-      var n = chartRows.length;
-      var tMin = chartRows[0].t != null ? chartRows[0].t : 0;
-      var tMax = chartRows[n - 1].t != null ? chartRows[n - 1].t : tMin + 1;
-      var span = Math.max(1, tMax - tMin);
-
-      var xsTime = [];
-      for (var xi = 0; xi < n; xi++) {
-        var rw = chartRows[xi];
-        var ti = rw && rw.t != null ? rw.t : tMin;
-        xsTime.push(padL + ((ti - tMin) / span) * iw);
-      }
-      var useIdxX = false;
-      if (n >= 2) {
-        var spanMs = tMax - tMin;
-        var dupc = 0;
-        for (var xj = 1; xj < n; xj++) {
-          if (Math.abs(xsTime[xj] - xsTime[xj - 1]) < 0.6) dupc++;
-        }
-        if (spanMs < 2000 || dupc >= Math.max(2, Math.floor(n * 0.35))) useIdxX = true;
-      }
-
-      function xAt(i) {
-        if (useIdxX) return padL + (n <= 1 ? 0 : (i / Math.max(1, n - 1)) * iw);
-        return xsTime[i];
-      }
-
-      var rawC = [];
-      var rawM = [];
-      for (var ri = 0; ri < n; ri++) {
-        var rowR = chartRows[ri];
-        rawC.push(rowR && rowR.cpu != null && !isNaN(rowR.cpu) ? Number(rowR.cpu) : 0);
-        rawM.push(rowR && rowR.mem != null && !isNaN(rowR.mem) ? Number(rowR.mem) : 0);
-      }
-
-      var dCpu;
-      var dMem;
-      if (n === 1) {
-        var d0c = rawC[0];
-        var d0m = rawM[0];
-        var yc0 = chartPctToY(d0c, padT, ih);
-        var ym0 = chartPctToY(d0m, padT, ih);
-        dCpu = "M " + padL + " " + yc0.toFixed(2) + " L " + (padL + iw).toFixed(2) + " " + yc0.toFixed(2);
-        dMem = "M " + padL + " " + ym0.toFixed(2) + " L " + (padL + iw).toFixed(2) + " " + ym0.toFixed(2);
-      } else {
-        var ptsCpu = [];
-        var ptsMem = [];
-        for (var i = 0; i < n; i++) {
-          var xi2 = xAt(i);
-          var ycv = rawC[i];
-          var ymv = rawM[i];
-          ptsCpu.push({ x: xi2, y: chartPctToY(ycv, padT, ih) });
-          ptsMem.push({ x: xi2, y: chartPctToY(ymv, padT, ih) });
-        }
-        dCpu = chartPolylineD(ptsCpu);
-        dMem = chartPolylineD(ptsMem);
-      }
-      var gridParts = [];
-      chartTickPercents().forEach(function (tp) {
-        var gy = chartPctToY(tp, padT, ih);
-        gridParts.push(
-          "<line x1=\"" +
-          padL +
-          "\" y1=\"" +
-          gy.toFixed(2) +
-          "\" x2=\"" +
-          (padL + iw) +
-          "\" y2=\"" +
-          gy.toFixed(2) +
-          "\" stroke=\"currentColor\" stroke-opacity=\"0.11\" stroke-width=\"1\"/>"
-        );
-        gridParts.push(
-          "<text x=\"" +
-          (padL - 5) +
-          "\" y=\"" +
-          (gy + 3).toFixed(2) +
-          "\" fill=\"currentColor\" opacity=\"0.48\" font-size=\"9\" text-anchor=\"end\">" +
-          tp +
-          "</text>"
-        );
-      });
-      var gridInner = gridParts.join("");
+      var gp = fleetTelemetryGridAndPaths(chartRows, mm, w, h, padL, padR, padT, padB);
+      var innerMarkup = renderTelemetrySvgMarkup(gp, 2.25, "");
       var svg = el.querySelector("svg.fleet-chart-svg");
       if (!svg) {
         el.innerHTML =
@@ -1745,30 +2016,105 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
           " " +
           h +
           "\">" +
-          "<g id=\"fleet-chart-grid\">" +
-          gridInner +
-          "</g>" +
-          "<path id=\"fleet-chart-cpu\" fill=\"none\" stroke=\"#34d399\" stroke-width=\"2.25\" stroke-linejoin=\"round\" stroke-linecap=\"round\" vector-effect=\"non-scaling-stroke\" shape-rendering=\"geometricPrecision\" d=\"" +
-          esc(dCpu) +
-          "\"/>" +
-          "<path id=\"fleet-chart-mem\" fill=\"none\" stroke=\"#38bdf8\" stroke-width=\"2.25\" stroke-linejoin=\"round\" stroke-linecap=\"round\" vector-effect=\"non-scaling-stroke\" shape-rendering=\"geometricPrecision\" d=\"" +
-          esc(dMem) +
-          "\"/>" +
+          innerMarkup +
           "</svg>";
         return;
       }
-      var gGrid = svg.querySelector("#fleet-chart-grid");
-      if (gGrid) gGrid.innerHTML = gridInner;
-      else {
-        var insertG = document.createElementNS("http://www.w3.org/2000/svg", "g");
-        insertG.setAttribute("id", "fleet-chart-grid");
-        insertG.innerHTML = gridInner;
-        svg.insertBefore(insertG, svg.firstChild);
+      svg.innerHTML = innerMarkup;
+      svg.setAttribute("viewBox", "0 0 " + w + " " + h);
+    }
+
+    function renderTelemetryChartInto(el, bufLike, mm, w, h, idPrefix) {
+      if (!el) return;
+      var padL = 36;
+      var padR = 8;
+      var padT = 6;
+      var padB = 14;
+      var norm = chartNormalizeTimes(bufLike || []);
+      if (!norm.length) {
+        el.innerHTML =
+          "<svg class=\"fleet-chart-svg\" xmlns=\"http://www.w3.org/2000/svg\" width=\"100%\" height=\"100%\" viewBox=\"0 0 " +
+          w +
+          " " +
+          h +
+          "\"><text x=\"" +
+          padL +
+          "\" y=\"" +
+          (h / 2) +
+          "\" fill=\"currentColor\" opacity=\"0.45\" font-size=\"11\">No samples in this window.</text></svg>";
+        return;
       }
-      var cpuLine = svg.querySelector("#fleet-chart-cpu");
-      var memLine = svg.querySelector("#fleet-chart-mem");
-      if (cpuLine) cpuLine.setAttribute("d", dCpu);
-      if (memLine) memLine.setAttribute("d", dMem);
+      var chartRows = chartBufResampleTime(norm, MAX_CHART_MODAL);
+      var gp = fleetTelemetryGridAndPaths(chartRows, mm, w, h, padL, padR, padT, padB);
+      el.innerHTML =
+        "<svg class=\"fleet-chart-svg\" xmlns=\"http://www.w3.org/2000/svg\" width=\"100%\" height=\"100%\" preserveAspectRatio=\"none\" viewBox=\"0 0 " +
+        w +
+        " " +
+        h +
+        "\">" +
+        renderTelemetrySvgMarkup(gp, 1.85, idPrefix || "tel") +
+        "</svg>";
+    }
+
+    async function openFleetTelemetryHistoryModal() {
+      if (__fleetTelHistBusy) return;
+      var modalEl = document.getElementById("fleet-tel-history-modal");
+      var statusEl = document.getElementById("fleet-tel-hist-status");
+      if (!modalEl || typeof bootstrap === "undefined" || !bootstrap.Modal) return;
+      __fleetTelHistBusy = true;
+      if (statusEl) statusEl.textContent = "Loading…";
+      bootstrap.Modal.getOrCreateInstance(modalEl).show();
+      var periods = [
+        ["last_24_hours", "fleet-tel-chart-24h", "tel24h"],
+        ["last_7_days", "fleet-tel-chart-7d", "tel7d"],
+        ["last_1_month", "fleet-tel-chart-1mo", "tel1mo"],
+        ["last_year", "fleet-tel-chart-1y", "tel1y"],
+      ];
+      var allRows = [];
+      try {
+        var docs = await Promise.all(
+          periods.map(function (p) {
+            return fetch(
+              "/v1/telemetry?period=" + encodeURIComponent(p[0]) + "&limit=500000",
+              { headers: authHeaders(), cache: "no-store" }
+            ).then(function (r) {
+              return r.json();
+            });
+          })
+        );
+        for (var di = 0; di < docs.length; di++) {
+          var doc = docs[di];
+          if (doc && doc.ok && Array.isArray(doc.samples)) {
+            var part = samplesToMetricRows(doc.samples, null);
+            for (var pi = 0; pi < part.length; pi++) allRows.push(part[pi]);
+          }
+        }
+        var mergedNorm = chartNormalizeTimes(allRows);
+        updateMetricMaximaFromAll(mergedNorm);
+        var mm = metricMaximaLoad();
+        var cw = 600;
+        var ch = 128;
+        for (var ui = 0; ui < periods.length; ui++) {
+          var doc2 = docs[ui];
+          var slice = [];
+          if (doc2 && doc2.ok && Array.isArray(doc2.samples)) slice = samplesToMetricRows(doc2.samples, null);
+          var box = document.getElementById(periods[ui][1]);
+          renderTelemetryChartInto(box, slice, mm, cw, ch, periods[ui][2]);
+        }
+        if (statusEl) {
+          statusEl.textContent =
+            "Maxima (this browser): temp " +
+            (mm.tempC > 0 ? mm.tempC.toFixed(1) + " °C" : "—") +
+            " · load " +
+            (mm.loadPct > 0 ? Math.round(mm.loadPct) + "%" : "—") +
+            " · disk (tile scale) " +
+            (mm.diskUi > 0 ? Math.round(mm.diskUi) + "%" : "—");
+        }
+      } catch (_e) {
+        if (statusEl) statusEl.textContent = "Could not load telemetry.";
+      } finally {
+        __fleetTelHistBusy = false;
+      }
     }
 
     function refreshChartYHint() {
@@ -3020,6 +3366,19 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         loadSnapshot().then(function () {
           scheduleNext();
         });
+      });
+    }
+
+    var fleetLoadChartEl = document.getElementById("fleet-load-chart");
+    if (fleetLoadChartEl) {
+      fleetLoadChartEl.addEventListener("click", function () {
+        openFleetTelemetryHistoryModal();
+      });
+      fleetLoadChartEl.addEventListener("keydown", function (ev) {
+        if (ev.key === "Enter" || ev.key === " ") {
+          ev.preventDefault();
+          openFleetTelemetryHistoryModal();
+        }
       });
     }
 
