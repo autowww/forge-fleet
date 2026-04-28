@@ -32,6 +32,8 @@ Cross-check: same host with the **LLM** bearer on `/v1/health` often returns **4
 
 2. For **TLS on a real hostname** (instead of `http://0.0.0.0:18767`), set **`CADDY_SITE_ADDRESS`** to the public name so the generated site block uses automatic HTTPS (requires DNS pointing at this host and ports 80/443 reachable for ACME, unless you use your own TLS elsewhere):
 
+   **Non-interactive** (env vars are applied exactly; no prompts):
+
    ```bash
    CADDY_SITE_ADDRESS=granite.forgedc.net \
    LAYOUT=user \
@@ -39,6 +41,8 @@ Cross-check: same host with the **LLM** bearer on `/v1/health` often returns **4
    LLM_BEARER_TOKEN='…' \
    bash ./scripts/install-caddy-fleet-ollama-unified.sh --non-interactive
    ```
+
+   **Interactive:** after the port questions, answer the **“CADDY_SITE_ADDRESS (TLS hostname, or empty):”** prompt with `granite.forgedc.net`, or rely on a line already saved in **`~/.config/forge-fleet/forge-fleet.env`** (`CADDY_SITE_ADDRESS=…`). Passing `CADDY_SITE_ADDRESS=…` on the command line without `--non-interactive` also works if the value is still set when the prompt runs (defaults are pre-filled).
 
    For HTTPS on a non-standard port:
 

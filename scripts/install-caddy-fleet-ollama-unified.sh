@@ -83,6 +83,25 @@ escape_caddy_dq() {
   printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
 }
 
+# Fill CADDY_SITE_ADDRESS from forge-fleet.env when the process env left it empty (interactive runs).
+merge_caddy_site_address_from_env_file() {
+  local f="${1:-}"
+  [[ -n "${CADDY_SITE_ADDRESS// }" ]] && return 0
+  [[ -f "$f" ]] || return 0
+  local raw v
+  raw="$(grep -E '^[[:space:]]*CADDY_SITE_ADDRESS=' "$f" 2>/dev/null | head -1 || true)"
+  [[ -n "$raw" ]] || return 0
+  v="${raw#*=}"
+  v="${v%$'\r'}"
+  v="${v#\"}"
+  v="${v%\"}"
+  v="${v#\'}"
+  v="${v%\'}"
+  if [[ -n "${v// }" ]]; then
+    CADDY_SITE_ADDRESS="$v"
+  fi
+}
+
 _emit_fleet_upstream() {
   # stdout: indented reverse_proxy stanza (tabs); args: fleet_host fleet_port esc_f fleet_bearer
   local fh="$1" fp="$2" esc="$3" fb="$4"
@@ -306,6 +325,13 @@ prompt_ports_user() {
   fi
 }
 
+prompt_site_address_optional() {
+  log ""
+  log "--- Public hostname (optional) ---"
+  log "Leave empty to listen only on :CADDY_PUBLIC_PORT (HTTP). Set to e.g. granite.forgedc.net for a TLS site block (needs DNS to this host and usually :443; user Caddy may need extra caps for 1024)."
+  read_default CADDY_SITE_ADDRESS "${CADDY_SITE_ADDRESS:-}" "" "CADDY_SITE_ADDRESS (TLS hostname, or empty): "
+}
+
 prompt_ports_system() {
   log ""
   log "--- Ports (editable defaults; Enter accepts current line) ---"
@@ -349,15 +375,22 @@ case "$LAYOUT" in
     FLEET_UPSTREAM_PORT="${FLEET_UPSTREAM_PORT:-18766}"
     CADDY_PUBLIC_PORT="${CADDY_PUBLIC_PORT:-18767}"
 
+    merge_caddy_site_address_from_env_file "$ENV_FILE"
+    [[ -n "${CADDY_SITE_ADDRESS// }" ]] && log "Using CADDY_SITE_ADDRESS=$CADDY_SITE_ADDRESS (from env or $ENV_FILE)"
+
     if [[ "$INTERACTIVE" -eq 1 ]]; then
       mkdir -p "$CFG_DIR"
       prompt_ports_user
+      prompt_site_address_optional
       log ""
       log "--- Bearers (hidden input) ---"
       read_bearer "$ENV_FILE"
       [[ -n "${FLEET_BEARER_TOKEN:-}" ]] && upsert_env_line FLEET_BEARER_TOKEN "$FLEET_BEARER_TOKEN" "$ENV_FILE"
       read_llm_bearer "$ENV_FILE"
       [[ -n "${LLM_BEARER_TOKEN:-}" ]] && upsert_env_line LLM_BEARER_TOKEN "$LLM_BEARER_TOKEN" "$ENV_FILE"
+      [[ -n "${CADDY_SITE_ADDRESS// }" ]] && upsert_env_line CADDY_SITE_ADDRESS "$CADDY_SITE_ADDRESS" "$ENV_FILE"
+    else
+      [[ -n "${CADDY_SITE_ADDRESS// }" ]] && upsert_env_line CADDY_SITE_ADDRESS "$CADDY_SITE_ADDRESS" "$ENV_FILE"
     fi
 
     [[ "$CADDY_PUBLIC_PORT" != "$FLEET_UPSTREAM_PORT" ]] || die "Caddy port must differ from Fleet upstream port"
