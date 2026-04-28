@@ -28,6 +28,8 @@ LAYOUT=system FLEET_BEARER_TOKEN='your-token' sudo -E bash ./scripts/install-cad
 
 Optional env: `FLEET_UPSTREAM_HOST` `FLEET_UPSTREAM_PORT` `CADDY_PUBLIC_PORT` `INSTALL_CADDY_APT=0` (skip apt if Caddy already installed).
 
+**Fleet + Ollama on one hostname** (e.g. public HTTPS for both LLM and Fleet health): see **`docs/CADDY-UNIFIED-GRANITE.md`** and run **`scripts/install-caddy-fleet-ollama-unified.sh`** (optional `CADDY_SITE_ADDRESS` for a TLS site block instead of `:PORT`).
+
 Legacy wrappers (same as `--non-interactive`): `scripts/install-forge-fleet-caddy-user-systemd.sh`, `scripts/install-forge-fleet-caddy-systemd.sh`.
 
 ---

@@ -15,7 +15,7 @@
 #   GIT_REMOTE_PULL=origin GIT_BRANCH=master ./scripts/update-fleet-unified-caddy.sh
 #
 # Requires: git, bash; same env vars as install-caddy-fleet-ollama-unified.sh --non-interactive
-# (LAYOUT, FLEET_BEARER_TOKEN, ports, LLM_BEARER_TOKEN optional). Env files are sourced when present.
+# (LAYOUT, FLEET_BEARER_TOKEN, ports, LLM_BEARER_TOKEN, optional CADDY_SITE_ADDRESS). Env files are sourced when present.
 
 set -euo pipefail
 

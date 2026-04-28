@@ -5,8 +5,9 @@
 # Caddyfile, writes a merged config, validates, and starts Caddy again.
 #
 # Routing (same listener):
-#   Ollama:  /v1/chat/completions*, /v1/completions*, /v1/models*, /v1/embeddings*, /api/*
-#   Fleet:   everything else (including Fleet /v1/* and /admin/)
+#   Fleet (first): /v1/health, /v1/version — always to forge-fleet (avoids misconfigs that send all /v1/* to Ollama).
+#   Ollama:        /v1/chat/completions*, /v1/completions*, /v1/models*, /v1/embeddings*, /api/*
+#   Fleet (catch): all other routes (/v1/jobs, /admin/, …)
 #
 # Prerequisites: caddy on PATH; Fleet and Ollama listening on their loopback ports.
 #
@@ -24,6 +25,8 @@
 #   FLEET_BEARER_TOKEN   — injected upstream to Fleet (clients need not send it)
 #   LLM_BEARER_TOKEN     — optional; when set, clients must send this Bearer on Ollama routes;
 #                          differs from Fleet token; stripped before proxy to Ollama
+#   CADDY_SITE_ADDRESS   — optional site block label instead of :PORT (e.g. granite.forgedc.net
+#                          or granite.forgedc.net:8443 for TLS / alternate port; empty = :CADDY_PUBLIC_PORT)
 #   STOP_DISTRO_CADDY=1  — stop stock caddy.service if active (frees :80 etc.; does not disable)
 #   SKIP_BACKUP=1        — do not write .bak before overwrite
 #
@@ -45,7 +48,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     -h|--help)
-      sed -n '3,31p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '3,34p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)
@@ -80,15 +83,39 @@ escape_caddy_dq() {
   printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
 }
 
+_emit_fleet_upstream() {
+  # stdout: indented reverse_proxy stanza (tabs); args: fleet_host fleet_port esc_f fleet_bearer
+  local fh="$1" fp="$2" esc="$3" fb="$4"
+  if [[ -n "${fb// }" ]]; then
+    printf '		reverse_proxy %s:%s {\n' "$fh" "$fp"
+    printf '			header_up Authorization "Bearer %s"\n' "$esc"
+    printf '		}\n'
+  else
+    printf '		reverse_proxy %s:%s\n' "$fh" "$fp"
+  fi
+}
+
 write_unified_caddyfile() {
-  local out="$1" public_port="$2" fleet_host="$3" fleet_port="$4" ollama_host="$5" ollama_port="$6" fleet_bearer="$7" llm_bearer="$8"
+  local out="$1" public_port="$2" fleet_host="$3" fleet_port="$4" ollama_host="$5" ollama_port="$6" fleet_bearer="$7" llm_bearer="$8" site_address="${9:-}"
   local esc_f esc_l
   esc_f="$(escape_caddy_dq "$fleet_bearer")"
   esc_l="$(escape_caddy_dq "$llm_bearer")"
   {
     printf '%s\n' '{' '	admin off' '}' ''
-    printf ':%s {\n' "${public_port}"
+    if [[ -n "${site_address// }" ]]; then
+      printf '%s {\n' "${site_address}"
+    else
+      printf ':%s {\n' "${public_port}"
+    fi
     printf '	encode gzip\n'
+    printf '\n'
+    printf '	# Forge Fleet — health/version before Ollama (single-host granite-style split)\n'
+    printf '	@fleet_health {\n'
+    printf '		path /v1/health /v1/version\n'
+    printf '	}\n'
+    printf '	handle @fleet_health {\n'
+    _emit_fleet_upstream "$fleet_host" "$fleet_port" "$esc_f" "$fleet_bearer"
+    printf '	}\n'
     printf '\n'
     printf '	# Ollama — OpenAI /v1 + /api (optional LLM bearer checked at this edge)\n'
     printf '	@ollama {\n'
@@ -112,13 +139,7 @@ write_unified_caddyfile() {
     printf '\n'
     printf '	# Forge Fleet — remaining routes (/v1/jobs, /admin/, …)\n'
     printf '	handle {\n'
-    if [[ -n "${fleet_bearer// }" ]]; then
-      printf '		reverse_proxy %s:%s {\n' "$fleet_host" "$fleet_port"
-      printf '			header_up Authorization "Bearer %s"\n' "${esc_f}"
-      printf '		}\n'
-    else
-      printf '		reverse_proxy %s:%s\n' "$fleet_host" "$fleet_port"
-    fi
+    _emit_fleet_upstream "$fleet_host" "$fleet_port" "$esc_f" "$fleet_bearer"
     printf '	}\n'
     printf '}\n'
   } >"$out"
@@ -310,6 +331,7 @@ FLEET_UPSTREAM_PORT="${FLEET_UPSTREAM_PORT:-}"
 CADDY_PUBLIC_PORT="${CADDY_PUBLIC_PORT:-}"
 FLEET_BEARER_TOKEN="${FLEET_BEARER_TOKEN:-}"
 LLM_BEARER_TOKEN="${LLM_BEARER_TOKEN:-}"
+CADDY_SITE_ADDRESS="${CADDY_SITE_ADDRESS:-}"
 
 if [[ "$INTERACTIVE" -eq 1 ]]; then
   [[ -n "$LAYOUT" ]] || prompt_layout
@@ -347,7 +369,7 @@ case "$LAYOUT" in
     mkdir -p "$CFG_DIR"
     backup_file "$CADDYFILE"
     write_unified_caddyfile "$CADDYFILE" "$CADDY_PUBLIC_PORT" "$FLEET_UPSTREAM_HOST" "$FLEET_UPSTREAM_PORT" \
-      "$OLLAMA_UPSTREAM_HOST" "$OLLAMA_UPSTREAM_PORT" "$FLEET_BEARER_TOKEN" "$LLM_BEARER_TOKEN"
+      "$OLLAMA_UPSTREAM_HOST" "$OLLAMA_UPSTREAM_PORT" "$FLEET_BEARER_TOKEN" "$LLM_BEARER_TOKEN" "${CADDY_SITE_ADDRESS:-}"
     chmod 0600 "$CADDYFILE"
 
     if ! caddy validate --config "$CADDYFILE" 2>&1; then
@@ -358,7 +380,11 @@ case "$LAYOUT" in
     run_user_systemd
 
     log ""
-    log "Unified listener: http://0.0.0.0:${CADDY_PUBLIC_PORT}/"
+    if [[ -n "${CADDY_SITE_ADDRESS// }" ]]; then
+      log "Unified site block: ${CADDY_SITE_ADDRESS} (see Caddyfile; TLS uses automatic HTTPS when hostname has no :port suffix)"
+    else
+      log "Unified listener: http://0.0.0.0:${CADDY_PUBLIC_PORT}/"
+    fi
     log "  → Ollama  ${OLLAMA_UPSTREAM_HOST}:${OLLAMA_UPSTREAM_PORT}  (paths: /v1/chat/completions, /v1/models, /api/*, …)"
     log "             LLM edge bearer: $( [[ -n "${LLM_BEARER_TOKEN// }" ]] && echo required || echo off )"
     log "  → Fleet   ${FLEET_UPSTREAM_HOST}:${FLEET_UPSTREAM_PORT}  (inject bearer: $( [[ -n "${FLEET_BEARER_TOKEN// }" ]] && echo yes || echo no ))"
@@ -395,7 +421,7 @@ case "$LAYOUT" in
     install -d -m0755 /etc/forge-fleet
     backup_file "$CADDYFILE"
     write_unified_caddyfile "$CADDYFILE" "$CADDY_PUBLIC_PORT" "$FLEET_UPSTREAM_HOST" "$FLEET_UPSTREAM_PORT" \
-      "$OLLAMA_UPSTREAM_HOST" "$OLLAMA_UPSTREAM_PORT" "$FLEET_BEARER_TOKEN" "$LLM_BEARER_TOKEN"
+      "$OLLAMA_UPSTREAM_HOST" "$OLLAMA_UPSTREAM_PORT" "$FLEET_BEARER_TOKEN" "$LLM_BEARER_TOKEN" "${CADDY_SITE_ADDRESS:-}"
     if id -u caddy &>/dev/null; then
       chown root:caddy "$CADDYFILE"
       chmod 0640 "$CADDYFILE"
@@ -407,7 +433,11 @@ case "$LAYOUT" in
     run_system_systemd
 
     log ""
-    log "Unified listener: http://0.0.0.0:${CADDY_PUBLIC_PORT}/"
+    if [[ -n "${CADDY_SITE_ADDRESS// }" ]]; then
+      log "Unified site block: ${CADDY_SITE_ADDRESS}"
+    else
+      log "Unified listener: http://0.0.0.0:${CADDY_PUBLIC_PORT}/"
+    fi
     log "  → Ollama  ${OLLAMA_UPSTREAM_HOST}:${OLLAMA_UPSTREAM_PORT}  (LLM edge bearer: $( [[ -n "${LLM_BEARER_TOKEN// }" ]] && echo required || echo off ))"
     log "  → Fleet   ${FLEET_UPSTREAM_HOST}:${FLEET_UPSTREAM_PORT}  (inject bearer: $( [[ -n "${FLEET_BEARER_TOKEN// }" ]] && echo yes || echo no ))"
     ;;
