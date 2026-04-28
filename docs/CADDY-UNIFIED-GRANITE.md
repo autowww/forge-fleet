@@ -14,6 +14,10 @@ then **every path must be routed by URL**, not by sending all traffic to Ollama 
 
 That pattern usually means **`/v1/health` is still hitting Ollama** (or another service that enforces the LLM gate only). Ollama does not implement Fleet’s health JSON; it rejects unknown bearer tokens on many paths.
 
+**Fingerprint (unified installer LLM gate):** if `curl -sSI -H 'Authorization: Bearer <fleet>' https://example/v1/health` shows `content-type: text/plain` and body length **12** (`Unauthorized`), the request reached the **Ollama `handle` with `LLM_BEARER_TOKEN` checks**, not Forge Fleet (Fleet API 401s are **`application/json`** with `{"ok":false,"error":"unauthorized"}`). Fix routing on the **origin** behind Cloudflare, not the token string in certificator alone.
+
+Cross-check: same host with the **LLM** bearer on `/v1/health` often returns **404** from Ollama; with the **Fleet** bearer, **401** `Unauthorized` plain text — same mis-route.
+
 ## Fix
 
 1. Run the **unified** installer from the forge-fleet repo (same machine that runs Fleet and Ollama, or one that can reverse-proxy to both):
