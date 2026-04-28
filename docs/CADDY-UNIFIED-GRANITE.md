@@ -52,9 +52,13 @@ Cross-check: same host with the **LLM** bearer on `/v1/health` often returns **4
 
 3. If the public site is served by **stock** `caddy.service` and a different file (e.g. `/etc/caddy/Caddyfile`), **merge** the same routing into that file, or replace it with the output of this installer. A config that only `reverse_proxy`s to `127.0.0.1:11434` will never satisfy Fleet health checks.
 
+4. **Cloudflare Tunnel** to a local port (for example `http://127.0.0.1:18767`) only forwards bytes; **unified Caddy on that port** must still route `/v1/health` to Fleet before the LLM bearer gate. After changing the Caddyfile, run **`systemctl --user restart forge-fleet-caddy.service`**.
+
+5. **Bearer alignment:** the token inlined in the Caddyfile for Fleet `header_up Authorization` must match **`FLEET_BEARER_TOKEN`** on the **forge-fleet** process (`~/.config/forge-fleet/forge-fleet.env` or your unit). If they differ, `/v1/health` can return **401** with **`application/json`** from Fleet (certificator still reports it as a Fleet bearer problem).
+
 ## Routing order (generated)
 
-1. **`/v1/health`**, **`/v1/version`** → Fleet upstream (bearer injected when `FLEET_BEARER_TOKEN` is set in the installer).
+1. **`handle /v1/health*`**, **`handle /v1/version*`** → Fleet upstream (bearer injected when `FLEET_BEARER_TOKEN` is set in the installer).
 2. **Ollama paths** — `/v1/chat/completions*`, `/v1/completions*`, `/v1/models*`, `/v1/embeddings*`, `/api/*` — optional `LLM_BEARER_TOKEN` check at the edge; `Authorization` stripped before proxy to Ollama.
 3. **Everything else** → Fleet (same injection rules as step 1).
 

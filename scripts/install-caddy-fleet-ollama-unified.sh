@@ -128,11 +128,11 @@ write_unified_caddyfile() {
     fi
     printf '	encode gzip\n'
     printf '\n'
-    printf '	# Forge Fleet — health/version before Ollama (single-host granite-style split)\n'
-    printf '	@fleet_health {\n'
-    printf '		path /v1/health /v1/version\n'
+    printf '	# Forge Fleet — health/version before Ollama (prefix handles; must precede LLM bearer gate)\n'
+    printf '	handle /v1/health* {\n'
+    _emit_fleet_upstream "$fleet_host" "$fleet_port" "$esc_f" "$fleet_bearer"
     printf '	}\n'
-    printf '	handle @fleet_health {\n'
+    printf '	handle /v1/version* {\n'
     _emit_fleet_upstream "$fleet_host" "$fleet_port" "$esc_f" "$fleet_bearer"
     printf '	}\n'
     printf '\n'
