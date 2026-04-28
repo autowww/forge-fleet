@@ -40,6 +40,23 @@ done
 
 die() { echo "install-caddy-fleet: $*" >&2; exit 1; }
 
+# GNU bash: editable default on TTY; plain prompt fallback otherwise.
+read_default() {
+  local __out="$1" __cur="$2" __def="$3" __prompt="$4"
+  local __iv="${__cur:-$__def}"
+  local __v=""
+  if [[ -t 0 ]]; then
+    read -e -i "$__iv" -p "$__prompt" __v || true
+  else
+    read -r -p "$__prompt [${__iv}]: " __v || true
+  fi
+  if [[ -z "${__v:-}" ]]; then
+    printf -v "$__out" '%s' "$__iv"
+  else
+    printf -v "$__out" '%s' "$__v"
+  fi
+}
+
 export INSTALL_CADDY_APT="${INSTALL_CADDY_APT:-1}"
 
 upsert_env_line() {
@@ -177,12 +194,15 @@ prompt_layout() {
 
 read_bearer() {
   local env_file="${1:-}"
-  local existing=""
+  local hint=""
+  [[ -n "${FLEET_BEARER_TOKEN// }" ]] && hint="${hint:+$hint; }env has FLEET_BEARER_TOKEN"
   if [[ -n "$env_file" && -f "$env_file" ]] && grep -qE '^[[:space:]]*FLEET_BEARER_TOKEN=[^[:space:]]+' "$env_file" 2>/dev/null; then
-    existing="(existing file — Enter to keep, or type new token)"
+    hint="${hint:+$hint; }$env_file saves a token"
   fi
   echo ""
-  echo "Enter FLEET_BEARER_TOKEN ${existing}"
+  echo "FLEET_BEARER_TOKEN — Caddy injects this to the Fleet upstream (required for this install)."
+  [[ -n "$hint" ]] && echo "  ($hint — leave input empty to keep env/file value)"
+  echo "  Enter new token, or press Enter to keep:"
   read -rs token || true
   echo ""
   if [[ -n "${token// }" ]]; then
@@ -196,24 +216,22 @@ read_bearer() {
 }
 
 prompt_user_ports() {
-  read -rp "Fleet upstream host [127.0.0.1]: " h
-  FLEET_UPSTREAM_HOST="${h:-127.0.0.1}"
-  read -rp "Fleet upstream port (user install default) [18766]: " p
-  FLEET_UPSTREAM_PORT="${p:-18766}"
-  read -rp "Caddy public HTTP port (must differ from Fleet) [18767]: " c
-  CADDY_PUBLIC_PORT="${c:-18767}"
+  echo ""
+  echo "--- Ports (editable defaults; Enter accepts current line) ---"
+  read_default FLEET_UPSTREAM_HOST "$FLEET_UPSTREAM_HOST" "127.0.0.1" "Fleet upstream host: "
+  read_default FLEET_UPSTREAM_PORT "$FLEET_UPSTREAM_PORT" "18766" "Fleet upstream port: "
+  read_default CADDY_PUBLIC_PORT "$CADDY_PUBLIC_PORT" "18767" "Caddy public HTTP port (must differ from Fleet): "
   if [[ "$CADDY_PUBLIC_PORT" == "$FLEET_UPSTREAM_PORT" ]]; then
     die "Caddy public port must differ from Fleet port"
   fi
 }
 
 prompt_system_ports() {
-  read -rp "Fleet upstream host [127.0.0.1]: " h
-  FLEET_UPSTREAM_HOST="${h:-127.0.0.1}"
-  read -rp "Fleet upstream port [18765]: " p
-  FLEET_UPSTREAM_PORT="${p:-18765}"
-  read -rp "Caddy public HTTP port [18766]: " c
-  CADDY_PUBLIC_PORT="${c:-18766}"
+  echo ""
+  echo "--- Ports (editable defaults; Enter accepts current line) ---"
+  read_default FLEET_UPSTREAM_HOST "$FLEET_UPSTREAM_HOST" "127.0.0.1" "Fleet upstream host: "
+  read_default FLEET_UPSTREAM_PORT "$FLEET_UPSTREAM_PORT" "18765" "Fleet upstream port: "
+  read_default CADDY_PUBLIC_PORT "$CADDY_PUBLIC_PORT" "18766" "Caddy public HTTP port: "
 }
 
 prompt_enforce_user() {
@@ -261,9 +279,11 @@ case "$LAYOUT" in
             ;;
         esac
       fi
+      prompt_user_ports
+      echo ""
+      echo "--- Bearer (hidden input) ---"
       read_bearer "$ENV_FILE"
       upsert_env_line FLEET_BEARER_TOKEN "$FLEET_BEARER_TOKEN" "$ENV_FILE"
-      prompt_user_ports
       prompt_enforce_user "$ENV_FILE"
     else
       [[ -f "$ENV_FILE" ]] || die "missing $ENV_FILE (create via install-user.sh or copy environment.example)"
@@ -302,8 +322,13 @@ case "$LAYOUT" in
     CADDY_PUBLIC_PORT="${CADDY_PUBLIC_PORT:-18766}"
 
     if [[ "$INTERACTIVE" -eq 1 ]]; then
-      read_bearer "/etc/forge-fleet/caddy.env"
+      install -d -m0755 /etc/forge-fleet
+      touch /etc/forge-fleet/caddy.env
+      chmod 0600 /etc/forge-fleet/caddy.env 2>/dev/null || true
       prompt_system_ports
+      echo ""
+      echo "--- Bearer (hidden input) ---"
+      read_bearer "/etc/forge-fleet/caddy.env"
     else
       [[ -n "${FLEET_BEARER_TOKEN// }" ]] || die "Set FLEET_BEARER_TOKEN for system layout"
     fi
