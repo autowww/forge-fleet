@@ -214,7 +214,14 @@
         tabindex="0"
       >
         <div class="d-none border border-secondary-subtle rounded p-2 mb-2 small" id="fleet-managed-services-wrap">
-          <div class="fw-semibold mb-1">Managed services (<code class="fleet-mono">etc/services/*.json</code>)</div>
+          <div class="fleet-managed-services-top mb-2 pb-2 border-bottom border-secondary-subtle">
+            <div class="fw-semibold mb-1">Managed services (<code class="fleet-mono">etc/services/*.json</code>)</div>
+            <div class="d-flex flex-wrap gap-2 align-items-center">
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-svc-refresh-btn" title="Reload service list from Fleet snapshot">
+                Refresh
+              </button>
+            </div>
+          </div>
           <p class="text-body-secondary mb-2 fleet-mono small" id="fleet-config-paths"></p>
           <div id="fleet-managed-services-rows" class="mb-2"></div>
           <p class="fleet-mono small text-body-secondary mb-1" id="fleet-svc-action-msg" aria-live="polite"></p>
@@ -4658,6 +4665,15 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
     var refreshMetricsBtn = document.getElementById("fleet-refresh-metrics-btn");
     if (refreshMetricsBtn) {
       refreshMetricsBtn.addEventListener("click", function () {
+        loadSnapshot().then(function () {
+          scheduleNext();
+        });
+      });
+    }
+
+    var fleetSvcRefreshBtn = document.getElementById("fleet-svc-refresh-btn");
+    if (fleetSvcRefreshBtn) {
+      fleetSvcRefreshBtn.addEventListener("click", function () {
         loadSnapshot().then(function () {
           scheduleNext();
         });
