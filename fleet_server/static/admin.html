@@ -82,42 +82,7 @@
   </button>
 
   <main class="container pb-5">
-    <section class="card mb-3 border-secondary-subtle shadow-sm">
-      <div class="card-body py-3">
-        <h2 class="h6 text-uppercase text-body-secondary mb-3">Overview</h2>
-        <div id="fleet-tiles" class="fleet-tile-row fleet-one-row mb-2" aria-live="polite">Loading tiles…</div>
-        <div id="fleet-chart-wrap" class="mb-3">
-          <div class="small text-body-secondary mb-1 d-flex flex-wrap align-items-center justify-content-between gap-2">
-            <span class="text-body-secondary small">
-              <span class="text-body">Telemetry</span>
-              <span class="ms-1" style="color:#34d399" aria-hidden="true">●</span> CPU
-              <span class="ms-1" style="color:#38bdf8" aria-hidden="true">●</span> RAM
-              <span class="ms-1" style="color:#fb923c" aria-hidden="true">●</span> Temp %max
-              <span class="ms-1" style="color:#eab308" aria-hidden="true">●</span> Load %max
-              <span class="ms-1" style="color:#c084fc" aria-hidden="true">●</span> Disk I/O %max
-            </span>
-            <span class="fleet-chart-time-hint" id="fleet-chart-y-hint"
-              >Older left · recent right · SQLite + live tail · Temp/load/disk vs max seen (stored)</span>
-            <span class="d-flex flex-wrap align-items-center gap-2">
-              <label class="small text-body-secondary mb-0 d-flex align-items-center gap-1"
-                ><input type="checkbox" id="fleet-chart-linear-y" class="form-check-input" /> Linear 0–100% Y</label>
-              <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-refresh-metrics-btn" title="Fetch host metrics now">Refresh metrics</button>
-            </span>
-          </div>
-          <div
-            id="fleet-load-chart"
-            class="fleet-chart-box fleet-chart-box--clickable"
-            role="img"
-            tabindex="0"
-            title="Click for 24h, week, month, and year history"
-            aria-label="Host telemetry history (CPU, RAM, temperature, load, disk). Press Enter or click for extended history."
-          ></div>
-        </div>
-        <div class="alert alert-danger py-2 px-3 mb-0 small d-none" id="err" role="alert"></div>
-      </div>
-    </section>
-
-    <header class="mb-4">
+    <header class="mb-3 fleet-admin-chrome">
       <h1 class="h3 fleet-admin-title mb-1">Forge Fleet — status</h1>
       <p class="text-body-secondary small mb-1 d-flex flex-wrap align-items-center gap-2">
         <span id="fleet-version-line" class="fleet-mono" aria-live="polite">Loading version…</span>
@@ -128,98 +93,255 @@
         <a id="fleet-forge-console" href="#" target="_blank" rel="noopener">Open Forge LLM console</a>
         <span class="text-body-secondary"> (set <code class="fleet-mono">FLEET_FORGE_CONSOLE_URL</code> on Fleet)</span>
       </p>
-      <div class="d-none border border-secondary-subtle rounded p-2 mb-2 small" id="fleet-managed-services-wrap">
-        <div class="fw-semibold mb-1">Managed services (<code class="fleet-mono">etc/services/*.json</code>)</div>
-        <p class="text-body-secondary mb-2 fleet-mono small" id="fleet-config-paths"></p>
-        <div id="fleet-managed-services-rows" class="mb-2"></div>
-        <p class="fleet-mono small text-body-secondary mb-1" id="fleet-svc-action-msg" aria-live="polite"></p>
-        <details class="mt-1">
-          <summary class="text-body">Add <strong>Forge LLM</strong> compose stack</summary>
-          <form id="fleet-add-service-form" class="mt-2 small">
-            <div class="mb-2">
-              <label class="form-label small mb-0" for="fleet-new-svc-root">Forge LLM directory on this host (must contain <code class="fleet-mono">compose.yaml</code>)</label>
-              <input class="form-control form-control-sm fleet-mono mt-1" id="fleet-new-svc-root" placeholder="/home/you/Code/forge-llm" autocomplete="off" />
-            </div>
-            <p class="text-body-secondary mb-2" style="font-size: 0.8rem">
-              Registers the stack in Fleet. After it appears in the list above, use <strong>Start</strong> to run <code class="fleet-mono">docker compose up -d</code>.
-            </p>
-            <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
-              <button type="submit" class="btn btn-sm btn-primary">Register stack</button>
-            </div>
-            <details class="border border-secondary-subtle rounded p-2 mt-1">
-              <summary class="text-body small" style="cursor: pointer">Advanced</summary>
-              <div class="row g-2 mt-2">
-                <div class="col-md-6">
-                  <label class="form-label small mb-0" for="fleet-new-svc-id">Service id (optional)</label>
-                  <input class="form-control form-control-sm fleet-mono" id="fleet-new-svc-id" placeholder="Leave blank — Fleet picks default, lab, llm2…" autocomplete="off" />
-                </div>
-                <div class="col-12">
-                  <span class="form-label small d-block mb-1">Compose overlays (optional)</span>
-                  <label class="me-3"><input type="checkbox" class="form-check-input fleet-svc-overlay me-1" value="compose.cpu.yaml" />compose.cpu.yaml</label>
-                  <label class="me-3"><input type="checkbox" class="form-check-input fleet-svc-overlay me-1" value="compose.gpu.yaml" />compose.gpu.yaml</label>
-                  <label class="me-3"><input type="checkbox" class="form-check-input fleet-svc-overlay me-1" value="compose.observability-ports.yaml" />observability-ports</label>
-                  <label class="me-3"><input type="checkbox" class="form-check-input fleet-svc-overlay me-1" value="compose.observability-dcgm.yaml" />observability-dcgm</label>
-                </div>
-                <div class="col-12 text-body-secondary fleet-mono" style="font-size: 0.72rem">API: <code class="fleet-mono">POST /v1/container-services</code> · omit <code class="fleet-mono">id</code> for auto-assigned service id</div>
-              </div>
-            </details>
-          </form>
-          <p class="text-body-secondary fleet-mono small mt-2 mb-0" id="fleet-add-service-msg"></p>
-        </details>
-      </div>
-      <div class="d-none border border-secondary-subtle rounded p-2 mb-2 small" id="fleet-container-types-wrap">
-        <div class="fw-semibold mb-1">Container types (<code class="fleet-mono">etc/containers/types.json</code>)</div>
-        <div class="d-none border border-secondary-subtle rounded p-2 mb-2 fleet-orch-nested" id="fleet-orchestration-wrap">
-          <div class="fw-semibold mb-1 small">Workloads (compose + running jobs)</div>
-          <p class="text-body-secondary small mb-2" id="fleet-orch-summary"></p>
-          <div id="fleet-orch-chart" class="fleet-chart-box" role="img" aria-label="Workload counts over time"></div>
-        </div>
-        <div id="fleet-container-types-table"></div>
-      </div>
       <pre
         class="fleet-mono small text-body-secondary mb-2 p-2 rounded border bg-body-secondary d-none"
         id="fleet-self-update-log"
         style="max-height: 14rem; overflow: auto; white-space: pre-wrap"
       ></pre>
+      <div class="alert alert-danger py-2 px-3 mb-2 small d-none" id="err" role="alert"></div>
     </header>
 
-    <section class="card mb-3 border-secondary-subtle shadow-sm">
-      <div class="card-body">
-        <h2 class="h6 text-uppercase text-body-secondary mb-3">Jobs by status</h2>
-        <div id="by-status" class="fleet-stat-grid text-body-secondary">Loading job counts…</div>
-      </div>
-    </section>
+    <ul class="nav nav-tabs mb-3 flex-nowrap overflow-auto fleet-admin-tablist" id="fleet-admin-tablist" role="tablist">
+      <li class="nav-item" role="presentation">
+        <button
+          class="nav-link active"
+          id="fleet-tab-overview-btn"
+          data-bs-toggle="tab"
+          data-bs-target="#fleet-tab-overview"
+          type="button"
+          role="tab"
+          aria-controls="fleet-tab-overview"
+          aria-selected="true"
+        >
+          Overview
+        </button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button
+          class="nav-link"
+          id="fleet-tab-services-btn"
+          data-bs-toggle="tab"
+          data-bs-target="#fleet-tab-services"
+          type="button"
+          role="tab"
+          aria-controls="fleet-tab-services"
+          aria-selected="false"
+          tabindex="-1"
+        >
+          Services
+        </button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button
+          class="nav-link"
+          id="fleet-tab-containers-btn"
+          data-bs-toggle="tab"
+          data-bs-target="#fleet-tab-containers"
+          type="button"
+          role="tab"
+          aria-controls="fleet-tab-containers"
+          aria-selected="false"
+          tabindex="-1"
+        >
+          Containers
+        </button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button
+          class="nav-link"
+          id="fleet-tab-jobs-btn"
+          data-bs-toggle="tab"
+          data-bs-target="#fleet-tab-jobs"
+          type="button"
+          role="tab"
+          aria-controls="fleet-tab-jobs"
+          aria-selected="false"
+          tabindex="-1"
+        >
+          Jobs
+        </button>
+      </li>
+    </ul>
 
-    <section class="card mb-3 border-secondary-subtle shadow-sm">
-      <div class="card-body">
-        <h2 class="h6 text-uppercase text-body-secondary mb-3">Active workers</h2>
-        <div id="active" class="small text-body-secondary">Loading workers…</div>
+    <div class="tab-content" id="fleet-admin-tab-content">
+      <div
+        class="tab-pane fade show active"
+        id="fleet-tab-overview"
+        role="tabpanel"
+        aria-labelledby="fleet-tab-overview-btn"
+        tabindex="0"
+      >
+        <section class="card mb-3 border-secondary-subtle shadow-sm">
+          <div class="card-body py-3">
+            <h2 class="h6 text-uppercase text-body-secondary mb-3">Overview</h2>
+            <div id="fleet-tiles" class="fleet-tile-row fleet-one-row mb-2" aria-live="polite">Loading tiles…</div>
+            <div id="fleet-chart-wrap" class="mb-0">
+              <div class="small text-body-secondary mb-1 d-flex flex-wrap align-items-center justify-content-between gap-2">
+                <span class="text-body-secondary small">
+                  <span class="text-body">Telemetry</span>
+                  <span class="ms-1" style="color:#34d399" aria-hidden="true">●</span> CPU
+                  <span class="ms-1" style="color:#38bdf8" aria-hidden="true">●</span> RAM
+                  <span class="ms-1" style="color:#fb923c" aria-hidden="true">●</span> Temp %max
+                  <span class="ms-1" style="color:#eab308" aria-hidden="true">●</span> Load %max
+                  <span class="ms-1" style="color:#c084fc" aria-hidden="true">●</span> Disk I/O %max
+                </span>
+                <span class="fleet-chart-time-hint" id="fleet-chart-y-hint"
+                  >Older left · recent right · SQLite + live tail · Temp/load/disk vs max seen (stored)</span>
+                <span class="d-flex flex-wrap align-items-center gap-2">
+                  <label class="small text-body-secondary mb-0 d-flex align-items-center gap-1"
+                    ><input type="checkbox" id="fleet-chart-linear-y" class="form-check-input" /> Linear 0–100% Y</label>
+                  <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-refresh-metrics-btn" title="Fetch host metrics now">Refresh metrics</button>
+                </span>
+              </div>
+              <div
+                id="fleet-load-chart"
+                class="fleet-chart-box fleet-chart-box--clickable"
+                role="img"
+                tabindex="0"
+                title="Click for 24h, week, month, and year history"
+                aria-label="Host telemetry history (CPU, RAM, temperature, load, disk). Press Enter or click for extended history."
+              ></div>
+            </div>
+          </div>
+        </section>
       </div>
-    </section>
 
-    <section class="card mb-3 border-secondary-subtle shadow-sm">
-      <div class="card-body">
-        <h2 class="h6 text-uppercase text-body-secondary mb-1">Recent jobs</h2>
-        <p class="small text-body-secondary mb-3">
-          Latest <strong>10</strong> jobs per page; use <strong>Previous</strong> / <strong>Next</strong> for older rows. Technical fields are under <strong>Details</strong>.
-        </p>
-        <div class="table-responsive">
-          <table class="table table-sm table-hover align-middle mb-0">
-            <thead class="table-light">
-              <tr>
-                <th scope="col">Status</th>
-                <th scope="col">What ran</th>
-                <th scope="col">Finished</th>
-                <th scope="col">Outcome</th>
-                <th scope="col" class="text-end">Details</th>
-              </tr>
-            </thead>
-            <tbody id="rows"><tr><td colspan="5" class="text-body-secondary">Loading jobs…</td></tr></tbody>
-          </table>
+      <div
+        class="tab-pane fade"
+        id="fleet-tab-services"
+        role="tabpanel"
+        aria-labelledby="fleet-tab-services-btn"
+        tabindex="0"
+      >
+        <div class="d-none border border-secondary-subtle rounded p-2 mb-2 small" id="fleet-managed-services-wrap">
+          <div class="fw-semibold mb-1">Managed services (<code class="fleet-mono">etc/services/*.json</code>)</div>
+          <p class="text-body-secondary mb-2 fleet-mono small" id="fleet-config-paths"></p>
+          <div id="fleet-managed-services-rows" class="mb-2"></div>
+          <p class="fleet-mono small text-body-secondary mb-1" id="fleet-svc-action-msg" aria-live="polite"></p>
+          <details class="mt-1">
+            <summary class="text-body">Add <strong>Forge LLM</strong> compose stack</summary>
+            <form id="fleet-add-service-form" class="mt-2 small">
+              <div class="mb-2">
+                <label class="form-label small mb-0" for="fleet-new-svc-root">Forge LLM directory on this host (must contain <code class="fleet-mono">compose.yaml</code>)</label>
+                <input class="form-control form-control-sm fleet-mono mt-1" id="fleet-new-svc-root" placeholder="/home/you/Code/forge-llm" autocomplete="off" />
+              </div>
+              <p class="text-body-secondary mb-2" style="font-size: 0.8rem">
+                Registers the stack in Fleet. After it appears in the list above, use <strong>Start</strong> to run <code class="fleet-mono">docker compose up -d</code>.
+              </p>
+              <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                <button type="submit" class="btn btn-sm btn-primary">Register stack</button>
+              </div>
+              <details class="border border-secondary-subtle rounded p-2 mt-1">
+                <summary class="text-body small" style="cursor: pointer">Advanced</summary>
+                <div class="row g-2 mt-2">
+                  <div class="col-md-6">
+                    <label class="form-label small mb-0" for="fleet-new-svc-id">Service id (optional)</label>
+                    <input class="form-control form-control-sm fleet-mono" id="fleet-new-svc-id" placeholder="Leave blank — Fleet picks default, lab, llm2…" autocomplete="off" />
+                  </div>
+                  <div class="col-12">
+                    <span class="form-label small d-block mb-1">Compose overlays (optional)</span>
+                    <label class="me-3"><input type="checkbox" class="form-check-input fleet-svc-overlay me-1" value="compose.cpu.yaml" />compose.cpu.yaml</label>
+                    <label class="me-3"><input type="checkbox" class="form-check-input fleet-svc-overlay me-1" value="compose.gpu.yaml" />compose.gpu.yaml</label>
+                    <label class="me-3"><input type="checkbox" class="form-check-input fleet-svc-overlay me-1" value="compose.observability-ports.yaml" />observability-ports</label>
+                    <label class="me-3"><input type="checkbox" class="form-check-input fleet-svc-overlay me-1" value="compose.observability-dcgm.yaml" />observability-dcgm</label>
+                  </div>
+                  <div class="col-12 text-body-secondary fleet-mono" style="font-size: 0.72rem">API: <code class="fleet-mono">POST /v1/container-services</code> · omit <code class="fleet-mono">id</code> for auto-assigned service id</div>
+                </div>
+              </details>
+            </form>
+            <p class="text-body-secondary fleet-mono small mt-2 mb-0" id="fleet-add-service-msg"></p>
+          </details>
         </div>
-        <div id="fleet-jobs-pager" class="mt-2" aria-label="Recent jobs pagination"></div>
       </div>
-    </section>
+
+      <div
+        class="tab-pane fade"
+        id="fleet-tab-containers"
+        role="tabpanel"
+        aria-labelledby="fleet-tab-containers-btn"
+        tabindex="0"
+      >
+        <div class="d-none border border-secondary-subtle rounded p-2 mb-2 small" id="fleet-container-types-wrap">
+          <div class="fw-semibold mb-1">Container types (<code class="fleet-mono">etc/containers/types.json</code>)</div>
+          <div class="d-flex flex-wrap gap-2 mb-2">
+            <button type="button" class="btn btn-sm btn-outline-primary" id="fleet-type-add-btn">Add type</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-types-reload-btn" title="Reload from disk">Reload</button>
+          </div>
+          <div class="d-none border border-secondary-subtle rounded p-2 mb-2 fleet-orch-nested" id="fleet-orchestration-wrap">
+            <div class="fw-semibold mb-1 small">Workloads (compose + running jobs)</div>
+            <p class="text-body-secondary small mb-2" id="fleet-orch-summary"></p>
+            <div id="fleet-orch-chart" class="fleet-chart-box" role="img" aria-label="Workload counts over time"></div>
+          </div>
+          <div id="fleet-container-types-table"></div>
+          <div class="border border-secondary-subtle rounded p-2 mt-3 fleet-orch-nested" id="fleet-requirement-templates-inner">
+            <div class="fw-semibold mb-1 small">Requirement templates (<code class="fleet-mono">requirement_templates.json</code>)</div>
+            <p class="text-body-secondary small mb-2">Declare Dockerfile or pinned images per slug; types reference <code class="fleet-mono">requirements[]</code>. By default pulls and Dockerfile builds may use the network; set <code class="fleet-mono">FLEET_TEMPLATE_BUILD_NETWORK=0</code> to enforce offline builds.</p>
+            <div class="d-flex flex-wrap gap-2 mb-2">
+              <button type="button" class="btn btn-sm btn-outline-primary" id="fleet-req-template-add-btn">Add template</button>
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-req-templates-reload-btn">Reload</button>
+              <button type="button" class="btn btn-sm btn-outline-warning" id="fleet-req-templates-save-btn">Save templates</button>
+            </div>
+            <div id="fleet-requirement-templates-editor-msg" class="fleet-mono small text-body-secondary mb-1" aria-live="polite"></div>
+            <div id="fleet-requirement-templates-table"></div>
+            <details class="mt-2">
+              <summary class="text-body small">Build requirement bundle</summary>
+              <div class="mt-2 small">
+                <label class="form-label small mb-0" for="fleet-build-req-ids">Comma-separated requirement slugs</label>
+                <input type="text" class="form-control form-control-sm fleet-mono mt-1 mb-2" id="fleet-build-req-ids" placeholder="playwright_chromium" autocomplete="off" />
+                <button type="button" class="btn btn-sm btn-outline-warning" id="fleet-template-build-btn"><code class="fleet-mono">POST /v1/container-templates/build</code></button>
+                <p class="fleet-mono small text-body-secondary mb-0 mt-2" id="fleet-template-build-result" aria-live="polite"></p>
+              </div>
+            </details>
+          </div>
+        </div>
+      </div>
+
+      <div
+        class="tab-pane fade"
+        id="fleet-tab-jobs"
+        role="tabpanel"
+        aria-labelledby="fleet-tab-jobs-btn"
+        tabindex="0"
+      >
+        <section class="card mb-3 border-secondary-subtle shadow-sm">
+          <div class="card-body">
+            <h2 class="h6 text-uppercase text-body-secondary mb-3">Jobs by status</h2>
+            <div id="by-status" class="fleet-stat-grid text-body-secondary">Loading job counts…</div>
+          </div>
+        </section>
+
+        <section class="card mb-3 border-secondary-subtle shadow-sm">
+          <div class="card-body">
+            <h2 class="h6 text-uppercase text-body-secondary mb-3">Active workers</h2>
+            <div id="active" class="small text-body-secondary">Loading workers…</div>
+          </div>
+        </section>
+
+        <section class="card mb-3 border-secondary-subtle shadow-sm">
+          <div class="card-body">
+            <h2 class="h6 text-uppercase text-body-secondary mb-1">Recent jobs</h2>
+            <p class="small text-body-secondary mb-3">
+              Latest <strong>10</strong> jobs per page; use <strong>Previous</strong> / <strong>Next</strong> for older rows. Technical fields are under <strong>Details</strong>.
+            </p>
+            <div class="table-responsive">
+              <table class="table table-sm table-hover align-middle mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th scope="col">Status</th>
+                    <th scope="col">What ran</th>
+                    <th scope="col">Finished</th>
+                    <th scope="col">Outcome</th>
+                    <th scope="col" class="text-end">Details</th>
+                  </tr>
+                </thead>
+                <tbody id="rows"><tr><td colspan="5" class="text-body-secondary">Loading jobs…</td></tr></tbody>
+              </table>
+            </div>
+            <div id="fleet-jobs-pager" class="mt-2" aria-label="Recent jobs pagination"></div>
+          </div>
+        </section>
+      </div>
+    </div>
   </main>
 
   <div
@@ -237,6 +359,110 @@
         </div>
         <div class="modal-body">
           <div id="fleet-job-detail-body" class="small text-body-secondary">Loading…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div
+    class="modal fade"
+    id="fleet-type-edit-modal"
+    tabindex="-1"
+    aria-labelledby="fleet-type-edit-modal-label"
+    aria-hidden="true"
+  >
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="fleet-type-edit-modal-label">Container type</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body small">
+          <p class="text-body-secondary" id="fleet-type-edit-hint">Add or update a row in <code class="fleet-mono">types.json</code>.</p>
+          <div class="row g-2">
+            <div class="col-md-6">
+              <label class="form-label small mb-0" for="fleet-type-field-id">id</label>
+              <input class="form-control form-control-sm fleet-mono" id="fleet-type-field-id" autocomplete="off" />
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small mb-0" for="fleet-type-field-category">category_id</label>
+              <select class="form-select form-select-sm fleet-mono" id="fleet-type-field-category"></select>
+            </div>
+            <div class="col-12">
+              <label class="form-label small mb-0" for="fleet-type-field-cclass">container_class</label>
+              <input class="form-control form-control-sm fleet-mono" id="fleet-type-field-cclass" autocomplete="off" />
+            </div>
+            <div class="col-12">
+              <label class="form-label small mb-0" for="fleet-type-field-title">title</label>
+              <input class="form-control form-control-sm" id="fleet-type-field-title" autocomplete="off" />
+            </div>
+            <div class="col-12">
+              <label class="form-label small mb-0" for="fleet-type-field-notes">notes</label>
+              <textarea class="form-control form-control-sm" id="fleet-type-field-notes" rows="2"></textarea>
+            </div>
+            <div class="col-12">
+              <label class="form-label small mb-0" for="fleet-type-field-req">requirements (comma-separated slugs)</label>
+              <input class="form-control form-control-sm fleet-mono" id="fleet-type-field-req" placeholder="slug_a, slug_b" autocomplete="off" />
+            </div>
+            <div class="col-12">
+              <span class="form-label small d-block mb-1">Capability overrides (optional)</span>
+              <label class="me-3"><input type="checkbox" class="form-check-input me-1" id="fleet-type-cap-admin" /> admin_spawnable</label>
+              <label class="me-3"><input type="checkbox" class="form-check-input me-1" id="fleet-type-cap-api" /> api_manage_services</label>
+              <label class="me-3"><input type="checkbox" class="form-check-input me-1" id="fleet-type-cap-docker" /> allow_docker_argv_jobs</label>
+            </div>
+          </div>
+          <p class="text-danger small mb-0 d-none" id="fleet-type-edit-err"></p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-sm btn-primary" id="fleet-type-edit-save">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div
+    class="modal fade"
+    id="fleet-req-template-modal"
+    tabindex="-1"
+    aria-labelledby="fleet-req-template-modal-label"
+    aria-hidden="true"
+  >
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="fleet-req-template-modal-label">Requirement template</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body small">
+          <div class="mb-2">
+            <label class="form-label small mb-0" for="fleet-req-field-id">id (slug)</label>
+            <input class="form-control form-control-sm fleet-mono" id="fleet-req-field-id" autocomplete="off" />
+          </div>
+          <div class="mb-2">
+            <label class="form-label small mb-0" for="fleet-req-field-title">title</label>
+            <input class="form-control form-control-sm" id="fleet-req-field-title" autocomplete="off" />
+          </div>
+          <div class="mb-2">
+            <label class="form-label small mb-0" for="fleet-req-field-kind">kind</label>
+            <select class="form-select form-select-sm fleet-mono" id="fleet-req-field-kind">
+              <option value="dockerfile">dockerfile</option>
+              <option value="image">image</option>
+            </select>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small mb-0" for="fleet-req-field-ref">ref (path under <code class="fleet-mono">etc/containers/</code> or <code class="fleet-mono">image:tag</code>)</label>
+            <input class="form-control form-control-sm fleet-mono" id="fleet-req-field-ref" autocomplete="off" />
+          </div>
+          <div class="mb-2">
+            <label class="form-label small mb-0" for="fleet-req-field-notes">notes</label>
+            <textarea class="form-control form-control-sm" id="fleet-req-field-notes" rows="2"></textarea>
+          </div>
+          <p class="text-danger small mb-0 d-none" id="fleet-req-edit-err"></p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-sm btn-primary" id="fleet-req-edit-save">Save row</button>
         </div>
       </div>
     </div>
@@ -2668,7 +2894,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
     function refreshContainerTypesTelemetry(orch) {
       var tbl = document.getElementById("fleet-container-types-table");
       if (!tbl) return;
-      var cards = tbl.querySelectorAll(".fleet-type-card[data-fleet-type-id]");
+      var cards = tbl.querySelectorAll("tr.fleet-type-card[data-fleet-type-id]");
       var src = orch || __fleetLastOrchestration;
       for (var ci = 0; ci < cards.length; ci++) {
         var card = cards[ci];
@@ -3339,7 +3565,13 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         return;
       }
       wrap.classList.remove("d-none");
-      pathsEl.textContent = "types_file=" + cl.types_file + " · services_dir=" + cl.services_dir;
+      pathsEl.textContent =
+        "types_file=" +
+        cl.types_file +
+        " · services_dir=" +
+        cl.services_dir +
+        (cl.requirement_templates_file ? " · req_templates=" + cl.requirement_templates_file : "") +
+        (cl.build_cache_file ? " · build_cache=" + cl.build_cache_file : "");
       if (msgEl) msgEl.textContent = "";
       var svcs = integ.forge_llm_services || [];
       if (!svcs.length) {
@@ -3382,101 +3614,250 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
     }
 
     var __fleetTypesLoaded = false;
-    async function loadContainerTypesOnce() {
-      if (__fleetTypesLoaded) return;
+    var __fleetTypesDoc = null;
+    var __fleetReqTemplatesDoc = null;
+    var __fleetTypeEditMode = "add";
+    var __fleetReqEditIdx = -1;
+
+    function renderFleetReqTemplatesTable(doc) {
+      if (!doc || !doc.ok) return;
+      __fleetReqTemplatesDoc = doc;
+      var tbl = document.getElementById("fleet-requirement-templates-table");
+      if (!tbl) return;
+      var templates = Array.isArray(doc.templates) ? doc.templates : [];
+      var head =
+        '<div class="table-responsive"><table class="table table-sm table-bordered mb-0 fleet-mono"><thead><tr>' +
+        "<th>id</th><th>kind</th><th>ref</th><th>title</th><th class=\"text-end\">actions</th></tr></thead><tbody>";
+      var body = templates
+        .map(function (row, idx) {
+          var rid = esc(String((row && row.id) || ""));
+          return (
+            "<tr><td>" +
+            rid +
+            "</td><td>" +
+            esc(String((row && row.kind) || "")) +
+            "</td><td class=\"small\" title=\"" +
+            esc(String((row && row.ref) || "")) +
+            "\">" +
+            esc(String((row && row.ref) || "").slice(0, 72)) +
+            (String((row && row.ref) || "").length > 72 ? "…" : "") +
+            "</td><td class=\"small\">" +
+            esc(String((row && row.title) || "")) +
+            "</td><td class=\"text-end text-nowrap\"><button type=\"button\" class=\"btn btn-sm btn-outline-primary fleet-req-edit\" data-req-idx=\"" +
+            idx +
+            "\">Edit</button> <button type=\"button\" class=\"btn btn-sm btn-outline-danger fleet-req-del\" data-req-idx=\"" +
+            idx +
+            "\">Remove</button></td></tr>"
+          );
+        })
+        .join("");
+      tbl.innerHTML =
+        head +
+        body +
+        (templates.length ? "" : '<tr><td colspan="5" class="text-body-secondary">No templates yet.</td></tr>') +
+        "</tbody></table></div>";
+    }
+
+    async function loadRequirementTemplatesOnce(force) {
+      try {
+        var res = await fetch("/v1/container-templates", { headers: authHeaders(), cache: "no-store" });
+        if (!res.ok) return;
+        var doc = await res.json();
+        renderFleetReqTemplatesTable(doc);
+      } catch (_e) {
+        /* ignore */
+      }
+    }
+
+    function openFleetTypeModal(mode, typeId) {
+      var err = document.getElementById("fleet-type-edit-err");
+      if (err) {
+        err.textContent = "";
+        err.classList.add("d-none");
+      }
+      __fleetTypeEditMode = mode;
+      var idEl = document.getElementById("fleet-type-field-id");
+      var catEl = document.getElementById("fleet-type-field-category");
+      var cclEl = document.getElementById("fleet-type-field-cclass");
+      var titleEl = document.getElementById("fleet-type-field-title");
+      var notesEl = document.getElementById("fleet-type-field-notes");
+      var reqEl = document.getElementById("fleet-type-field-req");
+      var capA = document.getElementById("fleet-type-cap-admin");
+      var capApi = document.getElementById("fleet-type-cap-api");
+      var capDr = document.getElementById("fleet-type-cap-docker");
+      if (catEl) {
+        catEl.innerHTML = "";
+        (Array.isArray(__fleetTypesDoc && __fleetTypesDoc.categories) ? __fleetTypesDoc.categories : []).forEach(function (c) {
+          if (!c || !c.id) return;
+          var o = document.createElement("option");
+          o.value = String(c.id);
+          o.textContent = String(c.title || c.id);
+          catEl.appendChild(o);
+        });
+      }
+      if (mode === "add") {
+        if (idEl) {
+          idEl.value = "";
+          idEl.readOnly = false;
+        }
+        if (cclEl) cclEl.value = "";
+        if (titleEl) titleEl.value = "";
+        if (notesEl) notesEl.value = "";
+        if (reqEl) reqEl.value = "";
+        if (catEl) catEl.value = "job";
+        if (capA) capA.checked = false;
+        if (capApi) capApi.checked = false;
+        if (capDr) capDr.checked = false;
+        var h = document.getElementById("fleet-type-edit-hint");
+        if (h) h.textContent = "Add a new row to types.json (POST /v1/container-types).";
+        var title = document.getElementById("fleet-type-edit-modal-label");
+        if (title) title.textContent = "Add container type";
+      } else {
+        var mat = Array.isArray(__fleetTypesDoc && __fleetTypesDoc.types_materialized)
+          ? __fleetTypesDoc.types_materialized
+          : [];
+        var row = null;
+        for (var i = 0; i < mat.length; i++) {
+          if (String((mat[i] && mat[i].id) || "") === String(typeId || "")) {
+            row = mat[i];
+            break;
+          }
+        }
+        if (!row) return;
+        if (idEl) {
+          idEl.value = String(row.id || "");
+          idEl.readOnly = true;
+        }
+        if (catEl) catEl.value = String(row.category_id || "job");
+        if (cclEl) cclEl.value = String(row.container_class || "");
+        if (titleEl) titleEl.value = String(row.title || "");
+        if (notesEl) notesEl.value = String(row.notes || "");
+        if (reqEl) reqEl.value = Array.isArray(row.requirements) ? row.requirements.join(", ") : "";
+        var ec = row.effective_capabilities || {};
+        if (capA) capA.checked = "admin_spawnable" in row ? !!row.admin_spawnable : !!ec.admin_spawnable;
+        if (capApi) capApi.checked = "api_manage_services" in row ? !!row.api_manage_services : !!ec.api_manage_services;
+        if (capDr) capDr.checked = "allow_docker_argv_jobs" in row ? !!row.allow_docker_argv_jobs : !!ec.allow_docker_argv_jobs;
+        var h2 = document.getElementById("fleet-type-edit-hint");
+        if (h2) h2.textContent = "Update this row (PUT /v1/container-types/{id}).";
+        var title2 = document.getElementById("fleet-type-edit-modal-label");
+        if (title2) title2.textContent = "Edit container type";
+      }
+      var modalEl = document.getElementById("fleet-type-edit-modal");
+      if (modalEl && typeof bootstrap !== "undefined" && bootstrap.Modal) {
+        bootstrap.Modal.getOrCreateInstance(modalEl).show();
+      }
+    }
+
+    function openFleetReqTemplateModal(idx) {
+      var err = document.getElementById("fleet-req-edit-err");
+      if (err) {
+        err.textContent = "";
+        err.classList.add("d-none");
+      }
+      __fleetReqEditIdx = typeof idx === "number" ? idx : -1;
+      var templates = __fleetReqTemplatesDoc && Array.isArray(__fleetReqTemplatesDoc.templates)
+        ? __fleetReqTemplatesDoc.templates
+        : [];
+      var row = __fleetReqEditIdx >= 0 ? templates[__fleetReqEditIdx] : null;
+      var idEl = document.getElementById("fleet-req-field-id");
+      var titleEl = document.getElementById("fleet-req-field-title");
+      var kindEl = document.getElementById("fleet-req-field-kind");
+      var refEl = document.getElementById("fleet-req-field-ref");
+      var notesEl = document.getElementById("fleet-req-field-notes");
+      if (row && typeof row === "object") {
+        if (idEl) {
+          idEl.value = String(row.id || "");
+          idEl.readOnly = true;
+        }
+        if (titleEl) titleEl.value = String(row.title || "");
+        if (kindEl) kindEl.value = String(row.kind || "dockerfile");
+        if (refEl) refEl.value = String(row.ref || "");
+        if (notesEl) notesEl.value = String(row.notes || "");
+      } else {
+        if (idEl) {
+          idEl.value = "";
+          idEl.readOnly = false;
+        }
+        if (titleEl) titleEl.value = "";
+        if (kindEl) kindEl.value = "dockerfile";
+        if (refEl) refEl.value = "";
+        if (notesEl) notesEl.value = "";
+      }
+      var modalEl = document.getElementById("fleet-req-template-modal");
+      if (modalEl && typeof bootstrap !== "undefined" && bootstrap.Modal) {
+        bootstrap.Modal.getOrCreateInstance(modalEl).show();
+      }
+    }
+
+    async function loadContainerTypesOnce(force) {
+      if (__fleetTypesLoaded && !force) return;
       try {
         var res = await fetch("/v1/container-types", { headers: authHeaders(), cache: "no-store" });
         if (!res.ok) return;
         var doc = await res.json();
         if (!doc.ok || !Array.isArray(doc.types)) return;
-        var mat = Array.isArray(doc.types_materialized) ? doc.types_materialized : [];
-        if (!mat.length) return;
+        __fleetTypesDoc = doc;
         __fleetTypesLoaded = true;
         var wrap = document.getElementById("fleet-container-types-wrap");
         var tbl = document.getElementById("fleet-container-types-table");
         if (!wrap || !tbl) return;
         wrap.classList.remove("d-none");
-        var catsById = {};
-        (Array.isArray(doc.categories) ? doc.categories : []).forEach(function (c) {
-          if (c && c.id) catsById[String(c.id)] = c;
-        });
-        var order = ["system", "job", "service"];
+        var mat = Array.isArray(doc.types_materialized) ? doc.types_materialized : [];
         function effCaps(t) {
           var e = t && t.effective_capabilities;
           return e && typeof e === "object" ? e : {};
         }
-        function typeCard(t) {
-          var ec = effCaps(t);
-          var note = (t && t.notes) || "";
-          var tid = (t && t.id) || "";
-          var cid = (t && t.category_id) || "";
-          var cclass = (t && t.container_class) || "";
-          return (
-            "<div class=\"fleet-type-card fleet-mono\" data-fleet-type-id=\"" +
-            esc(tid) +
-            "\" data-category-id=\"" +
-            esc(cid) +
-            "\" data-container-class=\"" +
-            esc(cclass) +
-            "\">" +
-            "<div class=\"fleet-type-card__id\">" +
-            esc(tid) +
-            "</div>" +
-            "<div class=\"fleet-type-card__meta\">" +
-            esc(cclass) +
-            "</div>" +
-            "<div class=\"fleet-type-card__tel small mt-1\" data-fleet-type-tel>Telemetry: —</div>" +
-            "<div class=\"fleet-type-card__flags\">admin " +
-            (ec.admin_spawnable ? "yes" : "no") +
-            " · API services " +
-            (ec.api_manage_services ? "yes" : "no") +
-            " · docker_argv jobs " +
-            (ec.allow_docker_argv_jobs ? "yes" : "no") +
-            "</div>" +
-            (note
-              ? "<div class=\"small text-body-secondary mt-1\" style=\"line-height:1.35\">" + esc(note) + "</div>"
-              : "") +
-            "</div>"
-          );
-        }
-        function laneHtml(cid) {
-          var cat = catsById[cid] || {};
-          var title = (cat.title || cid).toString();
-          var desc = (cat.description || "").toString();
-          var laneCls = "fleet-type-lane";
-          if (cid === "service") laneCls += " fleet-type-lane--primary";
-          else if (cid === "system") laneCls += " fleet-type-lane--muted";
-          var hint = "";
-          if (cid === "service") {
-            hint =
-              "<p class=\"fleet-type-lane__hint mb-0\">Managed stacks use the <strong>Managed services</strong> section below " +
-              "(<a href=\"#fleet-managed-services-wrap\">jump</a>).</p>";
-          } else if (cid === "job") {
-            hint =
-              "<p class=\"fleet-type-lane__hint mb-0\">Run-to-completion workloads (e.g. CPU probes via <code class=\"fleet-mono\">POST /v1/admin/test-fleet</code>); no compose daemon controls here.</p>";
-          } else {
-            hint =
-              "<p class=\"fleet-type-lane__hint mb-0\">Internal orchestrator types; not operator-managed services.</p>";
-          }
-          var inLane = mat.filter(function (t) {
-            return String((t && t.category_id) || "") === cid;
-          });
-          var cards = inLane.map(typeCard).join("");
-          return (
-            "<div class=\"" +
-            laneCls +
-            "\">" +
-            "<div class=\"fleet-type-lane__strip\">" +
-            esc(title) +
-            "</div>" +
-            (desc ? "<p class=\"small text-body-secondary mb-2\" style=\"line-height:1.35\">" + esc(desc) + "</p>" : "") +
-            hint +
-            (cards || "<p class=\"small text-body-secondary mb-0\">No types in this lane.</p>") +
-            "</div>"
-          );
-        }
-        tbl.innerHTML = '<div class="fleet-type-swimlanes">' + order.map(laneHtml).join("") + "</div>";
+        var head =
+          '<div class="table-responsive"><table class="table table-sm table-bordered mb-0 fleet-mono"><thead><tr>' +
+          "<th>id</th><th>category</th><th>container_class</th><th>requirements</th><th>telemetry</th><th class=\"text-end\">actions</th></tr></thead><tbody>";
+        var body = mat
+          .map(function (t) {
+            var tid = String((t && t.id) || "");
+            var cid = String((t && t.category_id) || "");
+            var cclass = String((t && t.container_class) || "");
+            var reqs = Array.isArray(t.requirements) ? t.requirements.join(", ") : "";
+            var ec = effCaps(t);
+            var caps =
+              "adm " +
+              (ec.admin_spawnable ? "Y" : "n") +
+              " · svc " +
+              (ec.api_manage_services ? "Y" : "n") +
+              " · dock " +
+              (ec.allow_docker_argv_jobs ? "Y" : "n");
+            return (
+              "<tr class=\"fleet-type-card\" data-fleet-type-id=\"" +
+              esc(tid) +
+              "\" data-category-id=\"" +
+              esc(cid) +
+              "\" data-container-class=\"" +
+              esc(cclass) +
+              "\"><td>" +
+              esc(tid) +
+              "</td><td>" +
+              esc(cid) +
+              "</td><td>" +
+              esc(cclass) +
+              "</td><td class=\"small\">" +
+              esc(reqs) +
+              "</td><td class=\"small\"><span data-fleet-type-tel>—</span><div class=\"text-body-secondary\">" +
+              esc(caps) +
+              "</div></td><td class=\"text-nowrap text-end\"><button type=\"button\" class=\"btn btn-sm btn-outline-primary me-1 fleet-type-edit\" data-type-id=\"" +
+              esc(tid) +
+              "\">Edit</button><button type=\"button\" class=\"btn btn-sm btn-outline-danger fleet-type-del\" data-type-id=\"" +
+              esc(tid) +
+              "\"" +
+              (tid === "empty" ? " disabled" : "") +
+              ">Delete</button></td></tr>"
+            );
+          })
+          .join("");
+        tbl.innerHTML =
+          head +
+          body +
+          (mat.length ? "" : '<tr><td colspan="6" class="text-body-secondary">No types.</td></tr>') +
+          "</tbody></table></div>";
         refreshContainerTypesTelemetry(__fleetLastOrchestration);
+        await loadRequirementTemplatesOnce(force);
       } catch (_e) {
         /* ignore */
       }
@@ -3943,6 +4324,119 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       } else if (t.classList.contains("fleet-svc-stop")) {
         var sid2 = t.getAttribute("data-svc-id");
         if (sid2) forgeSvcPost("/v1/container-services/" + encodeURIComponent(sid2) + "/stop", "stop sent for " + sid2);
+      } else if (t.id === "fleet-type-add-btn") {
+        ev.preventDefault();
+        openFleetTypeModal("add");
+      } else if (t.id === "fleet-types-reload-btn") {
+        ev.preventDefault();
+        __fleetTypesLoaded = false;
+        void loadContainerTypesOnce(true);
+      } else if (t.id === "fleet-req-template-add-btn") {
+        ev.preventDefault();
+        openFleetReqTemplateModal(-1);
+      } else if (t.id === "fleet-req-templates-reload-btn") {
+        ev.preventDefault();
+        void loadRequirementTemplatesOnce(true);
+      } else if (t.id === "fleet-req-templates-save-btn") {
+        ev.preventDefault();
+        void (async function () {
+          var msg = document.getElementById("fleet-requirement-templates-editor-msg");
+          if (!__fleetReqTemplatesDoc || typeof __fleetReqTemplatesDoc !== "object") {
+            if (msg) msg.textContent = "Nothing to save.";
+            return;
+          }
+          try {
+            var res = await fetch("/v1/container-templates", {
+              method: "PUT",
+              headers: Object.assign({ "Content-Type": "application/json" }, authHeaders()),
+              body: JSON.stringify(__fleetReqTemplatesDoc),
+            });
+            var j = {};
+            try {
+              j = await res.json();
+            } catch (_e) {
+              j = {};
+            }
+            if (msg) msg.textContent = res.ok && j.ok ? "Saved requirement_templates.json." : "HTTP " + res.status + " — " + esc(String(j.error || ""));
+            if (res.ok && j.ok) renderFleetReqTemplatesTable(j);
+          } catch (e) {
+            if (msg) msg.textContent = esc(String(e));
+          }
+        })();
+      } else if (t.id === "fleet-template-build-btn") {
+        ev.preventDefault();
+        void (async function () {
+          var out = document.getElementById("fleet-template-build-result");
+          var inp = document.getElementById("fleet-build-req-ids");
+          var raw = (inp && inp.value ? inp.value : "").trim();
+          var ids = raw
+            ? raw.split(",").map(function (x) {
+                return x.trim().toLowerCase();
+              }).filter(Boolean)
+            : [];
+          if (!ids.length) {
+            if (out) out.textContent = "Enter at least one requirement slug.";
+            return;
+          }
+          try {
+            var res = await fetch("/v1/container-templates/build", {
+              method: "POST",
+              headers: Object.assign({ "Content-Type": "application/json" }, authHeaders()),
+              body: JSON.stringify({ requirement_ids: ids }),
+            });
+            var j = {};
+            try {
+              j = await res.json();
+            } catch (_e) {
+              j = {};
+            }
+            if (out) out.textContent = JSON.stringify(j).slice(0, 1200);
+          } catch (e) {
+            if (out) out.textContent = esc(String(e));
+          }
+        })();
+      } else if (t.classList.contains("fleet-type-edit")) {
+        ev.preventDefault();
+        var ftid = t.getAttribute("data-type-id");
+        if (ftid) openFleetTypeModal("edit", ftid);
+      } else if (t.classList.contains("fleet-type-del")) {
+        ev.preventDefault();
+        var dtid = t.getAttribute("data-type-id");
+        if (!dtid || t.disabled) return;
+        if (!window.confirm("Delete container type " + dtid + "?")) return;
+        void (async function () {
+          try {
+            var res = await fetch("/v1/container-types/" + encodeURIComponent(dtid), {
+              method: "DELETE",
+              headers: authHeaders(),
+            });
+            var j = {};
+            try {
+              j = await res.json();
+            } catch (_e) {
+              j = {};
+            }
+            if (res.ok && j.ok) {
+              __fleetTypesLoaded = false;
+              await loadContainerTypesOnce(true);
+            } else {
+              setErr("Delete type: HTTP " + res.status + " — " + esc(String(j.error || "")));
+            }
+          } catch (e) {
+            setErr(esc(String(e)));
+          }
+        })();
+      } else if (t.classList.contains("fleet-req-edit")) {
+        ev.preventDefault();
+        var ix = parseInt(t.getAttribute("data-req-idx") || "-1", 10);
+        if (!isNaN(ix)) openFleetReqTemplateModal(ix);
+      } else if (t.classList.contains("fleet-req-del")) {
+        ev.preventDefault();
+        var ix2 = parseInt(t.getAttribute("data-req-idx") || "-1", 10);
+        if (isNaN(ix2) || !__fleetReqTemplatesDoc || !Array.isArray(__fleetReqTemplatesDoc.templates)) return;
+        if (!window.confirm("Remove this template row from the editor (save to persist)?")) return;
+        __fleetReqTemplatesDoc.templates.splice(ix2, 1);
+        renderFleetReqTemplatesTable({ ok: true, version: __fleetReqTemplatesDoc.version, templates: __fleetReqTemplatesDoc.templates });
       } else if (t.id === "fleet-header-git-update-btn" || (t.closest && t.closest("#fleet-header-git-update-btn"))) {
         ev.preventDefault();
         doGitSelfUpdate();
@@ -4010,6 +4504,138 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       });
     }
 
+    var fleetTypeSaveBtn = document.getElementById("fleet-type-edit-save");
+    if (fleetTypeSaveBtn) {
+      fleetTypeSaveBtn.addEventListener("click", async function () {
+        var err = document.getElementById("fleet-type-edit-err");
+        if (err) {
+          err.textContent = "";
+          err.classList.add("d-none");
+        }
+        var idEl = document.getElementById("fleet-type-field-id");
+        var catEl = document.getElementById("fleet-type-field-category");
+        var cclEl = document.getElementById("fleet-type-field-cclass");
+        var titleEl = document.getElementById("fleet-type-field-title");
+        var notesEl = document.getElementById("fleet-type-field-notes");
+        var reqEl = document.getElementById("fleet-type-field-req");
+        var capA = document.getElementById("fleet-type-cap-admin");
+        var capApi = document.getElementById("fleet-type-cap-api");
+        var capDr = document.getElementById("fleet-type-cap-docker");
+        var payload = {
+          id: (idEl && idEl.value ? idEl.value : "").trim().toLowerCase(),
+          category_id: catEl ? catEl.value : "job",
+          container_class: (cclEl && cclEl.value ? cclEl.value : "").trim().toLowerCase(),
+          title: (titleEl && titleEl.value ? titleEl.value : "").trim(),
+          notes: notesEl && notesEl.value ? notesEl.value : "",
+        };
+        var rq = (reqEl && reqEl.value ? reqEl.value : "")
+          .split(",")
+          .map(function (x) {
+            return x.trim().toLowerCase();
+          })
+          .filter(Boolean);
+        if (rq.length) payload.requirements = rq;
+        if (capA && capA.checked) payload.admin_spawnable = true;
+        else payload.admin_spawnable = false;
+        if (capApi && capApi.checked) payload.api_manage_services = true;
+        else payload.api_manage_services = false;
+        if (capDr && capDr.checked) payload.allow_docker_argv_jobs = true;
+        else payload.allow_docker_argv_jobs = false;
+        try {
+          var url =
+            __fleetTypeEditMode === "add"
+              ? "/v1/container-types"
+              : "/v1/container-types/" + encodeURIComponent(payload.id);
+          var method = __fleetTypeEditMode === "add" ? "POST" : "PUT";
+          var res = await fetch(url, {
+            method: method,
+            headers: Object.assign({ "Content-Type": "application/json" }, authHeaders()),
+            body: JSON.stringify(payload),
+          });
+          var j = {};
+          try {
+            j = await res.json();
+          } catch (_e) {
+            j = {};
+          }
+          if (!res.ok || !j.ok) {
+            if (err) {
+              err.textContent = esc(String(j.error || j.detail || res.status));
+              err.classList.remove("d-none");
+            }
+            return;
+          }
+          var modalEl = document.getElementById("fleet-type-edit-modal");
+          if (modalEl && typeof bootstrap !== "undefined" && bootstrap.Modal) {
+            var mi = bootstrap.Modal.getInstance(modalEl);
+            if (mi) mi.hide();
+            else bootstrap.Modal.getOrCreateInstance(modalEl).hide();
+          }
+          __fleetTypesLoaded = false;
+          await loadContainerTypesOnce(true);
+        } catch (e) {
+          if (err) {
+            err.textContent = esc(String(e));
+            err.classList.remove("d-none");
+          }
+        }
+      });
+    }
+
+    var fleetReqSaveBtn = document.getElementById("fleet-req-edit-save");
+    if (fleetReqSaveBtn) {
+      fleetReqSaveBtn.addEventListener("click", function () {
+        var err = document.getElementById("fleet-req-edit-err");
+        if (err) {
+          err.textContent = "";
+          err.classList.add("d-none");
+        }
+        var idEl = document.getElementById("fleet-req-field-id");
+        var titleEl = document.getElementById("fleet-req-field-title");
+        var kindEl = document.getElementById("fleet-req-field-kind");
+        var refEl = document.getElementById("fleet-req-field-ref");
+        var notesEl = document.getElementById("fleet-req-field-notes");
+        var row = {
+          id: (idEl && idEl.value ? idEl.value : "").trim().toLowerCase(),
+          title: (titleEl && titleEl.value ? titleEl.value : "").trim(),
+          kind: kindEl ? kindEl.value : "dockerfile",
+          ref: (refEl && refEl.value ? refEl.value : "").trim(),
+          notes: notesEl && notesEl.value ? notesEl.value : "",
+        };
+        if (!row.id) {
+          if (err) {
+            err.textContent = "Template id is required.";
+            err.classList.remove("d-none");
+          }
+          return;
+        }
+        var templates = __fleetReqTemplatesDoc && Array.isArray(__fleetReqTemplatesDoc.templates)
+          ? __fleetReqTemplatesDoc.templates.slice()
+          : [];
+        if (__fleetReqEditIdx >= 0 && __fleetReqEditIdx < templates.length) {
+          templates[__fleetReqEditIdx] = row;
+        } else {
+          var dup = false;
+          for (var i = 0; i < templates.length; i++) {
+            if (String((templates[i] && templates[i].id) || "") === row.id) {
+              dup = true;
+              templates[i] = row;
+              break;
+            }
+          }
+          if (!dup) templates.push(row);
+        }
+        var ver = __fleetReqTemplatesDoc && __fleetReqTemplatesDoc.version != null ? __fleetReqTemplatesDoc.version : 1;
+        renderFleetReqTemplatesTable({ ok: true, version: ver, templates: templates });
+        var modalEl = document.getElementById("fleet-req-template-modal");
+        if (modalEl && typeof bootstrap !== "undefined" && bootstrap.Modal) {
+          var mi = bootstrap.Modal.getInstance(modalEl);
+          if (mi) mi.hide();
+          else bootstrap.Modal.getOrCreateInstance(modalEl).hide();
+        }
+      });
+    }
+
     var linearY = document.getElementById("fleet-chart-linear-y");
     if (linearY) {
       try {
@@ -4048,6 +4674,17 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
           ev.preventDefault();
           openFleetTelemetryHistoryModal();
         }
+      });
+    }
+
+    var fleetAdminTablist = document.getElementById("fleet-admin-tablist");
+    if (fleetAdminTablist) {
+      fleetAdminTablist.addEventListener("shown.bs.tab", function (ev) {
+        var t = ev.target;
+        if (!t || t.getAttribute("role") !== "tab") return;
+        var bid = t.getAttribute("id") || "";
+        if (bid === "fleet-tab-overview-btn") renderFleetChart();
+        if (bid === "fleet-tab-containers-btn") renderOrchestrationChart();
       });
     }
 
