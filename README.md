@@ -12,7 +12,8 @@ Small **HTTP + bearer** orchestrator for **Docker argv** workloads (MVP: same ho
 | GET | `/v1/telemetry?period=…&limit=…` | Historical samples: each row is `{ "ts", "host": { … `host_stats.snapshot()` … }, "orchestration"?: { … } }`. **`orchestration`** holds **`by_type_id`** (compose **`services_running` / `services_total`** rolled up per catalog type) and **`job_running_by_container_class`** (counts of **`running`** jobs from SQLite `meta.container_class`). Legacy rows may omit **`orchestration`** (empty object when parsed). Top-level **`energy_ledger_kwh`** in the response is the current cumulative totals. **Host `energy`:** `rapl_package_uj`, `rapl_available`, optional `rapl_instant_w`, `gpu_power_draw_w_sum`, plus **`cumulative_kwh`** on stored samples. Required **`period`** (UTC): `since_first`, `last_year`, `last_6_months`, `last_3_months`, `last_1_month`, `this_year`, `this_quarter`, `this_month`, `this_week`, `today`, `last_7_days`, `last_3_days`, `last_24_hours`, `last_8_hours`, `last_4_hours`, `last_1_hour`. Aliases: `last_365_days`→`last_year`, `last_24h`→`last_24_hours`, `last_8h`→`last_8_hours`, `last_4h`→`last_4_hours`, `last_1h`/`last_hour`→`last_1_hour`. Optional **`limit`** (default `200000`, max `500000`); `truncated` if clipped. Env: **`FLEET_TELEMETRY_INTERVAL_S`** (default `60`, min `5`), **`FLEET_TELEMETRY_RETENTION_DAYS`** (`0` = no prune). |
 | GET | `/v1/cooldown-summary?period=…` | Aggregated **LLM thermal throttle** wait time (seconds) in SQLite **`fleet_cooldown_events`** (same **`period`** values as **`/v1/telemetry`**). Clients such as certificatee runs record sleeps after LLM calls — **not** “which Granite URL is active.” Configure chat/completions in **forge-certificators** (`TAXONOMY_LLM_*`); same public hostname as Fleet is possible via **`docs/CADDY-UNIFIED-GRANITE.md`**. Response: **`total_cooldown_s`**, **`event_count`**, **`window`**, **`store_bounds`**. |
 | POST | `/v1/cooldown-events` | Append one recorded wait: body `{ "duration_s": <float>, "kind"?: "thermal_llm_guard", "meta"?: { … } }` → `{ "ok", "id" }`. Rows pruned with **`FLEET_TELEMETRY_RETENTION_DAYS`** (same policy as telemetry samples). |
-| POST | `/v1/jobs` | Body: `{ "kind": "docker_argv", "argv": [...], "session_id": "...", "meta": { ... } }` → `{ "id": "..." }`. Jobs with **`meta.container_class` = `empty`** are rejected (internal-only). |
+| POST | `/v1/jobs` | Body: `{ "kind": "docker_argv", "argv": [...], "session_id": "...", "meta": { ... } }` → `{ "id": "..." }`. Jobs with **`meta.container_class` = `empty`** are rejected (internal-only). If **`meta.workspace_upload_required`** is true, the runner starts only after **`PUT /v1/jobs/{id}/workspace`** (gzip tarball). |
+| PUT | `/v1/jobs/{id}/workspace` | Raw **gzip tarball** body (`Content-Type: application/gzip`). Authenticated. Extracts under the Fleet data dir and marks the workspace ready; see **`docs/WORKSPACE_UPLOAD.md`**. |
 | GET | `/v1/jobs/{id}` | Status: `queued`, `running`, `completed`, `failed`, `cancelled` + `stdout` / `stderr` / `exit_code` |
 | POST | `/v1/jobs/{id}/cancel` | Best-effort kill |
 | GET | `/v1/admin/snapshot` | **Read-only** JSON: `meta.integrations` includes **`forge_console_url`**, **`suggested_forge_llm_compose_root`**, **`container_layout`**, **`container_types_version`**, **`forge_llm_services`**, and **`orchestration`** (same shape as telemetry: running compose totals by type + running jobs by `container_class`). Plus **`meta.version`**, **`meta.energy_ledger_kwh`**, **`meta.cooldown_summary`** (preset windows: today / this_week / this_month / this_year / since_first), `host`, **`node`**, `jobs_by_status`, **`jobs_recent`** (paged: query **`jobs_limit`** default 10 max 50, **`jobs_offset`**; response includes **`jobs_recent_total`**, **`jobs_recent_limit`**, **`jobs_recent_offset`**), `active_workers`. Throttled telemetry append stores `{ "host", "orchestration" }` (see `/v1/telemetry`). |
@@ -39,6 +40,23 @@ Auth:
 - **`FLEET_BEARER_TOKEN`** set and listen **`--host`** is **not** loopback-only (`127.0.0.1`, `::1`, `localhost`): every `/v1/...` request must send `Authorization: Bearer <token>`.
 - **Loopback-only bind** (`--host 127.0.0.1` / `::1` / `localhost`) **with a token configured**: bearer is **not** required (same machine only; Lenses may still send a token). Override with **`FLEET_ENFORCE_BEARER=1`** if you need the token checked even on loopback.
 - **No token** in env: requests are accepted on any bind address (avoid in production).
+
+### Docker workloads: live host metrics (`GET /v1/health`)
+
+When **`FLEET_INJECT_HOST_METRICS_ENV_IN_DOCKER`** is `1` / `true` / `yes` **and** **`FLEET_HOST_METRICS_BASE_URL`** is set to a base URL reachable **from inside** queued `docker run` containers (e.g. `http://172.17.0.1:18766`, or `http://host.docker.internal:18766` with `--add-host=host.docker.internal:host-gateway` in your job’s extra `docker run` flags), the Fleet runner injects, immediately after **`FLEET_JOB_ID`**:
+
+- **`FLEET_HOST_METRICS_URL`** — same value as `FLEET_HOST_METRICS_BASE_URL` (trailing `/` stripped).
+- **`FLEET_HOST_METRICS_TOKEN`** — copy of **`FLEET_BEARER_TOKEN`** when that variable is non-empty; omitted when empty (workloads can still call **`GET /v1/health`** without `Authorization` only if Fleet is bound loopback-only and auth is not enforced — uncommon from inside Docker).
+
+Example from inside the container:
+
+```bash
+curl -sS -H "Authorization: Bearer ${FLEET_HOST_METRICS_TOKEN}" "${FLEET_HOST_METRICS_URL}/v1/health"
+```
+
+The JSON body includes **`host.cpu_usage_pct`**, **`host.memory_used_pct`**, **`host.loadavg_1m`**, and optional **`host.energy_ledger_kwh`** (see **`GET /v1/health`** row in the table above).
+
+**Security:** this opt-in copies the **Fleet admin bearer** into the workload environment when `FLEET_BEARER_TOKEN` is set. Untrusted images or logs can leak it. Keep the flag off unless you accept that tradeoff.
 
 ### Admin self-update (git pull from UI)
 

@@ -304,6 +304,23 @@ def authenticate_source_ingest_bridge(
     return row, None
 
 
+def merge_job_meta(conn: sqlite3.Connection, jid: str, patch: dict[str, Any]) -> bool:
+    """Merge ``patch`` into the job's ``meta_json``."""
+    row = get_job(conn, jid)
+    if row is None:
+        return False
+    meta = dict(row.get("meta") or {})
+    meta.update(patch)
+    now = time.time()
+    with _lock:
+        conn.execute(
+            "UPDATE jobs SET meta_json = ?, updated = ? WHERE id = ?",
+            (json.dumps(meta), now, jid),
+        )
+        conn.commit()
+    return True
+
+
 def merge_worker_progress(conn: sqlite3.Connection, jid: str, body: dict[str, Any]) -> None:
     row = get_job(conn, jid)
     if row is None:

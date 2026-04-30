@@ -1,0 +1,155 @@
+"""Requirement templates, fingerprinting, and docker argv injection."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from fleet_server import container_layout as cl
+from fleet_server import container_templates as ct
+
+
+def test_ensure_layout_creates_template_sidecar_files(tmp_path: Path) -> None:
+    cl.ensure_layout(tmp_path)
+    assert ct.requirement_templates_file(tmp_path).is_file()
+    assert ct.build_cache_file(tmp_path).is_file()
+    assert (ct.dockerfiles_allow_root(tmp_path) / "dockerfiles").is_dir()
+
+
+def test_bundle_fingerprint_stable_for_image_pin(tmp_path: Path) -> None:
+    ct.ensure_template_layout(tmp_path)
+    doc = ct.load_requirement_templates(tmp_path)
+    doc["templates"] = [
+        {"id": "base_alpine", "title": "Alpine pin", "kind": "image", "ref": "alpine:3.20", "notes": ""},
+    ]
+    ct.save_requirement_templates(tmp_path, doc)
+    k1, fp1 = ct.bundle_fingerprint(tmp_path, ["base_alpine"])
+    k2, fp2 = ct.bundle_fingerprint(tmp_path, ["base_alpine"])
+    assert k1 == k2 and fp1 == fp2
+
+
+def test_validate_template_row_accepts_hyphenated_image_tag(tmp_path: Path) -> None:
+    ct.ensure_template_layout(tmp_path)
+    row = ct.validate_template_row(
+        tmp_path,
+        {
+            "id": "pw",
+            "title": "PW",
+            "kind": "image",
+            "ref": "mcr.microsoft.com/playwright:v1.40.0-focal",
+            "notes": "",
+        },
+    )
+    assert row["ref"].endswith("focal")
+
+
+def test_validate_types_unknown_requirement_raises(tmp_path: Path) -> None:
+    cl.ensure_layout(tmp_path)
+    doc = cl.load_types(tmp_path)
+    doc["types"].append(
+        {
+            "id": "needs_fake",
+            "category_id": "job",
+            "container_class": "needs_fake",
+            "title": "x",
+            "requirements": ["not_declared_yet"],
+        }
+    )
+    with pytest.raises(ValueError, match="unknown_requirement"):
+        cl.validate_types_document(tmp_path, doc)
+
+
+def test_inject_template_image_replaces_run_image_token() -> None:
+    argv = ["docker", "run", "--rm", "-e", "FOO=1", "old:image", "echo", "hi"]
+    out = ct.inject_template_image_into_docker_argv(argv, "new:image")
+    assert out is argv
+    assert "new:image" in argv
+    assert "old:image" not in argv
+
+
+def test_inject_template_image_accepts_docker_binary_path() -> None:
+    argv = ["/usr/bin/docker", "run", "old:image", "echo", "hi"]
+    ct.inject_template_image_into_docker_argv(argv, "fleet:tag")
+    assert argv[2] == "fleet:tag"
+
+
+def test_inject_template_image_docker_container_run() -> None:
+    argv = ["docker", "container", "run", "old:image", "sh", "-c", "true"]
+    ct.inject_template_image_into_docker_argv(argv, "new:image")
+    assert argv[3] == "new:image"
+
+
+def test_parse_build_if_missing_query_defaults_true() -> None:
+    assert ct.parse_build_if_missing_query({}) is True
+    assert ct.parse_build_if_missing_query({"build_if_missing": []}) is True
+    assert ct.parse_build_if_missing_query({"build_if_missing": ["1"]}) is True
+    assert ct.parse_build_if_missing_query({"build_if_missing": ["0"]}) is False
+    assert ct.parse_build_if_missing_query({"build_if_missing": ["FALSE"]}) is False
+    assert ct.parse_build_if_missing_query({"build_if_missing": ["no"]}) is False
+
+
+def test_meta_build_template_if_missing_defaults_true() -> None:
+    assert ct.meta_build_template_if_missing({}) is True
+    assert ct.meta_build_template_if_missing({"build_template_if_missing": True}) is True
+    assert ct.meta_build_template_if_missing({"build_template_if_missing": "yes"}) is True
+    assert ct.meta_build_template_if_missing({"build_template_if_missing": False}) is False
+    assert ct.meta_build_template_if_missing({"build_template_if_missing": 0}) is False
+    assert ct.meta_build_template_if_missing({"build_template_if_missing": "no"}) is False
+
+
+def test_template_build_network_opt_out(monkeypatch) -> None:
+    monkeypatch.delenv("FLEET_TEMPLATE_BUILD_NETWORK", raising=False)
+    assert ct._template_build_network_allowed() is True  # noqa: SLF001
+    monkeypatch.setenv("FLEET_TEMPLATE_BUILD_NETWORK", "1")
+    assert ct._template_build_network_allowed() is True  # noqa: SLF001
+    monkeypatch.setenv("FLEET_TEMPLATE_BUILD_NETWORK", "0")
+    assert ct._template_build_network_allowed() is False  # noqa: SLF001
+
+
+def test_prefetch_requirement_template_images_calls_build_per_template(tmp_path: Path, monkeypatch) -> None:
+    ct.ensure_template_layout(tmp_path)
+    doc = ct.load_requirement_templates(tmp_path)
+    doc["templates"] = [{"id": "a", "title": "A", "kind": "image", "ref": "img:a", "notes": ""}]
+    ct.save_requirement_templates(tmp_path, doc)
+    calls: list[list[str]] = []
+
+    def fake_build(dd: Path, ids: list[str]) -> dict:
+        calls.append(ids)
+        assert dd == tmp_path
+        return {"ok": True, "image": "x"}
+
+    monkeypatch.setattr(ct, "run_template_build", fake_build)
+    ct.prefetch_requirement_template_images(tmp_path)
+    assert calls == [["a"]]
+
+
+def test_prefetch_template_images_enabled_opt_out(monkeypatch) -> None:
+    monkeypatch.delenv("FLEET_PREFETCH_TEMPLATE_IMAGES", raising=False)
+    assert ct.prefetch_template_images_enabled() is True
+    monkeypatch.setenv("FLEET_PREFETCH_TEMPLATE_IMAGES", "0")
+    assert ct.prefetch_template_images_enabled() is False
+
+
+def test_types_crud_add_and_delete_roundtrip(tmp_path: Path) -> None:
+    from fleet_server import store
+
+    cl.ensure_layout(tmp_path)
+    db = tmp_path / "t.sqlite"
+    conn = store.connect(db)
+    try:
+        added = cl.add_type_row(
+            tmp_path,
+            {
+                "id": "tmp_probe",
+                "category_id": "job",
+                "container_class": "tmp_probe",
+                "title": "Tmp",
+                "notes": "",
+            },
+        )
+        assert added["id"] == "tmp_probe"
+        ok, detail = cl.delete_type_row(tmp_path, "tmp_probe", conn)
+        assert ok is True and detail == "removed"
+    finally:
+        conn.close()

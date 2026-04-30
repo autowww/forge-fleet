@@ -5,8 +5,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sqlite3
 import re
+import sqlite3
+import threading
 import time
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -17,6 +18,7 @@ from urllib.parse import parse_qs, urlparse
 
 from fleet_server import (
     container_layout,
+    container_templates,
     forge_llm_service,
     host_stats,
     runner,
@@ -25,6 +27,7 @@ from fleet_server import (
     telemetry_periods,
     templates_catalog,
     versioning,
+    workspace_bundle,
 )
 from fleet_server.test_fleet import spawn_test_fleet
 
@@ -140,6 +143,12 @@ class FleetHandler(BaseHTTPRequestHandler):
             self._send_raw(404, b"", "text/plain; charset=utf-8")
             return
         self._send_raw(200, data, ct)
+
+    def _read_binary_body(self, max_len: int) -> bytes:
+        n = int(self.headers.get("Content-Length") or 0)
+        if n <= 0 or n > max_len:
+            return b""
+        return self.rfile.read(n)
 
     def _read_json(self) -> dict[str, Any]:
         n = int(self.headers.get("Content-Length") or 0)
@@ -520,6 +529,27 @@ class FleetHandler(BaseHTTPRequestHandler):
             return
         data_dir = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
         container_layout.ensure_layout(data_dir)
+        if path == "/v1/container-templates/status":
+            self._send(200, container_templates.status_api_payload(data_dir))
+            return
+        if path == "/v1/container-templates":
+            self._send(200, container_templates.templates_api_payload(data_dir))
+            return
+        if path == "/v1/container-templates/resolve":
+            q = parse_qs(urlparse(self.path).query)
+            raw_req = q.get("requirements") or []
+            ids: list[str] = []
+            for part in raw_req:
+                if not part:
+                    continue
+                ids.extend([x.strip().lower() for x in str(part).split(",") if x.strip()])
+            build_if_missing = container_templates.parse_build_if_missing_query(q)
+            payload = container_templates.resolve_api_payload(
+                data_dir, ids, build_if_missing=build_if_missing
+            )
+            code = 200 if payload.get("ok") else 400
+            self._send(code, payload)
+            return
         if path == "/v1/container-types":
             self._send(200, container_layout.types_api_payload(data_dir))
             return
@@ -676,6 +706,7 @@ class FleetHandler(BaseHTTPRequestHandler):
                 return
             session_id = str(body.get("session_id") or "")
             meta = body.get("meta") if isinstance(body.get("meta"), dict) else {}
+            meta = dict(meta)
             if str(meta.get("container_class") or "").strip().lower() == "empty":
                 self._send(
                     400,
@@ -686,12 +717,47 @@ class FleetHandler(BaseHTTPRequestHandler):
                     },
                 )
                 return
+            if meta.get("use_fleet_template_image"):
+                reqs_raw = meta.get("requirements")
+                if not isinstance(reqs_raw, list) or not reqs_raw:
+                    self._send(
+                        400,
+                        {
+                            "ok": False,
+                            "error": "invalid_body",
+                            "detail": "meta.requirements must be a non-empty list when meta.use_fleet_template_image is set.",
+                        },
+                    )
+                    return
+                data_dir_tpl = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+                container_layout.ensure_layout(data_dir_tpl)
+                req_ids = [str(x) for x in reqs_raw]
+                build_if_missing = container_templates.meta_build_template_if_missing(meta)
+                res = container_templates.resolve_api_payload(
+                    data_dir_tpl, req_ids, build_if_missing=build_if_missing
+                )
+                if not res.get("ok") or not res.get("image"):
+                    self._send(
+                        400,
+                        {
+                            "ok": False,
+                            "error": "template_resolve_failed",
+                            "detail": res,
+                        },
+                    )
+                    return
+                argv = container_templates.inject_template_image_into_docker_argv(
+                    list(argv), str(res["image"])
+                )
+            if meta.get("workspace_upload_required"):
+                meta["workspace_state"] = "pending_upload"
             conn = store.connect(self.server.db_path)
             try:
                 jid = store.insert_job(conn, kind=kind, argv=argv, session_id=session_id, meta=meta)
             finally:
                 conn.close()
-            runner.spawn(self.server.db_path, jid)
+            if not meta.get("workspace_upload_required"):
+                runner.spawn(self.server.db_path, jid)
             self._send(201, {"ok": True, "id": jid, "status": "queued"})
             return
         if path == "/v1/containers/dispose":
@@ -797,6 +863,33 @@ class FleetHandler(BaseHTTPRequestHandler):
                 return
             self._send(201, {"ok": True, "service": rec})
             return
+        if path == "/v1/container-types":
+            try:
+                row = container_layout.add_type_row(data_dir_p, body)
+            except ValueError as ex:
+                self._send(400, {"ok": False, "error": str(ex)[:800]})
+                return
+            self._send(201, {"ok": True, "type": row})
+            return
+        if path == "/v1/container-templates/build":
+            req_raw = body.get("requirement_ids")
+            if not isinstance(req_raw, list):
+                req_raw = body.get("requirements")
+            if not isinstance(req_raw, list):
+                self._send(
+                    400,
+                    {
+                        "ok": False,
+                        "error": "invalid_body",
+                        "detail": "requirement_ids (or requirements) must be a list of requirement slugs.",
+                    },
+                )
+                return
+            ids = [str(x) for x in req_raw]
+            out = container_templates.run_template_build(data_dir_p, ids)
+            code = 200 if out.get("ok") else 400
+            self._send(code, out)
+            return
         if path == "/v1/services/forge-llm/start":
             rec, err = _forge_llm_record_or_503()
             if rec is None:
@@ -847,13 +940,93 @@ class FleetHandler(BaseHTTPRequestHandler):
             self._send_unauthorized()
             return
         path = urlparse(self.path).path
+        data_dir = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+        m_job_ws = re.match(r"^/v1/jobs/([^/]+)/workspace$", path)
+        if m_job_ws:
+            jid = m_job_ws.group(1)
+            max_up = workspace_bundle.max_upload_bytes()
+            raw = self._read_binary_body(max_up)
+            if len(raw) == 0:
+                self._send(
+                    400,
+                    {"ok": False, "error": "invalid_body", "detail": "empty or oversized body (check Content-Length)"},
+                )
+                return
+            conn = store.connect(self.server.db_path)
+            try:
+                row = store.get_job(conn, jid)
+                if row is None:
+                    self._send(404, {"ok": False, "error": "not_found"})
+                    return
+                if str(row.get("status") or "") != "queued":
+                    self._send(409, {"ok": False, "error": "job_not_queued"})
+                    return
+                meta = dict(row.get("meta") or {})
+                if not meta.get("workspace_upload_required"):
+                    self._send(400, {"ok": False, "error": "workspace_not_requested"})
+                    return
+                if meta.get("workspace_state") != "pending_upload":
+                    self._send(409, {"ok": False, "error": "workspace_already_uploaded"})
+                    return
+                prof = workspace_bundle.profile_for_meta(meta)
+                unc, sha256_hex, err = workspace_bundle.extract_archive_simple(
+                    raw, data_dir=data_dir, job_id=jid, profile=prof
+                )
+                if err:
+                    self._send(400, {"ok": False, "error": "extract_failed", "detail": err})
+                    return
+                store.merge_job_meta(
+                    conn,
+                    jid,
+                    {
+                        "workspace_state": "ready",
+                        "workspace_sha256": sha256_hex,
+                        "workspace_upload_bytes": len(raw),
+                        "workspace_uncompressed_bytes": unc,
+                    },
+                )
+            finally:
+                conn.close()
+            runner.spawn(self.server.db_path, jid)
+            self._send(200, {"ok": True, "id": jid, "workspace_state": "ready"})
+            return
+
         body = self._read_json()
+        data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+        container_layout.ensure_layout(data_dir_p)
+
+        if path == "/v1/container-types":
+            try:
+                container_layout.save_types_document(data_dir_p, body)
+            except ValueError as ex:
+                self._send(400, {"ok": False, "error": str(ex)[:800]})
+                return
+            self._send(200, container_layout.types_api_payload(data_dir_p))
+            return
+        if path == "/v1/container-templates":
+            try:
+                container_templates.save_requirement_templates(data_dir_p, body)
+            except ValueError as ex:
+                self._send(400, {"ok": False, "error": str(ex)[:800]})
+                return
+            self._send(200, container_templates.templates_api_payload(data_dir_p))
+            return
+        m_ct = re.match(r"^/v1/container-types/([^/]+)$", path)
+        if m_ct:
+            try:
+                row = container_layout.update_type_row(data_dir_p, m_ct.group(1), body)
+            except FileNotFoundError:
+                self._send(404, {"ok": False, "error": "not_found"})
+                return
+            except ValueError as ex:
+                self._send(400, {"ok": False, "error": str(ex)[:800]})
+                return
+            self._send(200, {"ok": True, "type": row})
+            return
         m = re.match(r"^/v1/container-services/([^/]+)$", path)
         if not m:
             self._send(404, {"ok": False, "error": "not_found"})
             return
-        data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
-        container_layout.ensure_layout(data_dir_p)
         try:
             rec = container_layout.update_service(data_dir_p, m.group(1), body)
         except FileNotFoundError:
@@ -869,12 +1042,29 @@ class FleetHandler(BaseHTTPRequestHandler):
             self._send_unauthorized()
             return
         path = urlparse(self.path).path
+        data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+        container_layout.ensure_layout(data_dir_p)
+        m_ct = re.match(r"^/v1/container-types/([^/]+)$", path)
+        if m_ct:
+            conn = store.connect(self.server.db_path)
+            try:
+                ok, detail = container_layout.delete_type_row(data_dir_p, m_ct.group(1), conn)
+            finally:
+                conn.close()
+            if not ok:
+                if detail == "not_found":
+                    self._send(404, {"ok": False, "error": "not_found"})
+                elif detail in ("reserved_type_id", "running_jobs_for_container_class", "services_referencing_type"):
+                    self._send(409, {"ok": False, "error": detail})
+                else:
+                    self._send(400, {"ok": False, "error": detail})
+                return
+            self._send(200, {"ok": True, "detail": detail})
+            return
         m = re.match(r"^/v1/container-services/([^/]+)$", path)
         if not m:
             self._send(404, {"ok": False, "error": "not_found"})
             return
-        data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
-        container_layout.ensure_layout(data_dir_p)
         ok, detail = container_layout.delete_service(data_dir_p, m.group(1))
         if not ok:
             if detail == "not_found":
@@ -913,6 +1103,22 @@ def main() -> None:
     conn = store.connect(db_path)
     conn.close()
     container_layout.ensure_layout(data_dir)
+    if container_templates.prefetch_template_images_enabled():
+
+        def _prefetch_templates_bg() -> None:
+            container_templates.prefetch_requirement_template_images(data_dir)
+
+        threading.Thread(
+            target=_prefetch_templates_bg,
+            name="fleet-template-prefetch",
+            daemon=True,
+        ).start()
+    try:
+        n_gc = workspace_bundle.gc_stale_workspaces(data_dir, db_path, max_age_seconds=86400.0 * 7)
+        if n_gc:
+            print(f"[fleet] workspace GC removed {n_gc} stale job-workspaces dir(s)")
+    except OSError:
+        pass
 
     httpd = ThreadingHTTPServer((args.host, args.port), FleetHandler)
     httpd.db_path = db_path

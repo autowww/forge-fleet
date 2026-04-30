@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from fleet_server import store
+from fleet_server import store, workspace_bundle
 
 _PROCS: dict[str, subprocess.Popen[str]] = {}
 _proc_lock = threading.Lock()
@@ -48,6 +48,11 @@ def _docker_executable() -> str:
     return "docker"
 
 
+def _truthy_env(name: str) -> bool:
+    v = str(os.environ.get(name) or "").strip().lower()
+    return v in ("1", "true", "yes")
+
+
 def _merge_path_for_subprocess(env: dict[str, str]) -> None:
     cur = (env.get("PATH") or "").strip()
     if cur:
@@ -78,6 +83,42 @@ def _inject_fleet_job_id_for_docker_run(argv: list[str], fleet_job_id: str) -> l
     return argv[:ins] + pair + argv[ins:]
 
 
+def _inject_host_metrics_client_env_for_docker_run(argv: list[str]) -> list[str]:
+    """
+    Optionally insert ``-e FLEET_HOST_METRICS_URL`` / ``-e FLEET_HOST_METRICS_TOKEN`` after
+    the ``FLEET_JOB_ID`` pair so workloads can ``GET /v1/health`` from inside the container.
+
+    Opt-in: ``FLEET_INJECT_HOST_METRICS_ENV_IN_DOCKER=1`` and non-empty ``FLEET_HOST_METRICS_BASE_URL``.
+    Token env is only set when ``FLEET_BEARER_TOKEN`` is non-empty (copies admin bearer — security risk).
+    """
+    if len(argv) < 2:
+        return argv
+    try:
+        argv.index("run")
+    except ValueError:
+        return argv
+    if not _truthy_env("FLEET_INJECT_HOST_METRICS_ENV_IN_DOCKER"):
+        return argv
+    base = str(os.environ.get("FLEET_HOST_METRICS_BASE_URL") or "").strip().rstrip("/")
+    if not base:
+        return argv
+    ins: int | None = None
+    for i in range(len(argv) - 1):
+        if argv[i] == "-e" and str(argv[i + 1]).startswith("FLEET_JOB_ID="):
+            ins = i + 2
+            break
+    if ins is None:
+        try:
+            ins = argv.index("run") + 1
+        except ValueError:
+            return argv
+    extra = ["-e", f"FLEET_HOST_METRICS_URL={base}"]
+    tok = str(os.environ.get("FLEET_BEARER_TOKEN") or "").strip()
+    if tok:
+        extra.extend(["-e", f"FLEET_HOST_METRICS_TOKEN={tok}"])
+    return argv[:ins] + extra + argv[ins:]
+
+
 def _extract_cid(stderr: str, cidfile: str | None) -> str | None:
     if cidfile:
         try:
@@ -93,10 +134,14 @@ def _extract_cid(stderr: str, cidfile: str | None) -> str | None:
 
 
 def run_job(db_path: Path, job_id: str) -> None:
+    data_dir = db_path.parent
     conn = store.connect(db_path)
     try:
         row = store.get_job(conn, job_id)
         if row is None or row["status"] != "queued":
+            return
+        meta0 = dict(row.get("meta") or {})
+        if meta0.get("workspace_upload_required") and meta0.get("workspace_state") != "ready":
             return
         store.update_job(conn, job_id, status="running", running_started=time.time())
     finally:
@@ -109,16 +154,45 @@ def run_job(db_path: Path, job_id: str) -> None:
     if row is None:
         return
     argv = row["argv"]
+    meta = dict(row.get("meta") or {})
+    cleanup_workspace = bool(
+        meta.get("workspace_upload_required") and meta.get("workspace_state") == "ready"
+    )
     if not isinstance(argv, list) or not argv:
         conn = store.connect(db_path)
         try:
             store.update_job(conn, job_id, status="failed", stderr="empty argv", exit_code=1)
         finally:
             conn.close()
+        if cleanup_workspace:
+            workspace_bundle.cleanup_job_workspace(data_dir, job_id)
         return
     env = os.environ.copy()
     _merge_path_for_subprocess(env)
-    argv = _inject_fleet_job_id_for_docker_run(_resolve_argv_docker(list(argv)), job_id)
+    argv = _resolve_argv_docker(list(argv))
+    argv = _inject_fleet_job_id_for_docker_run(argv, job_id)
+    argv = _inject_host_metrics_client_env_for_docker_run(argv)
+    if cleanup_workspace:
+        ext = workspace_bundle.extracted_root(data_dir, job_id)
+        if not ext.is_dir():
+            conn = store.connect(db_path)
+            try:
+                store.update_job(
+                    conn,
+                    job_id,
+                    status="failed",
+                    stderr="workspace extract root missing",
+                    exit_code=1,
+                )
+            finally:
+                conn.close()
+            workspace_bundle.cleanup_job_workspace(data_dir, job_id)
+            return
+        prof = workspace_bundle.profile_for_meta(meta)
+        mount = str(prof.get("container_mount") or "/workspace")
+        argv = workspace_bundle.inject_workspace_bind_mount(
+            argv, host_extracted=ext, container_mount=mount
+        )
     cidfile: str | None = None
     if "--cidfile" in argv:
         i = argv.index("--cidfile")
@@ -143,11 +217,15 @@ def run_job(db_path: Path, job_id: str) -> None:
             store.update_job(conn, job_id, status="failed", stderr=str(ex)[:8000], exit_code=1)
         finally:
             conn.close()
+        if cleanup_workspace:
+            workspace_bundle.cleanup_job_workspace(data_dir, job_id)
         return
     finally:
         with _proc_lock:
             _PROCS.pop(job_id, None)
     if proc is None:
+        if cleanup_workspace:
+            workspace_bundle.cleanup_job_workspace(data_dir, job_id)
         return
     cid = _extract_cid(err or "", cidfile)
     code = int(proc.returncode if proc.returncode is not None else 1)
@@ -166,6 +244,8 @@ def run_job(db_path: Path, job_id: str) -> None:
         )
     finally:
         conn.close()
+    if cleanup_workspace:
+        workspace_bundle.cleanup_job_workspace(data_dir, job_id)
 
 
 def spawn(db_path: Path, job_id: str) -> None:
