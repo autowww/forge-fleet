@@ -64,6 +64,20 @@ def _resolve_argv_docker(argv: list[str]) -> list[str]:
     return out
 
 
+def _inject_fleet_job_id_for_docker_run(argv: list[str], fleet_job_id: str) -> list[str]:
+    """Insert ``-e FLEET_JOB_ID=…`` after ``docker … run`` so inner containers can reach Fleet bridge APIs."""
+    jid = str(fleet_job_id or "").strip()
+    if not jid or len(argv) < 3:
+        return argv
+    try:
+        run_idx = argv.index("run")
+    except ValueError:
+        return argv
+    pair = ["-e", f"FLEET_JOB_ID={jid}"]
+    ins = run_idx + 1
+    return argv[:ins] + pair + argv[ins:]
+
+
 def _extract_cid(stderr: str, cidfile: str | None) -> str | None:
     if cidfile:
         try:
@@ -104,7 +118,7 @@ def run_job(db_path: Path, job_id: str) -> None:
         return
     env = os.environ.copy()
     _merge_path_for_subprocess(env)
-    argv = _resolve_argv_docker(list(argv))
+    argv = _inject_fleet_job_id_for_docker_run(_resolve_argv_docker(list(argv)), job_id)
     cidfile: str | None = None
     if "--cidfile" in argv:
         i = argv.index("--cidfile")

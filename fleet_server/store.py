@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
+import os
+import secrets
 import sqlite3
 import threading
 import time
 import uuid
-import os
 from pathlib import Path
 from typing import Any
 
@@ -132,10 +133,11 @@ def _sync_fleet_version_row(conn: sqlite3.Connection) -> None:
     if row is None:
         conn.execute(
             "INSERT INTO fleet_schema (id, package_semver, db_schema_version, updated) VALUES (1, ?, ?, ?)",
-            (sem, code_schema, now),
+            (sem, 1, now),
         )
-        return
-    stored_schema = int(row["db_schema_version"] or 1)
+        stored_schema = 1
+    else:
+        stored_schema = int(row["db_schema_version"] or 1)
     new_schema = stored_schema
     if code_schema > stored_schema:
         _run_fleet_schema_migrations(conn, stored_schema, code_schema)
@@ -165,6 +167,8 @@ def _run_fleet_schema_migrations(conn: sqlite3.Connection, from_v: int, to_v: in
             _ensure_energy_ledger(conn)
         elif next_v == 5:
             _ensure_cooldown_table(conn)
+        elif next_v == 6:
+            _ensure_job_worker_bridge_columns(conn)
         else:
             raise RuntimeError(f"fleet_schema migration missing for {v} -> {next_v}")
         v = next_v
@@ -248,6 +252,24 @@ def update_job(
         conn.commit()
 
 
+def _safe_json_dict(raw: Any) -> dict[str, Any] | None:
+    if raw is None or raw == "":
+        return None
+    try:
+        o = json.loads(raw) if isinstance(raw, str) else raw
+    except (TypeError, json.JSONDecodeError):
+        return None
+    return o if isinstance(o, dict) else None
+
+
+def _ensure_job_worker_bridge_columns(conn: sqlite3.Connection) -> None:
+    cols = {str(r[1]) for r in conn.execute("PRAGMA table_info(jobs)").fetchall()}
+    if "worker_progress_json" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN worker_progress_json TEXT")
+    if "worker_result_json" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN worker_result_json TEXT")
+
+
 def get_job(conn: sqlite3.Connection, jid: str) -> dict[str, Any] | None:
     cur = conn.execute("SELECT * FROM jobs WHERE id = ?", (jid,))
     row = cur.fetchone()
@@ -256,7 +278,65 @@ def get_job(conn: sqlite3.Connection, jid: str) -> dict[str, Any] | None:
     d = dict(row)
     d["argv"] = json.loads(d.pop("argv_json") or "[]")
     d["meta"] = json.loads(d.pop("meta_json") or "{}")
+    wp_raw = d.pop("worker_progress_json", None)
+    wr_raw = d.pop("worker_result_json", None)
+    d["worker_progress"] = _safe_json_dict(wp_raw)
+    d["worker_result"] = _safe_json_dict(wr_raw)
     return d
+
+
+def authenticate_source_ingest_bridge(
+    conn: sqlite3.Connection, jid: str, token: str
+) -> tuple[dict[str, Any] | None, str | None]:
+    """
+    Validate ``X-Source-Ingest-Token`` against ``meta.source_ingest_bridge_token``.
+    Returns ``(job_row, None)`` or ``(None, error_tag)``.
+    """
+    row = get_job(conn, jid)
+    if row is None:
+        return None, "not_found"
+    meta = row.get("meta") if isinstance(row.get("meta"), dict) else {}
+    exp = str(meta.get("source_ingest_bridge_token") or "").strip()
+    if not exp:
+        return None, "forbidden"
+    if not secrets.compare_digest(exp, (token or "").strip()):
+        return None, "unauthorized"
+    return row, None
+
+
+def merge_worker_progress(conn: sqlite3.Connection, jid: str, body: dict[str, Any]) -> None:
+    row = get_job(conn, jid)
+    if row is None:
+        raise ValueError("not_found")
+    cur = dict(row["worker_progress"]) if isinstance(row.get("worker_progress"), dict) else {}
+    if "pct" in body and body["pct"] is not None:
+        try:
+            cur["pct"] = int(body["pct"])
+        except (TypeError, ValueError):
+            pass
+    if body.get("phase_label") is not None:
+        cur["phase_label"] = str(body["phase_label"])[:200]
+    if body.get("message") is not None:
+        cur["message"] = str(body["message"])[:8000]
+    cur["updated"] = time.time()
+    now = time.time()
+    with _lock:
+        conn.execute(
+            "UPDATE jobs SET worker_progress_json = ?, updated = ? WHERE id = ?",
+            (json.dumps(cur), now, jid),
+        )
+        conn.commit()
+
+
+def set_worker_result(conn: sqlite3.Connection, jid: str, body: dict[str, Any]) -> None:
+    now = time.time()
+    blob = json.dumps(body)[:1_500_000]
+    with _lock:
+        conn.execute(
+            "UPDATE jobs SET worker_result_json = ?, updated = ? WHERE id = ?",
+            (blob, now, jid),
+        )
+        conn.commit()
 
 
 def sum_accounted_core_seconds(conn: sqlite3.Connection) -> float:

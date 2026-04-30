@@ -2737,7 +2737,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       return h + "h" + (m2 ? " " + m2 + "m" : "");
     }
 
-    /** LLM cooldown wait (SQLite), same preset keys as ``cooldown_summary`` meta. */
+    /** LLM thermal throttle waits (SQLite), same preset keys as ``cooldown_summary`` meta — not which LLM host is configured. */
     function renderCooldownTile(cs) {
       if (!cs || typeof cs !== "object") return "";
       var td = cs.today && typeof cs.today === "object" ? cs.today : null;
@@ -2765,7 +2765,9 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         hintParts.push("Yr " + esc(formatCooldownS(yearS)));
       if (all)
         hintParts.push("All " + esc(formatCooldownS(allS)));
-      var hint = hintParts.length ? hintParts.join(" · ") : "SQLite · LLM thermal guard";
+      var hint = hintParts.length
+        ? hintParts.join(" · ")
+        : "SQLite · workers’ LLM sleep (not Granite URL)";
       var mem =
         evTo > 0
           ? esc(String(evTo)) + " " + (evTo === 1 ? "wait" : "waits") + " today"
@@ -2775,7 +2777,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         cls +
         '">' +
         '<div class="fleet-tile__brand">' +
-        tileMark(MARK_COOLDOWN, "Cooldown") +
+        tileMark(MARK_COOLDOWN, "LLM throttle waits") +
         '</div><div class="fleet-tile__value fleet-mono">' +
         esc(formatCooldownS(todayS)) +
         '</div><div class="fleet-tile__mem">' +

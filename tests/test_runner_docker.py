@@ -15,3 +15,10 @@ def test_resolve_argv_docker_respects_fleet_docker_bin(monkeypatch) -> None:
 
 def test_resolve_argv_passes_through_non_docker() -> None:
     assert runner._resolve_argv_docker(["/bin/true"]) == ["/bin/true"]
+
+
+def test_inject_fleet_job_id_after_docker_run() -> None:
+    argv = ["docker", "run", "--rm", "-e", "FOO=1", "img", "sh", "-c", "true"]
+    out = runner._inject_fleet_job_id_for_docker_run(argv, "abc123")
+    assert out[:4] == ["docker", "run", "-e", "FLEET_JOB_ID=abc123"]
+    assert "--rm" in out and "img" in out

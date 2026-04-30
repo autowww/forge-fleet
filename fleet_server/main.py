@@ -219,6 +219,46 @@ class FleetHandler(BaseHTTPRequestHandler):
         if mst:
             self._serve_admin_packaged_static(mst.group(1))
             return
+        mb = re.match(r"^/v1/jobs/([^/]+)/source-ingest-bundle$", path)
+        if mb:
+            jid = mb.group(1)
+            tok = (self.headers.get("X-Source-Ingest-Token") or "").strip()
+            if not tok:
+                self._send(401, {"ok": False, "error": "unauthorized"})
+                return
+            conn = store.connect(self.server.db_path)
+            try:
+                row, err = store.authenticate_source_ingest_bridge(conn, jid, tok)
+            finally:
+                conn.close()
+            if err == "not_found":
+                self._send(404, {"ok": False, "error": "not_found"})
+                return
+            if err or row is None:
+                code = 403 if err == "forbidden" else 401
+                self._send(code, {"ok": False, "error": err or "unauthorized"})
+                return
+            meta = row.get("meta") if isinstance(row.get("meta"), dict) else {}
+            bundle = meta.get("source_ingest_bundle")
+            if not isinstance(bundle, dict):
+                self._send(
+                    400,
+                    {
+                        "ok": False,
+                        "error": "bundle_missing",
+                        "detail": "meta.source_ingest_bundle not set for this job",
+                    },
+                )
+                return
+            argv_b = bundle.get("argv")
+            if not isinstance(argv_b, list) or not all(isinstance(x, str) for x in argv_b):
+                self._send(
+                    400,
+                    {"ok": False, "error": "invalid_bundle", "detail": "source_ingest_bundle.argv must be list[str]"},
+                )
+                return
+            self._send(200, {"ok": True, "argv": argv_b, "cwd": str(bundle.get("cwd") or "")})
+            return
         if not self._auth_ok():
             self._send_unauthorized()
             return
@@ -537,6 +577,9 @@ class FleetHandler(BaseHTTPRequestHandler):
             if row is None:
                 self._send(404, {"ok": False, "error": "not_found"})
                 return
+            meta_out = dict(row.get("meta") or {}) if isinstance(row.get("meta"), dict) else {}
+            if "source_ingest_bridge_token" in meta_out:
+                meta_out["source_ingest_bridge_token"] = ""
             self._send(
                 200,
                 {
@@ -546,24 +589,59 @@ class FleetHandler(BaseHTTPRequestHandler):
                     "status": row["status"],
                     "session_id": row.get("session_id") or "",
                     "argv": row.get("argv") if isinstance(row.get("argv"), list) else [],
-                    "meta": row.get("meta") if isinstance(row.get("meta"), dict) else {},
+                    "meta": meta_out,
                     "stdout": row.get("stdout") or "",
                     "stderr": row.get("stderr") or "",
                     "exit_code": row.get("exit_code"),
                     "container_id": row.get("container_id"),
                     "created": row.get("created"),
                     "updated": row.get("updated"),
+                    "worker_progress": row.get("worker_progress")
+                    if isinstance(row.get("worker_progress"), dict)
+                    else None,
+                    "worker_result": row.get("worker_result")
+                    if isinstance(row.get("worker_result"), dict)
+                    else None,
                 },
             )
             return
         self._send(404, {"ok": False, "error": "not_found"})
 
     def do_POST(self) -> None:
+        path = urlparse(self.path).path
+        body = self._read_json()
+        m_br = re.match(r"^/v1/jobs/([^/]+)/source-ingest-(progress|complete)$", path)
+        if m_br:
+            jid = m_br.group(1)
+            kind = m_br.group(2)
+            tok = (self.headers.get("X-Source-Ingest-Token") or "").strip()
+            if not tok:
+                self._send(401, {"ok": False, "error": "unauthorized"})
+                return
+            conn = store.connect(self.server.db_path)
+            try:
+                row, err = store.authenticate_source_ingest_bridge(conn, jid, tok)
+                if err == "not_found":
+                    self._send(404, {"ok": False, "error": "not_found"})
+                    return
+                if err or row is None:
+                    code = 403 if err == "forbidden" else 401
+                    self._send(code, {"ok": False, "error": err or "unauthorized"})
+                    return
+                if kind == "progress":
+                    store.merge_worker_progress(conn, jid, body)
+                else:
+                    store.set_worker_result(conn, jid, body)
+            except ValueError:
+                self._send(404, {"ok": False, "error": "not_found"})
+                return
+            finally:
+                conn.close()
+            self._send(200, {"ok": True})
+            return
         if not self._auth_ok():
             self._send_unauthorized()
             return
-        path = urlparse(self.path).path
-        body = self._read_json()
         if path == "/v1/cooldown-events":
             raw_d = body.get("duration_s")
             try:
