@@ -175,7 +175,7 @@
           <div class="card-body py-3">
             <h2 class="h6 text-uppercase text-body-secondary mb-3">Overview</h2>
             <div id="fleet-tiles" class="fleet-tile-row fleet-one-row mb-2" aria-live="polite">Loading tiles…</div>
-            <div id="fleet-chart-wrap" class="mb-0">
+            <div id="fleet-chart-wrap" class="mb-0 mt-3 pt-3 border-top border-secondary-subtle">
               <div class="small text-body-secondary mb-1 d-flex flex-wrap align-items-center justify-content-between gap-2">
                 <span class="text-body-secondary small">
                   <span class="text-body">Telemetry</span>
@@ -4370,7 +4370,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
             if (msg) msg.textContent = esc(String(e));
           }
         })();
-      } else if (t.id === "fleet-template-build-btn") {
+      } else if (t.closest && t.closest("#fleet-template-build-btn")) {
         ev.preventDefault();
         void (async function () {
           var out = document.getElementById("fleet-template-build-result");
