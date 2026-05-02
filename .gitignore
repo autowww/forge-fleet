@@ -6,3 +6,8 @@ __pycache__/
 dist/
 build/
 .venv/
+.fleet-e2e-data/
+node_modules/
+test-results/
+playwright-report/
+.playwright/

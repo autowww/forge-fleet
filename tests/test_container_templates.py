@@ -39,9 +39,61 @@ def test_validate_template_row_accepts_hyphenated_image_tag(tmp_path: Path) -> N
             "kind": "image",
             "ref": "mcr.microsoft.com/playwright:v1.40.0-focal",
             "notes": "",
+            "image_semver": "1.40.0",
         },
     )
     assert row["ref"].endswith("focal")
+    assert row["image_semver"] == "1.40.0"
+
+
+def test_validate_template_row_rejects_bad_image_semver(tmp_path: Path) -> None:
+    ct.ensure_template_layout(tmp_path)
+    with pytest.raises(ValueError, match="image_semver_invalid"):
+        ct.validate_template_row(
+            tmp_path,
+            {
+                "id": "x",
+                "title": "X",
+                "kind": "image",
+                "ref": "alpine:3.20",
+                "notes": "",
+                "image_semver": "1.0 bad",
+            },
+        )
+
+
+def test_validate_template_row_rejects_image_semver_on_dockerfile_kind(tmp_path: Path) -> None:
+    ct.ensure_template_layout(tmp_path)
+    root = ct.dockerfiles_allow_root(tmp_path)
+    df = root / "dockerfiles" / "t.df"
+    df.parent.mkdir(parents=True, exist_ok=True)
+    df.write_text("FROM scratch\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="image_semver_only_for_image_kind"):
+        ct.validate_template_row(
+            tmp_path,
+            {
+                "id": "dfrow",
+                "title": "D",
+                "kind": "dockerfile",
+                "ref": "dockerfiles/t.df",
+                "notes": "",
+                "image_semver": "1.0.0",
+            },
+        )
+
+
+def test_bundle_fingerprint_includes_image_semver(tmp_path: Path) -> None:
+    ct.ensure_template_layout(tmp_path)
+    doc = ct.load_requirement_templates(tmp_path)
+    doc["templates"] = [
+        {"id": "v1", "title": "V", "kind": "image", "ref": "alpine:3.20", "notes": "", "image_semver": "1.0.0"},
+    ]
+    ct.save_requirement_templates(tmp_path, doc)
+    k1, fp1 = ct.bundle_fingerprint(tmp_path, ["v1"])
+    doc["templates"][0]["image_semver"] = "2.0.0"
+    ct.save_requirement_templates(tmp_path, doc)
+    k2, fp2 = ct.bundle_fingerprint(tmp_path, ["v1"])
+    assert fp1 != fp2 and k1 != k2
 
 
 def test_validate_types_unknown_requirement_raises(tmp_path: Path) -> None:

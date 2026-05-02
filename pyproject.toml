@@ -1,6 +1,6 @@
 [project]
 name = "forge-fleet"
-version = "0.3.44"
+version = "0.3.45"
 description = "HTTP orchestrator for local Docker (and future remote) Docs Health / tasklet jobs"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -19,3 +19,8 @@ packages = ["fleet_server"]
 
 [tool.setuptools.package-data]
 fleet_server = ["static/*.html", "static/gpu-logos/*.png"]
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: requires a working Docker daemon (see tests/test_fleet_docker_integration.py)",
+]

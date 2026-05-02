@@ -130,13 +130,25 @@ def validate_template_row(data_dir: Path, row: dict[str, Any]) -> dict[str, Any]
         if not re.match(r"^[a-z0-9][a-z0-9._/:@+-]{0,253}$", ref, re.I):
             raise ValueError("image_ref_invalid")
     notes = str(row.get("notes") or "")[:4000]
-    return {
+    image_semver = ""
+    if kind == "image":
+        raw_sem = str(row.get("image_semver") or "").strip()
+        if raw_sem:
+            if len(raw_sem) > 64 or not re.match(r"^[a-zA-Z0-9._+v~-]+$", raw_sem):
+                raise ValueError("image_semver_invalid")
+            image_semver = raw_sem
+    elif str(row.get("image_semver") or "").strip():
+        raise ValueError("image_semver_only_for_image_kind")
+    out: dict[str, Any] = {
         "id": rid,
         "title": title,
         "kind": kind,
         "ref": ref,
         "notes": notes,
     }
+    if image_semver:
+        out["image_semver"] = image_semver
+    return out
 
 
 def save_requirement_templates(data_dir: Path, doc: dict[str, Any]) -> None:
@@ -193,7 +205,8 @@ def bundle_fingerprint(data_dir: Path, requirement_ids: list[str]) -> tuple[str,
             h = hashlib.sha256(body).hexdigest()
             parts.append(f"{rid}:dockerfile:{h}")
         else:
-            parts.append(f"{rid}:image:{ref}")
+            sem = str(t.get("image_semver") or "").strip()
+            parts.append(f"{rid}:image:{ref}:{sem}")
     blob = "\n".join(parts).encode("utf-8")
     fp = hashlib.sha256(blob).hexdigest()
     key = "bundle_" + fp[:24]
