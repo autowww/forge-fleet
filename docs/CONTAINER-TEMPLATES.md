@@ -15,6 +15,18 @@ Built or pulled **template images** are recorded in `**etc/containers/build_cach
 | `etc/containers/dockerfiles/`               | Recommended location for Dockerfile paths referenced as `ref` (relative to `etc/containers/`).                                |
 
 
+## Requirement bundles vs builds
+
+**Cache fingerprint:** `GET /v1/container-templates/resolve?requirements=a,b` and `POST /v1/container-templates/build` with multiple **`requirement_ids`** both participate in one **bundle fingerprint** for the **sorted set** of requirement template rows (see **`bundle_fingerprint`** in [`fleet_server/container_templates.py`](../fleet_server/container_templates.py)).
+
+**What Fleet builds or pulls:** **`run_template_build`** (same module) applies these rules:
+
+- **Single requirement id:** **`kind: dockerfile`** runs **`docker build`** once (build context = the Dockerfile’s parent directory). **`kind: image`** runs **`docker pull`** for that template’s **`ref`**.
+- **Multiple requirement ids:** Supported **only** when **every** template is **`kind: image`** and **all share the same `ref`** (effectively one **`docker pull`**). Otherwise Fleet fails with **`multi_requirement_build_supported_only_for_single_dockerfile_or_all_same_image`** — search Fleet logs for that token when debugging failed resolves or builds.
+
+**What Fleet does not do:** Fleet does **not** merge several **`kind: dockerfile`** templates into one runnable image. Encode the full dependency stack (“pre-installed software”) in **one** Dockerfile, register it under **one** requirement template id, **or** publish **one** registry image and reference it with **`kind: image`**.
+
+
 ## Environment variables
 
 
@@ -60,6 +72,19 @@ When `POST /v1/jobs` uses `meta.use_fleet_template_image`, Fleet rewrites the **
 4. Optionally `POST /v1/container-templates/build` then `GET /v1/container-templates/resolve?requirements=…` before enqueueing jobs.
 
 Changing **`image_semver`** or **`ref`** for an image template changes the **bundle fingerprint** (cache key), so Fleet treats it as a new resolved bundle after rebuild.
+
+## Remote API E2E (optional)
+
+From a dev machine with Docker + network access to a real Fleet host, you can run **`tests/test_remote_fleet_container_templates_e2e.py`**: it **`GET`s** health, **`PUT`s** a disposable **`kind: image`** template (default **`alpine:3.20`**), **`POST`s** **`/v1/container-templates/build`**, **`GET`s** resolve, **`POST`s** a **`docker_argv`** job with **`meta.use_fleet_template_image`**, polls **`GET /v1/jobs/{id}`**, then restores templates by **`PUT`** without the disposable row.
+
+```bash
+export RUN_REMOTE_FLEET_CONTAINER_API_E2E=1
+export FORGE_FLEET_BASE_URL=https://your-fleet.example
+export FORGE_FLEET_BEARER_TOKEN=...
+cd forge-fleet && PYTHONPATH=. python3 -m pytest tests/test_remote_fleet_container_templates_e2e.py -v
+```
+
+Unset **`RUN_REMOTE_FLEET_CONTAINER_API_E2E`** (or set **`SKIP_REMOTE_FLEET_CONTAINER_API_E2E=1`**) so CI does not hit production. Optional: **`FLEET_REMOTE_E2E_IMAGE`** to override the pull image.
 
 ## Manual QA (admin)
 
