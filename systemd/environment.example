@@ -41,3 +41,6 @@ FLEET_BEARER_TOKEN=change-me
 #
 # If ``docker`` is still not found, set an absolute binary (Fleet resolves this for ``docker_argv`` jobs):
 # FLEET_DOCKER_BIN=/path/to/docker
+# A bare name works too (Fleet expands via PATH), e.g. FLEET_DOCKER_BIN=docker — do not rely on a non-existent path.
+# When the Docker CLI is missing but Podman is installed, Fleet uses ``podman`` automatically; set
+# FLEET_NO_PODMAN_FALLBACK=1 to disable that and fail fast instead.

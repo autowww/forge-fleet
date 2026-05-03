@@ -66,6 +66,17 @@ When **`FLEET_GIT_ROOT`** points at a checkout with **`.git`**, **`/admin/`** of
 
 API: **`POST /v1/admin/git-self-update`** (same bearer auth as other `/v1/` routes). See **`systemd/environment.example`**.
 
+### Remote automation (`scripts/update-fleet.sh`)
+
+From your **dev clone**, **`./scripts/update-fleet.sh --remote-git-self-update`** runs the usual bump/commit/**push**, then **`curl`** **`POST {base}/v1/admin/git-self-update`** so a **remote** Fleet host (same machine as **forge-certificators** / Granite, if you use one URL for both) runs **`git pull --ff-only`**, submodule sync, and **`update-user.sh`** / **`systemctl --user restart forge-fleet.service`** when the remote install is **user**-profile.
+
+- **Env:** **`FORGE_FLEET_BASE_URL`** (scheme + host + port, **no** `/v1` suffix) or **`FLEET_REMOTE_GIT_SELF_UPDATE_URL`**, plus **`FORGE_FLEET_BEARER_TOKEN`**. Overrides: **`--remote-url`**, **`--remote-bearer`**.
+- **Skipped** when **`--no-push`** (nothing new on **`origin`** for the remote to pull).
+- **Remote prerequisites:** **`FLEET_GIT_ROOT`** on the remote host when the deployed tree has no **`.git`** (see **`systemd/environment.example`**).
+- **System install** (**`/opt/forge-fleet`**): HTTP response is **`400`** with **`system_root_install_command`** — run that **`sudo`** line on the server; unattended finish still requires SSH or manual ops.
+
+Use **`./scripts/update-fleet.sh --dry-run --remote-git-self-update`** to print the **`curl`** plan without changing git state.
+
 ## Submodules (blueprints + kitchensink)
 
 This repo vendors the same read-only **blueprints** and **kitchensink** submodules as other Forge sites (`forgesdlc`, `forge-lenses`, …). After clone:

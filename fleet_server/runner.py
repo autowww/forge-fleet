@@ -21,36 +21,107 @@ _FALLBACK_PATH_PREFIX = (
     "/snap/bin:/var/lib/snapd/snap/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 )
 
-
-def _docker_executable() -> str:
-    """Resolve ``docker`` for ``subprocess`` (override with ``FLEET_DOCKER_BIN``)."""
-    override = str(os.environ.get("FLEET_DOCKER_BIN") or "").strip()
-    if override:
-        return override
-    merged = _FALLBACK_PATH_PREFIX + os.pathsep + (os.environ.get("PATH") or "")
-    found = shutil.which("docker", path=merged)
-    if found:
-        return found
-    for p in (
-        "/usr/bin/docker",
-        "/bin/docker",
-        "/snap/bin/docker",
-        "/var/lib/snapd/snap/bin/docker",
-        "/usr/local/bin/docker",
-        "/etc/alternatives/docker",
-        "/usr/bin/docker.io",
-    ):
-        try:
-            if Path(p).is_file():
-                return str(Path(p).resolve())
-        except OSError:
-            continue
-    return "docker"
+_DOCKER_CANDIDATES = (
+    "/usr/bin/docker",
+    "/bin/docker",
+    "/snap/bin/docker",
+    "/var/lib/snapd/snap/bin/docker",
+    "/usr/local/bin/docker",
+    "/etc/alternatives/docker",
+    "/usr/bin/docker.io",
+)
+_PODMAN_CANDIDATES = (
+    "/usr/bin/podman",
+    "/usr/local/bin/podman",
+    "/bin/podman",
+)
 
 
 def _truthy_env(name: str) -> bool:
     v = str(os.environ.get(name) or "").strip().lower()
     return v in ("1", "true", "yes")
+
+
+def _merged_search_path() -> str:
+    return _FALLBACK_PATH_PREFIX + os.pathsep + (os.environ.get("PATH") or "")
+
+
+def _first_existing_executable(paths: tuple[str, ...]) -> str | None:
+    for raw in paths:
+        try:
+            p = Path(raw)
+            if p.is_file() and os.access(p, os.X_OK):
+                return str(p.resolve())
+        except OSError:
+            continue
+    return None
+
+
+def _resolve_override_bin(override: str, merged: str) -> str | None:
+    """Resolve ``FLEET_DOCKER_BIN`` to an executable path (never return a bare name blindly)."""
+    o = override.strip()
+    if not o:
+        return None
+    exp = Path(o).expanduser()
+    try:
+        if exp.is_file() and os.access(exp, os.X_OK):
+            return str(exp.resolve())
+    except OSError:
+        pass
+    # Bare name or relative: search PATH (e.g. FLEET_DOCKER_BIN=docker → /usr/bin/docker)
+    name = exp.name if "/" in o or "\\" in o else o
+    found = shutil.which(name, path=merged)
+    if found and os.access(found, os.X_OK):
+        return found
+    return None
+
+
+def _docker_executable() -> str:
+    """Resolve ``docker`` for ``subprocess`` (override with ``FLEET_DOCKER_BIN``).
+
+    Falls back to **podman** when the Docker CLI is absent unless ``FLEET_NO_PODMAN_FALLBACK``
+    is truthy — podman provides a compatible ``run`` for typical certificator workers.
+    """
+    merged = _merged_search_path()
+    override = str(os.environ.get("FLEET_DOCKER_BIN") or "").strip()
+    if override:
+        got = _resolve_override_bin(override, merged)
+        if got:
+            return got
+        # Invalid override: fall through to auto-discovery instead of returning a broken path.
+    found = shutil.which("docker", path=merged)
+    if found and os.access(found, os.X_OK):
+        return found
+    hit = _first_existing_executable(_DOCKER_CANDIDATES)
+    if hit:
+        return hit
+    if not _truthy_env("FLEET_NO_PODMAN_FALLBACK"):
+        pfound = shutil.which("podman", path=merged)
+        if pfound and os.access(pfound, os.X_OK):
+            return pfound
+        phit = _first_existing_executable(_PODMAN_CANDIDATES)
+        if phit:
+            return phit
+    return "docker"
+
+
+def _container_cli_missing_message(resolved: str) -> str:
+    return (
+        f"container CLI not found or not executable ({resolved!r}). "
+        "Install Docker (e.g. apt install docker.io) or Podman, add the service user to the "
+        "docker group if using /var/run/docker.sock, or set FLEET_DOCKER_BIN in forge-fleet.env "
+        "to the full path of docker or podman. See forge-fleet/scripts/install-docker-engine-fleet-e2e.sh."
+    )
+
+
+def _argv0_executable(argv: list[str]) -> bool:
+    if not argv:
+        return False
+    p = str(argv[0])
+    try:
+        return bool(Path(p).is_file() and os.access(p, os.X_OK))
+    except OSError:
+        return False
 
 
 def _merge_path_for_subprocess(env: dict[str, str]) -> None:
@@ -198,6 +269,21 @@ def run_job(db_path: Path, job_id: str) -> None:
         i = argv.index("--cidfile")
         if i + 1 < len(argv):
             cidfile = argv[i + 1]
+    if not _argv0_executable(argv):
+        conn = store.connect(db_path)
+        try:
+            store.update_job(
+                conn,
+                job_id,
+                status="failed",
+                stderr=_container_cli_missing_message(str(argv[0]) if argv else ""),
+                exit_code=1,
+            )
+        finally:
+            conn.close()
+        if cleanup_workspace:
+            workspace_bundle.cleanup_job_workspace(data_dir, job_id)
+        return
     out, err = "", ""
     proc: subprocess.Popen[str] | None = None
     try:

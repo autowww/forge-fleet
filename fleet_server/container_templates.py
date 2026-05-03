@@ -214,11 +214,10 @@ def bundle_fingerprint(data_dir: Path, requirement_ids: list[str]) -> tuple[str,
 
 
 def _docker_bin() -> str:
-    override = str(os.environ.get("FLEET_DOCKER_BIN") or "").strip()
-    if override:
-        return override
-    found = shutil.which("docker")
-    return found or "docker"
+    """Same resolution as ``docker_argv`` jobs (``fleet_server.runner``)."""
+    from fleet_server import runner as fleet_runner
+
+    return fleet_runner._docker_executable()
 
 
 def _env_opted_out(name: str) -> bool:
