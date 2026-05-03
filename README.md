@@ -62,7 +62,9 @@ The JSON body includes **`host.cpu_usage_pct`**, **`host.memory_used_pct`**, **`
 
 When **`FLEET_GIT_ROOT`** points at a checkout with **`.git`**, **`/admin/`** offers **Update Fleet** when **GitHub `master` is ahead** of the running build (same check as the version line). **`POST /v1/admin/git-self-update`** runs `git pull --ff-only`, submodule sync, then **`update-user.sh`** / **`install-user.sh`** if present, then **`systemctl --user restart forge-fleet.service`**. Optional **`FLEET_SELF_UPDATE_POST_GIT_COMMAND`** overrides those scripts.
 
-- **System install** (runtime under **`/opt/forge-fleet`**, or **`FLEET_SELF_UPDATE_INSTALL_PROFILE=system`**): the admin **Update Fleet** button is hidden; use **`sudo ./install-update.sh`** on the host (see **`git-install.sh`** / ops docs).
+**Install scripts:** **`install-update.sh`** / **`install-user.sh`** (and **`update-system.sh`** / **`update-user.sh`**) rsync **`--exclude '.git/'`**, so the runtime tree has no `.git`. They now write **`FLEET_GIT_ROOT=<FLEET_SRC>`** into **`forge-fleet.env`** when the source checkout contains **`.git`**, so **`meta.self_update.configured`** becomes true after the next install refresh and restart. Ensure the service user can **`git pull`** in that directory (permissions / ownership).
+
+- **System install** (runtime under **`/opt/forge-fleet`**, or **`FLEET_SELF_UPDATE_INSTALL_PROFILE=system`**): the admin **Update Fleet** button is hidden; **`POST /v1/admin/git-self-update`** returns **`400`** with **`system_root_install_command`** — run **`sudo ./install-update.sh`** from the clone on the host (see **`git-install.sh`** / ops docs). Git pulls still happen in **`FLEET_GIT_ROOT`** when you use that flow.
 
 API: **`POST /v1/admin/git-self-update`** (same bearer auth as other `/v1/` routes). See **`systemd/environment.example`**.
 
@@ -72,7 +74,7 @@ From your **dev clone**, **`./scripts/update-fleet.sh --remote-git-self-update`*
 
 - **Env:** **`FORGE_FLEET_BASE_URL`** (scheme + host + port, **no** `/v1` suffix) or **`FLEET_REMOTE_GIT_SELF_UPDATE_URL`**, plus **`FORGE_FLEET_BEARER_TOKEN`**. Overrides: **`--remote-url`**, **`--remote-bearer`**.
 - **Skipped** when **`--no-push`** (nothing new on **`origin`** for the remote to pull).
-- **Remote prerequisites:** **`FLEET_GIT_ROOT`** on the remote host when the deployed tree has no **`.git`** (see **`systemd/environment.example`**).
+- **Remote prerequisites:** runtime tree has no **`.git`** — refresh install once from a clone so **`forge-fleet.env`** gets **`FLEET_GIT_ROOT`**, or set **`FLEET_GIT_ROOT`** manually (see **`systemd/environment.example`**).
 - **System install** (**`/opt/forge-fleet`**): HTTP response is **`400`** with **`system_root_install_command`** — run that **`sudo`** line on the server; unattended finish still requires SSH or manual ops.
 
 Use **`./scripts/update-fleet.sh --dry-run --remote-git-self-update`** to print the **`curl`** plan without changing git state.

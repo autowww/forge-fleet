@@ -11,8 +11,10 @@ FLEET_BEARER_TOKEN=change-me
 # FLEET_ENFORCE_BEARER=1
 #
 # Admin “Update from Git” (POST /v1/admin/git-self-update): path to the **git clone** when the
-# running tree has no .git (e.g. user install rsync’d to ~/.local/share/forge-fleet). Example:
-# FLEET_GIT_ROOT=/home/you/forge-fleet
+# running tree has no .git (e.g. rsync excludes .git from /opt or ~/.local/share/forge-fleet).
+# install-update.sh / install-user.sh set this automatically from the source checkout when it has .git.
+# The service user must be able to read/write that checkout for git pull (see README).
+# Example (manual override): FLEET_GIT_ROOT=/home/you/forge-fleet
 # Optional shell after successful git (instead of update-user.sh): FLEET_SELF_UPDATE_POST_GIT_COMMAND
 # Optional: force admin "Update from git" behavior — user (default) vs system (/opt install shows root paste command):
 # FLEET_SELF_UPDATE_INSTALL_PROFILE=user

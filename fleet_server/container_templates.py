@@ -18,6 +18,7 @@ _REQ_ID_RE = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 
 _BUILD_LOCK = threading.Lock()
 _BUILD_STATE: dict[str, Any] = {"last_build": None, "in_progress": False}
+_ENSURE_CERTIFICATOR_WORKER_LOCK = threading.Lock()
 
 DEFAULT_REQUIREMENT_TEMPLATES: dict[str, Any] = {
     "version": 1,
@@ -56,6 +57,60 @@ def _write_json_atomic(path: Path, obj: Any) -> None:
         pass
 
 
+def _ensure_certificator_source_ingest_worker_template(data_dir: Path, cwd_mod: Any) -> None:
+    """
+    When no template row ``forge_certificator_source_ingest_worker`` exists, add one plus a
+    Dockerfile under ``etc/containers/dockerfiles/…`` so ``POST /v1/container-templates/build`` can
+    materialize the worker image on the Fleet host.
+    """
+    with _ENSURE_CERTIFICATOR_WORKER_LOCK:
+        tid = str(getattr(cwd_mod, "CERTIFICATOR_SOURCE_INGEST_WORKER_TEMPLATE_ID", "") or "").strip()
+        if not tid:
+            return
+        rt = requirement_templates_file(data_dir)
+        if not rt.is_file():
+            return
+        try:
+            doc = json.loads(rt.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+        templates = doc.get("templates")
+        if not isinstance(templates, list):
+            return
+        if any(isinstance(t, dict) and str(t.get("id") or "").strip() == tid for t in templates):
+            return
+        ref = f"dockerfiles/{tid}/Dockerfile"
+        p = _safe_ref_path(data_dir, ref)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(
+            str(getattr(cwd_mod, "CERTIFICATOR_SOURCE_INGEST_WORKER_DOCKERFILE", "")),
+            encoding="utf-8",
+        )
+        row = {
+            "id": tid,
+            "title": "Forge certificator source-ingest worker",
+            "kind": "dockerfile",
+            "ref": ref,
+            "notes": (
+                "Auto-provisioned by Forge Fleet. docker build uses git+https for forge-certificators; "
+                "set build-args FORGE_CERTIFICATORS_GIT / FORGE_CERTIFICATORS_REF or replace this row."
+            ),
+        }
+        merged_templates = list(templates) + [row]
+        ver = max(1, int(doc.get("version") or 1))
+        seen: set[str] = set()
+        clean: list[dict[str, Any]] = []
+        for raw_row in merged_templates:
+            if not isinstance(raw_row, dict):
+                continue
+            v = validate_template_row(data_dir, raw_row)
+            if v["id"] in seen:
+                raise ValueError("duplicate_template_id")
+            seen.add(v["id"])
+            clean.append(v)
+        _write_json_atomic(requirement_templates_file(data_dir), {"version": ver, "templates": clean})
+
+
 def ensure_template_layout(data_dir: Path) -> None:
     data_dir = data_dir.resolve()
     rt = requirement_templates_file(data_dir)
@@ -65,6 +120,13 @@ def ensure_template_layout(data_dir: Path) -> None:
     if not bc.is_file():
         _write_json_atomic(bc, DEFAULT_BUILD_CACHE)
     (dockerfiles_allow_root(data_dir) / "dockerfiles").mkdir(parents=True, exist_ok=True)
+    try:
+        from fleet_server import certificator_worker_dockerfile as cwd  # noqa: PLC0415
+
+        _ensure_certificator_source_ingest_worker_template(data_dir, cwd)
+    except Exception:
+        # Never block Fleet startup on optional bootstrap content.
+        pass
 
 
 def load_requirement_templates(data_dir: Path) -> dict[str, Any]:

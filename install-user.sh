@@ -113,6 +113,11 @@ if [[ "$INSTALL_SYSTEMD" -eq 1 ]] && [[ "$DRY_RUN" -eq 0 ]]; then
       echo "[install-user] created $ENV_DIR/forge-fleet.env (optional FLEET_BEARER_TOKEN on loopback)"
     fi
 
+    HELPER="$FLEET_SRC/scripts/set-fleet-git-root-in-env.sh"
+    if [[ -f "$HELPER" ]]; then
+      bash "$HELPER" "$ENV_DIR/forge-fleet.env" "$FLEET_SRC"
+    fi
+
     esc_py="${FLEET_PYTHON//\\/\\\\}"
     esc_py="${esc_py//|/\\|}"
     esc_dest="${FLEET_DEST//\\/\\\\}"

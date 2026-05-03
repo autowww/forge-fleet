@@ -146,6 +146,11 @@ if [[ "$INSTALL_SYSTEMD" -eq 1 ]] && [[ "$DRY_RUN" -eq 0 ]]; then
       fi
     fi
 
+    HELPER="$FLEET_SRC/scripts/set-fleet-git-root-in-env.sh"
+    if [[ -f "$HELPER" ]]; then
+      "${SYS_SUDO[@]}" bash "$HELPER" /etc/forge-fleet/forge-fleet.env "$FLEET_SRC"
+    fi
+
     "${SYS_SUDO[@]}" install -m0644 "$UFILE" /etc/systemd/system/forge-fleet.service
     rm -f "$UFILE"
 
