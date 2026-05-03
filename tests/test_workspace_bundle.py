@@ -33,6 +33,13 @@ def _tiny_tar_gz(payload_path: str = "a/hello.txt", content: bytes = b"hi") -> b
     return bio.getvalue()
 
 
+def test_profile_large_workspace_limits() -> None:
+    prof = profile_for_meta({"workspace_profile": "large_workspace"})
+    assert prof["profile_id"] == "large_workspace"
+    assert prof["max_uncompressed_bytes"] == 500 * 1024 * 1024
+    assert prof["container_mount"] == "/workspace"
+
+
 def test_extract_archive_simple_ok(tmp_path: Path) -> None:
     data = _tiny_tar_gz()
     prof = profile_for_meta({"workspace_profile": "generic"})

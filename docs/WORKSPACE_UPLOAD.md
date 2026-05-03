@@ -12,7 +12,7 @@ Optional **gzip-compressed tarball** staging for `docker_argv` jobs so workers d
 
 3. Fleet extracts the archive under `{--data-dir}/job-workspaces/{job_id}/extracted`, validates size/path limits for the chosen **`meta.workspace_profile`** (or **`meta.container_class`** mapping), sets `workspace_state` to `ready`, then **starts** the runner.
 
-4. The runner injects **`-v {extracted_abs}:{container_mount}:ro`** after `docker … run` (default mount **`/workspace`** for profile `certificator_source_ingest`).  
+4. The runner injects **`-v {extracted_abs}:{container_mount}:ro`** after `docker … run` (mount path comes from the selected **`workspace_profile`**; built-in profiles use **`/workspace`**).  
    After the job reaches a terminal status, Fleet **deletes** the per-job workspace directory.
 
 ## Meta fields
@@ -20,7 +20,7 @@ Optional **gzip-compressed tarball** staging for `docker_argv` jobs so workers d
 | Field | Meaning |
 |-------|---------|
 | `workspace_upload_required` | If true, defer runner until `PUT …/workspace`. |
-| `workspace_profile` | Selects limits and container mount path (`certificator_source_ingest`, `generic`, …). |
+| `workspace_profile` | Selects limits and container mount path (built-in: **`large_workspace`**, **`generic`**, …). |
 | `workspace_state` | `pending_upload` → `ready` after successful extract. |
 | `workspace_sha256` | SHA-256 of the upload bytes (hex). |
 | `workspace_upload_bytes` | Compressed upload size. |
@@ -35,6 +35,6 @@ Optional **gzip-compressed tarball** staging for `docker_argv` jobs so workers d
 
 Upload is **authenticated** like `POST /v1/jobs`. Tar extraction rejects absolute paths, `..`, and symlinks/hardlinks in the archive. Sandboxing untrusted code still requires tight **Docker** / **gVisor** / VM policy on the Fleet host; see project security guidance.
 
-## Certificator integration
+## Consumers
 
-When **`FORGE_FLEET_SOURCE_INGEST_UPLOAD_WORKSPACE=1`** is set on the certificator, **`POST …/source-ingest-dry-run-fleet`** and **`…/source-ingest-production-fleet`** build a workspace tarball (`example-banks` + `src/`), **`POST` the job** with `workspace_upload_required`, then **`PUT` the artifact** before the Fleet worker starts. **`FORGE_SOURCE_INGEST_CWD`** inside the container becomes **`/workspace`**.
+Any authenticated client may **`POST /v1/jobs`** with **`workspace_upload_required`**, then **`PUT /v1/jobs/{id}/workspace`** with a gzip tarball before Fleet starts **`docker_argv`**. Pick **`workspace_profile`** to match archive size (`large_workspace` vs `generic` limits in `fleet_server/workspace_bundle.py`).

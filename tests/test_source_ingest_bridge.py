@@ -11,7 +11,7 @@ def test_source_ingest_bridge_token_and_progress(tmp_path: Path) -> None:
     try:
         tok = "bridge-secret-test"
         meta = {
-            "container_class": "certificator_source_ingest",
+            "container_class": "docker_argv_workspace",
             "source_ingest_bridge_token": tok,
             "source_ingest_bundle": {"argv": ["echo", "hi"], "cwd": "/tmp"},
         }

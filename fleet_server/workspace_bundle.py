@@ -17,7 +17,8 @@ from typing import Any
 
 # Profile id -> container mount point and extraction limits
 WORKSPACE_PROFILES: dict[str, dict[str, Any]] = {
-    "certificator_source_ingest": {
+    # Larger limits for callers that upload full repo-style trees (selected via meta.workspace_profile only).
+    "large_workspace": {
         "container_mount": "/workspace",
         "max_uncompressed_bytes": 500 * 1024 * 1024,
         "max_files": 100_000,

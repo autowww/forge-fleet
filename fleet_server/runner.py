@@ -80,7 +80,7 @@ def _docker_executable() -> str:
     """Resolve ``docker`` for ``subprocess`` (override with ``FLEET_DOCKER_BIN``).
 
     Falls back to **podman** when the Docker CLI is absent unless ``FLEET_NO_PODMAN_FALLBACK``
-    is truthy — podman provides a compatible ``run`` for typical certificator workers.
+    is truthy — podman provides a compatible ``run`` for typical ``docker_argv`` workers.
     """
     merged = _merged_search_path()
     override = str(os.environ.get("FLEET_DOCKER_BIN") or "").strip()
