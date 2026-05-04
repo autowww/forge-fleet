@@ -24,6 +24,9 @@ DEFAULT_REQUIREMENT_TEMPLATES: dict[str, Any] = {
     "templates": [],
 }
 
+# Matches forge-certificators default Fleet template resolution when using stock worker image.
+BUILTIN_CERTIFICATOR_SOURCE_INGEST_TEMPLATE_ID = "certificator_source_ingest_worker"
+
 DEFAULT_BUILD_CACHE: dict[str, Any] = {"version": 1, "entries": {}}
 
 
@@ -56,6 +59,9 @@ def _write_json_atomic(path: Path, obj: Any) -> None:
         pass
 
 
+_SEEDING_BUILTIN_CERTIFICATOR_TEMPLATE = False
+
+
 def ensure_template_layout(data_dir: Path) -> None:
     data_dir = data_dir.resolve()
     rt = requirement_templates_file(data_dir)
@@ -65,6 +71,80 @@ def ensure_template_layout(data_dir: Path) -> None:
     if not bc.is_file():
         _write_json_atomic(bc, DEFAULT_BUILD_CACHE)
     (dockerfiles_allow_root(data_dir) / "dockerfiles").mkdir(parents=True, exist_ok=True)
+    seed_builtin_certificator_source_ingest_worker(data_dir)
+
+
+def seed_builtin_certificator_source_ingest_worker(data_dir: Path) -> None:
+    """
+    Copy stock source-ingest worker Dockerfile into ``etc/containers/dockerfiles/…`` and register
+    requirement template ``certificator_source_ingest_worker`` when absent.
+
+    Skipped when ``FLEET_NO_BUILTIN_CERTIFICATOR_SOURCE_INGEST_TEMPLATE`` is truthy, or when the
+    packaged Dockerfile is missing (broken install).
+    """
+    global _SEEDING_BUILTIN_CERTIFICATOR_TEMPLATE
+    if _SEEDING_BUILTIN_CERTIFICATOR_TEMPLATE:
+        return
+    if str(os.environ.get("FLEET_NO_BUILTIN_CERTIFICATOR_SOURCE_INGEST_TEMPLATE") or "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    ):
+        return
+    data_dir = data_dir.resolve()
+    rid = BUILTIN_CERTIFICATOR_SOURCE_INGEST_TEMPLATE_ID
+    root = dockerfiles_allow_root(data_dir)
+    dest_dir = root / "dockerfiles" / rid
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest_df = dest_dir / "Dockerfile"
+    pkg_df = Path(__file__).resolve().parent / "bundled_certificator_templates" / rid / "Dockerfile"
+    if not dest_df.is_file() and pkg_df.is_file():
+        try:
+            shutil.copyfile(pkg_df, dest_df)
+        except OSError:
+            return
+    if not dest_df.is_file():
+        return
+    p = requirement_templates_file(data_dir)
+    try:
+        doc = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        doc = copy.deepcopy(DEFAULT_REQUIREMENT_TEMPLATES)
+    if not isinstance(doc, dict):
+        doc = copy.deepcopy(DEFAULT_REQUIREMENT_TEMPLATES)
+    templates = doc.get("templates")
+    if not isinstance(templates, list):
+        templates = []
+    for row in templates:
+        if isinstance(row, dict) and str(row.get("id")) == rid:
+            return
+    ref = f"dockerfiles/{rid}/Dockerfile"
+    try:
+        row = validate_template_row(
+            data_dir,
+            {
+                "id": rid,
+                "title": "Certificator source-ingest worker (builtin)",
+                "kind": "dockerfile",
+                "ref": ref,
+                "notes": (
+                    "Seeded by forge-fleet; installs forge-certificators from public GitHub "
+                    "(needs build network). Disable seeding with "
+                    "FLEET_NO_BUILTIN_CERTIFICATOR_SOURCE_INGEST_TEMPLATE=1 or override via "
+                    "PUT /v1/container-templates."
+                ),
+            },
+        )
+    except ValueError:
+        return
+    clean_templates = [t for t in templates if isinstance(t, dict)]
+    clean_templates.append(row)
+    out_doc = {"version": int(doc.get("version") or 1), "templates": clean_templates}
+    _SEEDING_BUILTIN_CERTIFICATOR_TEMPLATE = True
+    try:
+        save_requirement_templates(data_dir, out_doc)
+    finally:
+        _SEEDING_BUILTIN_CERTIFICATOR_TEMPLATE = False
 
 
 def load_requirement_templates(data_dir: Path) -> dict[str, Any]:

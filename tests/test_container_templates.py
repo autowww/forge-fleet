@@ -18,6 +18,24 @@ def test_ensure_layout_creates_template_sidecar_files(tmp_path: Path) -> None:
     assert (ct.dockerfiles_allow_root(tmp_path) / "dockerfiles").is_dir()
 
 
+def test_ensure_layout_seeds_certificator_source_ingest_template(tmp_path: Path) -> None:
+    cl.ensure_layout(tmp_path)
+    doc = ct.load_requirement_templates(tmp_path)
+    rows = [t for t in (doc.get("templates") or []) if isinstance(t, dict)]
+    ids = {str(t.get("id")) for t in rows}
+    assert ct.BUILTIN_CERTIFICATOR_SOURCE_INGEST_TEMPLATE_ID in ids
+    ref = f"dockerfiles/{ct.BUILTIN_CERTIFICATOR_SOURCE_INGEST_TEMPLATE_ID}/Dockerfile"
+    for t in rows:
+        if str(t.get("id")) == ct.BUILTIN_CERTIFICATOR_SOURCE_INGEST_TEMPLATE_ID:
+            assert t.get("kind") == "dockerfile"
+            assert t.get("ref") == ref
+            p = ct._safe_ref_path(tmp_path, str(t.get("ref")))
+            assert p.is_file()
+            break
+    else:  # pragma: no cover
+        raise AssertionError("builtin template row missing")
+
+
 def test_bundle_fingerprint_stable_for_image_pin(tmp_path: Path) -> None:
     ct.ensure_template_layout(tmp_path)
     doc = ct.load_requirement_templates(tmp_path)
