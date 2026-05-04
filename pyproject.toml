@@ -1,6 +1,6 @@
 [project]
 name = "forge-fleet"
-version = "0.3.55"
+version = "0.3.56"
 description = "HTTP orchestrator for local Docker (and future remote) Docs Health / tasklet jobs"
 readme = "README.md"
 requires-python = ">=3.11"
