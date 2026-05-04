@@ -331,3 +331,70 @@ def inject_workspace_bind_mount(
     pair = ["-v", f"{host_extracted}:{container_mount.rstrip('/')}:ro"]
     ins = run_idx + 1
     return argv[:ins] + pair + argv[ins:]
+
+
+def extract_tarball_bytes_to_directory(
+    data: bytes,
+    dest_root: Path,
+    *,
+    max_uncompressed_bytes: int,
+    max_files: int,
+    max_path_depth: int,
+) -> str | None:
+    """
+    Safely extract a gzip tarball (or uncompressed tar) into ``dest_root``.
+
+    Returns ``None`` on success, or a short machine-readable error token on failure.
+    """
+    is_gz = len(data) >= 2 and data[0] == 0x1F and data[1] == 0x8B
+    try:
+        mode = "r:gz" if is_gz else "r:"
+        tf = tarfile.open(fileobj=io.BytesIO(data), mode=mode)
+    except (tarfile.TarError, OSError, EOFError) as ex:
+        return f"invalid_archive:{ex}"
+
+    unc_bytes = 0
+    n_files = 0
+    try:
+        members = tf.getmembers()
+        for m in members:
+            name = m.name.replace("\\", "/").strip("/")
+            if not name:
+                continue
+            if not _safe_member_name(name):
+                return "unsafe_path_in_archive"
+            depth = len(Path(name).parts)
+            if depth > max_path_depth:
+                return "path_too_deep"
+            if m.issym() or m.islnk():
+                return "symlink_not_allowed"
+            if m.isfile():
+                sz = int(getattr(m, "size", 0) or 0)
+                unc_bytes += sz
+                if unc_bytes > max_uncompressed_bytes:
+                    return "uncompressed_size_exceeded"
+                n_files += 1
+                if n_files > max_files:
+                    return "too_many_files"
+
+        dest_root.mkdir(parents=True, exist_ok=True)
+        if sys.version_info >= (3, 12):
+            tf.extractall(dest_root, filter="data")
+        else:
+            members_sorted = sorted(
+                members,
+                key=lambda m2: (len(Path(m2.name.replace("\\", "/").strip("/")).parts), m2.name),
+            )
+            for m in members_sorted:
+                try:
+                    _extract_member_safe(tf, m, dest_root)
+                except OSError:
+                    return "extract_failed"
+    except (tarfile.TarError, OSError) as ex:
+        return f"extract_failed:{ex}"
+    finally:
+        try:
+            tf.close()
+        except OSError:
+            pass
+    return None

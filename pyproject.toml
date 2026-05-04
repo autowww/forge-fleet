@@ -1,6 +1,6 @@
 [project]
 name = "forge-fleet"
-version = "0.3.53"
+version = "0.3.55"
 description = "HTTP orchestrator for local Docker (and future remote) Docs Health / tasklet jobs"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -21,8 +21,6 @@ packages = ["fleet_server"]
 fleet_server = [
     "static/*.html",
     "static/gpu-logos/*.png",
-    "bundled_certificator_templates/certificator_source_ingest_worker/Dockerfile",
-    "bundled_certificator_templates/certificator_source_ingest_worker/fleet_source_ingest_worker.py",
 ]
 
 [tool.pytest.ini_options]

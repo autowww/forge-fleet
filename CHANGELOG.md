@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.54] - 2026-05-04
+
+### Changed
+
+- **Certificator source-ingest** requirement templates are **no longer** copied from the `forge-fleet` package into `--data-dir`. Operators install the Dockerfile and context with **`PUT /v1/container-templates/{requirement_id}/package`** (raw **`.tar.gz` body**), then **`POST /v1/container-templates/build`**. Reference files and a packaging script live in **forge-certificators** under **`fleet-container-template/`** (see that repo’s README). Removed **`FLEET_NO_BUILTIN_CERTIFICATOR_SOURCE_INGEST_TEMPLATE`** (there is no builtin seed to disable). See [`docs/CONTAINER-TEMPLATES.md`](docs/CONTAINER-TEMPLATES.md).
+
+### Added
+
+- Safe tarball extraction helper **`extract_tarball_bytes_to_directory`** in [`fleet_server/workspace_bundle.py`](fleet_server/workspace_bundle.py) for template package uploads.
+- Upload size and extract limits: **`FLEET_TEMPLATE_PACKAGE_UPLOAD_MAX_BYTES`**, **`FLEET_TEMPLATE_PACKAGE_MAX_UNCOMPRESSED_BYTES`**, **`FLEET_TEMPLATE_PACKAGE_MAX_FILES`**, **`FLEET_TEMPLATE_PACKAGE_MAX_PATH_DEPTH`**.
+
 ## [0.3.53] - 2026-05-04
 
 ### Fixed

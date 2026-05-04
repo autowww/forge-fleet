@@ -1025,6 +1025,54 @@ class FleetHandler(BaseHTTPRequestHandler):
             )
             return
 
+        m_tpl_pkg = re.match(r"^/v1/container-templates/([^/]+)/package$", path)
+        if m_tpl_pkg:
+            rid_raw = m_tpl_pkg.group(1)
+            max_up = container_templates.max_template_package_upload_bytes()
+            raw = self._read_binary_body(max_up)
+            if len(raw) == 0:
+                self._send(
+                    400,
+                    {
+                        "ok": False,
+                        "error": "invalid_body",
+                        "detail": "empty or oversized body (check Content-Length against FLEET_TEMPLATE_PACKAGE_UPLOAD_MAX_BYTES)",
+                    },
+                )
+                return
+            body_sha = hashlib.sha256(raw).hexdigest()
+            hdr_sha = (self.headers.get("X-Template-Package-Sha256") or "").strip().lower()
+            if hdr_sha and hdr_sha != body_sha:
+                self._send(
+                    400,
+                    {
+                        "ok": False,
+                        "error": "archive_sha256_mismatch",
+                        "detail": "X-Template-Package-Sha256 does not match request body digest",
+                    },
+                )
+                return
+            q = parse_qs(urlparse(self.path).query)
+            title = (q.get("title") or [""])[0]
+            notes = (q.get("notes") or [""])[0]
+            replace_raw = (q.get("replace") or ["1"])[0].strip().lower()
+            replace = replace_raw not in ("0", "false", "no")
+            out = container_templates.apply_requirement_template_package(
+                data_dir,
+                rid_raw,
+                raw,
+                title=title,
+                notes=notes,
+                replace=replace,
+            )
+            if not out.get("ok"):
+                err = str(out.get("error") or "failed")
+                code = 409 if err == "template_exists" else 400
+                self._send(code, out)
+                return
+            self._send(200, out)
+            return
+
         body = self._read_json()
         data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
         container_layout.ensure_layout(data_dir_p)

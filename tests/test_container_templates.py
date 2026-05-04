@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import io
 import subprocess
+import tarfile
 from pathlib import Path
 
 import pytest
@@ -18,52 +20,68 @@ def test_ensure_layout_creates_template_sidecar_files(tmp_path: Path) -> None:
     assert (ct.dockerfiles_allow_root(tmp_path) / "dockerfiles").is_dir()
 
 
-def test_ensure_layout_seeds_certificator_source_ingest_template(tmp_path: Path) -> None:
+def test_ensure_layout_does_not_seed_builtin_certificator_template(tmp_path: Path) -> None:
     cl.ensure_layout(tmp_path)
     doc = ct.load_requirement_templates(tmp_path)
     rows = [t for t in (doc.get("templates") or []) if isinstance(t, dict)]
     ids = {str(t.get("id")) for t in rows}
-    assert ct.BUILTIN_CERTIFICATOR_SOURCE_INGEST_TEMPLATE_ID in ids
-    ref = f"dockerfiles/{ct.BUILTIN_CERTIFICATOR_SOURCE_INGEST_TEMPLATE_ID}/Dockerfile"
-    for t in rows:
-        if str(t.get("id")) == ct.BUILTIN_CERTIFICATOR_SOURCE_INGEST_TEMPLATE_ID:
-            assert t.get("kind") == "dockerfile"
-            assert t.get("ref") == ref
-            p = ct._safe_ref_path(tmp_path, str(t.get("ref")))
-            assert p.is_file()
-            worker = p.parent / "fleet_source_ingest_worker.py"
-            assert worker.is_file()
-            break
-    else:  # pragma: no cover
-        raise AssertionError("builtin template row missing")
+    assert ct.BUILTIN_CERTIFICATOR_SOURCE_INGEST_TEMPLATE_ID not in ids
 
 
-def test_seed_resyncs_deprecated_builtin_source_ingest_dockerfile(tmp_path: Path) -> None:
-    """Stale on-disk Dockerfile from the git-based pip era must be replaced on ensure_layout."""
-    cl.ensure_layout(tmp_path)
-    ref = f"dockerfiles/{ct.BUILTIN_CERTIFICATOR_SOURCE_INGEST_TEMPLATE_ID}/Dockerfile"
-    p = ct._safe_ref_path(tmp_path, ref)
-    stale = (
-        "FROM python:3.12-slim-bookworm\n"
-        'RUN pip install "forge-certificators[prepcast] @ '
-        "git+https://github.com/autowww/forge-certificators.git@${FORGE_CERTIFICATORS_GIT_REF}\"\n"
+def test_apply_requirement_template_package_installs_dockerfile(tmp_path: Path) -> None:
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+        df = b"FROM alpine:3.20\nRUN echo ok\n"
+        ti = tarfile.TarInfo(name="Dockerfile")
+        ti.size = len(df)
+        tf.addfile(ti, io.BytesIO(df))
+    blob = buf.getvalue()
+    out = ct.apply_requirement_template_package(
+        tmp_path,
+        "certificator_source_ingest_worker",
+        blob,
+        title="CI template",
+        notes="uploaded",
+        replace=True,
     )
-    p.write_text(stale, encoding="utf-8")
-    cl.ensure_layout(tmp_path)
-    body = p.read_text(encoding="utf-8")
-    assert "FORGE_CERTIFICATORS_GIT_REF" not in body
-    assert "git+https://github.com/autowww/forge-certificators" not in body
-    assert "fleet_source_ingest_worker.py" in body
+    assert out.get("ok") is True
+    ref = out.get("ref")
+    assert ref == "dockerfiles/certificator_source_ingest_worker/Dockerfile"
+    p = ct._safe_ref_path(tmp_path, str(ref))
+    assert p.is_file()
+    assert "alpine" in p.read_text(encoding="utf-8")
+    doc = ct.load_requirement_templates(tmp_path)
+    row = next(t for t in doc["templates"] if t["id"] == "certificator_source_ingest_worker")
+    assert row["title"] == "CI template"
 
 
-def test_seed_resyncs_on_bundled_dockerfile_hash_mismatch(tmp_path: Path) -> None:
-    cl.ensure_layout(tmp_path)
-    ref = f"dockerfiles/{ct.BUILTIN_CERTIFICATOR_SOURCE_INGEST_TEMPLATE_ID}/Dockerfile"
-    p = ct._safe_ref_path(tmp_path, ref)
-    original = p.read_text(encoding="utf-8")
-    p.write_text(original + "\n# operator-touched\n", encoding="utf-8")
-    cl.ensure_layout(tmp_path)
-    assert p.read_text(encoding="utf-8") == original
+def test_apply_requirement_template_package_nested_folder(tmp_path: Path) -> None:
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+        df = b"FROM scratch\n"
+        ti = tarfile.TarInfo(name="my_ctx/Dockerfile")
+        ti.size = len(df)
+        tf.addfile(ti, io.BytesIO(df))
+    out = ct.apply_requirement_template_package(tmp_path, "nested_tpl", buf.getvalue())
+    assert out.get("ok") is True
+    p = ct._safe_ref_path(tmp_path, "dockerfiles/nested_tpl/Dockerfile")
+    assert p.is_file()
+
+
+def test_apply_requirement_template_package_replace_false_conflict(tmp_path: Path) -> None:
+    def _pack() -> bytes:
+        b = io.BytesIO()
+        with tarfile.open(fileobj=b, mode="w:gz") as tf:
+            df = b"FROM alpine:3.20\n"
+            ti = tarfile.TarInfo(name="Dockerfile")
+            ti.size = len(df)
+            tf.addfile(ti, io.BytesIO(df))
+        return b.getvalue()
+
+    assert ct.apply_requirement_template_package(tmp_path, "dup_pkg", _pack()).get("ok") is True
+    out2 = ct.apply_requirement_template_package(tmp_path, "dup_pkg", _pack(), replace=False)
+    assert out2.get("ok") is False
+    assert out2.get("error") == "template_exists"
 
 
 def test_bundle_fingerprint_stable_for_image_pin(tmp_path: Path) -> None:

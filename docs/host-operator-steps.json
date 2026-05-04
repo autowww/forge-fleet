@@ -1,11 +1,15 @@
 [
   {
-    "version": "0.3.53",
-    "title": "Builtin certificator source-ingest Dockerfile resync (no GitHub pip in image build)",
+    "version": "0.3.54",
+    "title": "Certificator template via API upload (no builtin Dockerfile in forge-fleet package)",
     "commands": [
-      "# No mandatory host shell steps: install forge-fleet >= 0.3.53 and restart the service.",
-      "# Stale etc/containers/dockerfiles/certificator_source_ingest_worker/Dockerfile is refreshed from the package when deprecated or out of date.",
-      "# Optional: POST /v1/container-templates/build with requirement_ids [\"certificator_source_ingest_worker\"] to rebuild the image without waiting for the next job."
+      "# Forge Fleet no longer seeds certificator_source_ingest_worker from git. From forge-certificators:",
+      "#   ./scripts/package-fleet-certificator-template.sh",
+      "#   curl -T certificator_source_ingest_worker.tar.gz -H \"Authorization: Bearer $FORGE_FLEET_BEARER_TOKEN\" \\",
+      "#     \"${FORGE_FLEET_BASE_URL}/v1/container-templates/certificator_source_ingest_worker/package?replace=1\"",
+      "#   curl -X POST \"${FORGE_FLEET_BASE_URL}/v1/container-templates/build\" -H \"Authorization: Bearer $FORGE_FLEET_BEARER_TOKEN\" \\",
+      "#     -H \"Content-Type: application/json\" -d '{\"requirement_ids\":[\"certificator_source_ingest_worker\"]}'",
+      "# See forge-certificators/fleet-container-template/README.md and forge-fleet/docs/CONTAINER-TEMPLATES.md"
     ]
   },
   {

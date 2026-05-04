@@ -32,6 +32,10 @@ Built or pulled **template images** are recorded in `**etc/containers/build_cach
 
 | Variable                         | Effect                                                                                                                                                                                                                                                                 |
 | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FLEET_TEMPLATE_PACKAGE_UPLOAD_MAX_BYTES` | **Default 64 MiB** — max HTTP body for **`PUT /v1/container-templates/{id}/package`**. |
+| `FLEET_TEMPLATE_PACKAGE_MAX_UNCOMPRESSED_BYTES` | Extracted bytes limit for template packages (default **120 MiB**). |
+| `FLEET_TEMPLATE_PACKAGE_MAX_FILES` | Max regular files in a template archive (default **5000**). |
+| `FLEET_TEMPLATE_PACKAGE_MAX_PATH_DEPTH` | Max path depth (default **40**). |
 | `FLEET_TEMPLATE_BUILD_NETWORK`   | **Opt-out.** By default Fleet allows Docker’s normal network so `docker build` can pull bases and `kind: image` templates run `docker pull`. Set to `0`, `false`, or `no` to use `docker build --network none` and to **block** `docker pull` for pinned images. |
 | `FLEET_PREFETCH_TEMPLATE_IMAGES` | **Opt-out.** By default Fleet starts a **background** prefetch that runs `docker build` / `docker pull` once per declared template ID at process start (errors are logged; the server keeps running). Set to `0`, `false`, or `no` to skip—useful when the catalog is huge and startup latency matters. |
 | `FLEET_DOCKER_BIN`               | Override path to the `docker` CLI.                                                                                                                                                                                                                                   |
@@ -47,6 +51,7 @@ Built or pulled **template images** are recorded in `**etc/containers/build_cach
 | POST   | `/v1/container-types`                                                 | Append one type row (`id` must be new).                                                                                                                                                    |
 | PUT    | `/v1/container-types/{id}`                                            | Update one type row.                                                                                                                                                                     |
 | DELETE | `/v1/container-types/{id}`                                            | Remove type (`empty` is reserved; blocked if services reference `type_id` or running jobs use `container_class`).                                                                        |
+| PUT    | `/v1/container-templates/{requirement_id}/package`                 | **Raw body:** gzip (or plain) **tar** archive. Extracts to `etc/containers/dockerfiles/{id}/` and **upserts** a `kind: dockerfile` row. Query: optional `title`, `notes`, `replace` (`0` / `false` / `no` = refuse if the template and Dockerfile already exist). Optional header **`X-Template-Package-Sha256`** (hex) must match the body. |
 | GET    | `/v1/container-templates`                                             | Read requirement templates document + paths.                                                                                                                                            |
 | PUT    | `/v1/container-templates`                                             | Replace full requirement templates document (validated).                                                                                                                                |
 | GET    | `/v1/container-templates/status`                                      | Build cache JSON + in-process build state.                                                                                                                                               |
@@ -87,18 +92,21 @@ cd forge-fleet && PYTHONPATH=. python3 -m pytest tests/test_remote_fleet_contain
 
 Unset **`RUN_REMOTE_FLEET_CONTAINER_API_E2E`** (or set **`SKIP_REMOTE_FLEET_CONTAINER_API_E2E=1`**) so CI does not hit production. Optional: **`FLEET_REMOTE_E2E_IMAGE`** to override the pull image.
 
-## Troubleshooting: stale builtin `certificator_source_ingest_worker` Dockerfile
+**Archive layout:** The extracted tree must contain a **`Dockerfile`** at the **root** of the archive, or under **one** top-level directory (e.g. `my_ctx/Dockerfile`). Put **PyPI** / system package install steps in that Dockerfile. **No** certificator template ships inside the `forge-fleet` git tree; publish the reference package from **forge-certificators** (`fleet-container-template/`, `scripts/package-fleet-certificator-template.sh`).
 
-Older Forge Fleet releases seeded **`etc/containers/dockerfiles/certificator_source_ingest_worker/Dockerfile`** once and never overwrote it. If that file still contains a **`pip install`** line referencing **`git+https://github.com/autowww/forge-certificators`** (or **`FORGE_CERTIFICATORS_GIT_REF`**), template builds fail with an empty revision after **`@`**, and the worker image no longer matches the agreed model (PyPI wheels + **`PUT /v1/jobs/{id}/workspace`** tarball for `src/`).
+## Troubleshooting: certificator `certificator_source_ingest_worker` template
 
-**From Forge Fleet 0.3.53 onward**, each call to **`ensure_template_layout`** (process start and any code path that initializes `--data-dir`) re-copies the packaged stock Dockerfile when the on-disk file is **deprecated** or its **SHA-256** differs from the wheel that ships inside **`forge-fleet`**.
+Forge Fleet **does not** seed a default Dockerfile. On a fresh data directory, **`GET /v1/container-templates`** may list **no** dockerfile rows until you install one.
 
-**If you cannot upgrade yet**, on the Fleet host under **`paths.dockerfiles_root`** from **`GET /v1/container-templates`**:
+1. In **forge-certificators**, run **`./scripts/package-fleet-certificator-template.sh`** to produce **`certificator_source_ingest_worker.tar.gz`**.
+2. Upload: **`PUT /v1/container-templates/certificator_source_ingest_worker/package`** with the archive as the **raw body** and admin bearer auth (optional query **`title`**, **`notes`**, **`replace=1`**).
+3. Build: **`POST /v1/container-templates/build`** with **`{"requirement_ids":["certificator_source_ingest_worker"]}`** (needs Docker on the Fleet host and template build network unless opted out).
 
-1. Inspect **`dockerfiles/certificator_source_ingest_worker/Dockerfile`**. If it references GitHub for forge-certificators, replace it with the copy from your **`forge-fleet`** checkout at **`fleet_server/bundled_certificator_templates/certificator_source_ingest_worker/Dockerfile`**, or delete that **`Dockerfile`** (and optionally **`fleet_source_ingest_worker.py`** in the same directory) and **restart** Fleet so seeding runs again.
-2. Rebuild: **`POST /v1/container-templates/build`** with **`{"requirement_ids":["certificator_source_ingest_worker"]}`** (or the Admin UI **Build requirement bundle**). Bundle fingerprints include the Dockerfile bytes, so a successful build picks up the corrected image.
+If **`docker build`** fails, inspect **`GET /v1/container-templates/status`** and Fleet logs. If the Dockerfile references outdated **`git+https://github.com/.../forge-certificators`**, replace it with the package from **forge-certificators** and re-upload.
 
-**Custom edits** under the builtin id **`certificator_source_ingest_worker`** may be overwritten on upgrade when the packaged file changes; prefer a **new requirement template id** and **`PUT /v1/container-templates`** for long-lived forks.
+## Troubleshooting (historical): stale on-disk Dockerfile from git-based pip
+
+Older deployments may still have **`etc/containers/dockerfiles/certificator_source_ingest_worker/Dockerfile`** from manual edits. Replace it by uploading a fresh package (**`PUT …/package`**) or editing files under **`paths.dockerfiles_root`** then **`POST /v1/container-templates/build`**.
 
 ## Manual QA (admin)
 

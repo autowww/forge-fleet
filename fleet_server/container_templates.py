@@ -11,8 +11,11 @@ import shutil
 import subprocess
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Any
+
+from fleet_server import workspace_bundle
 
 _REQ_ID_RE = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 
@@ -24,7 +27,8 @@ DEFAULT_REQUIREMENT_TEMPLATES: dict[str, Any] = {
     "templates": [],
 }
 
-# Matches forge-certificators default Fleet template resolution when using stock worker image.
+# Conventional requirement id for certificator source-ingest workers (not auto-seeded; install via
+# ``PUT /v1/container-templates/{id}/package`` with a tar.gz from forge-certificators).
 BUILTIN_CERTIFICATOR_SOURCE_INGEST_TEMPLATE_ID = "certificator_source_ingest_worker"
 
 DEFAULT_BUILD_CACHE: dict[str, Any] = {"version": 1, "entries": {}}
@@ -59,41 +63,142 @@ def _write_json_atomic(path: Path, obj: Any) -> None:
         pass
 
 
-_SEEDING_BUILTIN_CERTIFICATOR_TEMPLATE = False
-
-# Old stock Dockerfile pip-installed forge-certificators from GitHub; Fleet never passed
-# FORGE_CERTIFICATORS_GIT_REF, and upgrades did not overwrite an existing seeded file.
-_DEPRECATED_BUILTIN_SOURCE_INGEST_MARKERS: tuple[bytes, ...] = (
-    b"FORGE_CERTIFICATORS_GIT_REF",
-    b"git+https://github.com/autowww/forge-certificators",
-)
-
-
-def _sha256_file(path: Path) -> str | None:
+def max_template_package_upload_bytes() -> int:
+    """Max HTTP body size for ``PUT …/container-templates/{id}/package`` (compressed tarball)."""
+    raw = str(os.environ.get("FLEET_TEMPLATE_PACKAGE_UPLOAD_MAX_BYTES") or "").strip()
+    if not raw:
+        return 64 * 1024 * 1024
     try:
-        return hashlib.sha256(path.read_bytes()).hexdigest()
-    except OSError:
-        return None
+        return max(1_048_576, int(raw, 10))
+    except ValueError:
+        return 64 * 1024 * 1024
 
 
-def _builtin_source_ingest_worker_files_need_resync(dest_df: Path, pkg_df: Path) -> bool:
-    """True when the on-disk builtin Dockerfile should be replaced from the packaged copy."""
-    if not pkg_df.is_file():
-        return False
-    if not dest_df.is_file():
-        return True
+def _template_package_extract_limits() -> dict[str, int]:
+    raw_unc = str(os.environ.get("FLEET_TEMPLATE_PACKAGE_MAX_UNCOMPRESSED_BYTES") or "").strip()
     try:
-        body = dest_df.read_bytes()
-    except OSError:
-        return True
-    for marker in _DEPRECATED_BUILTIN_SOURCE_INGEST_MARKERS:
-        if marker in body:
-            return True
-    dest_h = _sha256_file(dest_df)
-    pkg_h = _sha256_file(pkg_df)
-    if dest_h is None:
-        return True
-    return pkg_h is not None and dest_h != pkg_h
+        max_unc = max(1_048_576, int(raw_unc, 10)) if raw_unc else 120 * 1024 * 1024
+    except ValueError:
+        max_unc = 120 * 1024 * 1024
+    raw_mf = str(os.environ.get("FLEET_TEMPLATE_PACKAGE_MAX_FILES") or "").strip()
+    try:
+        max_files = max(10, int(raw_mf, 10)) if raw_mf else 5000
+    except ValueError:
+        max_files = 5000
+    raw_md = str(os.environ.get("FLEET_TEMPLATE_PACKAGE_MAX_PATH_DEPTH") or "").strip()
+    try:
+        max_depth = max(4, int(raw_md, 10)) if raw_md else 40
+    except ValueError:
+        max_depth = 40
+    return {
+        "max_uncompressed_bytes": max_unc,
+        "max_files": max_files,
+        "max_path_depth": max_depth,
+    }
+
+
+def resolve_dockerfile_context_dir(unpacked: Path) -> Path | None:
+    """
+    Return the build context directory containing ``Dockerfile``.
+
+    Accepts a flat archive (``Dockerfile`` at root) or a single top-level folder that holds it.
+    """
+    if (unpacked / "Dockerfile").is_file():
+        return unpacked.resolve()
+    subs = sorted((p for p in unpacked.iterdir() if p.is_dir()), key=lambda p: p.name)
+    if len(subs) == 1 and (subs[0] / "Dockerfile").is_file():
+        return subs[0].resolve()
+    return None
+
+
+def apply_requirement_template_package(
+    data_dir: Path,
+    requirement_id: str,
+    data: bytes,
+    *,
+    title: str = "",
+    notes: str = "",
+    replace: bool = True,
+) -> dict[str, Any]:
+    """
+    Extract ``.tar.gz`` (or tar) under ``etc/containers/dockerfiles/{id}/`` and upsert the row in
+    ``requirement_templates.json``. Docker build context is the directory that contains ``Dockerfile``.
+    """
+    data_dir = data_dir.resolve()
+    try:
+        rid = validate_requirement_id(requirement_id)
+    except ValueError:
+        return {"ok": False, "error": "invalid_requirement_id", "detail": str(requirement_id)[:200]}
+    if not data:
+        return {"ok": False, "error": "empty_body"}
+
+    existing = template_by_id(data_dir, rid)
+    dest_dir = dockerfiles_allow_root(data_dir) / "dockerfiles" / rid
+    if not replace and existing is not None and (dest_dir / "Dockerfile").is_file():
+        return {"ok": False, "error": "template_exists", "detail": "pass replace=1 to overwrite"}
+
+    ensure_template_layout(data_dir)
+    root_df = dockerfiles_allow_root(data_dir)
+    staging = root_df / "dockerfiles" / f".upload-{rid}-{uuid.uuid4().hex}"
+    lim = _template_package_extract_limits()
+    try:
+        err = workspace_bundle.extract_tarball_bytes_to_directory(
+            data,
+            staging,
+            max_uncompressed_bytes=int(lim["max_uncompressed_bytes"]),
+            max_files=int(lim["max_files"]),
+            max_path_depth=int(lim["max_path_depth"]),
+        )
+        if err:
+            return {"ok": False, "error": "extract_failed", "detail": err}
+        ctx = resolve_dockerfile_context_dir(staging)
+        if ctx is None:
+            return {
+                "ok": False,
+                "error": "dockerfile_missing",
+                "detail": "archive must contain Dockerfile at root or under a single top-level directory",
+            }
+        if dest_dir.is_dir():
+            shutil.rmtree(dest_dir, ignore_errors=True)
+        shutil.copytree(ctx, dest_dir, dirs_exist_ok=False)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+    ref = f"dockerfiles/{rid}/Dockerfile"
+    try:
+        row = validate_template_row(
+            data_dir,
+            {
+                "id": rid,
+                "title": (title.strip() or f"Dockerfile template {rid}")[:200],
+                "kind": "dockerfile",
+                "ref": ref,
+                "notes": (
+                    notes.strip()
+                    or (
+                        "Installed via PUT /v1/container-templates/{requirement_id}/package (tar.gz). "
+                        "Edit via PUT /v1/container-templates or re-upload."
+                    )
+                )[:4000],
+            },
+        )
+    except ValueError as ex:
+        shutil.rmtree(dest_dir, ignore_errors=True)
+        return {"ok": False, "error": "validation_failed", "detail": str(ex)[:800]}
+
+    doc = load_requirement_templates(data_dir)
+    templates = [t for t in (doc.get("templates") or []) if isinstance(t, dict) and str(t.get("id")) != rid]
+    templates.append(row)
+    out_doc = {"version": int(doc.get("version") or 1), "templates": templates}
+    save_requirement_templates(data_dir, out_doc)
+    upload_sha = hashlib.sha256(data).hexdigest()
+    return {
+        "ok": True,
+        "id": rid,
+        "ref": ref,
+        "sha256": upload_sha,
+        "upload_bytes": len(data),
+    }
 
 
 def ensure_template_layout(data_dir: Path) -> None:
@@ -105,98 +210,6 @@ def ensure_template_layout(data_dir: Path) -> None:
     if not bc.is_file():
         _write_json_atomic(bc, DEFAULT_BUILD_CACHE)
     (dockerfiles_allow_root(data_dir) / "dockerfiles").mkdir(parents=True, exist_ok=True)
-    seed_builtin_certificator_source_ingest_worker(data_dir)
-
-
-def seed_builtin_certificator_source_ingest_worker(data_dir: Path) -> None:
-    """
-    Copy stock source-ingest worker Dockerfile (and vendored worker shim) into
-    ``etc/containers/dockerfiles/certificator_source_ingest_worker/`` and register requirement
-    template ``certificator_source_ingest_worker`` when absent.
-
-    When the on-disk Dockerfile already exists, it is **re-copied** from the package if the
-    bundled file changed (SHA-256 mismatch) or if it still contains deprecated markers from the
-    pre-workspace-upload design (git-based ``pip install`` of forge-certificators).
-
-    Skipped when ``FLEET_NO_BUILTIN_CERTIFICATOR_SOURCE_INGEST_TEMPLATE`` is truthy, or when the
-    packaged Dockerfile is missing (broken install).
-    """
-    global _SEEDING_BUILTIN_CERTIFICATOR_TEMPLATE
-    if _SEEDING_BUILTIN_CERTIFICATOR_TEMPLATE:
-        return
-    if str(os.environ.get("FLEET_NO_BUILTIN_CERTIFICATOR_SOURCE_INGEST_TEMPLATE") or "").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-    ):
-        return
-    data_dir = data_dir.resolve()
-    rid = BUILTIN_CERTIFICATOR_SOURCE_INGEST_TEMPLATE_ID
-    root = dockerfiles_allow_root(data_dir)
-    dest_dir = root / "dockerfiles" / rid
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    dest_df = dest_dir / "Dockerfile"
-    pkg_dir = Path(__file__).resolve().parent / "bundled_certificator_templates" / rid
-    pkg_df = pkg_dir / "Dockerfile"
-    pkg_worker = pkg_dir / "fleet_source_ingest_worker.py"
-    dest_worker = dest_dir / "fleet_source_ingest_worker.py"
-    if not pkg_df.is_file():
-        return
-    if _builtin_source_ingest_worker_files_need_resync(dest_df, pkg_df):
-        try:
-            shutil.copyfile(pkg_df, dest_df)
-            if pkg_worker.is_file():
-                shutil.copyfile(pkg_worker, dest_worker)
-        except OSError:
-            return
-    if not dest_df.is_file():
-        return
-    if pkg_worker.is_file() and not dest_worker.is_file():
-        try:
-            shutil.copyfile(pkg_worker, dest_worker)
-        except OSError:
-            pass
-    p = requirement_templates_file(data_dir)
-    try:
-        doc = json.loads(p.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        doc = copy.deepcopy(DEFAULT_REQUIREMENT_TEMPLATES)
-    if not isinstance(doc, dict):
-        doc = copy.deepcopy(DEFAULT_REQUIREMENT_TEMPLATES)
-    templates = doc.get("templates")
-    if not isinstance(templates, list):
-        templates = []
-    for row in templates:
-        if isinstance(row, dict) and str(row.get("id")) == rid:
-            return
-    ref = f"dockerfiles/{rid}/Dockerfile"
-    try:
-        row = validate_template_row(
-            data_dir,
-            {
-                "id": rid,
-                "title": "Certificator source-ingest worker (builtin)",
-                "kind": "dockerfile",
-                "ref": ref,
-                "notes": (
-                    "Seeded by forge-fleet; slim image (PyPI wheels + vendored worker shim). "
-                    "Certificator ships ``src/`` in PUT …/workspace tarball (manifest digest). "
-                    "Needs build network (pip + Playwright). Disable with "
-                    "FLEET_NO_BUILTIN_CERTIFICATOR_SOURCE_INGEST_TEMPLATE=1 or override via "
-                    "PUT /v1/container-templates."
-                ),
-            },
-        )
-    except ValueError:
-        return
-    clean_templates = [t for t in templates if isinstance(t, dict)]
-    clean_templates.append(row)
-    out_doc = {"version": int(doc.get("version") or 1), "templates": clean_templates}
-    _SEEDING_BUILTIN_CERTIFICATOR_TEMPLATE = True
-    try:
-        save_requirement_templates(data_dir, out_doc)
-    finally:
-        _SEEDING_BUILTIN_CERTIFICATOR_TEMPLATE = False
 
 
 def load_requirement_templates(data_dir: Path) -> dict[str, Any]:
