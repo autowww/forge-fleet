@@ -4,6 +4,18 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.53] - 2026-05-04
+
+### Fixed
+
+- Builtin **`certificator_source_ingest_worker`** seeding: on each **`ensure_template_layout`**, refresh the on-disk Dockerfile (and vendored **`fleet_source_ingest_worker.py`**) from the packaged copy when the file still contains the deprecated **git+GitHub** `pip install` pattern or when its **SHA-256** no longer matches the bundled stock file. Upgrading **`forge-fleet`** therefore replaces stale operator data-dir files without manual SSH. See **Troubleshooting** in [`docs/CONTAINER-TEMPLATES.md`](docs/CONTAINER-TEMPLATES.md).
+
+## [0.3.52] - 2026-05-04
+
+### Changed
+
+- Builtin **`certificator_source_ingest_worker`** template: Docker image no longer `pip install`s `forge-certificators` from git. The stock Dockerfile **COPY**s a vendored stdlib entrypoint and installs **PyPI** wheels (Playwright, httpx, pydantic, Jinja2). Certificator job code is expected from the **workspace tarball** (`PUT /v1/jobs/{id}/workspace`) as documented in [`docs/WORKSPACE_UPLOAD.md`](docs/WORKSPACE_UPLOAD.md).
+
 ## [0.3.49] - 2026-05-04
 
 ### Added

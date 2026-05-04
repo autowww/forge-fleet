@@ -1,19 +1,25 @@
-# Builtin Forge Fleet requirement template `certificator_source_ingest_worker`:
-# certificator queues jobs with meta.use_fleet_template_image; Fleet builds via
-# POST /v1/container-templates/build (needs git + pip network — see FLEET_TEMPLATE_BUILD_NETWORK).
+# Builtin Forge Fleet requirement template `certificator_source_ingest_worker`.
+# Build: POST /v1/container-templates/build (network for pip + Playwright — FLEET_TEMPLATE_BUILD_NETWORK).
 #
-# Override with PUT /v1/container-templates or rsync a COPY-based Dockerfile from the
-# forge-certificators repo if GitHub must stay private.
-ARG FORGE_CERTIFICATORS_GIT_REF=main
+# Job inputs use the agreed pack/unpack path: certificator uploads a gzip tar + manifest
+# (PUT /v1/jobs/{id}/workspace). The image does *not* pip-install forge-certificators from
+# git; it only ships a tiny stdlib entrypoint and PyPI wheels. Packaged `src/` on the
+# workspace mount supplies `forge_certificators` modules (PYTHONPATH includes `./src`).
+#
+# Keep fleet_source_ingest_worker.py aligned with forge-certificators worker/fleet_source_ingest.py.
 FROM python:3.12-slim-bookworm
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
+# PyPI deps commonly imported by packed certificator source (no git clone / no project wheel).
 RUN pip install --no-cache-dir \
-    "forge-certificators[prepcast] @ git+https://github.com/autowww/forge-certificators.git@${FORGE_CERTIFICATORS_GIT_REF}" \
+    "httpx>=0.27.0" \
+    "pydantic>=2.0" \
+    "jinja2>=3.1.0" \
+    "playwright>=1.40" \
     && playwright install chromium \
     && rm -rf /root/.cache/pip
+COPY fleet_source_ingest_worker.py /app/fleet_source_ingest_worker.py
 ENV PYTHONUNBUFFERED=1
-CMD ["python", "-m", "forge_certificators.worker.fleet_source_ingest"]
+CMD ["python", "/app/fleet_source_ingest_worker.py"]

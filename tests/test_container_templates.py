@@ -31,9 +31,39 @@ def test_ensure_layout_seeds_certificator_source_ingest_template(tmp_path: Path)
             assert t.get("ref") == ref
             p = ct._safe_ref_path(tmp_path, str(t.get("ref")))
             assert p.is_file()
+            worker = p.parent / "fleet_source_ingest_worker.py"
+            assert worker.is_file()
             break
     else:  # pragma: no cover
         raise AssertionError("builtin template row missing")
+
+
+def test_seed_resyncs_deprecated_builtin_source_ingest_dockerfile(tmp_path: Path) -> None:
+    """Stale on-disk Dockerfile from the git-based pip era must be replaced on ensure_layout."""
+    cl.ensure_layout(tmp_path)
+    ref = f"dockerfiles/{ct.BUILTIN_CERTIFICATOR_SOURCE_INGEST_TEMPLATE_ID}/Dockerfile"
+    p = ct._safe_ref_path(tmp_path, ref)
+    stale = (
+        "FROM python:3.12-slim-bookworm\n"
+        'RUN pip install "forge-certificators[prepcast] @ '
+        "git+https://github.com/autowww/forge-certificators.git@${FORGE_CERTIFICATORS_GIT_REF}\"\n"
+    )
+    p.write_text(stale, encoding="utf-8")
+    cl.ensure_layout(tmp_path)
+    body = p.read_text(encoding="utf-8")
+    assert "FORGE_CERTIFICATORS_GIT_REF" not in body
+    assert "git+https://github.com/autowww/forge-certificators" not in body
+    assert "fleet_source_ingest_worker.py" in body
+
+
+def test_seed_resyncs_on_bundled_dockerfile_hash_mismatch(tmp_path: Path) -> None:
+    cl.ensure_layout(tmp_path)
+    ref = f"dockerfiles/{ct.BUILTIN_CERTIFICATOR_SOURCE_INGEST_TEMPLATE_ID}/Dockerfile"
+    p = ct._safe_ref_path(tmp_path, ref)
+    original = p.read_text(encoding="utf-8")
+    p.write_text(original + "\n# operator-touched\n", encoding="utf-8")
+    cl.ensure_layout(tmp_path)
+    assert p.read_text(encoding="utf-8") == original
 
 
 def test_bundle_fingerprint_stable_for_image_pin(tmp_path: Path) -> None:

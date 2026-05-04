@@ -61,6 +61,40 @@ def _write_json_atomic(path: Path, obj: Any) -> None:
 
 _SEEDING_BUILTIN_CERTIFICATOR_TEMPLATE = False
 
+# Old stock Dockerfile pip-installed forge-certificators from GitHub; Fleet never passed
+# FORGE_CERTIFICATORS_GIT_REF, and upgrades did not overwrite an existing seeded file.
+_DEPRECATED_BUILTIN_SOURCE_INGEST_MARKERS: tuple[bytes, ...] = (
+    b"FORGE_CERTIFICATORS_GIT_REF",
+    b"git+https://github.com/autowww/forge-certificators",
+)
+
+
+def _sha256_file(path: Path) -> str | None:
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError:
+        return None
+
+
+def _builtin_source_ingest_worker_files_need_resync(dest_df: Path, pkg_df: Path) -> bool:
+    """True when the on-disk builtin Dockerfile should be replaced from the packaged copy."""
+    if not pkg_df.is_file():
+        return False
+    if not dest_df.is_file():
+        return True
+    try:
+        body = dest_df.read_bytes()
+    except OSError:
+        return True
+    for marker in _DEPRECATED_BUILTIN_SOURCE_INGEST_MARKERS:
+        if marker in body:
+            return True
+    dest_h = _sha256_file(dest_df)
+    pkg_h = _sha256_file(pkg_df)
+    if dest_h is None:
+        return True
+    return pkg_h is not None and dest_h != pkg_h
+
 
 def ensure_template_layout(data_dir: Path) -> None:
     data_dir = data_dir.resolve()
@@ -76,8 +110,13 @@ def ensure_template_layout(data_dir: Path) -> None:
 
 def seed_builtin_certificator_source_ingest_worker(data_dir: Path) -> None:
     """
-    Copy stock source-ingest worker Dockerfile into ``etc/containers/dockerfiles/…`` and register
-    requirement template ``certificator_source_ingest_worker`` when absent.
+    Copy stock source-ingest worker Dockerfile (and vendored worker shim) into
+    ``etc/containers/dockerfiles/certificator_source_ingest_worker/`` and register requirement
+    template ``certificator_source_ingest_worker`` when absent.
+
+    When the on-disk Dockerfile already exists, it is **re-copied** from the package if the
+    bundled file changed (SHA-256 mismatch) or if it still contains deprecated markers from the
+    pre-workspace-upload design (git-based ``pip install`` of forge-certificators).
 
     Skipped when ``FLEET_NO_BUILTIN_CERTIFICATOR_SOURCE_INGEST_TEMPLATE`` is truthy, or when the
     packaged Dockerfile is missing (broken install).
@@ -97,14 +136,26 @@ def seed_builtin_certificator_source_ingest_worker(data_dir: Path) -> None:
     dest_dir = root / "dockerfiles" / rid
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest_df = dest_dir / "Dockerfile"
-    pkg_df = Path(__file__).resolve().parent / "bundled_certificator_templates" / rid / "Dockerfile"
-    if not dest_df.is_file() and pkg_df.is_file():
+    pkg_dir = Path(__file__).resolve().parent / "bundled_certificator_templates" / rid
+    pkg_df = pkg_dir / "Dockerfile"
+    pkg_worker = pkg_dir / "fleet_source_ingest_worker.py"
+    dest_worker = dest_dir / "fleet_source_ingest_worker.py"
+    if not pkg_df.is_file():
+        return
+    if _builtin_source_ingest_worker_files_need_resync(dest_df, pkg_df):
         try:
             shutil.copyfile(pkg_df, dest_df)
+            if pkg_worker.is_file():
+                shutil.copyfile(pkg_worker, dest_worker)
         except OSError:
             return
     if not dest_df.is_file():
         return
+    if pkg_worker.is_file() and not dest_worker.is_file():
+        try:
+            shutil.copyfile(pkg_worker, dest_worker)
+        except OSError:
+            pass
     p = requirement_templates_file(data_dir)
     try:
         doc = json.loads(p.read_text(encoding="utf-8"))
@@ -128,8 +179,9 @@ def seed_builtin_certificator_source_ingest_worker(data_dir: Path) -> None:
                 "kind": "dockerfile",
                 "ref": ref,
                 "notes": (
-                    "Seeded by forge-fleet; installs forge-certificators from public GitHub "
-                    "(needs build network). Disable seeding with "
+                    "Seeded by forge-fleet; slim image (PyPI wheels + vendored worker shim). "
+                    "Certificator ships ``src/`` in PUT …/workspace tarball (manifest digest). "
+                    "Needs build network (pip + Playwright). Disable with "
                     "FLEET_NO_BUILTIN_CERTIFICATOR_SOURCE_INGEST_TEMPLATE=1 or override via "
                     "PUT /v1/container-templates."
                 ),

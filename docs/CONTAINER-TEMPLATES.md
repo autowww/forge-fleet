@@ -87,6 +87,19 @@ cd forge-fleet && PYTHONPATH=. python3 -m pytest tests/test_remote_fleet_contain
 
 Unset **`RUN_REMOTE_FLEET_CONTAINER_API_E2E`** (or set **`SKIP_REMOTE_FLEET_CONTAINER_API_E2E=1`**) so CI does not hit production. Optional: **`FLEET_REMOTE_E2E_IMAGE`** to override the pull image.
 
+## Troubleshooting: stale builtin `certificator_source_ingest_worker` Dockerfile
+
+Older Forge Fleet releases seeded **`etc/containers/dockerfiles/certificator_source_ingest_worker/Dockerfile`** once and never overwrote it. If that file still contains a **`pip install`** line referencing **`git+https://github.com/autowww/forge-certificators`** (or **`FORGE_CERTIFICATORS_GIT_REF`**), template builds fail with an empty revision after **`@`**, and the worker image no longer matches the agreed model (PyPI wheels + **`PUT /v1/jobs/{id}/workspace`** tarball for `src/`).
+
+**From Forge Fleet 0.3.53 onward**, each call to **`ensure_template_layout`** (process start and any code path that initializes `--data-dir`) re-copies the packaged stock Dockerfile when the on-disk file is **deprecated** or its **SHA-256** differs from the wheel that ships inside **`forge-fleet`**.
+
+**If you cannot upgrade yet**, on the Fleet host under **`paths.dockerfiles_root`** from **`GET /v1/container-templates`**:
+
+1. Inspect **`dockerfiles/certificator_source_ingest_worker/Dockerfile`**. If it references GitHub for forge-certificators, replace it with the copy from your **`forge-fleet`** checkout at **`fleet_server/bundled_certificator_templates/certificator_source_ingest_worker/Dockerfile`**, or delete that **`Dockerfile`** (and optionally **`fleet_source_ingest_worker.py`** in the same directory) and **restart** Fleet so seeding runs again.
+2. Rebuild: **`POST /v1/container-templates/build`** with **`{"requirement_ids":["certificator_source_ingest_worker"]}`** (or the Admin UI **Build requirement bundle**). Bundle fingerprints include the Dockerfile bytes, so a successful build picks up the corrected image.
+
+**Custom edits** under the builtin id **`certificator_source_ingest_worker`** may be overwritten on upgrade when the packaged file changes; prefer a **new requirement template id** and **`PUT /v1/container-templates`** for long-lived forks.
+
 ## Manual QA (admin)
 
 1. Open `/admin/` with a browser; set bearer in localStorage if your Fleet uses `FLEET_BEARER_TOKEN`.

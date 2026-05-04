@@ -1,5 +1,14 @@
 [
   {
+    "version": "0.3.53",
+    "title": "Builtin certificator source-ingest Dockerfile resync (no GitHub pip in image build)",
+    "commands": [
+      "# No mandatory host shell steps: install forge-fleet >= 0.3.53 and restart the service.",
+      "# Stale etc/containers/dockerfiles/certificator_source_ingest_worker/Dockerfile is refreshed from the package when deprecated or out of date.",
+      "# Optional: POST /v1/container-templates/build with requirement_ids [\"certificator_source_ingest_worker\"] to rebuild the image without waiting for the next job."
+    ]
+  },
+  {
     "version": "0.3.49",
     "title": "Docker Engine with BuildKit buildx (requirement template builds)",
     "commands": [
