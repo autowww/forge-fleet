@@ -1,8 +1,8 @@
 import { expect, test } from "@playwright/test";
 
 /**
- * Guards admin “release identity” + overview tiles.
- * See docs/ADMIN-STATUS-OVERVIEW-DESIGN.md — missing git SHA breaks GitHub drift UX (not host thermals).
+ * Guards admin “release identity” + overview tiles (including horizontal KPI row layout).
+ * See docs/ADMIN-STATUS-OVERVIEW-DESIGN.md.
  */
 test("admin overview: version API exposes git_sha; UI marks SHA present; overview tiles render", async ({
   page,
@@ -35,4 +35,22 @@ test("admin overview: version API exposes git_sha; UI marks SHA present; overvie
   await expect(page.locator("#fleet-tiles")).not.toContainText("Loading tiles", { timeout: 90_000 });
   await expect(page.locator("#fleet-cpu-value")).toBeVisible();
   await expect(page.locator("#fleet-mem-val")).toBeVisible();
+
+  const tiles = page.locator("#fleet-tiles");
+  const rowStyle = await tiles.evaluate((el) => {
+    const s = getComputedStyle(el);
+    return { display: s.display, flexDirection: s.flexDirection };
+  });
+  expect(rowStyle.display).toBe("flex");
+  expect(rowStyle.flexDirection).toBe("row");
+
+  const directTiles = tiles.locator(":scope > .fleet-tile");
+  expect(await directTiles.count()).toBeGreaterThanOrEqual(4);
+  const xs = await directTiles.evaluateAll((els) =>
+    Array.from(els)
+      .slice(0, 3)
+      .map((e) => e.getBoundingClientRect().left),
+  );
+  expect(xs.length).toBeGreaterThanOrEqual(2);
+  expect(xs[1]).toBeGreaterThan(xs[0]);
 });
