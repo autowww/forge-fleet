@@ -2,6 +2,9 @@
 # Install Docker Engine (Ubuntu/Debian docker.io), wire Forge Fleet to docker.sock,
 # switch Fleet off Podman override, restart Fleet, and HTTP smoke + template build E2E.
 #
+# This script is for a minimal local E2E (docker.io only). Production and template-build hosts
+# should follow docs/HOST-BOOTSTRAP.md (Docker CE + docker-buildx-plugin) instead.
+#
 # Note: Do NOT use SupplementaryGroups=docker on user systemd units — it often fails with
 # status=216/GROUP ("Changing group credentials failed: Operation not permitted").
 # After usermod -aG docker, your existing systemd --user session may still lack GID docker until

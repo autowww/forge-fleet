@@ -1,19 +1,19 @@
-"""Job-scoped source-ingest bridge (worker → Fleet only; certificator polls Fleet)."""
+"""Job-scoped workspace worker bridge (worker → Fleet without admin bearer)."""
 
 from __future__ import annotations
 
 from fleet_server import store
 
 
-def test_source_ingest_bridge_token_and_progress(tmp_path: Path) -> None:
+def test_workspace_worker_bridge_token_and_progress(tmp_path: Path) -> None:
     db = tmp_path / "bridge.sqlite"
     conn = store.connect(db)
     try:
         tok = "bridge-secret-test"
         meta = {
             "container_class": "docker_argv_workspace",
-            "source_ingest_bridge_token": tok,
-            "source_ingest_bundle": {"argv": ["echo", "hi"], "cwd": "/tmp"},
+            "workspace_worker_token": tok,
+            "workspace_worker_bundle": {"argv": ["echo", "hi"], "cwd": "/tmp"},
         }
         jid = store.insert_job(
             conn,
@@ -22,10 +22,10 @@ def test_source_ingest_bridge_token_and_progress(tmp_path: Path) -> None:
             session_id="s",
             meta=meta,
         )
-        row, err = store.authenticate_source_ingest_bridge(conn, jid, tok)
+        row, err = store.authenticate_workspace_worker_bridge(conn, jid, tok)
         assert err is None and row is not None
 
-        row_bad, err_bad = store.authenticate_source_ingest_bridge(conn, jid, "wrong")
+        row_bad, err_bad = store.authenticate_workspace_worker_bridge(conn, jid, "wrong")
         assert row_bad is None and err_bad == "unauthorized"
 
         store.merge_worker_progress(conn, jid, {"pct": 42, "phase_label": "subprocess", "message": "x"})
@@ -55,7 +55,7 @@ def test_authenticate_forbidden_without_bridge_token(tmp_path: Path) -> None:
             session_id="s",
             meta={"container_class": "host_cpu_probe"},
         )
-        row, err = store.authenticate_source_ingest_bridge(conn, jid, "any")
+        row, err = store.authenticate_workspace_worker_bridge(conn, jid, "any")
         assert row is None and err == "forbidden"
     finally:
         conn.close()

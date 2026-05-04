@@ -1,5 +1,7 @@
 # Install forge-fleet from a git clone
 
+**New machine:** install OS dependencies (Docker Engine + buildx, Python 3.11+, git, rsync, …) first — **[docs/HOST-BOOTSTRAP.md](HOST-BOOTSTRAP.md)**.
+
 Use this path when you bring the repo onto a **new or remote machine** with `git clone` (not when you already develop in `~/Code` and rsync from there — that flow stays **`install-update.sh`**).
 
 ## Quick start (systemd system unit, `/opt/forge-fleet`, port 18765)
@@ -67,6 +69,12 @@ cd forge-fleet
 | `FLEET_SRC and FLEET_DEST are the same` | Do not set **`FLEET_DEST`** to your clone path; production lives under **`/opt/forge-fleet`** by default. |
 | Docker jobs fail | Dedicated user **`forge-fleet`** needs the **`docker`** group; see **`systemd/forge-fleet.service`** header. |
 | HTTPS submodule prompts | Use SSH remotes for submodules or cache credentials for HTTPS. |
+
+## Related docs
+
+| Doc | Role |
+|-----|------|
+| **[HOST-BOOTSTRAP.md](HOST-BOOTSTRAP.md)** | Docker Engine + buildx, Python 3.11+, base packages before **`git-install.sh`**. |
 
 ## Related scripts
 

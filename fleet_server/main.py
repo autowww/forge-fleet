@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -228,16 +229,16 @@ class FleetHandler(BaseHTTPRequestHandler):
         if mst:
             self._serve_admin_packaged_static(mst.group(1))
             return
-        mb = re.match(r"^/v1/jobs/([^/]+)/source-ingest-bundle$", path)
+        mb = re.match(r"^/v1/jobs/([^/]+)/workspace-worker-bundle$", path)
         if mb:
             jid = mb.group(1)
-            tok = (self.headers.get("X-Source-Ingest-Token") or "").strip()
+            tok = (self.headers.get("X-Workspace-Worker-Token") or "").strip()
             if not tok:
                 self._send(401, {"ok": False, "error": "unauthorized"})
                 return
             conn = store.connect(self.server.db_path)
             try:
-                row, err = store.authenticate_source_ingest_bridge(conn, jid, tok)
+                row, err = store.authenticate_workspace_worker_bridge(conn, jid, tok)
             finally:
                 conn.close()
             if err == "not_found":
@@ -248,14 +249,14 @@ class FleetHandler(BaseHTTPRequestHandler):
                 self._send(code, {"ok": False, "error": err or "unauthorized"})
                 return
             meta = row.get("meta") if isinstance(row.get("meta"), dict) else {}
-            bundle = meta.get("source_ingest_bundle")
+            bundle = meta.get("workspace_worker_bundle")
             if not isinstance(bundle, dict):
                 self._send(
                     400,
                     {
                         "ok": False,
                         "error": "bundle_missing",
-                        "detail": "meta.source_ingest_bundle not set for this job",
+                        "detail": "meta.workspace_worker_bundle not set for this job",
                     },
                 )
                 return
@@ -263,7 +264,11 @@ class FleetHandler(BaseHTTPRequestHandler):
             if not isinstance(argv_b, list) or not all(isinstance(x, str) for x in argv_b):
                 self._send(
                     400,
-                    {"ok": False, "error": "invalid_bundle", "detail": "source_ingest_bundle.argv must be list[str]"},
+                    {
+                        "ok": False,
+                        "error": "invalid_bundle",
+                        "detail": "workspace_worker_bundle.argv must be list[str]",
+                    },
                 )
                 return
             self._send(200, {"ok": True, "argv": argv_b, "cwd": str(bundle.get("cwd") or "")})
@@ -608,8 +613,8 @@ class FleetHandler(BaseHTTPRequestHandler):
                 self._send(404, {"ok": False, "error": "not_found"})
                 return
             meta_out = dict(row.get("meta") or {}) if isinstance(row.get("meta"), dict) else {}
-            if "source_ingest_bridge_token" in meta_out:
-                meta_out["source_ingest_bridge_token"] = ""
+            if "workspace_worker_token" in meta_out:
+                meta_out["workspace_worker_token"] = ""
             self._send(
                 200,
                 {
@@ -640,17 +645,17 @@ class FleetHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         path = urlparse(self.path).path
         body = self._read_json()
-        m_br = re.match(r"^/v1/jobs/([^/]+)/source-ingest-(progress|complete)$", path)
+        m_br = re.match(r"^/v1/jobs/([^/]+)/workspace-worker-(progress|complete)$", path)
         if m_br:
             jid = m_br.group(1)
             kind = m_br.group(2)
-            tok = (self.headers.get("X-Source-Ingest-Token") or "").strip()
+            tok = (self.headers.get("X-Workspace-Worker-Token") or "").strip()
             if not tok:
                 self._send(401, {"ok": False, "error": "unauthorized"})
                 return
             conn = store.connect(self.server.db_path)
             try:
-                row, err = store.authenticate_source_ingest_bridge(conn, jid, tok)
+                row, err = store.authenticate_workspace_worker_bridge(conn, jid, tok)
                 if err == "not_found":
                     self._send(404, {"ok": False, "error": "not_found"})
                     return
@@ -952,6 +957,18 @@ class FleetHandler(BaseHTTPRequestHandler):
                     {"ok": False, "error": "invalid_body", "detail": "empty or oversized body (check Content-Length)"},
                 )
                 return
+            body_sha = hashlib.sha256(raw).hexdigest()
+            hdr_sha = (self.headers.get("X-Workspace-Archive-Sha256") or "").strip().lower()
+            if hdr_sha and hdr_sha != body_sha:
+                self._send(
+                    400,
+                    {
+                        "ok": False,
+                        "error": "archive_sha256_mismatch",
+                        "detail": "X-Workspace-Archive-Sha256 does not match request body digest",
+                    },
+                )
+                return
             conn = store.connect(self.server.db_path)
             try:
                 row = store.get_job(conn, jid)
@@ -969,26 +986,43 @@ class FleetHandler(BaseHTTPRequestHandler):
                     self._send(409, {"ok": False, "error": "workspace_already_uploaded"})
                     return
                 prof = workspace_bundle.profile_for_meta(meta)
-                unc, sha256_hex, err = workspace_bundle.extract_archive_simple(
-                    raw, data_dir=data_dir, job_id=jid, profile=prof
+                manifest_required = bool(meta.get("workspace_manifest_required"))
+                unc, sha256_hex, err, m_ver, m_schema = workspace_bundle.extract_archive_simple(
+                    raw,
+                    data_dir=data_dir,
+                    job_id=jid,
+                    profile=prof,
+                    manifest_required=manifest_required,
                 )
                 if err:
                     self._send(400, {"ok": False, "error": "extract_failed", "detail": err})
                     return
-                store.merge_job_meta(
-                    conn,
-                    jid,
-                    {
-                        "workspace_state": "ready",
-                        "workspace_sha256": sha256_hex,
-                        "workspace_upload_bytes": len(raw),
-                        "workspace_uncompressed_bytes": unc,
-                    },
-                )
+                patch = {
+                    "workspace_state": "ready",
+                    "workspace_sha256": sha256_hex,
+                    "workspace_upload_bytes": len(raw),
+                    "workspace_uncompressed_bytes": unc,
+                    "workspace_manifest_files_verified": m_ver,
+                }
+                if m_schema is not None:
+                    patch["workspace_manifest_schema_version"] = m_schema
+                store.merge_job_meta(conn, jid, patch)
             finally:
                 conn.close()
             runner.spawn(self.server.db_path, jid)
-            self._send(200, {"ok": True, "id": jid, "workspace_state": "ready"})
+            self._send(
+                200,
+                {
+                    "ok": True,
+                    "id": jid,
+                    "workspace_state": "ready",
+                    "workspace_sha256": body_sha,
+                    "workspace_upload_bytes": len(raw),
+                    "workspace_uncompressed_bytes": unc,
+                    "manifest_files_verified": m_ver,
+                    "manifest_schema_version": m_schema,
+                },
+            )
             return
 
         body = self._read_json()

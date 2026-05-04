@@ -91,6 +91,8 @@ Edits belong in the standalone `blueprints` / `forgesdlc-kitchensink` repos, not
 
 ### Install from a fresh git clone (new / remote machine)
 
+**OS prerequisites (Docker, Python 3.11+, git, rsync):** **[docs/HOST-BOOTSTRAP.md](docs/HOST-BOOTSTRAP.md)** — run that on a bare host before Fleet install.
+
 If you only have a **`git clone`** on a host (no pre-existing `~/Code` checkout to rsync from), use **`./git-install.sh`**: it runs **`git submodule update --init --recursive`**, then **`sudo ./install-update.sh`** (systemd + `/opt/forge-fleet` + restart) or **`./git-install.sh --user`** for a user-level install.
 
 ```bash
@@ -100,7 +102,7 @@ chmod +x git-install.sh   # if needed
 ./git-install.sh
 ```
 
-Full walkthrough, flags (`--prepare-only`, forwarding to `install-update.sh` after `--`), and troubleshooting: **[docs/GIT-INSTALL.md](docs/GIT-INSTALL.md)**.
+Full walkthrough, flags (`--prepare-only`, forwarding to `install-update.sh` after `--`), and troubleshooting: **[docs/GIT-INSTALL.md](docs/GIT-INSTALL.md)**. Host OS bootstrap: **[docs/HOST-BOOTSTRAP.md](docs/HOST-BOOTSTRAP.md)**.
 
 ## Run locally
 
@@ -134,6 +136,7 @@ Other flags: **`--minor`**, **`--no-push`**, **`--no-install`**, **`--no-user`**
 ### Versioning (Studio-style semver)
 
 - **Shipped version** lives in **`pyproject.toml`** → `[project].version` (same idea as Lenses Studio reading `package.json` / Vite). Bump it for every release you want operators to see in `/admin/` and `GET /v1/version`.
+- **Operator-facing release notes** and **host-level upgrade commands**: **`CHANGELOG.md`** (`### Host operator`); machine-readable companion **`docs/host-operator-steps.json`**; print hints with **`./scripts/fleet-host-upgrade-hints.sh`** (see **`docs/HOST-BOOTSTRAP.md`**).
 - **SQLite** table **`fleet_schema`** stores `package_semver` + **`db_schema_version`**. Bump **`FLEET_DB_SCHEMA_VERSION`** in `fleet_server/versioning.py` only when `fleet_server/store.py` adds a breaking migration (then implement the step in `_run_fleet_schema_migrations`).
 - Optional **`FLEET_GIT_SHA`** (or `SOURCE_GIT_COMMIT`) for short SHA in API/admin.
 
@@ -174,7 +177,7 @@ docker compose up --build
 
 Default compose maps port **18765**, mounts **`forge-fleet-data`** on `FLEET_DATA_DIR` so **Recent jobs** in `/admin/` survive container restarts, and passes Docker socket for `docker run`. Set `FLEET_BEARER_TOKEN` in `.env` for non-dev use. In `/admin/`, **Recent jobs** is a short human summary (status, workload label, time, outcome); **Details** opens a modal with full job id, session, Docker argv, meta JSON, and stdout/stderr (via `GET /v1/jobs/{id}`).
 
-For a **host install from git** (not Compose), prefer **`./git-install.sh`** after clone — see **[docs/GIT-INSTALL.md](docs/GIT-INSTALL.md)**.
+For a **host install from git** (not Compose), prefer **`./git-install.sh`** after clone — see **[docs/GIT-INSTALL.md](docs/GIT-INSTALL.md)** and **[docs/HOST-BOOTSTRAP.md](docs/HOST-BOOTSTRAP.md)**.
 
 **Caddy on systemd:** **[docs/CADDY-SYSTEMD.md](docs/CADDY-SYSTEMD.md)** · **`scripts/install-caddy-fleet.sh`** (interactive; user or system layout, ports, bearer).
 

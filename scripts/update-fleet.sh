@@ -10,6 +10,9 @@
 # **Default (dev propagate):** bumps **patch** version; ``git add -A``; one commit; ``git push`` to ``origin``;
 # ``sudo ./install-update.sh`` (rsync → /opt, unit, restart). Use when you type **“update fleet”** in Cursor.
 #
+# **Host operators:** If a release needs OS-level changes (apt, env vars), add ``### Host operator`` under that
+# version in ``CHANGELOG.md`` and an entry in ``docs/host-operator-steps.json`` (see maintainer footer there).
+#
 # **Strict release:** ``--strict`` — requires a **clean** working tree; only commits ``pyproject.toml`` after bump
 # (no other files). Fails if anything is dirty.
 #

@@ -1,0 +1,13 @@
+[
+  {
+    "version": "0.3.49",
+    "title": "Docker Engine with BuildKit buildx (requirement template builds)",
+    "commands": [
+      "# Full steps: docs/HOST-BOOTSTRAP.md",
+      "# On Ubuntu (Docker apt repo configured):",
+      "#   sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin",
+      "#   sudo systemctl enable --now docker",
+      "# Alternative without buildx: set FLEET_DOCKER_BUILDKIT=0 in forge-fleet.env (see systemd/environment.example)"
+    ]
+  }
+]

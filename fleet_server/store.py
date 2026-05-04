@@ -285,18 +285,18 @@ def get_job(conn: sqlite3.Connection, jid: str) -> dict[str, Any] | None:
     return d
 
 
-def authenticate_source_ingest_bridge(
+def authenticate_workspace_worker_bridge(
     conn: sqlite3.Connection, jid: str, token: str
 ) -> tuple[dict[str, Any] | None, str | None]:
     """
-    Validate ``X-Source-Ingest-Token`` against ``meta.source_ingest_bridge_token``.
+    Validate ``X-Workspace-Worker-Token`` against ``meta.workspace_worker_token``.
     Returns ``(job_row, None)`` or ``(None, error_tag)``.
     """
     row = get_job(conn, jid)
     if row is None:
         return None, "not_found"
     meta = row.get("meta") if isinstance(row.get("meta"), dict) else {}
-    exp = str(meta.get("source_ingest_bridge_token") or "").strip()
+    exp = str(meta.get("workspace_worker_token") or "").strip()
     if not exp:
         return None, "forbidden"
     if not secrets.compare_digest(exp, (token or "").strip()):

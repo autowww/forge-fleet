@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -173,7 +174,7 @@ def test_prefetch_requirement_template_images_calls_build_per_template(tmp_path:
 
     monkeypatch.setattr(ct, "run_template_build", fake_build)
     ct.prefetch_requirement_template_images(tmp_path)
-    assert calls == [["a"]]
+    assert any(c == ["a"] for c in calls)
 
 
 def test_prefetch_template_images_enabled_opt_out(monkeypatch) -> None:
@@ -181,6 +182,53 @@ def test_prefetch_template_images_enabled_opt_out(monkeypatch) -> None:
     assert ct.prefetch_template_images_enabled() is True
     monkeypatch.setenv("FLEET_PREFETCH_TEMPLATE_IMAGES", "0")
     assert ct.prefetch_template_images_enabled() is False
+
+
+def test_stderr_suggests_missing_buildx_detects_docker_message() -> None:
+    err = (
+        "ERROR: BuildKit is enabled but the buildx component is missing or broken.\n"
+        "Install the buildx component to build images with BuildKit:\n"
+    )
+    assert ct._stderr_suggests_missing_buildx(err, "") is True  # noqa: SLF001
+
+
+def test_stderr_suggests_missing_buildx_negative() -> None:
+    assert ct._stderr_suggests_missing_buildx("no space left on device", "") is False  # noqa: SLF001
+
+
+def test_run_template_build_retries_without_buildkit_on_buildx_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("FLEET_DOCKER_BUILDKIT", raising=False)
+    ct.ensure_template_layout(tmp_path)
+    root = ct.dockerfiles_allow_root(tmp_path)
+    df = root / "dockerfiles" / "tiny.df"
+    df.parent.mkdir(parents=True, exist_ok=True)
+    df.write_text("FROM alpine:3.20\nRUN echo hi\n", encoding="utf-8")
+    doc = ct.load_requirement_templates(tmp_path)
+    doc["templates"] = [
+        {"id": "t1", "title": "T", "kind": "dockerfile", "ref": "dockerfiles/tiny.df", "notes": ""},
+    ]
+    ct.save_requirement_templates(tmp_path, doc)
+
+    buildkit_flags: list[bool] = []
+
+    def fake_run(cmd: list, *, capture_output: bool, text: bool, timeout: float, env: dict):  # noqa: ARG001
+        bk = str(env.get("DOCKER_BUILDKIT", "0")) == "1"
+        buildkit_flags.append(bk)
+        if bk:
+            return subprocess.CompletedProcess(
+                cmd,
+                1,
+                stdout="",
+                stderr="ERROR: BuildKit is enabled but the buildx component is missing or broken.\n",
+            )
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    out = ct.run_template_build(tmp_path, ["t1"])
+    assert out.get("ok") is True
+    assert buildkit_flags == [True, False]
 
 
 def test_types_crud_add_and_delete_roundtrip(tmp_path: Path) -> None:

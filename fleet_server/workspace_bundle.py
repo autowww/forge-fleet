@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import gzip
 import hashlib
 import io
+import json
 import os
 import re
 import shutil
@@ -33,6 +33,9 @@ WORKSPACE_PROFILES: dict[str, dict[str, Any]] = {
 }
 
 _DEFAULT_MAX_UPLOAD_BYTES = 256 * 1024 * 1024
+
+# Top-level member in uploaded workspace archives; lists other files for post-extract digest checks.
+WORKSPACE_MANIFEST_FILENAME = ".forge_workspace_manifest.json"
 
 
 def profile_for_meta(meta: dict[str, Any]) -> dict[str, Any]:
@@ -103,16 +106,81 @@ def _extract_member_safe(tf: tarfile.TarFile, member: tarfile.TarInfo, dest_root
             pass
 
 
+def verify_extracted_workspace_manifest(
+    ext_root: Path, *, manifest_required: bool
+) -> tuple[str | None, int, int | None]:
+    """
+    When ``.forge_workspace_manifest.json`` exists, validate schema and re-hash each listed file.
+    Returns ``(error_or_none, files_verified_count, schema_version_or_none)``.
+    """
+    path = ext_root / WORKSPACE_MANIFEST_FILENAME
+    if not path.is_file():
+        if manifest_required:
+            return "manifest_required_but_missing", 0, None
+        return None, 0, None
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as ex:
+        return f"manifest_verification_failed: invalid_manifest_json: {ex}", 0, None
+    if not isinstance(doc, dict):
+        return "manifest_verification_failed: manifest_not_object", 0, None
+    ver = doc.get("schema_version")
+    if ver != 1:
+        return f"manifest_verification_failed: unsupported_schema_version:{ver!r}", 0, None
+    files = doc.get("files")
+    if not isinstance(files, list):
+        return "manifest_verification_failed: files_not_list", 0, None
+    ext_res = ext_root.resolve()
+    verified = 0
+    for ent in files:
+        if not isinstance(ent, dict):
+            return "manifest_verification_failed: file_entry_not_object", verified, 1
+        rel = str(ent.get("path") or "").replace("\\", "/").strip("/")
+        if not rel or not _safe_member_name(rel):
+            return f"manifest_verification_failed: unsafe_path:{rel[:120]!r}", verified, 1
+        exp_size = ent.get("size")
+        exp_hash = str(ent.get("sha256") or "").strip().lower()
+        try:
+            exp_sz_i = int(exp_size) if exp_size is not None else -1
+        except (TypeError, ValueError):
+            return "manifest_verification_failed: invalid_size", verified, 1
+        if exp_sz_i < 0 or len(exp_hash) != 64 or any(c not in "0123456789abcdef" for c in exp_hash):
+            return "manifest_verification_failed: invalid_digest_or_size", verified, 1
+        target = (ext_root / rel).resolve()
+        try:
+            target.relative_to(ext_res)
+        except ValueError:
+            return f"manifest_verification_failed: path_escape:{rel[:120]!r}", verified, 1
+        if not target.is_file():
+            return f"manifest_verification_failed: missing_file:{rel[:200]!r}", verified, 1
+        act_sz = int(target.stat().st_size)
+        if act_sz != exp_sz_i:
+            return f"manifest_verification_failed: size_mismatch:{rel[:160]!r}", verified, 1
+        h = hashlib.sha256()
+        with open(target, "rb") as f:
+            while True:
+                chunk = f.read(256 * 1024)
+                if not chunk:
+                    break
+                h.update(chunk)
+        if h.hexdigest() != exp_hash:
+            return f"manifest_verification_failed: sha256_mismatch:{rel[:160]!r}", verified, 1
+        verified += 1
+    return None, verified, 1
+
+
 def extract_archive_simple(
     data: bytes,
     *,
     data_dir: Path,
     job_id: str,
     profile: dict[str, Any],
-) -> tuple[int, str, str | None]:
+    manifest_required: bool = False,
+) -> tuple[int, str, str | None, int, int | None]:
     """
     Extract tarball (optional gzip wrap) to ``job-workspaces/{id}/extracted/``.
-    Returns (uncompressed_sum_bytes, sha256_hex_of_upload, error_or_none).
+    Returns ``(uncompressed_sum_bytes, sha256_hex_of_upload, error_or_none,
+    manifest_files_verified, manifest_schema_version)``.
     """
     max_unc = int(profile.get("max_uncompressed_bytes") or 200 * 1024 * 1024)
     max_files = int(profile.get("max_files") or 50_000)
@@ -132,7 +200,7 @@ def extract_archive_simple(
         tf = tarfile.open(fileobj=io.BytesIO(data), mode=mode)
     except (tarfile.TarError, OSError, EOFError) as ex:
         shutil.rmtree(jdir, ignore_errors=True)
-        return 0, sha_body, f"invalid_archive: {ex}"
+        return 0, sha_body, f"invalid_archive: {ex}", 0, None
 
     unc_bytes = 0
     n_files = 0
@@ -145,28 +213,28 @@ def extract_archive_simple(
             if not _safe_member_name(name):
                 tf.close()
                 shutil.rmtree(jdir, ignore_errors=True)
-                return 0, sha_body, "unsafe_path_in_archive"
+                return 0, sha_body, "unsafe_path_in_archive", 0, None
             depth = len(Path(name).parts)
             if depth > max_depth:
                 tf.close()
                 shutil.rmtree(jdir, ignore_errors=True)
-                return 0, sha_body, "path_too_deep"
+                return 0, sha_body, "path_too_deep", 0, None
             if m.issym() or m.islnk():
                 tf.close()
                 shutil.rmtree(jdir, ignore_errors=True)
-                return 0, sha_body, "symlink_not_allowed"
+                return 0, sha_body, "symlink_not_allowed", 0, None
             if m.isfile():
                 sz = int(getattr(m, "size", 0) or 0)
                 unc_bytes += sz
                 if unc_bytes > max_unc:
                     tf.close()
                     shutil.rmtree(jdir, ignore_errors=True)
-                    return 0, sha_body, "uncompressed_size_exceeded"
+                    return 0, sha_body, "uncompressed_size_exceeded", 0, None
                 n_files += 1
                 if n_files > max_files:
                     tf.close()
                     shutil.rmtree(jdir, ignore_errors=True)
-                    return 0, sha_body, "too_many_files"
+                    return 0, sha_body, "too_many_files", 0, None
 
         ext_root.mkdir(parents=True, exist_ok=True)
         if sys.version_info >= (3, 12):
@@ -182,18 +250,22 @@ def extract_archive_simple(
                 except OSError:
                     tf.close()
                     shutil.rmtree(jdir, ignore_errors=True)
-                    return 0, sha_body, "extract_failed"
+                    return 0, sha_body, "extract_failed", 0, None
     except (tarfile.TarError, OSError) as ex:
         tf.close()
         shutil.rmtree(jdir, ignore_errors=True)
-        return 0, sha_body, f"extract_failed: {ex}"
+        return 0, sha_body, f"extract_failed: {ex}", 0, None
     finally:
         try:
             tf.close()
         except OSError:
             pass
 
-    return unc_bytes, sha_body, None
+    m_err, m_ver, m_schema = verify_extracted_workspace_manifest(ext_root, manifest_required=manifest_required)
+    if m_err:
+        shutil.rmtree(jdir, ignore_errors=True)
+        return 0, sha_body, m_err, 0, None
+    return unc_bytes, sha_body, None, m_ver, m_schema
 
 
 def cleanup_job_workspace(data_dir: Path, job_id: str) -> None:
