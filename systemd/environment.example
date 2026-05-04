@@ -23,6 +23,8 @@ FLEET_BEARER_TOKEN=change-me
 # ``.lenses-local/fleet-test-attention.json`` so Studio can show the Attention bell item.
 # FLEET_LENSES_WORKSPACE_ROOT=/abs/path/to/your/repo-or-workspace
 # FLEET_FORGE_CONSOLE_URL=http://127.0.0.1:8787
+# install-user.sh / install-update.sh set FLEET_GIT_ROOT and FLEET_GIT_SHA from the source checkout.
+# Optional override; if unset, Fleet may still probe FLEET_GIT_ROOT at runtime (see versioning.py).
 # FLEET_GIT_SHA=
 
 # Telemetry (SQLite telemetry_samples + cumulative kWh in fleet_energy_ledger; optional)

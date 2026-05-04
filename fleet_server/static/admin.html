@@ -4144,6 +4144,12 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
           sha;
       }
       __fleetLocalGitSha = ver.git_sha ? String(ver.git_sha).trim() : "";
+      (function () {
+        var gr = document.getElementById("fleet-git-remote-row");
+        if (gr) {
+          gr.setAttribute("data-fleet-git-sha-state", __fleetLocalGitSha ? "present" : "missing");
+        }
+      })();
       __fleetSelfUpdateConfigured = !!(meta.self_update && meta.self_update.configured);
       if (!__fleetRemoteGitTimerStarted) {
         __fleetRemoteGitTimerStarted = true;
