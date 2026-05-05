@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import io
 import os
+import platform
 import re
 import shutil
 import subprocess
@@ -154,6 +155,141 @@ def amdgpu_sysfs_snapshot() -> dict[str, Any]:
     return {"available": True, "backend": "drm-sysfs", "devices": devices}
 
 
+def _read_hwmon_millic(path: Path) -> float | None:
+    try:
+        raw = int(path.read_text(encoding="utf-8", errors="replace").strip())
+    except (OSError, ValueError):
+        return None
+    c = raw / 1000.0
+    if -55.0 < c < 200.0:
+        return c
+    return None
+
+
+def _amdgpu_hwmon_junction_edge(hdir: Path) -> tuple[float | None, float | None, str]:
+    """
+    Return (junction_or_hotspot_c, edge_c, detail) for one amdgpu hwmon directory.
+    Prefer labeled junction / hotspot / mem junction; else highest temp among non-edge inputs.
+    """
+    junction: float | None = None
+    edge: float | None = None
+    generic: list[float] = []
+    detail_parts: list[str] = []
+    try:
+        for tp in sorted(hdir.glob("temp*_input")):
+            stem = tp.name[: -len("_input")] if tp.name.endswith("_input") else tp.name
+            label_f = hdir / f"{stem}_label"
+            lab = ""
+            if label_f.is_file():
+                try:
+                    lab = label_f.read_text(encoding="utf-8", errors="replace").strip().lower()
+                except OSError:
+                    lab = ""
+            t = _read_hwmon_millic(tp)
+            if t is None:
+                continue
+            detail_parts.append(f"{stem}={t:.1f}C({lab or 'n/a'})")
+            if lab in ("junction", "hotspot", "tj junction"):
+                junction = t if junction is None else max(junction, t)
+            elif lab == "edge":
+                edge = t if edge is None else max(edge, t)
+            elif "junction" in lab or "hotspot" in lab:
+                junction = t if junction is None else max(junction, t)
+            else:
+                generic.append(t)
+    except OSError:
+        pass
+    if junction is None and generic:
+        if edge is not None:
+            for g in generic:
+                if abs(g - edge) > 0.01:
+                    junction = g if junction is None else max(junction, g)
+        else:
+            junction = max(generic)
+    if junction is None and edge is not None:
+        junction = edge
+    det = ",".join(detail_parts[:6]) if detail_parts else "amdgpu"
+    return junction, edge, det
+
+
+def amdgpu_junction_snapshot() -> dict[str, Any]:
+    """AMD dGPU junction / hotspot °C from sysfs ``amdgpu`` hwmon under DRM cards."""
+    drm = Path("/sys/class/drm")
+    if not drm.is_dir():
+        return {"available": False, "reason": "no /sys/class/drm"}
+    devices: list[dict[str, Any]] = []
+    for card in sorted(drm.glob("card[0-9]")):
+        if not card.is_dir() or "-" in card.name:
+            continue
+        dev = card / "device"
+        hw_root = dev / "hwmon"
+        if not hw_root.is_dir():
+            continue
+        for hdir in sorted(hw_root.glob("hwmon*")):
+            try:
+                name = (hdir / "name").read_text(encoding="utf-8", errors="replace").strip().lower()
+            except OSError:
+                continue
+            if name != "amdgpu":
+                continue
+            junc, edg, det = _amdgpu_hwmon_junction_edge(hdir)
+            if junc is None:
+                continue
+            pci = _uevent_field(dev / "uevent", "PCI_SLOT_NAME")
+            rec: dict[str, Any] = {
+                "card": card.name,
+                "pci_slot": pci,
+                "junction_c": round(junc, 1),
+                "detail": det[:500],
+            }
+            if edg is not None:
+                rec["edge_c"] = round(edg, 1)
+            devices.append(rec)
+    if not devices:
+        return {"available": False, "reason": "no amdgpu hwmon junction temps"}
+    return {"available": True, "backend": "amdgpu-hwmon", "devices": devices}
+
+
+def linux_soc_junction_rated_sysfs() -> bool:
+    """
+    True when sysfs exposes a positive crit/trip hint (ARM SoC policy rated junction).
+
+    Used by thermal LLM advisory for ``critical`` tier at 105 °C.
+    """
+    if not sys.platform.startswith("linux"):
+        return False
+    try:
+        hw = Path("/sys/class/hwmon")
+        if hw.is_dir():
+            for hdir in hw.glob("hwmon*"):
+                for crit in hdir.glob("temp*_crit"):
+                    try:
+                        raw = int(crit.read_text(encoding="utf-8", errors="replace").strip())
+                    except (OSError, ValueError):
+                        continue
+                    if raw > 0:
+                        return True
+    except OSError:
+        pass
+    try:
+        tz_root = Path("/sys/class/thermal")
+        if tz_root.is_dir():
+            for zdir in sorted(tz_root.glob("thermal_zone*"), key=lambda p: p.name):
+                for name in ("trip_point_0_temp", "trip_point_1_temp", "trip_point_2_temp"):
+                    tpf = zdir / name
+                    if not tpf.is_file():
+                        continue
+                    try:
+                        raw = int(tpf.read_text(encoding="utf-8", errors="replace").strip())
+                    except (OSError, ValueError):
+                        continue
+                    if raw > 0:
+                        return True
+    except OSError:
+        pass
+    return False
+
+
 def _intel_busy_counter_paths() -> list[Path]:
     drm = Path("/sys/class/drm")
     if not drm.is_dir():
@@ -278,6 +414,7 @@ def gpu_bundle() -> dict[str, Any]:
     return {
         "nvidia": nvidia_gpu_snapshot(),
         "amdgpu_sysfs": amdgpu_sysfs_snapshot(),
+        "amdgpu_temps": amdgpu_junction_snapshot(),
         "intel_drm_est": intel_engine_busy_snapshot(),
         "rocm": rocm_smi_snapshot(),
     }
@@ -768,9 +905,15 @@ def thermal_cpu_snapshot() -> dict[str, Any]:
         pass
 
     if not readings:
-        return {"max_c": None, "source": "unavailable", "reason": "no thermal sysfs"}
+        out: dict[str, Any] = {"max_c": None, "source": "unavailable", "reason": "no thermal sysfs"}
+        if sys.platform.startswith("linux"):
+            out["arm_junction_rated"] = linux_soc_junction_rated_sysfs()
+        return out
     best = max(readings, key=lambda t: t[0])
-    return {"max_c": round(best[0], 1), "source": best[1]}
+    out = {"max_c": round(best[0], 1), "source": best[1]}
+    if sys.platform.startswith("linux"):
+        out["arm_junction_rated"] = linux_soc_junction_rated_sysfs()
+    return out
 
 
 def snapshot() -> dict[str, Any]:
@@ -781,6 +924,7 @@ def snapshot() -> dict[str, Any]:
         "uptime_server_s": time.monotonic(),
         "python": sys.version.split()[0],
         "platform": sys.platform,
+        "machine": platform.machine(),
         "cpus": os.cpu_count(),
     }
     if sys.platform.startswith("linux"):

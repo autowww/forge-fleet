@@ -27,6 +27,7 @@ from fleet_server import (
     store,
     telemetry_periods,
     templates_catalog,
+    thermal_llm_policy,
     versioning,
     workspace_bundle,
 )
@@ -383,6 +384,7 @@ class FleetHandler(BaseHTTPRequestHandler):
                 orch_snap = container_layout.orchestration_metrics_snapshot(data_dir, conn)
                 integrations["orchestration"] = orch_snap
                 host_snap = host_stats.snapshot()
+                host_snap["thermal_llm_advisory"] = thermal_llm_policy.build(host_snap)
                 body: dict[str, Any] = {
                     "ok": True,
                     "meta": {
@@ -683,16 +685,25 @@ class FleetHandler(BaseHTTPRequestHandler):
                 dur = float(raw_d) if raw_d is not None else -1.0
             except (TypeError, ValueError):
                 dur = -1.0
-            if dur < 0:
+            if dur < 0 or dur != dur:
                 self._send(400, {"ok": False, "error": "invalid_body", "detail": "duration_s must be a non-negative number"})
                 return
+            max_s_raw = str(os.environ.get("FLEET_COOLDOWN_EVENT_MAX_S") or "").strip()
+            try:
+                max_s = float(max_s_raw) if max_s_raw else 86400.0
+            except ValueError:
+                max_s = 86400.0
+            if max_s <= 0:
+                max_s = 86400.0
+            accepted = min(dur, max_s)
+            clamped = accepted < dur
             kind = str(body.get("kind") or "thermal_llm_guard").strip() or "thermal_llm_guard"
             meta = body.get("meta") if isinstance(body.get("meta"), dict) else None
             conn = store.connect(self.server.db_path)
             try:
                 row_id = store.insert_cooldown_event(
                     conn,
-                    duration_s=dur,
+                    duration_s=accepted,
                     kind=kind,
                     meta=meta,
                 )
@@ -701,7 +712,15 @@ class FleetHandler(BaseHTTPRequestHandler):
                 return
             finally:
                 conn.close()
-            self._send(201, {"ok": True, "id": row_id})
+            self._send(
+                201,
+                {
+                    "ok": True,
+                    "id": row_id,
+                    "accepted_duration_s": round(accepted, 6),
+                    "clamped": clamped,
+                },
+            )
             return
         if path == "/v1/jobs":
             kind = str(body.get("kind") or "").strip()
