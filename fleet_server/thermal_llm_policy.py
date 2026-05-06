@@ -13,7 +13,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Literal
 
-POLICY_VERSION = "2026-05-thermal-v1"
+POLICY_VERSION = "2026-05-thermal-v2"
 
 Tier = Literal["ok", "warning", "throttle", "critical"]
 
@@ -27,11 +27,11 @@ class Band:
     critical_c: float
 
 
-BAND_INTEL_CPU = Band(90.0, 95.0, 100.0)
-BAND_AMD_CPU = Band(85.0, 90.0, 95.0)
-BAND_NVIDIA_GPU = Band(78.0, 83.0, 88.0)
-BAND_AMD_GPU_HOTSPOT = Band(95.0, 105.0, 110.0)
-BAND_ARM_SOC = Band(75.0, 85.0, 105.0)
+BAND_INTEL_CPU = Band(90.0, 95.0, 105.0)
+BAND_AMD_CPU = Band(85.0, 90.0, 100.0)
+BAND_NVIDIA_GPU = Band(78.0, 83.0, 93.0)
+BAND_AMD_GPU_HOTSPOT = Band(95.0, 105.0, 115.0)
+BAND_ARM_SOC = Band(75.0, 85.0, 110.0)
 
 
 def _float_env(name: str, default: float) -> float:
@@ -121,7 +121,7 @@ def resolve_cpu_vendor(host_snap: dict[str, Any]) -> str:
 
 
 def arm_soc_rated(host_snap: dict[str, Any]) -> bool:
-    """ARM SoC critical (105) applies only when junction is considered rated."""
+    """ARM SoC critical (110 °C) applies only when junction is considered rated."""
     if _truthy_env("FLEET_ARM_SOC_JUNCTION_RATED"):
         return True
     raw = str(os.environ.get("FLEET_ARM_SOC_TJMAX_C") or "").strip()

@@ -20,7 +20,7 @@ def test_classify_temp_intel() -> None:
     assert thermal_llm_policy.classify_temp_c(89.0, b, cap_critical=False) == "ok"
     assert thermal_llm_policy.classify_temp_c(92.0, b, cap_critical=False) == "warning"
     assert thermal_llm_policy.classify_temp_c(97.0, b, cap_critical=False) == "throttle"
-    assert thermal_llm_policy.classify_temp_c(101.0, b, cap_critical=False) == "critical"
+    assert thermal_llm_policy.classify_temp_c(106.0, b, cap_critical=False) == "critical"
 
 
 def test_classify_cap_critical() -> None:

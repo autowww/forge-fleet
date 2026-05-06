@@ -254,7 +254,7 @@ def linux_soc_junction_rated_sysfs() -> bool:
     """
     True when sysfs exposes a positive crit/trip hint (ARM SoC policy rated junction).
 
-    Used by thermal LLM advisory for ``critical`` tier at 105 °C.
+    Used by thermal LLM advisory for ``critical`` tier at 110 °C (ARM SoC band).
     """
     if not sys.platform.startswith("linux"):
         return False
