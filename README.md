@@ -1,72 +1,26 @@
-# forge-fleet
+# Forge Fleet
 
 Small **HTTP + bearer** orchestrator for **Docker argv** workloads (MVP: same host as Lenses so bind-mount paths match). **Forge Lenses** can set `LENSES_FLEET_URL` + `LENSES_FLEET_TOKEN` (or Studio **Settings → Fleet**) so Docs Health `session_step` runs containers via Fleet instead of in-process `docker` CLI.
 
-## API (v1)
+## Start here
 
-| Method | Path | Notes |
-|--------|------|--------|
-| GET | `/v1/version` | Semver + DB schema + template library: `package_semver`, `db_schema_version`, `template_lib_version`, `server_version`, optional `git_sha` (from **`FLEET_GIT_SHA`** / **`SOURCE_GIT_COMMIT`**, else **`git rev-parse`** on **`FLEET_GIT_ROOT`** when it is a clone, else on the running package tree **only when `FLEET_GIT_ROOT` is unset**). Backed by SQLite table **`fleet_schema`** (row `id=1`), updated on each `fleet.sqlite` open. |
-| GET | `/v1/templates` | Container **template catalog** (`host_cpu_probe`, `forge_agent` roadmap entry, `forge_llm_console` with Fleet-managed compose paths). Bump **`FLEET_TEMPLATE_LIB_VERSION`** in `fleet_server/versioning.py` when contracts change. |
-| GET | `/v1/health` | `{ "ok", "version": { … }, "host": { "cpu_usage_pct", "memory_used_pct", "loadavg_1m", "energy_ledger_kwh"?: { "rapl_kwh", "gpu_kwh", "total_kwh", "updated_epoch", "last_sample_epoch" } } }` — CPU % from Linux ``/proc/stat``; memory from ``/proc/meminfo``; **energy** is cumulative **kWh** since first Fleet sample on this DB (RAPL **package** ``energy_uj`` deltas + NVIDIA ``power.draw`` × time). Also **throttled** append to SQLite telemetry when auth passes. |
-| GET | `/v1/telemetry?period=…&limit=…` | Historical samples: each row is `{ "ts", "host": { … `host_stats.snapshot()` … }, "orchestration"?: { … } }`. **`orchestration`** holds **`by_type_id`** (compose **`services_running` / `services_total`** rolled up per catalog type) and **`job_running_by_container_class`** (counts of **`running`** jobs from SQLite `meta.container_class`). Legacy rows may omit **`orchestration`** (empty object when parsed). Top-level **`energy_ledger_kwh`** in the response is the current cumulative totals. **Host `energy`:** `rapl_package_uj`, `rapl_available`, optional `rapl_instant_w`, `gpu_power_draw_w_sum`, plus **`cumulative_kwh`** on stored samples. Required **`period`** (UTC): `since_first`, `last_year`, `last_6_months`, `last_3_months`, `last_1_month`, `this_year`, `this_quarter`, `this_month`, `this_week`, `today`, `last_7_days`, `last_3_days`, `last_24_hours`, `last_8_hours`, `last_4_hours`, `last_1_hour`. Aliases: `last_365_days`→`last_year`, `last_24h`→`last_24_hours`, `last_8h`→`last_8_hours`, `last_4h`→`last_4_hours`, `last_1h`/`last_hour`→`last_1_hour`. Optional **`limit`** (default `200000`, max `500000`); `truncated` if clipped. Env: **`FLEET_TELEMETRY_INTERVAL_S`** (default `60`, min `5`), **`FLEET_TELEMETRY_RETENTION_DAYS`** (`0` = no prune). |
-| GET | `/v1/cooldown-summary?period=…` | Aggregated **LLM thermal throttle** wait time (seconds) in SQLite **`fleet_cooldown_events`** (same **`period`** values as **`/v1/telemetry`**). Clients such as certificatee runs record sleeps after LLM calls — **not** “which Granite URL is active.” Configure chat/completions in **forge-certificators** (`TAXONOMY_LLM_*`); same public hostname as Fleet is possible via **`docs/CADDY-UNIFIED-GRANITE.md`**. Response: **`total_cooldown_s`**, **`event_count`**, **`window`**, **`store_bounds`**. |
-| POST | `/v1/cooldown-events` | Append one recorded wait: body `{ "duration_s": <float>, "kind"?: "thermal_llm_guard", "meta"?: { … } }` → `{ "ok", "id", "accepted_duration_s", "clamped" }`. **`duration_s`** is clamped to **`FLEET_COOLDOWN_EVENT_MAX_S`** (default **86400**). Rows pruned with **`FLEET_TELEMETRY_RETENTION_DAYS`** (same policy as telemetry samples). |
-| POST | `/v1/jobs` | Body: `{ "kind": "docker_argv", "argv": [...], "session_id": "...", "meta": { ... } }` → `{ "id": "..." }`. Jobs with **`meta.container_class` = `empty`** are rejected (internal-only). If **`meta.workspace_upload_required`** is true, the runner starts only after **`PUT /v1/jobs/{id}/workspace`** (gzip tarball). |
-| PUT | `/v1/jobs/{id}/workspace` | Raw **gzip tarball** body (`Content-Type: application/gzip`). Authenticated. Extracts under the Fleet data dir and marks the workspace ready; see **`docs/WORKSPACE_UPLOAD.md`**. |
-| GET | `/v1/jobs/{id}` | Status: `queued`, `running`, `completed`, `failed`, `cancelled` + `stdout` / `stderr` / `exit_code` |
-| POST | `/v1/jobs/{id}/cancel` | Best-effort kill |
-| GET | `/v1/admin/snapshot` | **Read-only** JSON: `meta.integrations` includes **`forge_console_url`**, **`suggested_forge_llm_compose_root`**, **`container_layout`**, **`container_types_version`**, **`forge_llm_services`**, and **`orchestration`** (same shape as telemetry: running compose totals by type + running jobs by `container_class`). Plus **`meta.version`**, **`meta.energy_ledger_kwh`**, **`meta.cooldown_summary`** (preset windows: today / this_week / this_month / this_year / since_first), `host`, **`node`**, `jobs_by_status`, **`jobs_recent`** (paged: query **`jobs_limit`** default 10 max 50, **`jobs_offset`**; response includes **`jobs_recent_total`**, **`jobs_recent_limit`**, **`jobs_recent_offset`**), `active_workers`. **`host.thermal_llm_advisory`** — LLM thermal policy: **`policy_version`**, **`components`** (per-sensor tier and **`sleep_s`**), **`worst_tier`**, **`recommended_sleep_s`**, **`startup_ready`**, **`startup_max_temp_c`**, **`cpu_vendor_resolved`**, optional **`arm_critical_suppressed`**. Throttled telemetry append stores `{ "host", "orchestration" }` (see `/v1/telemetry`). |
-| POST | `/v1/containers/dispose` | Body `{ "container_id": "<docker id>" }` → `docker rm -f` (for **long-lived** agent containers). Id must match `^[0-9a-f]{12,64}$`. Studio should call this only after the workload signals completion. |
-| POST | `/v1/admin/test-fleet` | Body optional `{ "count": 5 }` (capped 1–20): enqueue **host CPU probe** Docker jobs (`host_cpu_probe`). Intended for **Lenses Studio** (`POST /api/fleet/test-fleet`); not surfaced in `/admin/`. Workspace integration (**`FLEET_LENSES_WORKSPACE_ROOT`**, Attention file) is documented under **Test Fleet → Lenses Attention** below. |
-| GET | `/v1/container-types` | On-disk **type catalog** from **`$FLEET_DATA_DIR/etc/containers/types.json`**: `version`, `categories[]` (MECE **system** / **job** / **service** with inherited `capabilities`), raw `types[]` (each has `category_id`; per-type booleans are optional overrides), `types_materialized[]` (same rows plus `effective_capabilities`), and `paths`. |
-| GET | `/v1/container-services` | Lists **`etc/services/*.json`** with live **`forge_llm`** compose status (`docker compose ps`). |
-| GET | `/v1/container-services/{id}` | One service record + status. |
-| POST | `/v1/container-services` | Add a managed service: `{ "type_id": "forge_llm", "compose_root", "compose_files"?: [], "label"?: "...", "id"?: "..." }`. Omit **`id`** to auto-pick the first free id (`default`, then `lab`, then `llm2`…`llm99`). |
-| PUT | `/v1/container-services/{id}` | Update `compose_root` / `compose_files` / `label` / `type_id`. |
-| DELETE | `/v1/container-services/{id}` | Remove service file (`409` if compose still reports running containers). |
-| POST | `/v1/container-services/{id}/start` | `docker compose up -d` using **saved** `compose_files` for that JSON. |
-| POST | `/v1/container-services/{id}/stop` | `docker compose down` for that service. |
-| GET | `/v1/services/forge-llm` | **Legacy** aggregate status for the primary `forge_llm` service id (`default` if present). |
-| POST | `/v1/services/forge-llm/start` | **Legacy** → same as `POST /v1/container-services/<primary>/start`. |
-| POST | `/v1/services/forge-llm/stop` | **Legacy** → same as `POST /v1/container-services/<primary>/stop`. |
-| GET | `/admin/` | Admin UI — **kitchensink** `forge-theme.css` + `forge-fleet-admin.css` + `forge-theme.js` (Light / Dark / System), Bootstrap 5; polls snapshot for tiles/jobs. **CPU/RAM + workload charts**: history from **`telemetry_samples`** via **`GET /v1/telemetry?period=last_1_hour`**, plus a **live** point from each snapshot so traces move between sparse DB rows (~`FLEET_TELEMETRY_INTERVAL_S`). Optional **linear 0–100%** Y via `localStorage` `forgeFleetChartLinearY`; nearest-sample downsampling + polyline. **Refresh metrics**, workload summary + per-`type_id` counts under **Container types**. **Load** tile: **1m/5m/15m** mini bars + **1m** dial, raw **L 1m·5m·15m** line, ghost needle fade. **Update Fleet** appears on the version line when git self-update is configured, GitHub `master` is ahead, and the install is **not** a system tree under `/opt/forge-fleet` (system installs: **View commits** only). Zone tints: **under 25% / 25–50 / 50–75 / over 75%**. |
-| GET | `/admin/static/gpu-logos/{nvidia,amd,intel}.png` | Packaged PNG logos for admin GPU tiles (served without auth; `Cache-Control: max-age=86400`). |
-| GET | `/admin/ks/css/*` `GET` `/admin/ks/js/*` | Static **kitchensink** assets (only files under `kitchensink/css/` and `kitchensink/js/`) |
-| GET | `/admin/theme.css` | Legacy minimal pack (optional); admin prefers `/admin/ks/css/forge-theme.css` |
+- **[Overview](docs/OVERVIEW.md)** — what Fleet is for, mental model, typical ports, documentation map, and agent-oriented notes.
+- **[HTTP API (v1)](docs/API-REFERENCE.md)** — full `/v1/*` and `/admin/` route table, bearer rules, host-metrics env injection, and **`POST /v1/admin/git-self-update`**.
+- **[Install from git](docs/GIT-INSTALL.md)** and **[host bootstrap](docs/HOST-BOOTSTRAP.md)** — new machine setup (`./git-install.sh`, OS packages).
+- **[Forge LCDL](docs/FORGE-LCDL.md)** — how the **Fleet** orchestrator relates to (and does not replace) the separate **`forge-lcdl`** governed-LLM library.
 
-Auth:
+## API at a glance
 
-- **`FLEET_BEARER_TOKEN`** set and listen **`--host`** is **not** loopback-only (`127.0.0.1`, `::1`, `localhost`): every `/v1/...` request must send `Authorization: Bearer <token>`.
-- **Loopback-only bind** (`--host 127.0.0.1` / `::1` / `localhost`) **with a token configured**: bearer is **not** required (same machine only; Lenses may still send a token). Override with **`FLEET_ENFORCE_BEARER=1`** if you need the token checked even on loopback.
-- **No token** in env: requests are accepted on any bind address (avoid in production).
+Fleet exposes JSON under **`/v1/`** and a browser dashboard at **`/admin/`**:
 
-### Docker workloads: live host metrics (`GET /v1/health`)
+- **Version and templates** — `GET /v1/version`, `GET /v1/templates`
+- **Host health and history** — `GET /v1/health`, `GET /v1/telemetry`, `GET /v1/cooldown-summary`, `POST /v1/cooldown-events`
+- **Jobs and probes** — `POST /v1/jobs`, `PUT /v1/jobs/{id}/workspace`, `GET /v1/jobs/{id}`, `POST /v1/jobs/{id}/cancel`, `POST /v1/admin/test-fleet`, `POST /v1/containers/dispose`
+- **Operator snapshot** — `GET /v1/admin/snapshot`
+- **Container catalog and managed services** — `GET /v1/container-types`, `/v1/container-services/*`, legacy `/v1/services/forge-llm/*`
+- **In-place git refresh** — `POST /v1/admin/git-self-update` (see API reference for system-tree **`/opt`** behavior)
 
-When **`FLEET_INJECT_HOST_METRICS_ENV_IN_DOCKER`** is `1` / `true` / `yes` **and** **`FLEET_HOST_METRICS_BASE_URL`** is set to a base URL reachable **from inside** queued `docker run` containers (e.g. `http://172.17.0.1:18766`, or `http://host.docker.internal:18766` with `--add-host=host.docker.internal:host-gateway` in your job’s extra `docker run` flags), the Fleet runner injects, immediately after **`FLEET_JOB_ID`**:
-
-- **`FLEET_HOST_METRICS_URL`** — same value as `FLEET_HOST_METRICS_BASE_URL` (trailing `/` stripped).
-- **`FLEET_HOST_METRICS_TOKEN`** — copy of **`FLEET_BEARER_TOKEN`** when that variable is non-empty; omitted when empty (workloads can still call **`GET /v1/health`** without `Authorization` only if Fleet is bound loopback-only and auth is not enforced — uncommon from inside Docker).
-
-Example from inside the container:
-
-```bash
-curl -sS -H "Authorization: Bearer ${FLEET_HOST_METRICS_TOKEN}" "${FLEET_HOST_METRICS_URL}/v1/health"
-```
-
-The JSON body includes **`host.cpu_usage_pct`**, **`host.memory_used_pct`**, **`host.loadavg_1m`**, and optional **`host.energy_ledger_kwh`** (see **`GET /v1/health`** row in the table above).
-
-**Security:** this opt-in copies the **Fleet admin bearer** into the workload environment when `FLEET_BEARER_TOKEN` is set. Untrusted images or logs can leak it. Keep the flag off unless you accept that tradeoff.
-
-### Admin self-update (git pull from UI)
-
-When **`FLEET_GIT_ROOT`** points at a checkout with **`.git`**, **`/admin/`** offers **Update Fleet** when **GitHub `master` is ahead** of the running build (same check as the version line). **`POST /v1/admin/git-self-update`** runs `git pull --ff-only`, submodule sync, then **`update-user.sh`** / **`install-user.sh`** if present, then **`systemctl --user restart forge-fleet.service`**. Optional **`FLEET_SELF_UPDATE_POST_GIT_COMMAND`** overrides those scripts.
-
-**Install scripts:** **`install-update.sh`** / **`install-user.sh`** (and **`update-system.sh`** / **`update-user.sh`**) rsync **`--exclude '.git/'`**, so the runtime tree has no `.git`. They now write **`FLEET_GIT_ROOT=<FLEET_SRC>`** and **`FLEET_GIT_SHA=<short HEAD>`** into **`forge-fleet.env`** when the source checkout contains **`.git`**, so **`meta.self_update.configured`** becomes true after the next install refresh and restart, and **`/v1/version`** / **`/admin/`** always show a git SHA for drift checks. Ensure the service user can **`git pull`** in **`FLEET_GIT_ROOT`** (permissions / ownership).
-
-- **System install** (runtime under **`/opt/forge-fleet`**, or **`FLEET_SELF_UPDATE_INSTALL_PROFILE=system`**): the admin **Update Fleet** button is hidden; **`POST /v1/admin/git-self-update`** returns **`400`** with **`system_root_install_command`** — run **`sudo ./install-update.sh`** from the clone on the host (see **`git-install.sh`** / ops docs). Git pulls still happen in **`FLEET_GIT_ROOT`** when you use that flow.
-
-API: **`POST /v1/admin/git-self-update`** (same bearer auth as other `/v1/` routes). See **`systemd/environment.example`**.
+The complete table (including static **`/admin/...`** assets), authentication matrix, and Docker host-metrics opt-in are in **[docs/API-REFERENCE.md](docs/API-REFERENCE.md)**.
 
 ### Remote automation (`scripts/update-fleet.sh`)
 
