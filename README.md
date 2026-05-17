@@ -60,6 +60,16 @@ git submodule update --init --recursive
 
 Edits belong upstream in **`autowww/blueprints`** and **`autowww/forgesdlc-kitchensink`**, never in the copied trees here.
 
+### Forge SDLC in this repo
+
+Methodology wiring for Cursor (Versonas, Charge paths, Ember log) lives under **`forge/`**, **`ember-logs/`**, and **`forge-logs/`**, driven by **`forge/forge.config.yaml`**. One-time scaffold is already committed when you pull; after a **`blueprints`** submodule bump, refresh rules if templates drifted:
+
+```bash
+bash blueprints/sdlc/methodologies/forge/setup/sync-forge-cursor-rules.sh sync --preset recommended
+bash blueprints/sdlc/methodologies/forge/setup/sync-forge-cursor-rules.sh sync
+bash blueprints/sdlc/methodologies/forge/setup/sync-forge-cursor-rules.sh check
+```
+
 ### Install from a fresh git clone (new / remote machine)
 
 Prereqs (**Docker CE + buildx**, Python ≥3.11, git, rsync, …): **`[docs/learn-101/03-host-bootstrap.md](docs/learn-101/03-host-bootstrap.md)`**. Then:
