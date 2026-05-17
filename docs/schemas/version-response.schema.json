@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.forgesdlc.com/schemas/version-response.schema.json",
+  "title": "Forge Fleet GET /v1/version 200 body",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "ok",
+    "service",
+    "package_semver",
+    "db_schema_version",
+    "template_lib_version",
+    "server_version",
+    "git_sha",
+    "db_recorded_package_semver",
+    "release_note"
+  ],
+  "properties": {
+    "ok": {
+      "const": true
+    },
+    "service": {
+      "const": "forge-fleet"
+    },
+    "package_semver": {
+      "type": "string"
+    },
+    "db_schema_version": {
+      "type": "integer"
+    },
+    "db_recorded_package_semver": {},
+    "template_lib_version": {
+      "type": "integer"
+    },
+    "server_version": {
+      "type": "string"
+    },
+    "git_sha": {
+      "type": ["string", "null"]
+    },
+    "release_note": {
+      "type": "string"
+    }
+  }
+}

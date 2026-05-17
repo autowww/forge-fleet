@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.forgesdlc.com/schemas/workspace-upload-response.schema.json",
+  "title": "Forge Fleet PUT /v1/jobs/{id}/workspace 200 body",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["ok", "id", "workspace_state"],
+  "properties": {
+    "ok": { "const": true },
+    "id": { "type": "string" },
+    "workspace_state": { "const": "ready" },
+    "workspace_sha256": { "type": "string" },
+    "workspace_upload_bytes": { "type": "integer", "minimum": 0 },
+    "workspace_uncompressed_bytes": { "type": "integer", "minimum": 0 },
+    "manifest_files_verified": { "type": "integer", "minimum": 0 },
+    "manifest_schema_version": {}
+  }
+}

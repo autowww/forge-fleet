@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.forgesdlc.com/schemas/workspace-worker-bundle-response.schema.json",
+  "title": "Forge Fleet GET /v1/jobs/{id}/workspace-worker-bundle 200 body",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["ok", "argv"],
+  "properties": {
+    "ok": { "const": true },
+    "argv": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "cwd": { "type": "string" }
+  }
+}

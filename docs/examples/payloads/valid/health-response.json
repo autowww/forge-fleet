@@ -1,0 +1,14 @@
+{
+  "ok": true,
+  "service": "forge-fleet",
+  "auth_enforced": false,
+  "version": {
+    "package_semver": "0.3.61",
+    "db_schema_version": 1,
+    "template_lib_version": 1,
+    "server_version": "forge-fleet/0.3.61"
+  },
+  "host": {
+    "cpu_usage_pct": 1.2
+  }
+}

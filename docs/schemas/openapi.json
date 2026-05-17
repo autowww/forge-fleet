@@ -1,0 +1,2486 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Forge Fleet HTTP API",
+    "version": "0.3.61",
+    "description": "HTTP API for forge-fleet (fleet_server). Bearer auth on /v1 unless listen loopback-only and token unset; workspace-worker routes use X-Workspace-Worker-Token. Narrative handbook: docs/reference/01-http-api-reference.md."
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:18765",
+      "description": "Default CLI port"
+    },
+    {
+      "url": "http://127.0.0.1:18766",
+      "description": "Common user install port"
+    },
+    {
+      "url": "https://fleet.example.com",
+      "description": "TLS reverse proxy (replace host)"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "FLEET_BEARER_TOKEN; required when bound non-loopback with token set (see FLEET_ENFORCE_BEARER)."
+      },
+      "workspaceWorkerAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Workspace-Worker-Token",
+        "description": "Per-job token from job meta (workspace worker bridge)."
+      }
+    },
+    "schemas": {
+      "ErrorJson": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "const": false
+          },
+          "error": {
+            "type": "string"
+          },
+          "detail": {}
+        }
+      },
+      "JobCreateRequest": {
+        "$ref": "job-create-request.schema.json"
+      },
+      "JobAcceptedResponse": {
+        "type": "object",
+        "required": [
+          "ok",
+          "id",
+          "status"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "AdminSnapshotResponse": {
+        "$ref": "admin-snapshot-response.schema.json"
+      },
+      "BuildCache": {
+        "$ref": "build-cache.schema.json"
+      },
+      "ContainerService": {
+        "$ref": "container-service.schema.json"
+      },
+      "ContainerServicesListResponse": {
+        "$ref": "container-services-list-response.schema.json"
+      },
+      "ContainerTemplatesListResponse": {
+        "$ref": "container-templates-list-response.schema.json"
+      },
+      "ContainerTemplatesStatusResponse": {
+        "$ref": "container-templates-status-response.schema.json"
+      },
+      "ContainerTypes": {
+        "$ref": "container-types.schema.json"
+      },
+      "CooldownEventCreateRequest": {
+        "$ref": "cooldown-event-create-request.schema.json"
+      },
+      "CooldownSummaryResponse": {
+        "$ref": "cooldown-summary-response.schema.json"
+      },
+      "FleetJsonSuccess": {
+        "$ref": "fleet-json-success.schema.json"
+      },
+      "HealthResponse": {
+        "$ref": "health-response.schema.json"
+      },
+      "HostOperatorSteps": {
+        "$ref": "host-operator-steps.schema.json"
+      },
+      "JobCancelResponse": {
+        "$ref": "job-cancel-response.schema.json"
+      },
+      "JobResponse": {
+        "$ref": "job-response.schema.json"
+      },
+      "OkTrue": {
+        "$ref": "ok-true.schema.json"
+      },
+      "RequirementTemplates": {
+        "$ref": "requirement-templates.schema.json"
+      },
+      "TelemetryResponse": {
+        "$ref": "telemetry-response.schema.json"
+      },
+      "TemplatePackageUploadResponse": {
+        "$ref": "template-package-upload-response.schema.json"
+      },
+      "VersionResponse": {
+        "$ref": "version-response.schema.json"
+      },
+      "WorkspaceManifest": {
+        "$ref": "workspace-manifest.schema.json"
+      },
+      "WorkspaceUploadResponse": {
+        "$ref": "workspace-upload-response.schema.json"
+      },
+      "WorkspaceWorkerBundleResponse": {
+        "$ref": "workspace-worker-bundle-response.schema.json"
+      }
+    }
+  },
+  "paths": {
+    "/admin": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Redirect to /admin/",
+        "security": [],
+        "responses": {
+          "302": {
+            "description": "Redirect to `/admin/`.",
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "/admin/"
+              }
+            }
+          }
+        },
+        "operationId": "redirectAdminToSlash",
+        "description": "Redirect to /admin/. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      }
+    },
+    "/admin/": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Admin dashboard HTML",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Admin dashboard HTML shell (loads assets under `/admin/ks/`).",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "getAdminDashboard",
+        "description": "Admin dashboard HTML. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      }
+    },
+    "/admin/theme.css": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Legacy theme CSS",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Packaged Forge SDLC minimal theme; 404 if kitchensink checkout is missing in dev.",
+            "content": {
+              "text/css": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "getAdminThemeCss",
+        "description": "Legacy theme CSS. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      }
+    },
+    "/admin/ks/{path}": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Kitchensink static asset",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Kitchensink CSS or JavaScript under `kitchensink/css/` or `kitchensink/js/`.",
+            "content": {
+              "text/css": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "application/javascript": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "getAdminKitchensinkAsset",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Path parameter `path`."
+          }
+        ],
+        "description": "Kitchensink static asset. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      }
+    },
+    "/admin/static/{path}": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Packaged static (e.g. GPU logos)",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Packaged raster/SVG assets (e.g. GPU logos).",
+            "content": {
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/svg+xml": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "getAdminPackagedStatic",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Path parameter `path`."
+          }
+        ],
+        "description": "Packaged static (e.g. GPU logos). Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      }
+    },
+    "/v1/jobs/{id}/workspace-worker-bundle": {
+      "get": {
+        "tags": [
+          "v1-workspace-worker"
+        ],
+        "summary": "Fetch argv bundle for inner workspace worker",
+        "security": [
+          {
+            "workspaceWorkerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Argv bundle for inner workspace worker; requires `X-Workspace-Worker-Token`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceWorkerBundleResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "getJobWorkspaceWorkerBundle",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Path parameter `id`."
+          }
+        ],
+        "description": "Fetch argv bundle for inner workspace worker. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      }
+    },
+    "/v1/jobs/{id}/workspace-worker-progress": {
+      "post": {
+        "tags": [
+          "v1-workspace-worker"
+        ],
+        "summary": "Report progress",
+        "security": [
+          {
+            "workspaceWorkerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Progress or terminal result stored; minimal ack.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkTrue"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "postJobWorkspaceWorkerProgress",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Path parameter `id`."
+          }
+        ],
+        "description": "Report progress. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      }
+    },
+    "/v1/jobs/{id}/workspace-worker-complete": {
+      "post": {
+        "tags": [
+          "v1-workspace-worker"
+        ],
+        "summary": "Final worker result",
+        "security": [
+          {
+            "workspaceWorkerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Progress or terminal result stored; minimal ack.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkTrue"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "completeJobWorkspaceWorker",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Path parameter `id`."
+          }
+        ],
+        "description": "Final worker result. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      }
+    },
+    "/v1/version": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Package and DB schema version",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Fleet build identity and DB schema version.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "getVersion",
+        "description": "Package and DB schema version. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      }
+    },
+    "/v1/templates": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Template catalog",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Embedded template library metadata.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "listTemplates",
+        "description": "Template catalog. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      }
+    },
+    "/v1/health": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Host + version snapshot",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Liveness information, auth flag, host snapshot subset.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "getHealth",
+        "description": "Host + version snapshot. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      }
+    },
+    "/v1/admin/snapshot": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Admin snapshot (jobs, integrations, host)",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operator snapshot: jobs, host, integrations, recent job rows (paginated).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminSnapshotResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "getAdminSnapshot",
+        "description": "Admin snapshot (jobs, integrations, host). Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      }
+    },
+    "/v1/cooldown-summary": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Cooldown aggregates (period query required)",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cooldown aggregates for requested `period` query.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CooldownSummaryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "getCooldownSummary",
+        "description": "Cooldown aggregates (period query required). Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      }
+    },
+    "/v1/telemetry": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Telemetry samples (period query required)",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Telemetry samples for requested `period` window.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelemetryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "getTelemetry",
+        "description": "Telemetry samples (period query required). Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      }
+    },
+    "/v1/container-templates/status": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Requirement-template build cache status",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Template build cache and in-process build state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContainerTemplatesStatusResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "getContainerTemplatesStatus",
+        "description": "Requirement-template build cache status. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      }
+    },
+    "/v1/container-templates": {
+      "get": {
+        "tags": [
+          "v1-templates"
+        ],
+        "summary": "Requirement templates file + paths",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current requirement templates document and paths.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContainerTemplatesListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "listContainerTemplates",
+        "description": "Requirement templates file + paths. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      },
+      "put": {
+        "tags": [
+          "v1-templates"
+        ],
+        "summary": "Replace requirement_templates.json",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "upsertContainerTemplates",
+        "description": "Replace requirement_templates.json. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      }
+    },
+    "/v1/container-templates/resolve": {
+      "get": {
+        "tags": [
+          "v1-templates"
+        ],
+        "summary": "Resolve requirements to image (query: requirements, build flags)",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Resolved image / cache state for requested requirement ids.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContainerTemplatesListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "resolveContainerTemplate",
+        "description": "Resolve requirements to image (query: requirements, build flags). Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      }
+    },
+    "/v1/container-types": {
+      "get": {
+        "tags": [
+          "v1-types"
+        ],
+        "summary": "Type catalog document",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Container types catalog with materialized rows.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "listContainerTypes",
+        "description": "Type catalog document. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      },
+      "post": {
+        "tags": [
+          "v1-types"
+        ],
+        "summary": "Add one type row",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "See forge-fleet docs for response body; JSON object."
+          },
+          "400": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "createContainerTypesBatch",
+        "description": "Add one type row. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      },
+      "put": {
+        "tags": [
+          "v1-types"
+        ],
+        "summary": "Replace full types.json document",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "putContainerTypesBatch",
+        "description": "Replace full types.json document. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      }
+    },
+    "/v1/container-services": {
+      "get": {
+        "tags": [
+          "v1-services"
+        ],
+        "summary": "List managed compose services",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Managed compose services and path hints.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContainerServicesListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "listContainerServices",
+        "description": "List managed compose services. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      },
+      "post": {
+        "tags": [
+          "v1-services"
+        ],
+        "summary": "Create managed service",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "See forge-fleet docs for response body; JSON object."
+          },
+          "400": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "createContainerService",
+        "description": "Create managed service. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      }
+    },
+    "/v1/container-services/{id}": {
+      "get": {
+        "tags": [
+          "v1-services"
+        ],
+        "summary": "One service record",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Single service record plus status.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "getContainerService",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Path parameter `id`."
+          }
+        ],
+        "description": "One service record. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      },
+      "put": {
+        "tags": [
+          "v1-services"
+        ],
+        "summary": "Update service",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "putContainerService",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Path parameter `id`."
+          }
+        ],
+        "description": "Update service. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      },
+      "delete": {
+        "tags": [
+          "v1-services"
+        ],
+        "summary": "Delete service",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "deleteContainerService",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Path parameter `id`."
+          }
+        ],
+        "description": "Delete service. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      }
+    },
+    "/v1/services/forge-llm": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Legacy primary forge_llm status",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Legacy forge_llm service status mirror.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "getForgeLlmServiceLegacy",
+        "description": "Legacy primary forge_llm status. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      }
+    },
+    "/v1/jobs/{id}": {
+      "get": {
+        "tags": [
+          "v1-jobs"
+        ],
+        "summary": "Job status and logs",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Job record including argv, meta, logs fields when present.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "getJob",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Path parameter `id`."
+          }
+        ],
+        "description": "Job status and logs. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      }
+    },
+    "/v1/cooldown-events": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Record cooldown wait",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cooldown event recorded (duration may be clamped).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkTrue"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "See forge-fleet docs for response body; JSON object."
+          }
+        },
+        "operationId": "createCooldownEvent",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CooldownEventCreateRequest"
+              }
+            }
+          }
+        },
+        "description": "Record cooldown wait. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      }
+    },
+    "/v1/jobs": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Create docker_argv job",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "See forge-fleet docs for response body; JSON object."
+          },
+          "401": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Job accepted and queued (or awaiting workspace upload).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobAcceptedResponse"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "createJob",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobCreateRequest"
+              }
+            }
+          }
+        },
+        "description": "Create docker_argv job. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      }
+    },
+    "/v1/jobs/{id}/cancel": {
+      "post": {
+        "tags": [
+          "v1-jobs"
+        ],
+        "summary": "Cancel job",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cancel request applied (best effort if already terminal).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobCancelResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "cancelJob",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Path parameter `id`."
+          }
+        ],
+        "description": "Cancel job. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      }
+    },
+    "/v1/containers/dispose": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "docker rm -f by id",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "disposeContainer",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "description": "docker rm -f by id. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      }
+    },
+    "/v1/admin/test-fleet": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Enqueue host_cpu_probe jobs",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "postAdminTestFleet",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "description": "Enqueue host_cpu_probe jobs. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      }
+    },
+    "/v1/admin/git-self-update": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "git pull + user install hooks",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "postAdminGitSelfUpdate",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "description": "git pull + user install hooks. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      }
+    },
+    "/v1/container-services/{id}/start": {
+      "post": {
+        "tags": [
+          "v1-services"
+        ],
+        "summary": "compose up for forge_llm service",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "See forge-fleet docs for response body; JSON object."
+          },
+          "401": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "startContainerService",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Path parameter `id`."
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "description": "compose up for forge_llm service. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      }
+    },
+    "/v1/container-services/{id}/stop": {
+      "post": {
+        "tags": [
+          "v1-services"
+        ],
+        "summary": "compose down for forge_llm service",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "See forge-fleet docs for response body; JSON object."
+          },
+          "401": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "stopContainerService",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Path parameter `id`."
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "description": "compose down for forge_llm service. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      }
+    },
+    "/v1/container-types/{id}": {
+      "put": {
+        "tags": [
+          "v1-types"
+        ],
+        "summary": "Update one type row",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "putContainerType",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Path parameter `id`."
+          }
+        ],
+        "description": "Update one type row. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      },
+      "delete": {
+        "tags": [
+          "v1-types"
+        ],
+        "summary": "Delete type row",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "deleteContainerType",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Path parameter `id`."
+          }
+        ],
+        "description": "Delete type row. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      }
+    },
+    "/v1/container-templates/build": {
+      "post": {
+        "tags": [
+          "v1-templates"
+        ],
+        "summary": "Build/pull template images for requirement ids",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "buildContainerTemplate",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "description": "Build/pull template images for requirement ids. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      }
+    },
+    "/v1/services/forge-llm/start": {
+      "post": {
+        "tags": [
+          "v1-services"
+        ],
+        "summary": "Legacy start primary forge_llm",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "See forge-fleet docs for response body; JSON object."
+          },
+          "503": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "startForgeLlmServiceLegacy",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "description": "Legacy start primary forge_llm. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      }
+    },
+    "/v1/services/forge-llm/stop": {
+      "post": {
+        "tags": [
+          "v1-services"
+        ],
+        "summary": "Legacy stop primary forge_llm",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "See forge-fleet docs for response body; JSON object."
+          },
+          "503": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "stopForgeLlmServiceLegacy",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "description": "Legacy stop primary forge_llm. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+      }
+    },
+    "/v1/jobs/{id}/workspace": {
+      "put": {
+        "tags": [
+          "v1-jobs"
+        ],
+        "summary": "Upload gzip workspace tarball",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Workspace extracted; job spawn continues.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceUploadResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "uploadJobWorkspace",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Path parameter `id`."
+          },
+          {
+            "name": "X-Workspace-Archive-Sha256",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "description": "Optional SHA-256 (hex) of the raw body; mismatch returns 400."
+          }
+        ],
+        "description": "Upload gzip workspace tarball. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`.",
+        "requestBody": {
+          "required": true,
+          "description": "Raw bytes of a gzip-compressed tar archive for the job workspace. The server extracts to a host directory before `docker argv` runs. Typical clients send `Content-Type: application/octet-stream`.",
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "application/gzip": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/container-templates/{id}/package": {
+      "put": {
+        "tags": [
+          "v1-templates"
+        ],
+        "summary": "Upload requirement template tar.gz package",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Template package extracted and requirement row upserted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplatePackageUploadResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See forge-fleet docs for response body; JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "putContainerTemplatePackage",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Path parameter `id`."
+          },
+          {
+            "name": "X-Template-Package-Sha256",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "description": "Optional SHA-256 (hex) of the raw body; mismatch returns 400."
+          },
+          {
+            "name": "title",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Template title when creating/updating the requirement row."
+          },
+          {
+            "name": "notes",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional notes stored on the template row."
+          },
+          {
+            "name": "replace",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "0",
+                "1",
+                "true",
+                "false",
+                "yes",
+                "no"
+              ]
+            },
+            "description": "When `0`/`false`/`no`, refuse overwrite if template exists. Defaults to replace."
+          }
+        ],
+        "description": "Upload requirement template tar.gz package. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`.",
+        "requestBody": {
+          "required": true,
+          "description": "Tar or tar.gz archive containing a Docker build context (Dockerfile at root or under one top-level directory). Typical clients send `Content-Type: application/octet-stream`.",
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "application/gzip": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

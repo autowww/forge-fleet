@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.forgesdlc.com/schemas/job-create-request.schema.json",
+  "title": "Forge Fleet create job request",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["kind", "argv"],
+  "properties": {
+    "kind": { "const": "docker_argv" },
+    "argv": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string" }
+    },
+    "session_id": { "type": "string" },
+    "meta": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "container_class": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]{0,127}$",
+          "not": { "const": "empty" }
+        },
+        "workspace_upload_required": { "type": "boolean" },
+        "workspace_profile": { "enum": ["generic", "large_workspace"] },
+        "workspace_manifest_required": { "type": "boolean" },
+        "use_fleet_template_image": { "type": "boolean" },
+        "requirements": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{0,63}$" }
+        },
+        "build_template_if_missing": {
+          "oneOf": [
+            { "type": "boolean" },
+            { "type": "integer", "enum": [0, 1] },
+            { "type": "string", "enum": ["0", "1", "false", "true", "no", "yes"] }
+          ]
+        }
+      }
+    }
+  }
+}

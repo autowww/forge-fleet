@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.forgesdlc.com/schemas/job-response.schema.json",
+  "title": "Forge Fleet GET /v1/jobs/{id} response body",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["ok", "id", "kind", "status"],
+  "properties": {
+    "ok": { "const": true },
+    "id": { "type": "string" },
+    "kind": { "type": "string" },
+    "status": {
+      "type": "string",
+      "enum": ["queued", "running", "completed", "failed", "cancelled"]
+    },
+    "session_id": { "type": "string" },
+    "argv": { "type": "array", "items": { "type": "string" } },
+    "meta": { "type": "object" },
+    "stdout": { "type": "string" },
+    "stderr": { "type": "string" },
+    "exit_code": { "type": ["integer", "null"] },
+    "container_id": { "type": ["string", "null"] },
+    "created": { "type": "string" },
+    "updated": { "type": "string" },
+    "worker_progress": { "type": ["object", "null"] },
+    "worker_result": { "type": ["object", "null"] }
+  }
+}

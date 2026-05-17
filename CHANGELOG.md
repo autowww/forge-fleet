@@ -4,11 +4,17 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.61] - 2026-05-17
+
+### Changed
+
+- Documentation: expanded handbook IA (Start → Learn → Build → Operate → Reference → Examples), job-create examples aligned with **`kind: docker_argv`** and **HTTP 201**, broadened link + public-copy CI checks, OpenAPI **`operationId`** + path parameters + **`POST /v1/jobs`** request schema reference, schema-validated example payload, operate-301 backup/observability/enterprise checklist pages.
+
 ## [0.3.54] - 2026-05-04
 
 ### Changed
 
-- **Certificator source-ingest** requirement templates are **no longer** copied from the `forge-fleet` package into `--data-dir`. Operators install the Dockerfile and context with **`PUT /v1/container-templates/{requirement_id}/package`** (raw **`.tar.gz` body**), then **`POST /v1/container-templates/build`**. Reference files and a packaging script live in **forge-certificators** under **`fleet-container-template/`** (see that repo’s README). Removed **`FLEET_NO_BUILTIN_CERTIFICATOR_SOURCE_INGEST_TEMPLATE`** (there is no builtin seed to disable). See [`docs/CONTAINER-TEMPLATES.md`](docs/CONTAINER-TEMPLATES.md).
+- **Certificator source-ingest** requirement templates are **no longer** copied from the `forge-fleet` package into `--data-dir`. Operators install the Dockerfile and context with **`PUT /v1/container-templates/{requirement_id}/package`** (raw **`.tar.gz` body**), then **`POST /v1/container-templates/build`**. Reference files and a packaging script live in **forge-certificators** under **`fleet-container-template/`** (see that repo’s README). Removed **`FLEET_NO_BUILTIN_CERTIFICATOR_SOURCE_INGEST_TEMPLATE`** (there is no builtin seed to disable). See [`docs/build-201/02-container-templates.md`](docs/build-201/02-container-templates.md).
 
 ### Added
 
@@ -19,24 +25,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
-- Builtin **`certificator_source_ingest_worker`** seeding: on each **`ensure_template_layout`**, refresh the on-disk Dockerfile (and vendored **`fleet_source_ingest_worker.py`**) from the packaged copy when the file still contains the deprecated **git+GitHub** `pip install` pattern or when its **SHA-256** no longer matches the bundled stock file. Upgrading **`forge-fleet`** therefore replaces stale operator data-dir files without manual SSH. See **Troubleshooting** in [`docs/CONTAINER-TEMPLATES.md`](docs/CONTAINER-TEMPLATES.md).
+- Builtin **`certificator_source_ingest_worker`** seeding: on each **`ensure_template_layout`**, refresh the on-disk Dockerfile (and vendored **`fleet_source_ingest_worker.py`**) from the packaged copy when the file still contains the deprecated **git+GitHub** `pip install` pattern or when its **SHA-256** no longer matches the bundled stock file. Upgrading **`forge-fleet`** therefore replaces stale operator data-dir files without manual SSH. See **Troubleshooting** in [`docs/build-201/02-container-templates.md`](docs/build-201/02-container-templates.md).
 
 ## [0.3.52] - 2026-05-04
 
 ### Changed
 
-- Builtin **`certificator_source_ingest_worker`** template: Docker image no longer `pip install`s `forge-certificators` from git. The stock Dockerfile **COPY**s a vendored stdlib entrypoint and installs **PyPI** wheels (Playwright, httpx, pydantic, Jinja2). Certificator job code is expected from the **workspace tarball** (`PUT /v1/jobs/{id}/workspace`) as documented in [`docs/WORKSPACE_UPLOAD.md`](docs/WORKSPACE_UPLOAD.md).
+- Builtin **`certificator_source_ingest_worker`** template: Docker image no longer `pip install`s `forge-certificators` from git. The stock Dockerfile **COPY**s a vendored stdlib entrypoint and installs **PyPI** wheels (Playwright, httpx, pydantic, Jinja2). Certificator job code is expected from the **workspace tarball** (`PUT /v1/jobs/{id}/workspace`) as documented in [`docs/build-201/01-workspace-upload.md`](docs/build-201/01-workspace-upload.md).
 
 ## [0.3.49] - 2026-05-04
 
 ### Added
 
-- Host bootstrap guide [`docs/HOST-BOOTSTRAP.md`](docs/HOST-BOOTSTRAP.md) (Docker Engine + buildx, base packages, then `git-install`).
+- Host bootstrap guide [`docs/learn-101/03-host-bootstrap.md`](docs/learn-101/03-host-bootstrap.md) (Docker Engine + buildx, base packages, then `git-install`).
 - [`docs/host-operator-steps.json`](docs/host-operator-steps.json) and [`scripts/fleet-host-upgrade-hints.sh`](scripts/fleet-host-upgrade-hints.sh) for print-only incremental host command hints between semver versions.
 
 ### Host operator
 
-- Prefer **Docker CE** from Docker’s apt repository with **`docker-buildx-plugin`** and **`docker-compose-plugin`** so BuildKit template builds work. Full copy-paste steps: [`docs/HOST-BOOTSTRAP.md`](docs/HOST-BOOTSTRAP.md).
+- Prefer **Docker CE** from Docker’s apt repository with **`docker-buildx-plugin`** and **`docker-compose-plugin`** so BuildKit template builds work. Full copy-paste steps: [`docs/learn-101/03-host-bootstrap.md`](docs/learn-101/03-host-bootstrap.md).
 - If you cannot install buildx, set **`FLEET_DOCKER_BUILDKIT=0`** in the Fleet environment file (see [`systemd/environment.example`](systemd/environment.example)).
 
 ### Automatic (no host shell steps)

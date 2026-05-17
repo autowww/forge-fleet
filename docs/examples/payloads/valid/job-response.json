@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "id": "job-example",
+  "kind": "docker_argv",
+  "status": "queued",
+  "session_id": "",
+  "argv": ["docker", "version"],
+  "meta": {},
+  "stdout": "",
+  "stderr": "",
+  "exit_code": null,
+  "container_id": null,
+  "created": "2026-01-01T00:00:00Z",
+  "updated": "2026-01-01T00:00:00Z",
+  "worker_progress": null,
+  "worker_result": null
+}

@@ -1,0 +1,4 @@
+{
+  "kind": "docker_image",
+  "argv": ["echo"]
+}

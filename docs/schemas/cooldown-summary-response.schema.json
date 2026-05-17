@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.forgesdlc.com/schemas/cooldown-summary-response.schema.json",
+  "title": "Forge Fleet GET /v1/cooldown-summary 200 body (subset)",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "ok": { "const": true },
+    "period": { "type": "string" },
+    "total_cooldown_s": { "type": "number" },
+    "event_count": { "type": "integer", "minimum": 0 },
+    "window": { "type": "object" },
+    "store_bounds": { "type": "object" }
+  }
+}

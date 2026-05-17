@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.forgesdlc.com/schemas/job-cancel-response.schema.json",
+  "title": "Forge Fleet POST /v1/jobs/{id}/cancel 200 body",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["ok", "cancelled"],
+  "properties": {
+    "ok": { "const": true },
+    "cancelled": { "type": "boolean" }
+  }
+}

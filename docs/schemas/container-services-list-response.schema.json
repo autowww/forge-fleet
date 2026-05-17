@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.forgesdlc.com/schemas/container-services-list-response.schema.json",
+  "title": "Forge Fleet GET /v1/container-services 200 body (subset)",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["ok", "services", "paths"],
+  "properties": {
+    "ok": { "const": true },
+    "services": { "type": "array" },
+    "paths": { "type": "object" }
+  }
+}

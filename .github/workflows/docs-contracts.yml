@@ -1,0 +1,58 @@
+name: Docs contracts
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  openapi-parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package + docs validation extras
+        run: |
+          pip install -e .
+          pip install -e ".[docs]"
+          pip install pytest
+
+      - name: Fleet docs quality suite
+        run: bash scripts/check-docs-all.sh
+
+      - name: Python unit tests
+        run: python3 -m pytest -q tests
+
+  handbook-site-smoke:
+    if: github.repository == 'autowww/forge-fleet'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: forge-fleet
+
+      - uses: actions/checkout@v4
+        with:
+          repository: autowww/forge-fleet-website
+          path: forge-fleet-website
+          submodules: recursive
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Sync tracked Fleet docs into website submodule + build
+        run: |
+          set -euo pipefail
+          pip install markdown PyYAML
+          rsync -a forge-fleet/docs/ forge-fleet-website/forge-fleet/docs/
+          cd forge-fleet-website
+          python3 generator/build-site.py
+          python3 scripts/check-site-smoke.py

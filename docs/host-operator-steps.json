@@ -9,14 +9,14 @@
       "#     \"${FORGE_FLEET_BASE_URL}/v1/container-templates/certificator_source_ingest_worker/package?replace=1\"",
       "#   curl -X POST \"${FORGE_FLEET_BASE_URL}/v1/container-templates/build\" -H \"Authorization: Bearer $FORGE_FLEET_BEARER_TOKEN\" \\",
       "#     -H \"Content-Type: application/json\" -d '{\"requirement_ids\":[\"certificator_source_ingest_worker\"]}'",
-      "# See forge-certificators/fleet-container-template/README.md and forge-fleet/docs/CONTAINER-TEMPLATES.md"
+      "# See forge-certificators/fleet-container-template/README.md and forge-fleet/docs/build-201/02-container-templates.md"
     ]
   },
   {
     "version": "0.3.49",
     "title": "Docker Engine with BuildKit buildx (requirement template builds)",
     "commands": [
-      "# Full steps: docs/HOST-BOOTSTRAP.md",
+      "# Full steps: docs/learn-101/03-host-bootstrap.md",
       "# On Ubuntu (Docker apt repo configured):",
       "#   sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin",
       "#   sudo systemctl enable --now docker",

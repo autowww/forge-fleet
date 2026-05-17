@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.forgesdlc.com/schemas/admin-snapshot-response.schema.json",
+  "title": "Forge Fleet GET /v1/admin/snapshot 200 body (subset)",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["ok", "meta"],
+  "properties": {
+    "ok": { "const": true },
+    "meta": { "type": "object", "additionalProperties": true },
+    "host": { "type": "object" },
+    "node": { "type": "object" },
+    "jobs_by_status": { "type": "object" },
+    "jobs_recent": { "type": "array" },
+    "active_workers": {}
+  }
+}

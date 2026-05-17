@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.forgesdlc.com/schemas/container-templates-list-response.schema.json",
+  "title": "Forge Fleet GET /v1/container-templates / GET /v1/container-templates/resolve 200 subset",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["ok"],
+  "properties": {
+    "ok": { "const": true },
+    "version": { "type": "integer" },
+    "templates": { "type": "array" },
+    "paths": { "type": "object" },
+    "built": { "type": "boolean" },
+    "image": { "type": "string" },
+    "detail": {}
+  }
+}

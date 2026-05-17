@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.forgesdlc.com/schemas/telemetry-response.schema.json",
+  "title": "Forge Fleet GET /v1/telemetry 200 body (subset)",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["ok", "period", "samples"],
+  "properties": {
+    "ok": { "const": true },
+    "period": { "type": "string" },
+    "period_requested": { "type": "string" },
+    "timezone": { "const": "UTC" },
+    "window": { "type": "object" },
+    "samples": { "type": "array" },
+    "count": { "type": "integer", "minimum": 0 },
+    "truncated": { "type": "boolean" },
+    "store_bounds": { "type": "object" },
+    "energy_ledger_kwh": {}
+  }
+}

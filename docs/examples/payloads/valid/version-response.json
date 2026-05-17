@@ -1,0 +1,11 @@
+{
+  "ok": true,
+  "service": "forge-fleet",
+  "package_semver": "0.3.61",
+  "db_schema_version": 1,
+  "db_recorded_package_semver": "0.3.61",
+  "template_lib_version": 1,
+  "server_version": "forge-fleet/0.3.61",
+  "git_sha": null,
+  "release_note": "Example payload for schema validation only."
+}

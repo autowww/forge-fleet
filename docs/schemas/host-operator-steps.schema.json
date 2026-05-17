@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.forgesdlc.com/schemas/host-operator-steps.schema.json",
+  "title": "Forge Fleet host operator steps JSON (docs only)",
+  "description": "Array of versioned operator notes in docs/host-operator-steps.json",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["version", "title", "commands"],
+    "properties": {
+      "version": { "type": "string" },
+      "title": { "type": "string", "minLength": 1 },
+      "commands": {
+        "type": "array",
+        "items": { "type": "string" }
+      }
+    }
+  }
+}

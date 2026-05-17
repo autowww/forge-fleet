@@ -7,11 +7,14 @@ import pytest
 from fleet_server import runner
 
 
-def test_resolve_argv_docker_respects_fleet_docker_bin(monkeypatch) -> None:
-    monkeypatch.setenv("FLEET_DOCKER_BIN", "/opt/bin/docker")
+def test_resolve_argv_docker_respects_fleet_docker_bin(monkeypatch, tmp_path) -> None:
+    fake = tmp_path / "docker"
+    fake.write_text("#!/bin/sh\necho hi\n")
+    fake.chmod(0o755)
+    monkeypatch.setenv("FLEET_DOCKER_BIN", str(fake))
     monkeypatch.delenv("PATH", raising=False)
     out = runner._resolve_argv_docker(["docker", "run", "--rm", "alpine"])
-    assert out[0] == "/opt/bin/docker"
+    assert out[0] == str(fake.resolve())
     assert out[1:] == ["run", "--rm", "alpine"]
 
 

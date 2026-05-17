@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.forgesdlc.com/schemas/template-package-upload-response.schema.json",
+  "title": "Forge Fleet PUT /v1/container-templates/{id}/package 200 body",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["ok", "id", "ref", "sha256", "upload_bytes"],
+  "properties": {
+    "ok": { "const": true },
+    "id": { "type": "string" },
+    "ref": { "type": "string" },
+    "sha256": { "type": "string" },
+    "upload_bytes": { "type": "integer", "minimum": 0 }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.forgesdlc.com/schemas/cooldown-event-create-request.schema.json",
+  "title": "Forge Fleet POST /v1/cooldown-events body",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["duration_s"],
+  "properties": {
+    "duration_s": { "type": "number", "minimum": 0 },
+    "kind": { "type": "string" },
+    "meta": { "type": "object" }
+  }
+}

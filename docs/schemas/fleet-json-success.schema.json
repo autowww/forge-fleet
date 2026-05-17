@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.forgesdlc.com/schemas/fleet-json-success.schema.json",
+  "title": "Forge Fleet JSON success envelope",
+  "description": "Responses with ok: true and additional fields; prefer a tighter schema when one exists.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["ok"],
+  "properties": {
+    "ok": { "const": true }
+  }
+}

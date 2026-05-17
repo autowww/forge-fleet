@@ -6,6 +6,11 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []
 
+[project.optional-dependencies]
+docs = [
+    "jsonschema>=4.20",
+]
+
 [project.scripts]
 fleet-server = "fleet_server.main:main"
 fleet-telemetry-sample = "fleet_server.telemetry_sampler:main"
@@ -24,6 +29,18 @@ fleet_server = [
 ]
 
 [tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+norecursedirs = [
+    ".git",
+    ".venv",
+    "build",
+    "dist",
+    "blueprints",
+    "kitchensink",
+    ".pytest_cache",
+    ".github",
+]
 markers = [
     "integration: requires a working Docker daemon (see tests/test_fleet_docker_integration.py)",
 ]

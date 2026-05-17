@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.forgesdlc.com/schemas/container-templates-status-response.schema.json",
+  "title": "Forge Fleet GET /v1/container-templates/status 200 body (subset)",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["ok", "build_cache", "build_state"],
+  "properties": {
+    "ok": { "const": true },
+    "build_cache": { "type": "object" },
+    "build_state": { "type": "object" }
+  }
+}

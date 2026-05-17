@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.forgesdlc.com/schemas/build-cache.schema.json",
+  "title": "Forge Fleet requirement template build cache",
+  "description": "Persisted at etc/containers/build_cache.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "entries"],
+  "properties": {
+    "version": { "type": "integer", "minimum": 1 },
+    "entries": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/entry" }
+    }
+  },
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "image": { "type": "string" },
+        "fingerprint": { "type": "string" },
+        "built_at": { "type": "number" },
+        "dockerfile_sha256": { "type": "string" },
+        "last_error": { "type": ["string", "null"] },
+        "failed_at": { "type": "number" }
+      }
+    }
+  }
+}

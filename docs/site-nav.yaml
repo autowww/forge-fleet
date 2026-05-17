@@ -1,0 +1,47 @@
+# Forge Fleet public handbook — manifest-driven IA (horizontal nav + section sidebars).
+# Consumed by forge-autodoc when HandbookBuildConfig.site_nav_yaml points here.
+version: 1
+brand_label: Forge Fleet
+top_level:
+  - id: home
+    label: Home
+    single_href_md: README.md
+  - id: start
+    label: Start
+    hub_href_md: docs/start/README.md
+    sidebar_prefix: docs/start/
+    dropdown_max_items: 12
+  - id: learn
+    label: Learn
+    hub_href_md: docs/learn-101/README.md
+    sidebar_prefix: docs/learn-101/
+    dropdown_max_items: 14
+  - id: build
+    label: Build
+    hub_href_md: docs/build-201/README.md
+    sidebar_prefix: docs/build-201/
+    dropdown_max_items: 14
+  - id: operate
+    label: Operate
+    hub_href_md: docs/operate-301/README.md
+    sidebar_prefix: docs/operate-301/
+    dropdown_max_items: 14
+  - id: reference
+    label: Reference
+    hub_href_md: docs/reference/README.md
+    sidebar_prefix: docs/reference/
+    dropdown_max_items: 12
+  - id: examples
+    label: Examples
+    hub_href_md: docs/examples/README.md
+    sidebar_prefix: docs/examples/
+    dropdown_max_items: 16
+  - id: more
+    label: More
+    children:
+      - label: Maintainers
+        href_md: docs/maintainers/README.md
+      - label: Design hub
+        href_md: docs/design/README.md
+      - label: Changelog
+        href_md: CHANGELOG.md

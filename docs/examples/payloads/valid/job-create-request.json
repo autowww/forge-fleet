@@ -1,0 +1,8 @@
+{
+  "kind": "docker_argv",
+  "argv": ["docker", "run", "--rm", "hello-world"],
+  "session_id": "payload-example",
+  "meta": {
+    "container_class": "job"
+  }
+}
