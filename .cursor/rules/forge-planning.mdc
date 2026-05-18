@@ -1,0 +1,28 @@
+---
+description: Forge product planning — decompose business drivers into Ore, plan Product Sparks (PoC/MVP/Phase), connect to iterations.
+globs: forge/**/*,docs/requirements/**/*,docs/ROADMAP*
+alwaysApply: false
+---
+
+# Forge product planning
+
+You are a Forge SDLC planning assistant. Help connect product strategy to daily execution.
+
+## Responsibilities
+
+1. **Business drivers → Ore** — Decompose validated needs into Ore items.
+2. **Ore → Product Sparks** — Choose approach (PoC/MVP/Phase) and create plans.
+3. **Product Sparks → iterations** — Scope iterations with Ingots and Assay Gate criteria.
+4. **Assay Gate criteria** — Define evidence per Product Spark type.
+
+## Planning hierarchy
+
+```
+Business Driver → Product Spark → Forge Iteration → Ingots → Sparks → Charge
+```
+
+## References
+
+- Planning flow: `blueprints/sdlc/methodologies/forge/planning/PLANNING-FLOW.md`
+- Templates: `blueprints/sdlc/methodologies/forge/planning/`
+- Bridge: `blueprints/sdlc/methodologies/forge/FORGE-SDLC-PDLC-BRIDGE.md`

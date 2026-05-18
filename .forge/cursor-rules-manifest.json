@@ -1,0 +1,79 @@
+{
+  "generated_at": "2026-05-17T09:35:40.268451+00:00",
+  "blueprints_commit": "5b08d135261e32c9c39171f1678dbae7e50507be",
+  "preset": null,
+  "rules": [
+    {
+      "name": "versona-se.mdc",
+      "label": "versona",
+      "source_sha256": "9fa6692b1ffabfc624edd7ee4b9de59237253bde42f0a0a84bb6c72c76f26003",
+      "installed_sha256": "9fa6692b1ffabfc624edd7ee4b9de59237253bde42f0a0a84bb6c72c76f26003"
+    },
+    {
+      "name": "versona-architecture.mdc",
+      "label": "versona",
+      "source_sha256": "a8115defae68cc055308c0a4903be9acb3fb28ec31c9ed6d822188ec40ed98b3",
+      "installed_sha256": "a8115defae68cc055308c0a4903be9acb3fb28ec31c9ed6d822188ec40ed98b3"
+    },
+    {
+      "name": "versona-devops.mdc",
+      "label": "versona",
+      "source_sha256": "354070d27d916ed9b3a58a0cff38a968d90fe820ebcb7d154f42bcecad230d64",
+      "installed_sha256": "354070d27d916ed9b3a58a0cff38a968d90fe820ebcb7d154f42bcecad230d64"
+    },
+    {
+      "name": "versona-testing.mdc",
+      "label": "versona",
+      "source_sha256": "efcb671280335b0e4cbd0390de87859e1827e4c006f7b5225a637f1c90dae039",
+      "installed_sha256": "efcb671280335b0e4cbd0390de87859e1827e4c006f7b5225a637f1c90dae039"
+    },
+    {
+      "name": "versona-product-management.mdc",
+      "label": "versona",
+      "source_sha256": "c01402609c5d2fd6ba07a01b9ba48e2dc0edc1b161f599407b61de413d65fee0",
+      "installed_sha256": "c01402609c5d2fd6ba07a01b9ba48e2dc0edc1b161f599407b61de413d65fee0"
+    },
+    {
+      "name": "versona-ba.mdc",
+      "label": "versona",
+      "source_sha256": "fe1e53643101beaa536e8ff7349c3966a3b0d25ac47e2cc9dfa39badef0209a8",
+      "installed_sha256": "fe1e53643101beaa536e8ff7349c3966a3b0d25ac47e2cc9dfa39badef0209a8"
+    },
+    {
+      "name": "versona-ux.mdc",
+      "label": "versona",
+      "source_sha256": "12644fd78ba037d024c08db07a78d8e885488ab51084fbd501102dbcf58f41ea",
+      "installed_sha256": "12644fd78ba037d024c08db07a78d8e885488ab51084fbd501102dbcf58f41ea"
+    },
+    {
+      "name": "versona-marketing.mdc",
+      "label": "versona",
+      "source_sha256": "c982a53153cd1d5ffad70903c57075fa2540e9e2b8f6a05520c710759808ae7d",
+      "installed_sha256": "c982a53153cd1d5ffad70903c57075fa2540e9e2b8f6a05520c710759808ae7d"
+    },
+    {
+      "name": "versona-cs.mdc",
+      "label": "versona",
+      "source_sha256": "26ead5a870a23789facef4f132dd85acf27d383ca8301fd9aaece67c0ce8879f",
+      "installed_sha256": "26ead5a870a23789facef4f132dd85acf27d383ca8301fd9aaece67c0ce8879f"
+    },
+    {
+      "name": "versona-pm.mdc",
+      "label": "versona",
+      "source_sha256": "7307312713b23d7988d999c5054f90159de760168c5b610d3c74e5446f3d6a28",
+      "installed_sha256": "7307312713b23d7988d999c5054f90159de760168c5b610d3c74e5446f3d6a28"
+    },
+    {
+      "name": "versona-security.mdc",
+      "label": "versona",
+      "source_sha256": "b3d614994b0a23ae649bc6bf4343e54723ab3fbf70127c7f9b58884697414214",
+      "installed_sha256": "b3d614994b0a23ae649bc6bf4343e54723ab3fbf70127c7f9b58884697414214"
+    },
+    {
+      "name": "versona-compliance.mdc",
+      "label": "versona",
+      "source_sha256": "1c921a3bdda23936447a3985a267127887b4453364524dbdfae76fef4adb348a",
+      "installed_sha256": "1c921a3bdda23936447a3985a267127887b4453364524dbdfae76fef4adb348a"
+    }
+  ]
+}
