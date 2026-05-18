@@ -11,3 +11,10 @@ node_modules/
 test-results/
 playwright-report/
 .playwright/
+
+ember-logs/
+
+# Local Cursor workspace + Forge journal (not product source)
+.cursor/
+.forge/
+forge/
