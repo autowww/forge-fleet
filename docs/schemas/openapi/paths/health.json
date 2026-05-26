@@ -1,0 +1,39 @@
+{
+  "/v1/health": {
+    "get": {
+      "tags": [
+        "v1"
+      ],
+      "summary": "Host + version snapshot",
+      "security": [
+        {
+          "bearerAuth": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Liveness information, auth flag, host snapshot subset.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HealthResponse"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        }
+      },
+      "operationId": "getHealth",
+      "description": "Host + version snapshot. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+    }
+  }
+}

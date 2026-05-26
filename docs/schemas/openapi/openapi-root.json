@@ -1,0 +1,22 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Forge Fleet HTTP API",
+    "version": "0.3.61",
+    "description": "HTTP API for forge-fleet (fleet_server). Bearer auth on /v1 unless listen loopback-only and token unset; workspace-worker routes use X-Workspace-Worker-Token. Narrative handbook: docs/reference/01-http-api-reference.md."
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:18765",
+      "description": "Default CLI port"
+    },
+    {
+      "url": "http://127.0.0.1:18766",
+      "description": "Common user install port"
+    },
+    {
+      "url": "https://fleet.example.com",
+      "description": "TLS reverse proxy (replace host)"
+    }
+  ]
+}

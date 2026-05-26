@@ -9,6 +9,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 OPENAPI_PATH = REPO / "docs" / "schemas" / "openapi.json"
+FRAGMENTS = REPO / "docs" / "schemas" / "openapi"
 
 BINARY_PUTS = {
     ("put", "/v1/jobs/{id}/workspace"),
@@ -25,6 +26,11 @@ def _has_json_schema(content: dict) -> bool:
 
 
 def main() -> int:
+    if FRAGMENTS.is_dir():
+        sys.path.insert(0, str(REPO / "scripts"))
+        from split_footprint_modules import bundle_openapi
+
+        bundle_openapi()
     doc = json.loads(OPENAPI_PATH.read_text(encoding="utf-8"))
     paths = doc.get("paths")
     if not isinstance(paths, dict):

@@ -1,0 +1,118 @@
+{
+  "securitySchemes": {
+    "bearerAuth": {
+      "type": "http",
+      "scheme": "bearer",
+      "description": "FLEET_BEARER_TOKEN; required when bound non-loopback with token set (see FLEET_ENFORCE_BEARER)."
+    },
+    "workspaceWorkerAuth": {
+      "type": "apiKey",
+      "in": "header",
+      "name": "X-Workspace-Worker-Token",
+      "description": "Per-job token from job meta (workspace worker bridge)."
+    }
+  },
+  "schemas": {
+    "ErrorJson": {
+      "type": "object",
+      "properties": {
+        "ok": {
+          "const": false
+        },
+        "error": {
+          "type": "string"
+        },
+        "detail": {}
+      }
+    },
+    "JobCreateRequest": {
+      "$ref": "job-create-request.schema.json"
+    },
+    "JobAcceptedResponse": {
+      "type": "object",
+      "required": [
+        "ok",
+        "id",
+        "status"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean",
+          "const": true
+        },
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        }
+      }
+    },
+    "AdminSnapshotResponse": {
+      "$ref": "admin-snapshot-response.schema.json"
+    },
+    "BuildCache": {
+      "$ref": "build-cache.schema.json"
+    },
+    "ContainerService": {
+      "$ref": "container-service.schema.json"
+    },
+    "ContainerServicesListResponse": {
+      "$ref": "container-services-list-response.schema.json"
+    },
+    "ContainerTemplatesListResponse": {
+      "$ref": "container-templates-list-response.schema.json"
+    },
+    "ContainerTemplatesStatusResponse": {
+      "$ref": "container-templates-status-response.schema.json"
+    },
+    "ContainerTypes": {
+      "$ref": "container-types.schema.json"
+    },
+    "CooldownEventCreateRequest": {
+      "$ref": "cooldown-event-create-request.schema.json"
+    },
+    "CooldownSummaryResponse": {
+      "$ref": "cooldown-summary-response.schema.json"
+    },
+    "FleetJsonSuccess": {
+      "$ref": "fleet-json-success.schema.json"
+    },
+    "HealthResponse": {
+      "$ref": "health-response.schema.json"
+    },
+    "HostOperatorSteps": {
+      "$ref": "host-operator-steps.schema.json"
+    },
+    "JobCancelResponse": {
+      "$ref": "job-cancel-response.schema.json"
+    },
+    "JobResponse": {
+      "$ref": "job-response.schema.json"
+    },
+    "OkTrue": {
+      "$ref": "ok-true.schema.json"
+    },
+    "RequirementTemplates": {
+      "$ref": "requirement-templates.schema.json"
+    },
+    "TelemetryResponse": {
+      "$ref": "telemetry-response.schema.json"
+    },
+    "TemplatePackageUploadResponse": {
+      "$ref": "template-package-upload-response.schema.json"
+    },
+    "VersionResponse": {
+      "$ref": "version-response.schema.json"
+    },
+    "WorkspaceManifest": {
+      "$ref": "workspace-manifest.schema.json"
+    },
+    "WorkspaceUploadResponse": {
+      "$ref": "workspace-upload-response.schema.json"
+    },
+    "WorkspaceWorkerBundleResponse": {
+      "$ref": "workspace-worker-bundle-response.schema.json"
+    }
+  }
+}

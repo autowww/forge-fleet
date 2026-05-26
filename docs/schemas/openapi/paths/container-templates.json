@@ -1,0 +1,357 @@
+{
+  "/v1/container-templates/status": {
+    "get": {
+      "tags": [
+        "v1"
+      ],
+      "summary": "Requirement-template build cache status",
+      "security": [
+        {
+          "bearerAuth": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Template build cache and in-process build state.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContainerTemplatesStatusResponse"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        }
+      },
+      "operationId": "getContainerTemplatesStatus",
+      "description": "Requirement-template build cache status. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+    }
+  },
+  "/v1/container-templates": {
+    "get": {
+      "tags": [
+        "v1-templates"
+      ],
+      "summary": "Requirement templates file + paths",
+      "security": [
+        {
+          "bearerAuth": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Current requirement templates document and paths.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContainerTemplatesListResponse"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        }
+      },
+      "operationId": "listContainerTemplates",
+      "description": "Requirement templates file + paths. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+    },
+    "put": {
+      "tags": [
+        "v1-templates"
+      ],
+      "summary": "Replace requirement_templates.json",
+      "security": [
+        {
+          "bearerAuth": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Success payload (see handbook for fields).",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        },
+        "400": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        }
+      },
+      "operationId": "upsertContainerTemplates",
+      "description": "Replace requirement_templates.json. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+    }
+  },
+  "/v1/container-templates/resolve": {
+    "get": {
+      "tags": [
+        "v1-templates"
+      ],
+      "summary": "Resolve requirements to image (query: requirements, build flags)",
+      "security": [
+        {
+          "bearerAuth": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Resolved image / cache state for requested requirement ids.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContainerTemplatesListResponse"
+              }
+            }
+          }
+        },
+        "400": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        }
+      },
+      "operationId": "resolveContainerTemplate",
+      "description": "Resolve requirements to image (query: requirements, build flags). Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+    }
+  },
+  "/v1/container-templates/build": {
+    "post": {
+      "tags": [
+        "v1-templates"
+      ],
+      "summary": "Build/pull template images for requirement ids",
+      "security": [
+        {
+          "bearerAuth": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Success payload (see handbook for fields).",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        },
+        "400": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        }
+      },
+      "operationId": "buildContainerTemplate",
+      "requestBody": {
+        "required": false,
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      },
+      "description": "Build/pull template images for requirement ids. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+    }
+  },
+  "/v1/container-templates/{id}/package": {
+    "put": {
+      "tags": [
+        "v1-templates"
+      ],
+      "summary": "Upload requirement template tar.gz package",
+      "security": [
+        {
+          "bearerAuth": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Template package extracted and requirement row upserted.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TemplatePackageUploadResponse"
+              }
+            }
+          }
+        },
+        "400": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        },
+        "409": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        }
+      },
+      "operationId": "putContainerTemplatePackage",
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          },
+          "description": "Path parameter `id`."
+        },
+        {
+          "name": "X-Template-Package-Sha256",
+          "in": "header",
+          "required": false,
+          "schema": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "description": "Optional SHA-256 (hex) of the raw body; mismatch returns 400."
+        },
+        {
+          "name": "title",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "string"
+          },
+          "description": "Template title when creating/updating the requirement row."
+        },
+        {
+          "name": "notes",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "string"
+          },
+          "description": "Optional notes stored on the template row."
+        },
+        {
+          "name": "replace",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "string",
+            "enum": [
+              "0",
+              "1",
+              "true",
+              "false",
+              "yes",
+              "no"
+            ]
+          },
+          "description": "When `0`/`false`/`no`, refuse overwrite if template exists. Defaults to replace."
+        }
+      ],
+      "description": "Upload requirement template tar.gz package. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`.",
+      "requestBody": {
+        "required": true,
+        "description": "Tar or tar.gz archive containing a Docker build context (Dockerfile at root or under one top-level directory). Typical clients send `Content-Type: application/octet-stream`.",
+        "content": {
+          "application/octet-stream": {
+            "schema": {
+              "type": "string",
+              "format": "binary"
+            }
+          },
+          "application/gzip": {
+            "schema": {
+              "type": "string",
+              "format": "binary"
+            }
+          }
+        }
+      }
+    }
+  }
+}

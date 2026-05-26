@@ -1,0 +1,62 @@
+{
+  "/v1/cooldown-events": {
+    "post": {
+      "tags": [
+        "v1"
+      ],
+      "summary": "Record cooldown wait",
+      "security": [
+        {
+          "bearerAuth": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Cooldown event recorded (duration may be clamped).",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OkTrue"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        },
+        "400": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        },
+        "201": {
+          "description": "See forge-fleet docs for response body; JSON object."
+        }
+      },
+      "operationId": "createCooldownEvent",
+      "requestBody": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/CooldownEventCreateRequest"
+            }
+          }
+        }
+      },
+      "description": "Record cooldown wait. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+    }
+  }
+}

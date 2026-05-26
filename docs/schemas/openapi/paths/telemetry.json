@@ -1,0 +1,49 @@
+{
+  "/v1/telemetry": {
+    "get": {
+      "tags": [
+        "v1"
+      ],
+      "summary": "Telemetry samples (period query required)",
+      "security": [
+        {
+          "bearerAuth": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Telemetry samples for requested `period` window.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TelemetryResponse"
+              }
+            }
+          }
+        },
+        "400": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        }
+      },
+      "operationId": "getTelemetry",
+      "description": "Telemetry samples (period query required). Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+    }
+  }
+}

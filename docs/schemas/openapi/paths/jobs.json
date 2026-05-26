@@ -1,0 +1,468 @@
+{
+  "/v1/jobs/{id}/workspace-worker-bundle": {
+    "get": {
+      "tags": [
+        "v1-workspace-worker"
+      ],
+      "summary": "Fetch argv bundle for inner workspace worker",
+      "security": [
+        {
+          "workspaceWorkerAuth": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Argv bundle for inner workspace worker; requires `X-Workspace-Worker-Token`.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceWorkerBundleResponse"
+              }
+            }
+          }
+        },
+        "400": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        },
+        "403": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        },
+        "404": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        }
+      },
+      "operationId": "getJobWorkspaceWorkerBundle",
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          },
+          "description": "Path parameter `id`."
+        }
+      ],
+      "description": "Fetch argv bundle for inner workspace worker. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+    }
+  },
+  "/v1/jobs/{id}/workspace-worker-progress": {
+    "post": {
+      "tags": [
+        "v1-workspace-worker"
+      ],
+      "summary": "Report progress",
+      "security": [
+        {
+          "workspaceWorkerAuth": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Progress or terminal result stored; minimal ack.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OkTrue"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        },
+        "404": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        }
+      },
+      "operationId": "postJobWorkspaceWorkerProgress",
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          },
+          "description": "Path parameter `id`."
+        }
+      ],
+      "description": "Report progress. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+    }
+  },
+  "/v1/jobs/{id}/workspace-worker-complete": {
+    "post": {
+      "tags": [
+        "v1-workspace-worker"
+      ],
+      "summary": "Final worker result",
+      "security": [
+        {
+          "workspaceWorkerAuth": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Progress or terminal result stored; minimal ack.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OkTrue"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        },
+        "404": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        }
+      },
+      "operationId": "completeJobWorkspaceWorker",
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          },
+          "description": "Path parameter `id`."
+        }
+      ],
+      "description": "Final worker result. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+    }
+  },
+  "/v1/jobs/{id}": {
+    "get": {
+      "tags": [
+        "v1-jobs"
+      ],
+      "summary": "Job status and logs",
+      "security": [
+        {
+          "bearerAuth": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Job record including argv, meta, logs fields when present.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobResponse"
+              }
+            }
+          }
+        },
+        "404": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        }
+      },
+      "operationId": "getJob",
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          },
+          "description": "Path parameter `id`."
+        }
+      ],
+      "description": "Job status and logs. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+    }
+  },
+  "/v1/jobs": {
+    "post": {
+      "tags": [
+        "v1"
+      ],
+      "summary": "Create docker_argv job",
+      "security": [
+        {
+          "bearerAuth": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "See forge-fleet docs for response body; JSON object."
+        },
+        "401": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        },
+        "400": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        },
+        "201": {
+          "description": "Job accepted and queued (or awaiting workspace upload).",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobAcceptedResponse"
+              }
+            }
+          }
+        }
+      },
+      "operationId": "createJob",
+      "requestBody": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/JobCreateRequest"
+            }
+          }
+        }
+      },
+      "description": "Create docker_argv job. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+    }
+  },
+  "/v1/jobs/{id}/cancel": {
+    "post": {
+      "tags": [
+        "v1-jobs"
+      ],
+      "summary": "Cancel job",
+      "security": [
+        {
+          "bearerAuth": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Cancel request applied (best effort if already terminal).",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobCancelResponse"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        }
+      },
+      "operationId": "cancelJob",
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          },
+          "description": "Path parameter `id`."
+        }
+      ],
+      "description": "Cancel job. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+    }
+  },
+  "/v1/jobs/{id}/workspace": {
+    "put": {
+      "tags": [
+        "v1-jobs"
+      ],
+      "summary": "Upload gzip workspace tarball",
+      "security": [
+        {
+          "bearerAuth": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Workspace extracted; job spawn continues.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceUploadResponse"
+              }
+            }
+          }
+        },
+        "400": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        },
+        "404": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        },
+        "409": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        }
+      },
+      "operationId": "uploadJobWorkspace",
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          },
+          "description": "Path parameter `id`."
+        },
+        {
+          "name": "X-Workspace-Archive-Sha256",
+          "in": "header",
+          "required": false,
+          "schema": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "description": "Optional SHA-256 (hex) of the raw body; mismatch returns 400."
+        }
+      ],
+      "description": "Upload gzip workspace tarball. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`.",
+      "requestBody": {
+        "required": true,
+        "description": "Raw bytes of a gzip-compressed tar archive for the job workspace. The server extracts to a host directory before `docker argv` runs. Typical clients send `Content-Type: application/octet-stream`.",
+        "content": {
+          "application/octet-stream": {
+            "schema": {
+              "type": "string",
+              "format": "binary"
+            }
+          },
+          "application/gzip": {
+            "schema": {
+              "type": "string",
+              "format": "binary"
+            }
+          }
+        }
+      }
+    }
+  }
+}

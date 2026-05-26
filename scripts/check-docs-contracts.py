@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail if fleet_server/main.py exposes HTTP routes not listed in docs/schemas/openapi.json."""
+"""Fail if fleet_server HTTP routes are not listed in docs/schemas/openapi.json."""
 
 from __future__ import annotations
 
@@ -9,23 +9,27 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-MAIN_PY = REPO_ROOT / "fleet_server" / "main.py"
+ROUTES_DIR = REPO_ROOT / "fleet_server" / "http" / "routes"
 OPENAPI = REPO_ROOT / "docs" / "schemas" / "openapi.json"
 
-VERB_MAP = {"do_GET": "GET", "do_POST": "POST", "do_PUT": "PUT", "do_DELETE": "DELETE"}
+VERB_MAP = {
+    "get.py": "GET",
+    "post.py": "POST",
+    "put.py": "PUT",
+    "delete.py": "DELETE",
+}
 
 
-def _split_handler_methods(src: str) -> list[tuple[str, str]]:
-    """Return [(do_GET, body), ...] for FleetHandler HTTP verbs only."""
-    rx = re.compile(r"^    def (do_(?:GET|POST|PUT|DELETE))\(self\) -> None:", re.M)
-    matches = list(rx.finditer(src))
-    out: list[tuple[str, str]] = []
-    for i, m in enumerate(matches):
-        name = m.group(1)
-        start = m.end()
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(src)
-        out.append((name, src[start:end]))
-    return out
+def _split_handler_method(src: str, do_name: str) -> str:
+    rx = re.compile(rf"^    def {re.escape(do_name)}\(self\) -> None:", re.M)
+    m = rx.search(src)
+    if not m:
+        return ""
+    start = m.end()
+    nxt = re.compile(r"^    def ", re.M)
+    m2 = nxt.search(src, start)
+    end = m2.start() if m2 else len(src)
+    return src[start:end]
 
 
 def _literal_paths(body: str) -> list[str]:
@@ -38,8 +42,7 @@ def _literal_paths(body: str) -> list[str]:
 def _regex_patterns(body: str) -> list[str]:
     patterns: list[str] = []
     for m in re.finditer(r're\.match\(r"(\^[^\n"]+\$)"\s*,\s*path\)', body):
-        p = m.group(1)
-        patterns.append(p)
+        patterns.append(m.group(1))
     for m in re.finditer(r"re\.match\(r'(\^[^\n']+\$)'\s*,\s*path\)", body):
         patterns.append(m.group(1))
     return patterns
@@ -51,7 +54,6 @@ def _regex_to_openapi_paths(patt: str) -> list[str]:
         return []
     inner = patt[1:-1]
 
-    # Special: workspace worker progress OR complete (single regex → two HTTP routes)
     if "workspace-worker-(progress|complete)" in inner:
         return [
             "/v1/jobs/{id}/workspace-worker-progress",
@@ -72,11 +74,21 @@ def _regex_to_openapi_paths(patt: str) -> list[str]:
     return [s]
 
 
-def routes_from_main_py() -> set[tuple[str, str]]:
-    src = MAIN_PY.read_text(encoding="utf-8")
+def routes_from_http_routes() -> set[tuple[str, str]]:
     found: set[tuple[str, str]] = set()
-    for do_name, body in _split_handler_methods(src):
-        verb = VERB_MAP[do_name]
+    do_by_file = {
+        "get.py": "do_GET",
+        "post.py": "do_POST",
+        "put.py": "do_PUT",
+        "delete.py": "do_DELETE",
+    }
+    for fname, do_name in do_by_file.items():
+        path = ROUTES_DIR / fname
+        if not path.is_file():
+            continue
+        src = path.read_text(encoding="utf-8")
+        body = _split_handler_method(src, do_name)
+        verb = VERB_MAP[fname]
         for p in _literal_paths(body):
             found.add((verb, p))
         for rx in _regex_patterns(body):
@@ -101,14 +113,14 @@ def routes_from_openapi(doc: dict) -> set[tuple[str, str]]:
 
 
 def main() -> int:
-    if not MAIN_PY.is_file():
-        print(f"check-docs-contracts: missing {MAIN_PY}", file=sys.stderr)
+    if not ROUTES_DIR.is_dir():
+        print(f"check-docs-contracts: missing {ROUTES_DIR}", file=sys.stderr)
         return 2
     if not OPENAPI.is_file():
         print(f"check-docs-contracts: missing {OPENAPI}", file=sys.stderr)
         return 2
 
-    code_routes = routes_from_main_py()
+    code_routes = routes_from_http_routes()
     oapi = json.loads(OPENAPI.read_text(encoding="utf-8"))
     spec_routes = routes_from_openapi(oapi)
 
@@ -116,17 +128,20 @@ def main() -> int:
     extra_in_openapi = sorted(spec_routes - code_routes)
 
     if missing_in_openapi:
-        print("check-docs-contracts: routes implemented in fleet_server/main.py but missing from OpenAPI:", file=sys.stderr)
+        print(
+            "check-docs-contracts: routes in fleet_server/http/routes but missing from OpenAPI:",
+            file=sys.stderr,
+        )
         for verb, path in missing_in_openapi:
             print(f"  {verb} {path}", file=sys.stderr)
         if extra_in_openapi:
-            print("check-docs-contracts: (info) OpenAPI-only routes (not in parser output):", file=sys.stderr)
+            print("check-docs-contracts: (info) OpenAPI-only routes:", file=sys.stderr)
             for verb, path in extra_in_openapi:
                 print(f"  {verb} {path}", file=sys.stderr)
         return 1
 
     if extra_in_openapi:
-        print("check-docs-contracts: OpenAPI lists routes not extracted from main.py:", file=sys.stderr)
+        print("check-docs-contracts: OpenAPI lists routes not in http/routes:", file=sys.stderr)
         for verb, path in extra_in_openapi:
             print(f"  {verb} {path}", file=sys.stderr)
         return 1

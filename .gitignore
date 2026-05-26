@@ -14,7 +14,11 @@ playwright-report/
 
 ember-logs/
 
-# Local Cursor workspace + Forge journal (not product source)
-.cursor/
+# Cursor — ignore local workspace noise; keep shareable .mdc rules for @-mentions and sync
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/**
+
+# Forge journal / local config (not product source)
 .forge/
 forge/

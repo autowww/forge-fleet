@@ -1,0 +1,60 @@
+{
+  "/v1/containers/dispose": {
+    "post": {
+      "tags": [
+        "v1"
+      ],
+      "summary": "docker rm -f by id",
+      "security": [
+        {
+          "bearerAuth": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Success payload (see handbook for fields).",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        },
+        "400": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        }
+      },
+      "operationId": "disposeContainer",
+      "requestBody": {
+        "required": false,
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      },
+      "description": "docker rm -f by id. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+    }
+  }
+}

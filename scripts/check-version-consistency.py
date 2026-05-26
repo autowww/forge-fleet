@@ -21,7 +21,9 @@ def _pyproject_version() -> str:
 def _openapi_version() -> str:
     import json
 
-    p = REPO / "docs" / "schemas" / "openapi.json"
+    p = REPO / "docs" / "schemas" / "openapi" / "openapi-root.json"
+    if not p.is_file():
+        p = REPO / "docs" / "schemas" / "openapi.json"
     doc = json.loads(p.read_text(encoding="utf-8"))
     v = doc.get("info", {}).get("version")
     if not v:

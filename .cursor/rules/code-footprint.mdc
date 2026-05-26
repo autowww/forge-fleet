@@ -1,0 +1,60 @@
+---
+description: Code footprint and analyzability — LLM-sized file bands (default profile tight). Plan semantic splits; exclude generated website/tutorial/CDN output.
+globs: **/*.py,**/*.js,**/*.ts,**/*.tsx,**/*.jsx,**/*.mjs,**/*.cjs,**/*.java,**/*.kt,**/*.go,**/*.rs,**/*.rb,**/*.php,**/*.sh,**/*.yaml,**/*.yml,**/*.json,**/*.toml,**/*.md
+alwaysApply: false
+---
+
+# Code Footprint And Analyzability
+
+Use when reviewing or editing source, after a `blueprints/` bump, or when a file is too large for a focused human or **small-LLM** (e.g. ~4 GB GPU) review pass.
+
+## Default profile: **tight**
+
+Unless the repo overrides it, treat **tight** as the **maximum target** for analyzable source files.
+
+| Band | LoC (proxy) | Rough tokens | Stance |
+|------|-------------|--------------|--------|
+| **comfortable** | ≤ ~400 | ≤ ~3k | Easy one-pass review. |
+| **tight** | ≤ ~700 | ≤ ~6k | **Default target** — keep new/edited files here. |
+| **risky** | ≤ ~1,500 | ≤ ~12k | Chunk by module or split before more behavior. |
+| **poor** | above risky | above ~12k | Split plan or documented exception required. |
+
+**Tokens beat LoC** for LLM limits. Prefer measuring bytes ÷ 4 over counting lines only.
+
+Override profile: set `FORGE_CODE_FOOTPRINT_PROFILE` to `comfortable`, `tight`, or `strict`, or document overrides in `AGENTS.md` / `forge/standards-registry.yaml`.
+
+Canonical detail: `blueprints/sdlc/methodologies/agentic-coding-standards.md` § Code analyzability and file footprint.
+
+## Exclusions
+
+Do not size or split generated/vendor outputs unless the user explicitly treats them as source of truth:
+
+- generated `website/`, `showcase/`, `dist/`, `build/`, coverage, static export trees
+- minified CDN or vendor files
+- generated tutorial HTML/CSS/JS
+- lockfiles, snapshots, vendored dependencies, package manager caches
+- read-only **`blueprints/`** and **`kitchensink/`** submodule copies (edit upstream repos)
+
+## When a file exceeds **tight**
+
+1. Inspect responsibility and local conventions before proposing a split.
+2. Prefer a **split plan** before rewriting behavior.
+3. Keep entrypoints stable (imports, CLI, public APIs, URLs, persisted contracts).
+4. Split by meaning: entrypoint, config, domain services, IO/adapters, rendering, tests/fixtures, shared types.
+5. Add `README.md` or `INDEX.md` in any new folder (purpose, entrypoints, file map).
+6. One PR per mechanical split; no unrelated feature work in the same PR.
+
+## Scan and rule sync (after Blueprints bump)
+
+```bash
+# Default profile tight — lists risky + poor (exceeds tight target)
+python3 blueprints/sdlc/methodologies/forge/setup/code_footprint_scan.py .
+
+# Also list files in tight band (at target ceiling)
+python3 blueprints/sdlc/methodologies/forge/setup/code_footprint_scan.py . --profile comfortable
+
+bash blueprints/sdlc/methodologies/forge/setup/sync-forge-cursor-rules.sh status --preset recommended --with-code-footprint-rules
+bash blueprints/sdlc/methodologies/forge/setup/sync-forge-cursor-rules.sh diff --preset recommended --with-code-footprint-rules
+```
+
+Review `diff` before `--force`. Scanner is readonly; do not auto-split files.

@@ -1,0 +1,330 @@
+{
+  "/admin": {
+    "get": {
+      "tags": [
+        "admin"
+      ],
+      "summary": "Redirect to /admin/",
+      "security": [],
+      "responses": {
+        "302": {
+          "description": "Redirect to `/admin/`.",
+          "headers": {
+            "Location": {
+              "schema": {
+                "type": "string"
+              },
+              "example": "/admin/"
+            }
+          }
+        }
+      },
+      "operationId": "redirectAdminToSlash",
+      "description": "Redirect to /admin/. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+    }
+  },
+  "/admin/": {
+    "get": {
+      "tags": [
+        "admin"
+      ],
+      "summary": "Admin dashboard HTML",
+      "security": [],
+      "responses": {
+        "200": {
+          "description": "Admin dashboard HTML shell (loads assets under `/admin/ks/`).",
+          "content": {
+            "text/html": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "operationId": "getAdminDashboard",
+      "description": "Admin dashboard HTML. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+    }
+  },
+  "/admin/theme.css": {
+    "get": {
+      "tags": [
+        "admin"
+      ],
+      "summary": "Legacy theme CSS",
+      "security": [],
+      "responses": {
+        "200": {
+          "description": "Packaged Forge SDLC minimal theme; 404 if kitchensink checkout is missing in dev.",
+          "content": {
+            "text/css": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "operationId": "getAdminThemeCss",
+      "description": "Legacy theme CSS. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+    }
+  },
+  "/admin/ks/{path}": {
+    "get": {
+      "tags": [
+        "admin"
+      ],
+      "summary": "Kitchensink static asset",
+      "security": [],
+      "responses": {
+        "200": {
+          "description": "Kitchensink CSS or JavaScript under `kitchensink/css/` or `kitchensink/js/`.",
+          "content": {
+            "text/css": {
+              "schema": {
+                "type": "string"
+              }
+            },
+            "application/javascript": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "404": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        }
+      },
+      "operationId": "getAdminKitchensinkAsset",
+      "parameters": [
+        {
+          "name": "path",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          },
+          "description": "Path parameter `path`."
+        }
+      ],
+      "description": "Kitchensink static asset. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+    }
+  },
+  "/admin/static/{path}": {
+    "get": {
+      "tags": [
+        "admin"
+      ],
+      "summary": "Packaged static (e.g. GPU logos)",
+      "security": [],
+      "responses": {
+        "200": {
+          "description": "Packaged raster/SVG assets (e.g. GPU logos).",
+          "content": {
+            "image/png": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "image/webp": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "image/svg+xml": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "404": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        }
+      },
+      "operationId": "getAdminPackagedStatic",
+      "parameters": [
+        {
+          "name": "path",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          },
+          "description": "Path parameter `path`."
+        }
+      ],
+      "description": "Packaged static (e.g. GPU logos). Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+    }
+  },
+  "/v1/admin/snapshot": {
+    "get": {
+      "tags": [
+        "v1"
+      ],
+      "summary": "Admin snapshot (jobs, integrations, host)",
+      "security": [
+        {
+          "bearerAuth": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Operator snapshot: jobs, host, integrations, recent job rows (paginated).",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminSnapshotResponse"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        }
+      },
+      "operationId": "getAdminSnapshot",
+      "description": "Admin snapshot (jobs, integrations, host). Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+    }
+  },
+  "/v1/admin/test-fleet": {
+    "post": {
+      "tags": [
+        "v1"
+      ],
+      "summary": "Enqueue host_cpu_probe jobs",
+      "security": [
+        {
+          "bearerAuth": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Success payload (see handbook for fields).",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        },
+        "500": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        }
+      },
+      "operationId": "postAdminTestFleet",
+      "requestBody": {
+        "required": false,
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      },
+      "description": "Enqueue host_cpu_probe jobs. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+    }
+  },
+  "/v1/admin/git-self-update": {
+    "post": {
+      "tags": [
+        "v1"
+      ],
+      "summary": "git pull + user install hooks",
+      "security": [
+        {
+          "bearerAuth": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Success payload (see handbook for fields).",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        },
+        "400": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        }
+      },
+      "operationId": "postAdminGitSelfUpdate",
+      "requestBody": {
+        "required": false,
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      },
+      "description": "git pull + user install hooks. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+    }
+  }
+}

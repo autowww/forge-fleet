@@ -1,0 +1,49 @@
+{
+  "/v1/cooldown-summary": {
+    "get": {
+      "tags": [
+        "v1"
+      ],
+      "summary": "Cooldown aggregates (period query required)",
+      "security": [
+        {
+          "bearerAuth": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Cooldown aggregates for requested `period` query.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CooldownSummaryResponse"
+              }
+            }
+          }
+        },
+        "400": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        }
+      },
+      "operationId": "getCooldownSummary",
+      "description": "Cooldown aggregates (period query required). Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+    }
+  }
+}

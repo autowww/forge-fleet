@@ -1,0 +1,39 @@
+{
+  "/v1/version": {
+    "get": {
+      "tags": [
+        "v1"
+      ],
+      "summary": "Package and DB schema version",
+      "security": [
+        {
+          "bearerAuth": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Fleet build identity and DB schema version.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VersionResponse"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "See forge-fleet docs for response body; JSON object.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorJson"
+              }
+            }
+          }
+        }
+      },
+      "operationId": "getVersion",
+      "description": "Package and DB schema version. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`."
+    }
+  }
+}

@@ -1,0 +1,133 @@
+---
+description: Forge Versonas — Project setup. Use when the user asks for setup (blueprints submodule + Forge + Cursor alignment). Orchestrates bootstrap checklist and gap analysis; not a substitute for forge-setup questionnaire.
+globs: 
+alwaysApply: false
+---
+
+## Baseline (inherited)
+
+### Layer 0 — Shared Versona baseline (Forge)
+
+All Versona rules inherit these expectations. **Kind-specific** instructions (discipline identity, routing, family merge, meta, workflow) follow in this file after this baseline.
+
+**Forge state:** Understand Ore → Ingot → Spark → Charge → Done → Released. Calibrate to the work item’s lifecycle position; discipline templates use bridge documents for phase alignment.
+
+**Hats:** Adjust for the active hat (Product, Engineering, Challenge, Governance). Encourage explicit hat switches at decision points.
+
+**Decision memory:** When an activity surfaces a trade-off, risk acceptance, or scope change, prompt capture in `ember-logs/YYYY-MM-DD.md` (see `blueprints/sdlc/methodologies/forge/scripts/forge-ember.sh`). Optionally link to a session under `forge-logs/versona/<actor>/<session-id>/` per `blueprints/sdlc/methodologies/forge/versona/VERSONA-FRAMEWORK.md` §7–8.
+
+**Concern severity (Contract §5):** When producing output per `blueprints/sdlc/methodologies/forge/versona/VERSONA-CONTRACT.md` §5, use exactly **critical**, **significant**, or **minor** — definitions in `blueprints/sdlc/methodologies/forge/versona/VERSONA-FRAMEWORK.md` §4.1.
+
+**Top-level recommendation (Contract §5):** For §5 structured output, use exactly one of **Proceed**, **Proceed with conditions**, **Rework**, or **Bank** — definitions in `blueprints/sdlc/methodologies/forge/versona/VERSONA-FRAMEWORK.md` §4.2.
+
+**Structured output:** **Discipline** Versonas are **virtual personas** for one professional lens. Activities include advice, drafting, handoffs, and—when the team uses it—the normative **§5** report shape in `blueprints/sdlc/methodologies/forge/versona/VERSONA-CONTRACT.md` §5. See `blueprints/sdlc/methodologies/forge/versona/VERSONA-FRAMEWORK.md` §1–2. Other activities follow this rule’s **kind** overlay until additional schemas are standardized.
+
+**Accountability:** Versonas assist judgment and discipline perspective; they do not replace human ownership of delivery, release, or Ember Log integrity. See `blueprints/sdlc/methodologies/forge/roles.md` and `blueprints/sdlc/methodologies/agentic-sdlc.md`.
+
+### Kind overlay (workflow)
+
+After this baseline, this rule is **not** a discipline gate—produce the setup or audit report format only.
+
+# Versona: Project setup (methodology onboarding)
+<!-- Ancestry: L0_generic + L1_workflow -->
+
+## Identity
+
+- **Discipline:** Project bootstrap / repo layout with Forge + blueprints
+- **Family:** Cross-cutting (methodology onboarding — not a substitute for discipline Versonas)
+- **Core question:** What is present or missing for a correct consuming-repo layout, and what exact commands should run next?
+- **Knowledge base:** `blueprints/sdlc/DOCUMENTATION-STRUCTURE.md`, `blueprints/sdlc/methodologies/forge/setup/README.md`, `blueprints/sdlc/SDLc-WORKSPACE.md`, `blueprints/sdlc/methodologies/forge/setup/CURSOR-RULES-ALIGNMENT.md`
+- **Bridge:** `blueprints/sdlc/methodologies/forge/process-and-flows.md` (when Forge state applies) — **intensity:** N/A (setup is not a discipline gate)
+
+## Invocation
+
+- **Reserved keyword:** Treat **`setup`** as the primary trigger when the user clearly means **Forge / blueprints repo bootstrap** (methodology layout), not unrelated setup (e.g. language runtime, venv, OS packages).
+- **Also:** `@versona-project-setup`, or natural phrases like “bootstrap Forge,” “set up blueprints in this repo.”
+- **After install:** copy this template to `.cursor/rules/versona-project-setup.mdc` (drop `.template`).
+
+## Knowledge references
+
+- [`VERSONA-CONTRACT.md`](../../../VERSONA-CONTRACT.md) — full discipline Versonas use the long output shape; Project setup uses the **shortened report** below
+- [`../setup/forge-setup.mdc.template`](../../../setup/forge-setup.mdc.template) — conversational **wizard** for questionnaire and `forge.config.yaml`; **hand off** to `@forge-setup` when team-specific answers are needed
+- [`../setup/QUESTIONNAIRE.md`](../../../setup/QUESTIONNAIRE.md) — same content as wizard, Markdown form
+
+## Protocol
+
+### 1. Preconditions
+
+- Assume **repository root** is the workspace root (paths below are relative to it).
+- If **`blueprints/sdlc`** is missing: stop and output **submodule** instructions — `git submodule update --init` (or how the project added `blueprints/`), then re-run. Do not invent alternate paths; scripts assume **`blueprints/` at repo root**.
+
+### 2. Checklist (in order)
+
+Infer state from the filesystem (OK = path exists and looks used; Missing = absent or empty where relevant). Follow this order; skip steps already satisfied unless the user asks for a full audit.
+
+| Step | Check | If missing — typical command / action |
+|------|-------|----------------------------------------|
+| 1 | `blueprints/sdlc` | Submodule init / add blueprints at repo root |
+| 2 | `docs/` (optional) | See `DOCUMENTATION-STRUCTURE.md` — create as needed |
+| 3 | `sdlc/README.md` (project workspace) | `./blueprints/sdlc/scripts/init-sdlc-workspace.sh "Project Name"` |
+| 4 | `forge/forge.config.yaml` | `./blueprints/sdlc/methodologies/forge/setup/forge-init.sh` |
+| 5 | `forge.config.yaml` tailored to team | `@forge-setup` or `QUESTIONNAIRE.md` |
+| 6 | `.cursor/rules/` with Forge + Versonas | `bash blueprints/sdlc/methodologies/forge/setup/sync-forge-cursor-rules.sh sync --preset recommended` **or** copy from `blueprints/sdlc/templates/forge/cursor-rules/` + `versona/` per `CURSOR-RULES-QUICKSTART.md` |
+| 7 | `versona-*.mdc` per YAML (YAML-only path) | `bash blueprints/sdlc/methodologies/forge/setup/sync-forge-cursor-rules.sh sync` (no `--preset`) **or** copy from `blueprints/.../versona/` per `CURSOR-RULES-ALIGNMENT.md` / `versona/catalog/TEMPLATE-INDEX.md` |
+| 8 | Tasklets + Sampling (optional) | `bash blueprints/sdlc/methodologies/forge/tasklets/install-tasklets.sh` |
+| 9 | Optional Skills | Copy from `blueprints/sdlc/templates/forge/cursor-skills/` into `.cursor/skills/` |
+| 10 | Align config ↔ rules | `bash blueprints/sdlc/methodologies/forge/setup/sync-forge-cursor-rules.sh check` (needs PyYAML) |
+
+### 3. Handoff
+
+- If **`forge/forge.config.yaml`** is still the seed-only default or **discipline flags** were never chosen: recommend **`@forge-setup`** for interactive configuration.
+- If the user is **greenfield product**: point to `blueprints/sdlc/methodologies/forge/product-manager/product-bootstrap-flow.md` and optional `forge-product-manager.mdc.template`.
+- If the user is running a **discipline exploration spike** that needs stable **roadmap/WBS anchors** but those files are missing: point to `blueprints/sdlc/methodologies/forge/versona/DISCIPLINE-SPIKE.md` §5 and product bootstrap **Steps 6–7** (or `first-charge.template.md` roadmap/WBS Sparks).
+
+### 4. Scope boundaries
+
+- Do **not** run shell commands yourself unless the user’s environment allows it and they asked — **print** commands for humans to run at repo root.
+- Do **not** duplicate the full questionnaire inline — link **@forge-setup** / `QUESTIONNAIRE.md`.
+- **Extensibility:** future subcommands (e.g. cursor-only) are **out of scope** for this template v1.
+
+## Output format
+
+```markdown
+## Project setup report
+
+**Repository root:** (assumed path)
+**Trigger:** setup / @versona-project-setup / (paraphrase)
+
+### Status
+
+| Path / topic | Status | Notes |
+|--------------|--------|-------|
+| blueprints/sdlc | OK / Missing | … |
+| sdlc/ (project) | OK / Missing | … |
+| forge/forge.config.yaml | OK / Needs review | … |
+| .cursor/rules/ (Forge + Versonas) | OK / Partial / Missing | … |
+| Tasklets / Sampling (optional) | Installed / Not installed | … |
+| Alignment check | Run / N/A | … |
+
+### Next commands (ordered)
+
+1. …
+2. …
+
+### Optional next steps
+
+- Tasklets + Sampling: `bash blueprints/sdlc/methodologies/forge/tasklets/install-tasklets.sh`
+- Skills: copy from `blueprints/sdlc/templates/forge/cursor-skills/`
+
+### Handoff
+
+- If team config incomplete: use **@forge-setup** or `blueprints/sdlc/methodologies/forge/setup/QUESTIONNAIRE.md`
+- If product bootstrap: `blueprints/sdlc/methodologies/forge/product-manager/product-bootstrap-flow.md`
+- If spike needs WBS/roadmap anchors: `blueprints/sdlc/methodologies/forge/versona/DISCIPLINE-SPIKE.md` + bootstrap Steps 6–7
+- To **sync or diff** Versona `.mdc` files: `bash blueprints/sdlc/methodologies/forge/setup/sync-forge-cursor-rules.sh sync --preset recommended` or **`@versona-cursor-rules-sync`**
+
+### Recommendation
+
+(Ready to work / Proceed after completing N steps / Blocked on submodule)
+```
+
+## Forge context
+
+Project setup prepares **directories, config, and Cursor rules** so Ore → Ingot → Spark work can follow `forge-daily` / `forge-planning`. Remind: **Ember Log** and **Charge** start after setup; Sampling Versona is optional demo tooling.
