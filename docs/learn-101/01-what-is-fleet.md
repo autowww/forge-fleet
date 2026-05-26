@@ -2,29 +2,11 @@
 
 **Outcome:** explain Fleet to another engineer without opening **`fleet_server/main.py`**.
 
-**Audience:** any engineer evaluating or onboarding to Fleet. **Time:** ~15 minutes. **Prerequisites:** none. **Verify:** you can restate what **`docker_argv`**, **`/v1/jobs`**, and **`/admin/`** are for.
+Forge Fleet is a **small HTTP service** (optional **bearer** auth) that **accepts JSON job specs**, stores lifecycle + logs in **SQLite**, and **runs `docker_argv` workloads on the same host**. Operators use **`/admin/`** for recent jobs and host telemetry.
 
-## Plain-language definition
+**Audience:** engineers onboarding · **~15 min** · **Verify:** restate **`docker_argv`**, **`/v1/jobs`**, and **`/admin/`**.
 
-Forge Fleet is a **small HTTP service** (optional **bearer** authentication) that **accepts JSON job specs**, persists lifecycle + logs in **SQLite**, and **runs `docker_argv` workloads on the same Linux/macOS host**. Operators inspect recent jobs and host telemetry via **`/admin/`**.
-
-## When to use Fleet
-
-| Scenario | Why Fleet fits |
-|----------|----------------|
-| **Forge Lenses Studio offload** | Docs Health **`session_step`** runs containers **via Fleet** instead of in-process **`docker`** |
-| **Central job ledger + logs** | SQLite-backed **`GET /v1/jobs/{id}`** + stdout/stderr tails |
-| **Operator dashboards** | **`/admin/`** surfaces CPU/RAM/service swimlanes plus optional **`git-self-update`** hooks |
-
-## When **not** to use Fleet (today)
-
-| Scenario | Prefer instead |
-|----------|----------------|
-| **Remote Docker hosts / Kubernetes-only fleets** | MVP binds mounts assume **same host** paths |
-| **Multi-tenant SaaS isolation** | Fleet trusts operators—combine with hardened VMs/network segments (**[Security](../operate-301/01-security.md)**) |
-| **Deterministic governed LLM orchestration** | **`forge-lcdl`** handles LLM tasks—Fleet runs containers (**[Forge LCDL ↔ Fleet](../reference/04-forge-lcdl-relationship.md)**) |
-
-## Mental model
+## Mental model and fit
 
 ```text
  Client (curl / Studio ) --> Fleet HTTP (/v1/*) --> SQLite job rows --> Docker CLI --> Container stdout/stderr --> Fleet tails --> GET /v1/jobs/{id}
@@ -37,45 +19,37 @@ caption: Clients call /v1; Fleet persists jobs; Docker runs argv; clients poll j
 Client -> Fleet API -> SQLite -> Docker runner -> logs -> Poll GET job
 ```
 
-| Concept | Meaning |
-|---------|--------|
-| **Fleet server** | **`fleet_server`** process exposing **`/v1/*`** & **`/admin/`** |
-| **Job** | `POST /v1/jobs` **docker_argv** request (`argv`, `session_id`, **`meta`**) |
-| **`docker_argv`** | Literal argv vector handed to **`docker run`** semantics |
-| **Workspace upload** | Optional **`PUT /v1/jobs/{id}/workspace`** gzip tarball (**[Build 201](../build-201/01-workspace-upload.md)**) |
-| **Template** | **`GET /v1/templates`** catalog entries / requirement builds (**[Templates](../build-201/02-container-templates.md)**) |
-| **Container type** | MECE **`system` / `job` / `service`** classification via **`etc/containers/types.json`** |
-| **Managed service** | Long-lived compose stacks (`forge_llm`) registered under **`etc/services/`** |
-| **Admin snapshot** | **`GET /v1/admin/snapshot`** JSON bundle for dashboards |
-| **Telemetry** | SQLite **`telemetry_samples`** + **`GET /v1/telemetry`** windows |
-| **Bearer token** | Shared secret (`Authorization` header) whenever auth policy demands it |
+**Use Fleet when** you need a **central job ledger** (`GET /v1/jobs/{id}` + log tails), **Forge Lenses Studio offload** (Docs Health **`session_step`** via Fleet instead of in-process **`docker`**), or **operator dashboards** (`/admin/` telemetry and optional **`git-self-update`**).
 
-## Typical ports
+**Avoid Fleet today for** **remote Docker / K8s-only** workloads (bind mounts assume **same-host** paths), **multi-tenant SaaS isolation** without hardened VMs/networks ([**Operate 301 — Security**](../operate-301/01-security.md)), or **governed LLM orchestration** — use **`forge-lcdl`** for LLM tasks; Fleet runs containers, not LLM pipelines.
 
-| Context | Port | Notes |
-|---------|------|------|
-| Dev / Compose “standard” | **18765** | `python3 -m fleet_server --port 18765` |
-| User install (**`install-user.sh`**) | **18766** | **`systemd --user`** default |
-| Playwright docs screenshots | **19876** | Disposable **`FLEET_DATA_DIR`** (**`e2e/`**) |
+## Concepts, troubleshoot, and next steps
 
-Always aim Studio + **`curl`** + **`/admin/`** at the **same Fleet instance**—each process owns its **`fleet.sqlite`**.
+Reference vocabulary, quick fixes, and where to go next—kept as scannable lists so the opener stays narrative-led.
 
-## Relationship map
+### Core concepts
 
-| Thing | Relationship |
-|-------|----------------|
-| **Forge Lenses / Studio** | Primary integration surface (**Settings → Fleet**) |
-| **Blueprints / ForgeSDLC** | Methodology + handbook ecosystem—not runtime deps |
-| **`forge-lcdl`** | Adjacent governed-LLM library—**not** embedded in Fleet |
+- **Fleet server** — **`fleet_server`** exposing **`/v1/*`** and **`/admin/`**
+- **Job** — `POST /v1/jobs` **docker_argv** (`argv`, `session_id`, **`meta`**)
+- **`docker_argv`** — argv vector for **`docker run`** semantics
+- **Workspace upload** — optional **`PUT /v1/jobs/{id}/workspace`** gzip tarball
+- **Template** — **`GET /v1/templates`** catalog / requirement builds
+- **Container type** — **`system` / `job` / `service`** via **`etc/containers/types.json`**
+- **Managed service** — long-lived stacks (`forge_llm`) under **`etc/services/`**
+- **Admin snapshot** — **`GET /v1/admin/snapshot`** JSON for dashboards
+- **Telemetry** — **`telemetry_samples`** + **`GET /v1/telemetry`**
+- **Bearer token** — shared secret when auth policy requires it
 
-## Troubleshooting snapshot
+**Typical ports:** dev/Compose **18765**; user install (**`install-user.sh`**) **18766**; Playwright docs **19876** (disposable **`FLEET_DATA_DIR`**). Aim Studio, **`curl`**, and **`/admin/`** at the **same instance**—each process owns its **`fleet.sqlite`**.
 
-| Symptom | First move |
-|---------|------------|
-| Jobs empty in **`/admin/`** but Studio “works” | Confirm URLs map to **same** Fleet (**[Admin tour](07-admin-dashboard-and-studio.md)** FAQ) |
-| **`401`/`403`** everywhere | Bearer vs bind-address mismatch (**[Security](../operate-301/01-security.md)**) |
+**Related products:** **Forge Lenses / Studio** (Settings → Fleet); **Blueprints / ForgeSDLC** (handbook ecosystem, not runtime); **`forge-lcdl`** (governed LLM library, not embedded in Fleet).
 
-## Verify
+### Troubleshooting snapshot
+
+- Jobs empty in **`/admin/`** but Studio “works” — confirm URLs map to the **same** Fleet ([**Admin tour**](07-admin-dashboard-and-studio.md) FAQ).
+- **`401`/`403`** everywhere — bearer vs bind-address mismatch ([**Security**](../operate-301/01-security.md)).
+
+### Verify
 
 Explain aloud:
 
@@ -83,12 +57,10 @@ Explain aloud:
 2. Difference between **`docker_argv`** jobs vs managed **`forge_llm`** services.
 3. Why bind-mount paths care about **same-host** Studio.
 
-## Next steps
+### Next steps
 
-| Step | Doc |
-|------|-----|
-| Install locally | **[Install & run locally](02-install-run-local-dev.md)** |
-| Fresh OS prep | **[Host bootstrap](03-host-bootstrap.md)** |
-| Guided **`curl`** proofs | **[Quickstarts](05-quickstarts.md)** |
+- **[Install & run locally](02-install-run-local-dev.md)** — install on your machine.
+- **[Host bootstrap](03-host-bootstrap.md)** — fresh OS prep.
+- **[Quickstarts](05-quickstarts.md)** — guided **`curl`** proofs.
 
-Deep protocol tables remain in **[HTTP API](../reference/01-http-api-reference.md)**—finish **Learn 101** before living there permanently.
+Deep protocol tables remain in **[HTTP API](../reference/01-http-api-reference.md)**—finish **Learn 101** before living there permanently. Deeper paths: **Operate 301 — Security**, **Reference — LCDL ↔ Fleet**, **Build 201** workspace upload and container templates.

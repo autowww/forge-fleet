@@ -1,175 +1,88 @@
-# Forge Fleet
+---
+description: Bounded container jobs on hosts you operate—token-gated HTTP APIs, streamed logs, SQLite job history, optional /admin. For Forge Lenses, CI, scripts, and runbooks.
+---
 
-> **One Linux host.** Bearer-aware HTTP control plane for **`docker_argv`** jobs — SQLite-backed, **`/v1/*` JSON**, **`/admin/`** dashboard — built for **Forge Lenses**, scripts, and operator runbooks.
+# Run container jobs on infrastructure you own
 
-**Forge Fleet** is a small **HTTP control plane** on **one Linux host**: it accepts **`docker_argv`** jobs over **`/v1/*` JSON**, records them in **SQLite**, tails **stdout/stderr**, optionally accepts **workspace tarballs**, resolves **container templates**, and exposes an **`/admin/`** dashboard. It is built for **Forge Lenses / Studio** automations (Docs Health and friends), scripts, and operator runbooks—not a multi-tenant scheduler.
+<p>Run bounded container jobs on hosts you operate through a token-gated HTTP control plane with streamed logs, SQLite history, and optional operator UI. Fleet is not a multi-cluster scheduler.</p>
 
-| If you are… | Start here |
-| --- | --- |
-| **Local developer** trying Fleet for the first time | **[Install locally](docs/learn-101/02-install-run-local-dev.md)** → **[First job](docs/learn-101/06-first-fleet-job.md)** (about **15 min** with Docker) |
-| **Host operator** putting Fleet on bare metal / systemd | **[Host bootstrap](docs/learn-101/03-host-bootstrap.md)** → **[Git install](docs/learn-101/04-git-install.md)** |
-| **API / automation author** | **[HTTP API](docs/reference/01-http-api-reference.md)** + **[Examples hub](docs/examples/README.md)** |
-| **Enterprise / security reviewer** | **[Security](docs/operate-301/01-security.md)** + **[Architecture](docs/operate-301/03-architecture.md)** |
-| **Maintainer / releaser** | **[Maintainers](docs/maintainers/README.md)** + **`scripts/update-fleet.sh`** (below) |
+<p class="mb-3 forge-readme-mechanism-line">Under the hood it is a <strong>token-gated HTTP control plane</strong> for <code>docker_argv</code> jobs on <strong>hosts you operate</strong>, with an optional <code>/admin</code> surface. Call it from <strong>Forge Lenses</strong>, CI, scripts, and runbooks.</p>
 
-**Five-minute sanity check:** with a running server, **`curl http://127.0.0.1:18765/v1/version`** (and **`/v1/health`** when bearer policy allows) should return JSON—see **[Quickstarts](docs/learn-101/05-quickstarts.md)**.
+<div class="forge-fleet-product-home">
 
-**Studio / same-host note:** Lenses typically sets **`LENSES_FLEET_URL`** / **`LENSES_FLEET_TOKEN`** to **`127.0.0.1`** or a TLS front-end so bind mounts and paths stay coherent.
+<div class="d-flex flex-wrap gap-2 align-items-center my-3">
+<a class="btn btn-forge" href="docs/learn-101/02-install-run-local-dev.md">Get started</a>
+<a class="btn forge-home-secondary-cta" href="docs/start/01-start-here.md">View docs</a>
+</div>
 
-## Handbook journeys
-
-| Track | Audience | Jump in |
-|-------|----------|--------|
-| **Start** | “Where do I go next?” routing | **[Start hub](docs/start/README.md)** · **[Role routing table](docs/start/01-start-here.md)** |
-| **Learn 101** | First install + verification | **[Learn hub](docs/learn-101/README.md)** · **[Install locally](docs/learn-101/02-install-run-local-dev.md)** · **[First job](docs/learn-101/06-first-fleet-job.md)** · **[Quickstarts](docs/learn-101/05-quickstarts.md)** |
-| **Build 201** | Workspaces, templates, Caddy fronts, recipes | **[Build hub](docs/build-201/README.md)** · **[Examples & recipes](docs/build-201/05-examples-and-recipes.md)** |
-| **Operate 301** | Security + runbooks + architecture + incidents | **[Operate hub](docs/operate-301/README.md)** · **[Upgrade & remote ops](docs/operate-301/05-upgrade-release-and-remote-update.md)** |
-| **Reference** | Protocols & env contracts | **[Reference hub](docs/reference/README.md)** · **[HTTP API](docs/reference/01-http-api-reference.md)** · **[Schemas/OpenAPI](docs/reference/02-schemas-and-openapi.md)** |
-| **Examples** | Copy-paste by language / outcome | **[Examples hub](docs/examples/README.md)** |
-
-**Maintainer transparency:** handbook maintenance notes (**screenshots**, OpenAPI parity checks, admin KPI design prompts) ship under **[Maintainers hub](docs/maintainers/README.md)**.
-
-**Contract invariant:** run **`python3 scripts/check-docs-contracts.py`** locally—any route in **`fleet_server/main.py`** must appear in **`docs/schemas/openapi.json`**.
-
-## API at a glance
-
-Fleet exposes JSON under **`/v1/`** and a browser dashboard at **`/admin/`**:
-
-- **Version and templates** — `GET /v1/version`, `GET /v1/templates`
-- **Host health and history** — `GET /v1/health`, `GET /v1/telemetry`, `GET /v1/cooldown-summary`, `POST /v1/cooldown-events`
-- **Jobs and probes** — `POST /v1/jobs`, `PUT /v1/jobs/{id}/workspace`, `GET /v1/jobs/{id}`, `POST /v1/jobs/{id}/cancel`, `POST /v1/admin/test-fleet`, `POST /v1/containers/dispose`
-- **Operator snapshot** — `GET /v1/admin/snapshot`
-- **Container catalog and managed services** — `GET /v1/container-types`, `/v1/container-services/*`, legacy `/v1/services/forge-llm/*`
-- **In-place git refresh** — `POST /v1/admin/git-self-update` ([HTTP API reference](docs/reference/01-http-api-reference.md) clarifies **`/opt`**, **`FLEET_GIT_ROOT`**, and **400** responses)
-
-Detailed tables—including static **`/admin/…`** asset routes and host-metrics injection—live in **`[docs/reference/01-http-api-reference.md](docs/reference/01-http-api-reference.md)`**.
-
-### Remote automation (`scripts/update-fleet.sh`)
-
-From your **dev clone**, **`./scripts/update-fleet.sh --remote-git-self-update`** bumps/commits/pushes, then **`curl` POST** **`POST {FORGE_FLEET_BASE_URL}/v1/admin/git-self-update`** so remote hosts (**Granite**/certificator pairs, etc.) can fast-forward their install tree—see **`[docs/operate-301/05-upgrade-release-and-remote-update.md](docs/operate-301/05-upgrade-release-and-remote-update.md)`** for semantics.
-
-Full flag matrix remains below under **Update fleet**.
-
-## Submodules (blueprints + kitchensink)
-
-This repo vendors read-only **`blueprints`** + **`kitchensink`** submodules (same convention as Forge / Lenses). After clone:
-
-```bash
-git submodule update --init --recursive
+```blueprint-diagram-ascii
+key: linear
+alt: Fleet job flow from client through HTTP API, SQLite ledger, and Docker runner to log polling
+caption: Bearer-authenticated clients submit docker_argv jobs; Fleet persists state in SQLite and runs containers on the host you operate.
+Client -> Fleet API -> SQLite -> Docker runner -> logs -> Poll GET job
 ```
 
-Edits belong upstream in **`autowww/blueprints`** and **`autowww/forgesdlc-kitchensink`**, never in the copied trees here.
+<p class="lead mb-0">Choose an entry path—depth stays one click away in Learn, Start, and Reference. <a href="#how-fleet-works">How it works</a> on one screen, then dive into docs when you need precision.</p>
 
-### Forge SDLC in this repo
+<div class="row row-cols-1 row-cols-md-3 g-3 my-5">
+<div class="col">
+<div class="forge-callout forge-callout-surface h-100">
+<h2 class="h6 mt-0">Prove it on a workstation</h2>
+<p class="small mb-0">Install locally, run your first container-backed job, and confirm logs and history behave the way operators expect.</p>
+</div>
+</div>
+<div class="col">
+<div class="forge-callout forge-callout-surface h-100">
+<h2 class="h6 mt-0">Service one production host</h2>
+<p class="small mb-0">Bootstrap OS dependencies, install from git, and wire TLS or reverse proxies using the production-oriented guides.</p>
+</div>
+</div>
+<div class="col">
+<div class="forge-callout forge-callout-surface h-100">
+<h2 class="h6 mt-0">Automate with clear contracts</h2>
+<p class="small mb-0">Call Fleet from scripts, CI, or Studio-style integrations—then deepen on schemas and examples when you need precision.</p>
+</div>
+</div>
+</div>
 
-Methodology wiring for Cursor (Versonas, Charge paths, Ember log) lives under **`forge/`**, **`ember-logs/`**, and **`forge-logs/`**, driven by **`forge/forge.config.yaml`**. One-time scaffold is already committed when you pull; after a **`blueprints`** submodule bump, refresh rules if templates drifted:
+</div>
 
-```bash
-bash blueprints/sdlc/methodologies/forge/setup/sync-forge-cursor-rules.sh sync --preset recommended
-bash blueprints/sdlc/methodologies/forge/setup/sync-forge-cursor-rules.sh sync
-bash blueprints/sdlc/methodologies/forge/setup/sync-forge-cursor-rules.sh check
-```
+## How Fleet works
 
-### Install from a fresh git clone (new / remote machine)
+Staged workflow for a typical job—from an authenticated request to reviewable evidence:
 
-Prereqs (**Docker CE + buildx**, Python ≥3.11, git, rsync, …): **`[docs/learn-101/03-host-bootstrap.md](docs/learn-101/03-host-bootstrap.md)`**. Then:
+1. **Authenticate** — Callers use a **bearer token** on Fleet’s HTTP surface; operators set policy and storage roots in **[Configuration](docs/reference/03-configuration-and-env.md)** and **[Security](docs/operate-301/01-security.md)**.
+2. **Submit work** — Jobs are accepted as **docker_argv** payloads on versioned **`/v1/*`** routes (see **[HTTP API reference](docs/reference/01-http-api-reference.md)**).
+3. **Stream evidence** — **stdout/stderr** and completion status are visible to operators and integrating tools during the run.
+4. **Review history** — Runs are recorded in **SQLite** with metadata for audit-friendly review; day-two operations in **[Operations runbook](docs/operate-301/02-operations-runbook.md)**.
 
-```bash
-git clone <url> forge-fleet
-cd forge-fleet
-chmod +x git-install.sh   # if needed
-./git-install.sh          # `--user` installs under ~/.local
-```
+## Pick your path
 
-Hands-on narrative + troubleshooting: **`[docs/learn-101/04-git-install.md](docs/learn-101/04-git-install.md)`**.
+- **First-time operator** — start in [Learn 101](docs/learn-101/README.md) (what Fleet is, local install, first job, dashboard tour).
+- **Existing host** — jump to [Host bootstrap](docs/learn-101/03-host-bootstrap.md) and [Git install](docs/learn-101/04-git-install.md), then the [Operate 301](docs/operate-301/README.md) runbook when you are ready for production posture.
 
-## Run locally
+## How Fleet sits in Forge
 
-```bash
-cd forge-fleet
-export FLEET_BEARER_TOKEN='dev-token'   # optional
-python3 -m fleet_server --host 127.0.0.1 --port 18765
-```
+Forge positions Fleet as **controlled execution** alongside methodology, workspace visibility, governed LLM work, and shared practice artifacts:
 
-Point **Studio** at `http://127.0.0.1:18765` (`LENSES_FLEET_TOKEN` mirrors **`FLEET_BEARER_TOKEN`** when bearer is enforced).
+- **[Forge SDLC](https://forgesdlc.com/)** — methodology, workspace visibility, governed reasoning, controlled execution, and shared practice—how Fleet fits in the broader Forge landscape (public overview).
+- **[Forge Lenses / Studio](docs/examples/lenses-studio.md)** — typical callers for bounded jobs and health integrations.
+- **[Forge LCDL and Fleet](docs/reference/04-forge-lcdl-relationship.md)** — where governed synchronous tasks meet Fleet’s HTTP surface.
+- **Blueprints methodology pack** — vendored **`blueprints`** submodule with Cursor/setup templates.
+  - **[Submodule workflow](docs/start/03-repository-companion.md#submodules-blueprints--kitchensink)**
+  - **[Blueprints handbook](https://blueprints.forgesdlc.com/)**
 
-### “Update fleet” (dev → git → local production)
+## Designed for governed adoption
 
-```bash
-cd forge-fleet
-./scripts/update-fleet.sh
-```
+Concrete adoption boundaries—the items reviewers expect articulated up front:
 
-**Default semantics:** submodule sync → **patch SemVer bump** → single commit (**`chore(release)`**) → **`git push origin`** → **`sudo ./install-update.sh`** (**`/opt/forge-fleet`**, port **18765**) when reachable.
+- **Data boundary —** SQLite and artefacts stay inside the Fleet data roots you provision; cite **[Security](docs/operate-301/01-security.md)** for storage and token posture claims.
+- **Execution boundary —** argv-driven Docker jobs run on **that Fleet host’s socket** unless you deliberately integrate something else upstream; cite **[Architecture](docs/operate-301/03-architecture.md)** for component layering.
+- **Human and operator controls —** tokens, bearer policy, scripted upgrades, and remote refresh flows appear in **[Configuration](docs/reference/03-configuration-and-env.md)** and **[Upgrade & remote ops](docs/operate-301/05-upgrade-release-and-remote-update.md)**.
+- **Evidence and review —** job history plus streamed logs underpin audit-friendly operator reviews; deepen with **[Operate 301 — Operations runbook](docs/operate-301/02-operations-runbook.md)** when needed.
+- **Admin surfaces —** the **`/admin`** area is optional and oriented around operator visibility of jobs and configuration; treat it as part of your operational access model, not a multi-tenant SaaS console.
+- **Not a replacement for orchestrators** — Fleet is not positioned as Kubernetes-style multi-tenant scheduling; keep multi-cluster expectations out-of-scope unless your deployment guide explicitly covers them ([repository companion limitations](docs/start/03-repository-companion.md)).
 
-**User-level installs** (**`systemctl --user`**, default port **18766**) also run **`./update-user.sh`** when **`~/.config/systemd/user/forge-fleet.service`** exists (**`./scripts/update-fleet.sh --no-user`** skips that leg). **`--no-install`** skips sudo but keeps the optional user refresh.
+## Operator-ready depth
 
-**Strict release (clean tree, version-only commit):** `./scripts/update-fleet.sh --strict`.
-
-Other knobs: **`--minor`**, **`--no-push`**, **`--dry-run`**. Cursor shorthand: **`/update-fleet`** (“update fleet” rule).
-
-Fresh host onboarding still prefers **`./git-install.sh`** after reading **`docs/learn-101/`**.
-
-### Versioning (Studio-style semver)
-
-- **`pyproject.toml`** → **`[project].version`** feeds **`GET /v1/version`** + `/admin/`.
-- **`CHANGELOG.md`** (**`### Host operator`**) + **`docs/host-operator-steps.json`** + **`scripts/fleet-host-upgrade-hints.sh`** keep bare-metal bumps honest.
-- SQLite **`fleet_schema`** stores **`package_semver`** alongside **`db_schema_version`** (**`fleet_server/versioning.py`** bumps only on breaking migrations).
-
-### Forge LLM (forge-console) beside Fleet
-
-Point **`FLEET_FORGE_CONSOLE_URL`** (`http://127.0.0.1:8787`, etc.) so `/admin/` exposes **Open Forge LLM console**.
-
-### Container types + managed services (on-disk config)
-
-Catalog + compose metadata live under **`FLEET_DATA_DIR`**:
-
-- **`etc/containers/types.json`** defines **system/job/service** tiers + **`allow_docker_argv_jobs`** capabilities (**[container templates handbook](docs/build-201/02-container-templates.md)**).
-- **`etc/services/<id>.json`** registers **`forge_llm`** stacks surfaced via **`/v1/container-services/*`**.
-
-**`/admin/`** mirrors the swimlanes (System / Job / Service) emitted by **`GET /v1/container-types`**.
-
-### SQLite telemetry when the HTTP server is stopped
-
-`forge-fleet-telemetry.timer` runs **`python -m fleet_server.telemetry_sampler`** into **`fleet.sqlite`**, respecting **`FLEET_TELEMETRY_INTERVAL_S`** so systemd sampling and HTTP probes do not hammer the DB.
-
-### Test Fleet → Lenses Attention
-
-1. Run Fleet on Docker-capable hosts; optionally `export FLEET_LENSES_WORKSPACE_ROOT=/abs/path/to/lenses-workspace`.
-2. **Studio → Settings → Fleet → Test Fleet (5 probes)** (workspace server issues **`POST /v1/admin/test-fleet`** with your saved bearer).
-3. Attention bell lists **Fleet** items after jobs finalize.
-
-Fallback probe mount: **`FLEET_LENSES_REPO_ROOT`** when packaged **`fleet_server/host_cpu_probe.py`** missing.
-
-## Docker Compose
-
-```bash
-docker compose up --build
-```
-
-Port **18765**, named **`forge-fleet-data`** volume binds **`FLEET_DATA_DIR`**, Docker socket forwarded. Populate **`FLEET_BEARER_TOKEN`** via **`.env`** for anything beyond localhost.
-
-Host git installs supersede Compose paths—see **`docs/learn-101/04-git-install.md`**.
-
-TLS façade: **`[docs/build-201/03-caddy-systemd.md](docs/build-201/03-caddy-systemd.md)`** · **`scripts/install-caddy-fleet.sh`**.
-
-### Admin shows “No jobs” but Lenses used Fleet
-
-The **Recent jobs** table mirrors **only** **`fleet.sqlite` for this process** (`meta.sqlite_path` from **`GET /v1/admin/snapshot`** confirms the backing file):
-
-1. **Different Fleet hosts/ports** — Studio points at `http://127.0.0.1:18765` while **`/admin/`** hits Compose on another port/instance.
-2. **Ephemeral `FLEET_DATA_DIR`** — older Compose without persistent volume wiped rows on teardown.
-3. **No Docs Health → Fleet offload** — Lenses stayed on inline backend or Fleet unset.
-
-Detailed recovery steps live in **[Operate 301 troubleshooting](docs/operate-301/04-troubleshooting.md)**.
-
-## Roadmap (deferred)
-
-- **Forge LLM batch jobs via Fleet** — unify CLI probes + gateway traffic under job rows.
-- **Template library breadth** — `GET /v1/templates` catalog growth beyond **`host_cpu_probe`** (+ **`forge_agent`** lifecycle disposing via **`POST /v1/containers/dispose`**).
-- **P2 — Remote agent** — survives laptop suspend; surfaced in Lenses port-back (**`forge-lenses/docs/maintainer/docs-health-port-back.md`**).
-- **P3 — Cloud adapters** — translate **`JobSpec` → Kubernetes/Nomad**.
-
-## Limitations (MVP)
-
-Fleet shells Docker on **the same machine supplying argv**. Override CLI path with **`FLEET_DOCKER_BIN`**. Stdout truncation keeps DB rows bounded—last JSON line must stay **`step_cli` parse-friendly for Lenses.
+Need endpoint tables, environment matrices, or install scripts first? Use the **[HTTP API reference](docs/reference/01-http-api-reference.md)** and **[Repository companion](docs/start/03-repository-companion.md)**—the overview above stays short on purpose.

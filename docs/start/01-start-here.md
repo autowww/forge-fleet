@@ -18,7 +18,7 @@ Text-only sketch (a Kitchen Sink **network** / **linear** diagram will mirror th
 | Integrate **Lenses / Studio** (workspace, Test Fleet) | **[README](../../README.md)** (Fleet env summary) · **[Forge LCDL vs Fleet](../reference/04-forge-lcdl-relationship.md)** · **[Workspace upload](../build-201/01-workspace-upload.md)** · **[Admin + Studio](../learn-101/07-admin-dashboard-and-studio.md)** |
 | Use **requirement templates** and container images | **[Container templates](../build-201/02-container-templates.md)** |
 | Put Fleet **behind TLS / Caddy** (incl. unified Granite) | **[Caddy + systemd](../build-201/03-caddy-systemd.md)** · **[Caddy unified Granite](../build-201/04-caddy-unified-granite.md)** |
-| **Release or self-update** Fleet on a box I maintain | **[Repository README](../../README.md)** (**Remote automation**) · **[Upgrade & remote ops](../operate-301/05-upgrade-release-and-remote-update.md)** |
+| **Release or self-update** Fleet on a box I maintain | **[Repository companion](03-repository-companion.md)** (**Remote automation**) · **[Upgrade & remote ops](../operate-301/05-upgrade-release-and-remote-update.md)** |
 
 **Verification triad** (any track): after the server is up, **`GET /v1/version`** and **`GET /v1/health`** should return JSON—see **[Examples & recipes](../build-201/05-examples-and-recipes.md)** or **[Quickstarts](../learn-101/05-quickstarts.md)**.
 

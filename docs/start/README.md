@@ -9,6 +9,7 @@ Use this section to **pick your path**. For the product mental model first, open
 | I want to… | Go here |
 |------------|--------|
 | **Route by role** (local, API, TLS, Studio, templates) | [Start here routing table](01-start-here.md) |
+| **Long-form repo README material** (API tables, Compose, roadmap) | [Repository companion](03-repository-companion.md) |
 | **Learn** installs, verification, **`/admin/`**, Lenses wiring | [Learn 101 hub](../learn-101/README.md) |
 | **Build** jobs, workspaces, templates, TLS / Caddy, examples | [Build 201 hub](../build-201/README.md) |
 | **Operate** production ops, architecture, troubleshooting | [Operate 301 hub](../operate-301/README.md) |
