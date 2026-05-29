@@ -14,6 +14,7 @@ PART2 = SRC / "part2"
 PART3 = SRC / "part3"
 PART4 = SRC / "part4"
 PART5 = SRC / "part5"
+PART6 = SRC / "part6"
 MAX_PART_LINES = 650
 PART_COUNT = 6
 
@@ -58,6 +59,10 @@ def _part5_fragments() -> str:
     return _part_fragments(PART5)
 
 
+def _part6_fragments() -> str:
+    return _part_fragments(PART6)
+
+
 def _trim_part1(text: str) -> str:
     idx = text.find(_PART2_START_MARK)
     if idx < 0:
@@ -77,7 +82,7 @@ def build_full_source() -> str:
     p3 = _part3_fragments()
     p4 = _part4_fragments()
     p5 = _part5_fragments()
-    p6 = _read(ADMIN / "app-part6.js")
+    p6 = _part6_fragments()
     return p1 + p2 + p3 + p4 + p5 + p6
 
 

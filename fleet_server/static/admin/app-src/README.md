@@ -10,7 +10,7 @@ From the forge-fleet repo root:
 python3 scripts/bundle_admin_app.py
 ```
 
-Writes `fleet_server/static/admin/app-part*.js` as valid JavaScript (concatenates fragments, then splits at line boundaries). The shipped **admin.html** loads `app-src/part2/*.js`, `app-src/part3/*.js`, `app-src/part4/*.js`, and `app-src/part5/*.js` directly so `app-part2.js`, `app-part3.js`, `app-part4.js`, and `app-part5.js` stay small pointers; use the bundle when you need single-file parts again.
+Writes `fleet_server/static/admin/app-part*.js` as valid JavaScript (concatenates fragments, then splits at line boundaries). The shipped **admin.html** loads `app-src/part2/*.js` … `app-src/part6/*.js` directly so `app-part2.js` … `app-part6.js` stay small pointers; use the bundle when you need single-file parts again.
 
 ## Layout
 
@@ -24,5 +24,7 @@ Writes `fleet_server/static/admin/app-part*.js` as valid JavaScript (concatenate
 | `part4/MANIFEST.txt` | Fragment order for the part-4 region |
 | `part5/` | Jobs UI, managed services, container types/templates, git self-update (former `app-part5.js`) |
 | `part5/MANIFEST.txt` | Fragment order for the part-5 region |
+| `part6/` | Snapshot polling, event wiring, IIFE boot close (former `app-part6.js`) |
+| `part6/MANIFEST.txt` | Fragment order for the part-6 region |
 
-Do not hand-edit `app-part*.js` except via the bundle after changing fragments. Footprint scans should treat **`app-src/part2/`**, **`app-src/part3/`**, **`app-src/part4/`**, and **`app-src/part5/`** as source of truth for those regions.
+Do not hand-edit `app-part*.js` except via the bundle after changing fragments. Footprint scans should treat **`app-src/part2/`** through **`app-src/part6/`** as source of truth for those regions.

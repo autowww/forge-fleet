@@ -1,0 +1,16 @@
+# Order preserved when bundling the admin IIFE (part-6 region).
+snapshot-fetch.js
+snapshot-apply.js
+snapshot-load.js
+poll-scheduler.js
+forge-service-post.js
+click-delegation-jobs.js
+click-delegation-services.js
+click-delegation-container-config.js
+click-delegation-admin.js
+form-add-service.js
+form-type-save.js
+form-req-template-save.js
+chart-y-preference.js
+ui-refresh-handlers.js
+boot-close.js
