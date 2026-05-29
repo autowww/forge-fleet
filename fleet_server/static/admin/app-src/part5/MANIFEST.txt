@@ -1,0 +1,15 @@
+# Order preserved when bundling the admin IIFE (part-5 region).
+kpi-tile-anims-close.js
+job-display-helpers.js
+job-detail.js
+auth-errors.js
+managed-services-render.js
+container-config-state.js
+requirement-templates.js
+container-type-modal.js
+requirement-template-modal.js
+container-types-load.js
+self-update-ui.js
+self-update-run.js
+git-remote-check.js
+jobs-pager.js

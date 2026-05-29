@@ -1,31 +1,3 @@
-        return;
-      }
-      var n = rows.length;
-      var start = n === 0 ? 0 : joff + 1;
-      var end = joff + n;
-      var prevDis = joff <= 0 ? " disabled" : "";
-      var nextDis = end >= jtot ? " disabled" : "";
-      pager.innerHTML =
-        '<nav class="d-flex flex-wrap align-items-center justify-content-between gap-2 small" aria-label="Job pages">' +
-        '<span class="text-body-secondary">Showing <strong>' +
-        start +
-        "</strong>–<strong>" +
-        end +
-        '</strong> of <strong>' +
-        jtot +
-        '</strong> · ' +
-        jlim +
-        ' per page</span>' +
-        '<div class="btn-group btn-group-sm" role="group">' +
-        '<button type="button" class="btn btn-outline-secondary fleet-jobs-page-prev"' +
-        prevDis +
-        '>Previous</button>' +
-        '<button type="button" class="btn btn-outline-secondary fleet-jobs-page-next"' +
-        nextDis +
-        '>Next</button>' +
-        "</div></nav>";
-    }
-
     async function loadSnapshot() {
       setErr("");
       var res;

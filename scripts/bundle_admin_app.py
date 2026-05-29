@@ -12,6 +12,7 @@ ADMIN = REPO / "fleet_server" / "static" / "admin"
 SRC = ADMIN / "app-src"
 PART2 = SRC / "part2"
 PART4 = SRC / "part4"
+PART5 = SRC / "part5"
 MAX_PART_LINES = 650
 PART_COUNT = 6
 
@@ -51,6 +52,10 @@ def _part4_fragments() -> str:
     return _part_fragments(PART4)
 
 
+def _part5_fragments() -> str:
+    return _part_fragments(PART5)
+
+
 def _trim_part1(text: str) -> str:
     idx = text.find(_PART2_START_MARK)
     if idx < 0:
@@ -76,7 +81,7 @@ def build_full_source() -> str:
     p2 = _part2_fragments()
     p3 = _trim_part3(_read(ADMIN / "app-part3.js"))
     p4 = _part4_fragments()
-    p5 = _read(ADMIN / "app-part5.js")
+    p5 = _part5_fragments()
     p6 = _read(ADMIN / "app-part6.js")
     return p1 + p2 + p3 + p4 + p5 + p6
 
