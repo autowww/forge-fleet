@@ -16,4 +16,4 @@ Semantic modules merged into the admin IIFE between part 3 (telemetry modal SVG)
 
 Shared closure from earlier parts: `esc`, `authHeaders`, `orchBuf`, `renderTelemetryChartInto`, part-2 host/GPU/disk helpers, `renderPowerTile`, `renderThermalTile`, `renderCpuCompactTile`.
 
-`openFleetTelemetryHistoryModal` is declared in part 3; this folder continues its async body. `applyKpiTileAnims` closes in part 5 (`app-src/part5/kpi-tile-anims-close.js`).
+`openFleetTelemetryHistoryModal` starts in `app-src/part3/telemetry-history-modal-open.js`; this folder continues its async body. `applyKpiTileAnims` closes in part 5 (`app-src/part5/kpi-tile-anims-close.js`).

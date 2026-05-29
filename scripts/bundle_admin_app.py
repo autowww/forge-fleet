@@ -11,15 +11,13 @@ REPO = Path(__file__).resolve().parents[1]
 ADMIN = REPO / "fleet_server" / "static" / "admin"
 SRC = ADMIN / "app-src"
 PART2 = SRC / "part2"
+PART3 = SRC / "part3"
 PART4 = SRC / "part4"
 PART5 = SRC / "part5"
 MAX_PART_LINES = 650
 PART_COUNT = 6
 
 _PART2_START_MARK = "    function renderCpuCompactTile"
-_PART3_RESUME_MARK = "    /** UTC x-axis ticks and labels below the plot"
-
-
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
@@ -48,6 +46,10 @@ def _part2_fragments() -> str:
     return _part_fragments(PART2)
 
 
+def _part3_fragments() -> str:
+    return _part_fragments(PART3)
+
+
 def _part4_fragments() -> str:
     return _part_fragments(PART4)
 
@@ -69,17 +71,10 @@ def _trim_part1(text: str) -> str:
     return head
 
 
-def _trim_part3(text: str) -> str:
-    idx = text.find(_PART3_RESUME_MARK)
-    if idx < 0:
-        raise SystemExit("bundle_admin_app: part3 resume marker not found in app-part3.js")
-    return text[idx:]
-
-
 def build_full_source() -> str:
     p1 = _trim_part1(_read(ADMIN / "app-part1.js"))
     p2 = _part2_fragments()
-    p3 = _trim_part3(_read(ADMIN / "app-part3.js"))
+    p3 = _part3_fragments()
     p4 = _part4_fragments()
     p5 = _part5_fragments()
     p6 = _read(ADMIN / "app-part6.js")

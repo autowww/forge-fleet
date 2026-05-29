@@ -1,0 +1,10 @@
+# Order preserved when bundling the admin IIFE (part-3 region).
+telemetry-x-axis.js
+telemetry-grid-paths.js
+telemetry-samples-markup.js
+telemetry-chart-refresh.js
+power-ledger-format.js
+power-overview-tile.js
+thermal-overview-tile.js
+fleet-chart-render.js
+telemetry-history-modal-open.js
