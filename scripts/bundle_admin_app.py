@@ -11,6 +11,7 @@ REPO = Path(__file__).resolve().parents[1]
 ADMIN = REPO / "fleet_server" / "static" / "admin"
 SRC = ADMIN / "app-src"
 PART2 = SRC / "part2"
+PART4 = SRC / "part4"
 MAX_PART_LINES = 650
 PART_COUNT = 6
 
@@ -22,8 +23,8 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def _part2_fragments() -> str:
-    manifest = PART2 / "MANIFEST.txt"
+def _part_fragments(manifest_dir: Path) -> str:
+    manifest = manifest_dir / "MANIFEST.txt"
     names: list[str] = []
     for line in _read(manifest).splitlines():
         line = line.strip()
@@ -32,7 +33,7 @@ def _part2_fragments() -> str:
         names.append(line)
     chunks: list[str] = []
     for name in names:
-        frag = PART2 / name
+        frag = manifest_dir / name
         if not frag.is_file():
             raise SystemExit(f"bundle_admin_app: missing fragment {frag}")
         text = _read(frag)
@@ -40,6 +41,14 @@ def _part2_fragments() -> str:
             text += "\n"
         chunks.append(text)
     return "".join(chunks)
+
+
+def _part2_fragments() -> str:
+    return _part_fragments(PART2)
+
+
+def _part4_fragments() -> str:
+    return _part_fragments(PART4)
 
 
 def _trim_part1(text: str) -> str:
@@ -66,7 +75,7 @@ def build_full_source() -> str:
     p1 = _trim_part1(_read(ADMIN / "app-part1.js"))
     p2 = _part2_fragments()
     p3 = _trim_part3(_read(ADMIN / "app-part3.js"))
-    p4 = _read(ADMIN / "app-part4.js")
+    p4 = _part4_fragments()
     p5 = _read(ADMIN / "app-part5.js")
     p6 = _read(ADMIN / "app-part6.js")
     return p1 + p2 + p3 + p4 + p5 + p6

@@ -1,0 +1,10 @@
+# Order preserved when bundling the admin IIFE (part-4 region).
+telemetry-history-fetch.js
+chart-y-hint.js
+orchestration-scalars.js
+orchestration-chart.js
+orchestration-header.js
+cooldown-format.js
+cooldown-tile.js
+overview-tiles.js
+kpi-tile-anims.js
