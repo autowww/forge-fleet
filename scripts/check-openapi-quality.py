@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Structural OpenAPI quality gate for docs/schemas/openapi.json."""
+"""Structural OpenAPI quality gate (fragments or bundled docs/schemas/openapi.json)."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-OPENAPI_PATH = REPO / "docs" / "schemas" / "openapi.json"
 FRAGMENTS = REPO / "docs" / "schemas" / "openapi"
 
 BINARY_PUTS = {
@@ -25,13 +24,21 @@ def _has_json_schema(content: dict) -> bool:
     return isinstance(sch, dict) and sch
 
 
-def main() -> int:
-    if FRAGMENTS.is_dir():
+def _load_openapi() -> dict:
+    if (FRAGMENTS / "openapi-root.json").is_file():
         sys.path.insert(0, str(REPO / "scripts"))
-        from split_footprint_modules import bundle_openapi
+        from openapi_fragments import load_openapi_doc
 
-        bundle_openapi()
-    doc = json.loads(OPENAPI_PATH.read_text(encoding="utf-8"))
+        return load_openapi_doc()
+    bundle = REPO / "docs" / "schemas" / "openapi.json"
+    if bundle.is_file():
+        return json.loads(bundle.read_text(encoding="utf-8"))
+    print("check-openapi-quality: missing OpenAPI fragments or bundle", file=sys.stderr)
+    raise SystemExit(2)
+
+
+def main() -> int:
+    doc = _load_openapi()
     paths = doc.get("paths")
     if not isinstance(paths, dict):
         print("check-openapi-quality: missing paths", file=sys.stderr)

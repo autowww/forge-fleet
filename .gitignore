@@ -22,3 +22,6 @@ ember-logs/
 # Forge journal / local config (not product source)
 .forge/
 forge/
+
+# Bundled OpenAPI (source: docs/schemas/openapi/ — run scripts/bundle_openapi.py)
+docs/schemas/openapi.json

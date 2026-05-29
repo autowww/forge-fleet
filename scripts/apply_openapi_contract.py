@@ -1,20 +1,29 @@
 #!/usr/bin/env python3
-"""Augment docs/schemas/openapi.json with contract fields.
+"""Augment OpenAPI with contract fields (fragments + optional bundle).
 
 Run from repo root:
 
     python3 scripts/apply_openapi_contract.py
 
-Idempotent: re-run safe.
+Idempotent: re-run safe. When docs/schemas/openapi/ exists, updates fragments only
+(run bundle_openapi.py before publish).
 """
 
 from __future__ import annotations
 
 import copy
 import json
+import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO / "scripts"))
+from openapi_fragments import (  # noqa: E402
+    fragments_available,
+    load_openapi_doc,
+    write_openapi_fragments,
+)
+
 OPENAPI_PATH = REPO / "docs" / "schemas" / "openapi.json"
 SCHEMA_DIR = REPO / "docs" / "schemas"
 
@@ -446,7 +455,7 @@ def _apply_extra_parameters(path: str, method: str, op: dict) -> None:
 
 
 def main() -> None:
-    doc = json.loads(OPENAPI_PATH.read_text(encoding="utf-8"))
+    doc = load_openapi_doc()
     _merge_components(doc)
 
     dup_check: set[str] = set()
@@ -475,10 +484,14 @@ def main() -> None:
             _apply_extra_parameters(pth, method, op)
             _apply_responses(pth, method, op)
 
-    OPENAPI_PATH.write_text(
-        json.dumps(doc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-    )
-    print(f"wrote {OPENAPI_PATH.relative_to(REPO)}")
+    if fragments_available():
+        write_openapi_fragments(doc)
+        print("wrote docs/schemas/openapi/ fragments (run bundle_openapi.py before publish)")
+    else:
+        OPENAPI_PATH.write_text(
+            json.dumps(doc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+        print(f"wrote {OPENAPI_PATH.relative_to(REPO)}")
 
 
 if __name__ == "__main__":

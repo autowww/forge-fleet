@@ -10,6 +10,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ROUTES_DIR = REPO_ROOT / "fleet_server" / "http" / "routes"
+OPENAPI_FRAGMENTS = REPO_ROOT / "docs" / "schemas" / "openapi"
 OPENAPI = REPO_ROOT / "docs" / "schemas" / "openapi.json"
 
 VERB_MAP = {
@@ -112,16 +113,30 @@ def routes_from_openapi(doc: dict) -> set[tuple[str, str]]:
     return out
 
 
+def _load_openapi() -> dict:
+    if (OPENAPI_FRAGMENTS / "openapi-root.json").is_file():
+        sys.path.insert(0, str(REPO_ROOT / "scripts"))
+        from openapi_fragments import load_openapi_doc
+
+        return load_openapi_doc()
+    if OPENAPI.is_file():
+        return json.loads(OPENAPI.read_text(encoding="utf-8"))
+    raise FileNotFoundError(
+        "check-docs-contracts: missing OpenAPI fragments or docs/schemas/openapi.json"
+    )
+
+
 def main() -> int:
     if not ROUTES_DIR.is_dir():
         print(f"check-docs-contracts: missing {ROUTES_DIR}", file=sys.stderr)
         return 2
-    if not OPENAPI.is_file():
-        print(f"check-docs-contracts: missing {OPENAPI}", file=sys.stderr)
+    try:
+        oapi = _load_openapi()
+    except FileNotFoundError as exc:
+        print(str(exc), file=sys.stderr)
         return 2
 
     code_routes = routes_from_http_routes()
-    oapi = json.loads(OPENAPI.read_text(encoding="utf-8"))
     spec_routes = routes_from_openapi(oapi)
 
     missing_in_openapi = sorted(code_routes - spec_routes)

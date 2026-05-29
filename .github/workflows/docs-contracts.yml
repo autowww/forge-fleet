@@ -52,6 +52,7 @@ jobs:
         run: |
           set -euo pipefail
           pip install markdown PyYAML
+          python3 forge-fleet/scripts/bundle_openapi.py
           rsync -a forge-fleet/docs/ forge-fleet-website/forge-fleet/docs/
           cd forge-fleet-website
           python3 generator/build-site.py

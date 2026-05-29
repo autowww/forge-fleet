@@ -8,7 +8,7 @@ Documentation and test-time artifacts (not enforced at HTTP runtime). Use with O
 
 | File | Purpose | Code / routes |
 |------|-----------|----------------|
-| **[openapi.json](../schemas/openapi.json)** | OpenAPI 3.1 — every HTTP route | [`fleet_server/main.py`](../../fleet_server/main.py); keep in sync via [`scripts/check-docs-contracts.py`](../../scripts/check-docs-contracts.py) |
+| **[openapi.json](../schemas/openapi.json)** (bundle; source in [`openapi/`](../schemas/openapi/)) | OpenAPI 3.1 — every HTTP route | [`fleet_server/main.py`](../../fleet_server/main.py); keep in sync via [`scripts/check-docs-contracts.py`](../../scripts/check-docs-contracts.py); run **`python3 scripts/bundle_openapi.py`** before publish |
 | **[workspace-manifest.schema.json](../schemas/workspace-manifest.schema.json)** | `.forge_workspace_manifest.json` inside workspace tarballs | [`fleet_server/workspace_bundle.py`](../../fleet_server/workspace_bundle.py); **`PUT /v1/jobs/{id}/workspace`** |
 | **[requirement-templates.schema.json](../schemas/requirement-templates.schema.json)** | `etc/containers/requirement_templates.json` | [`fleet_server/container_templates.py`](../../fleet_server/container_templates.py); **`GET`/`PUT /v1/container-templates`** |
 | **[container-types.schema.json](../schemas/container-types.schema.json)** | `etc/containers/types.json` | [`fleet_server/container_layout.py`](../../fleet_server/container_layout.py); **`GET`/`PUT /v1/container-types`** |

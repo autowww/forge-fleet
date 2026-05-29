@@ -349,66 +349,42 @@ def split_admin_html() -> None:
 
 
 def split_openapi() -> None:
+    import sys
+
+    sys.path.insert(0, str(REPO / "scripts"))
+    from openapi_fragments import bundle_openapi, load_openapi_doc, write_openapi_fragments
+
     oapi_path = REPO / "docs" / "schemas" / "openapi.json"
-    doc = json.loads(oapi_path.read_text(encoding="utf-8"))
-    paths = doc.pop("paths", {})
-    components = doc.pop("components", None)
+    if oapi_path.is_file():
+        doc = json.loads(oapi_path.read_text(encoding="utf-8"))
+    else:
+        doc = load_openapi_doc()
 
     frag_dir = REPO / "docs" / "schemas" / "openapi"
-    paths_dir = frag_dir / "paths"
     if frag_dir.exists():
         shutil.rmtree(frag_dir)
-    paths_dir.mkdir(parents=True)
 
-    groups: dict[str, dict] = {}
-    for path_key, item in paths.items():
-        parts = path_key.strip("/").split("/")
-        group = parts[1] if len(parts) >= 2 and parts[0] == "v1" else (parts[0] if parts else "root")
-        groups.setdefault(group, {})[path_key] = item
-
-    for group, items in sorted(groups.items()):
-        safe = re.sub(r"[^a-z0-9_-]+", "-", group.lower())
-        (paths_dir / f"{safe}.json").write_text(
-            json.dumps(items, indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
-
-    if components is not None:
-        (frag_dir / "components.json").write_text(
-            json.dumps(components, indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
-    (frag_dir / "openapi-root.json").write_text(
-        json.dumps(doc, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
+    write_openapi_fragments(doc)
+    paths_count = len(list((frag_dir / "paths").glob("*.json")))
     (frag_dir / "README.md").write_text(
         "# OpenAPI fragments\n\n"
-        "Edit `paths/*.json` and `components.json`, then run:\n\n"
-        "```bash\npython3 scripts/bundle_openapi.py\n```\n",
+        "Edit `paths/*.json`, `components.json`, and `openapi-root.json` (not the bundled file).\n\n"
+        "Regenerate the deploy/CI bundle:\n\n"
+        "```bash\npython3 scripts/bundle_openapi.py\n```\n\n"
+        "Writes `../openapi.json` (generated; prefer editing fragments here).\n",
         encoding="utf-8",
     )
     bundle_openapi()
-    print(f"split openapi -> {len(groups)} path fragments")
+    print(f"split openapi -> {paths_count} path fragments")
 
 
 def bundle_openapi() -> None:
-    frag_dir = REPO / "docs" / "schemas" / "openapi"
-    root_path = frag_dir / "openapi-root.json"
-    if not root_path.is_file():
-        return
-    doc = json.loads(root_path.read_text(encoding="utf-8"))
-    paths: dict = {}
-    paths_dir = frag_dir / "paths"
-    if paths_dir.is_dir():
-        for p in sorted(paths_dir.glob("*.json")):
-            paths.update(json.loads(p.read_text(encoding="utf-8")))
-    doc["paths"] = paths
-    comp = frag_dir / "components.json"
-    if comp.is_file():
-        doc["components"] = json.loads(comp.read_text(encoding="utf-8"))
-    out = REPO / "docs" / "schemas" / "openapi.json"
-    out.write_text(json.dumps(doc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    import sys
+
+    sys.path.insert(0, str(REPO / "scripts"))
+    from openapi_fragments import bundle_openapi as _bundle
+
+    _bundle()
 
 
 def main() -> None:
