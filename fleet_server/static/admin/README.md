@@ -2,6 +2,10 @@
 
 Served under `/admin/static/` via FleetHandler.
 
+## Admin HTML shell
+
+Markup lives in **`html_src/`** (fragments + `MANIFEST.txt`). **`GET /admin/`** assembles the page at runtime via **`fleet_server.admin_shell`**. The repo-root **`static/admin.html`** is a short stub for footprint scans; optional full bundle: **`python3 scripts/bundle_admin_html.py`**.
+
 ## Admin app JavaScript
 
 Parts **2** and **4** of the admin IIFE live in **`app-src/part2/*.js`** and **`app-src/part4/*.js`** (loaded by `admin.html`). Other parts remain `app-part1.js`, `app-part3.js`, `app-part5.js`, and `app-part6.js`.
@@ -16,4 +20,4 @@ python3 scripts/bundle_admin_app.py
 
 (then point `admin.html` at `app-part2.js` instead of the fragment list).
 
-Footprint scans should use **`app-src/part2/`** and **`app-src/part4/`** as the source of truth for the former monolithic parts 2 and 4.
+Footprint scans should use **`html_src/`**, **`app-src/part2/`**, and **`app-src/part4/`** as source of truth for admin markup and the former monolithic JS parts 2 and 4.

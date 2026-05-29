@@ -1,0 +1,36 @@
+  <div
+    class="modal fade"
+    id="fleet-power-diag-modal"
+    tabindex="-1"
+    aria-labelledby="fleet-power-diag-modal-label"
+    aria-hidden="true"
+  >
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="fleet-power-diag-modal-label">Power &amp; watts diagnostics</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p class="small text-body-secondary mb-2">
+            Fleet shows <strong>CPU package</strong> draw (Linux RAPL) plus <strong>NVIDIA</strong> <code class="fleet-mono">power.draw</code> when
+            <code class="fleet-mono">nvidia-smi</code> works. This dialog stays open across page refreshes.
+          </p>
+          <div id="fleet-power-diag-rapl-wrap" class="d-none"></div>
+          <ul class="small mb-3 ps-3">
+            <li>Processor energy (RAPL) is exposed under <code class="fleet-mono">/sys/class/powercap</code> on many bare-metal hosts — not a separate apt package.</li>
+            <li>NVIDIA GPU watts need a working driver and <code class="fleet-mono">nvidia-smi</code> on <code class="fleet-mono">PATH</code> for the Fleet process.</li>
+            <li>VMs often lack RAPL; some kernels omit instant <code class="fleet-mono">power_uw</code> — watts may appear only after the next poll.</li>
+          </ul>
+          <p class="small text-body-secondary mb-1">Run on the Fleet host (copy as needed):</p>
+          <pre
+            class="fleet-mono small p-2 rounded border bg-body-secondary mb-0"
+            id="fleet-power-diag-commands"
+            style="white-space: pre-wrap; max-height: 16rem; overflow: auto"
+          >ls /sys/class/powercap 2>/dev/null | head
+for z in /sys/class/powercap/*; do [ -f &quot;$z/name&quot; ] &amp;&amp; echo &quot;---&quot; &amp;&amp; cat &quot;$z/name&quot; &quot;$z/energy_uj&quot; 2&gt;/dev/null; done | head -n 40
+command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/null | head -n 40</pre>
+        </div>
+      </div>
+    </div>
+  </div>

@@ -1,0 +1,29 @@
+  <div
+    class="modal fade"
+    id="fleet-system-update-modal"
+    tabindex="-1"
+    aria-labelledby="fleet-system-update-modal-label"
+    aria-hidden="true"
+  >
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="fleet-system-update-modal-label">System install — run as root</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p class="small text-body-secondary mb-2">
+            Paste this into a root shell. It fast-forwards the git checkout, syncs submodules, and runs
+            <code class="fleet-mono">install-update.sh</code> so the systemd service under
+            <code class="fleet-mono">/opt/forge-fleet</code> picks up the new tree.
+          </p>
+          <pre
+            class="fleet-mono small p-2 rounded border bg-body-secondary mb-2"
+            id="fleet-system-update-command"
+            style="white-space: pre-wrap; max-height: 14rem; overflow: auto"
+          ></pre>
+          <button type="button" class="btn btn-sm btn-outline-primary" id="fleet-system-update-copy">Copy command</button>
+        </div>
+      </div>
+    </div>
+  </div>

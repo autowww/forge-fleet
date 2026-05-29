@@ -1,0 +1,21 @@
+# Admin HTML shell — assembly order for /admin/ (see html_src/README.md).
+shell/document-start.html
+chrome/theme-dropdown.html
+chrome/a11y-overview-trigger.html
+main/header.html
+main/tab-nav.html
+main/tab-content-open.html
+tabs/overview-pane.html
+tabs/services-pane.html
+tabs/containers-pane.html
+tabs/jobs-pane.html
+main/main-close.html
+modals/job-detail.html
+modals/type-edit.html
+modals/req-template.html
+modals/system-update.html
+modals/power-diag.html
+modals/tel-history.html
+modals/a11y-overview.html
+shell/scripts.html
+shell/document-end.html

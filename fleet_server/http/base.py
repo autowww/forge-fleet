@@ -58,7 +58,9 @@ class FleetHandlerBase(BaseHTTPRequestHandler):
 
     def _serve_admin_shell(self) -> None:
         try:
-            data = resources.files("fleet_server").joinpath("static/admin.html").read_bytes()
+            from fleet_server.admin_shell import assemble_admin_html_bytes
+
+            data = assemble_admin_html_bytes()
         except OSError:
             self._send_raw(500, b"admin bundle missing", "text/plain; charset=utf-8")
             return
@@ -83,10 +85,10 @@ class FleetHandlerBase(BaseHTTPRequestHandler):
         elif (
             len(parts) == 3
             and parts[0] == "app-src"
-            and parts[1] == "part2"
+            and parts[1] in ("part2", "part4")
             and re.match(r"^[a-z0-9-]+\.js$", parts[2], re.I)
         ):
-            static_parts = ("admin", "app-src", "part2", parts[2])
+            static_parts = ("admin", "app-src", parts[1], parts[2])
         elif len(parts) == 1 and re.match(r"^[a-z0-9_.-]+\.(js|css)$", parts[0], re.I):
             static_parts = ("admin", parts[0])
         else:

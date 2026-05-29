@@ -1,0 +1,42 @@
+  <div
+    class="modal fade"
+    id="fleet-tel-history-modal"
+    tabindex="-1"
+    aria-labelledby="fleet-tel-history-modal-label"
+    aria-hidden="true"
+  >
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="fleet-tel-history-modal-label">Telemetry history</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p class="small text-body-secondary mb-2">
+            Same series as the overview chart. Orange / yellow / violet are <strong>% of the maximum ever recorded</strong> on this browser for
+            temperature (°C), load (normalized to your CPU scale), and disk activity on the same 0–100 scale as the Storage tile (busy %, MB/s-scaled activity, or disk space). Maxima update as new samples arrive.
+            <span class="d-block mt-1">Last 24 hours: <strong>5-minute averages</strong>. Longer ranges: bucket size is chosen to fit the chart. <strong>X-axis times are UTC.</strong> Sparse data does not stretch—empty parts of the range stay blank.</span>
+          </p>
+          <p class="small mb-3" id="fleet-tel-hist-status" aria-live="polite"></p>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <div class="small fw-semibold mb-1">Last 24 hours</div>
+              <div id="fleet-tel-chart-24h" class="fleet-chart-box fleet-tel-modal-chart"></div>
+            </div>
+            <div class="col-md-6">
+              <div class="small fw-semibold mb-1">Last 7 days</div>
+              <div id="fleet-tel-chart-7d" class="fleet-chart-box fleet-tel-modal-chart"></div>
+            </div>
+            <div class="col-md-6">
+              <div class="small fw-semibold mb-1">Last month</div>
+              <div id="fleet-tel-chart-1mo" class="fleet-chart-box fleet-tel-modal-chart"></div>
+            </div>
+            <div class="col-md-6">
+              <div class="small fw-semibold mb-1">Last year</div>
+              <div id="fleet-tel-chart-1y" class="fleet-chart-box fleet-tel-modal-chart"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>

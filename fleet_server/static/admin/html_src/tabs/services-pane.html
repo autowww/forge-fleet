@@ -1,0 +1,54 @@
+      <div
+        class="tab-pane fade"
+        id="fleet-tab-services"
+        role="tabpanel"
+        aria-labelledby="fleet-tab-services-btn"
+        tabindex="0"
+      >
+        <div class="d-none border border-secondary-subtle rounded p-2 mb-2 small" id="fleet-managed-services-wrap">
+          <div class="fleet-managed-services-top mb-2 pb-2 border-bottom border-secondary-subtle">
+            <div class="fw-semibold mb-1">Managed services (<code class="fleet-mono">etc/services/*.json</code>)</div>
+            <div class="d-flex flex-wrap gap-2 align-items-center">
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-svc-refresh-btn" title="Reload service list from Fleet snapshot">
+                Refresh
+              </button>
+            </div>
+          </div>
+          <p class="text-body-secondary mb-2 fleet-mono small" id="fleet-config-paths"></p>
+          <div id="fleet-managed-services-rows" class="mb-2"></div>
+          <p class="fleet-mono small text-body-secondary mb-1" id="fleet-svc-action-msg" aria-live="polite"></p>
+          <details class="mt-1">
+            <summary class="text-body">Add <strong>Forge LLM</strong> compose stack</summary>
+            <form id="fleet-add-service-form" class="mt-2 small">
+              <div class="mb-2">
+                <label class="form-label small mb-0" for="fleet-new-svc-root">Forge LLM directory on this host (must contain <code class="fleet-mono">compose.yaml</code>)</label>
+                <input class="form-control form-control-sm fleet-mono mt-1" id="fleet-new-svc-root" placeholder="/home/you/Code/forge-llm" autocomplete="off" />
+              </div>
+              <p class="text-body-secondary mb-2" style="font-size: 0.8rem">
+                Registers the stack in Fleet. After it appears in the list above, use <strong>Start</strong> to run <code class="fleet-mono">docker compose up -d</code>.
+              </p>
+              <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                <button type="submit" class="btn btn-sm btn-primary">Register stack</button>
+              </div>
+              <details class="border border-secondary-subtle rounded p-2 mt-1">
+                <summary class="text-body small" style="cursor: pointer">Advanced</summary>
+                <div class="row g-2 mt-2">
+                  <div class="col-md-6">
+                    <label class="form-label small mb-0" for="fleet-new-svc-id">Service id (optional)</label>
+                    <input class="form-control form-control-sm fleet-mono" id="fleet-new-svc-id" placeholder="Leave blank — Fleet picks default, lab, llm2…" autocomplete="off" />
+                  </div>
+                  <div class="col-12">
+                    <span class="form-label small d-block mb-1">Compose overlays (optional)</span>
+                    <label class="me-3"><input type="checkbox" class="form-check-input fleet-svc-overlay me-1" value="compose.cpu.yaml" />compose.cpu.yaml</label>
+                    <label class="me-3"><input type="checkbox" class="form-check-input fleet-svc-overlay me-1" value="compose.gpu.yaml" />compose.gpu.yaml</label>
+                    <label class="me-3"><input type="checkbox" class="form-check-input fleet-svc-overlay me-1" value="compose.observability-ports.yaml" />observability-ports</label>
+                    <label class="me-3"><input type="checkbox" class="form-check-input fleet-svc-overlay me-1" value="compose.observability-dcgm.yaml" />observability-dcgm</label>
+                  </div>
+                  <div class="col-12 text-body-secondary fleet-mono" style="font-size: 0.72rem">API: <code class="fleet-mono">POST /v1/container-services</code> · omit <code class="fleet-mono">id</code> for auto-assigned service id</div>
+                </div>
+              </details>
+            </form>
+            <p class="text-body-secondary fleet-mono small mt-2 mb-0" id="fleet-add-service-msg"></p>
+          </details>
+        </div>
+      </div>

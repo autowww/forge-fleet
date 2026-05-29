@@ -1,0 +1,19 @@
+  <main class="container pb-5">
+    <header class="mb-3 fleet-admin-chrome">
+      <h1 class="h3 fleet-admin-title mb-1">Forge Fleet — status</h1>
+      <p class="text-body-secondary small mb-1 d-flex flex-wrap align-items-center gap-2">
+        <span id="fleet-version-line" class="fleet-mono" aria-live="polite">Loading version…</span>
+        <span id="fleet-git-remote-row" class="small fleet-mono" aria-live="polite"></span>
+        <span id="fleet-self-update-status" class="fleet-mono small" aria-live="polite"></span>
+      </p>
+      <p class="text-body-secondary small mb-1 d-none" id="fleet-forge-console-wrap">
+        <a id="fleet-forge-console" href="#" target="_blank" rel="noopener">Open Forge LLM console</a>
+        <span class="text-body-secondary"> (set <code class="fleet-mono">FLEET_FORGE_CONSOLE_URL</code> on Fleet)</span>
+      </p>
+      <pre
+        class="fleet-mono small text-body-secondary mb-2 p-2 rounded border bg-body-secondary d-none"
+        id="fleet-self-update-log"
+        style="max-height: 14rem; overflow: auto; white-space: pre-wrap"
+      ></pre>
+      <div class="alert alert-danger py-2 px-3 mb-2 small d-none" id="err" role="alert"></div>
+    </header>

@@ -1,0 +1,41 @@
+      <div
+        class="tab-pane fade"
+        id="fleet-tab-containers"
+        role="tabpanel"
+        aria-labelledby="fleet-tab-containers-btn"
+        tabindex="0"
+      >
+        <div class="d-none border border-secondary-subtle rounded p-2 mb-2 small" id="fleet-container-types-wrap">
+          <div class="fw-semibold mb-1">Container types (<code class="fleet-mono">etc/containers/types.json</code>)</div>
+          <div class="d-flex flex-wrap gap-2 mb-2">
+            <button type="button" class="btn btn-sm btn-outline-primary" id="fleet-type-add-btn">Add type</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-types-reload-btn" title="Reload from disk">Reload</button>
+          </div>
+          <div class="d-none border border-secondary-subtle rounded p-2 mb-2 fleet-orch-nested" id="fleet-orchestration-wrap">
+            <div class="fw-semibold mb-1 small">Workloads (compose + running jobs)</div>
+            <p class="text-body-secondary small mb-2" id="fleet-orch-summary"></p>
+            <div id="fleet-orch-chart" class="fleet-chart-box" role="img" aria-label="Workload counts over time"></div>
+          </div>
+          <div id="fleet-container-types-table"></div>
+          <div class="border border-secondary-subtle rounded p-2 mt-3 fleet-orch-nested" id="fleet-requirement-templates-inner">
+            <div class="fw-semibold mb-1 small">Requirement templates (<code class="fleet-mono">requirement_templates.json</code>)</div>
+            <p class="text-body-secondary small mb-2">Declare Dockerfile or pinned images per slug; types reference <code class="fleet-mono">requirements[]</code>. By default pulls and Dockerfile builds may use the network; set <code class="fleet-mono">FLEET_TEMPLATE_BUILD_NETWORK=0</code> to enforce offline builds.</p>
+            <div class="d-flex flex-wrap gap-2 mb-2">
+              <button type="button" class="btn btn-sm btn-outline-primary" id="fleet-req-template-add-btn">Add template</button>
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-req-templates-reload-btn">Reload</button>
+              <button type="button" class="btn btn-sm btn-outline-warning" id="fleet-req-templates-save-btn">Save templates</button>
+            </div>
+            <div id="fleet-requirement-templates-editor-msg" class="fleet-mono small text-body-secondary mb-1" aria-live="polite"></div>
+            <div id="fleet-requirement-templates-table"></div>
+            <details class="mt-2">
+              <summary class="text-body small">Build requirement bundle</summary>
+              <div class="mt-2 small">
+                <label class="form-label small mb-0" for="fleet-build-req-ids">Comma-separated requirement slugs</label>
+                <input type="text" class="form-control form-control-sm fleet-mono mt-1 mb-2" id="fleet-build-req-ids" placeholder="playwright_chromium" autocomplete="off" />
+                <button type="button" class="btn btn-sm btn-outline-warning" id="fleet-template-build-btn"><code class="fleet-mono">POST /v1/container-templates/build</code></button>
+                <p class="fleet-mono small text-body-secondary mb-0 mt-2" id="fleet-template-build-result" aria-live="polite"></p>
+              </div>
+            </details>
+          </div>
+        </div>
+      </div>

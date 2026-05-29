@@ -1,0 +1,56 @@
+  <div
+    class="modal fade"
+    id="fleet-type-edit-modal"
+    tabindex="-1"
+    aria-labelledby="fleet-type-edit-modal-label"
+    aria-hidden="true"
+  >
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="fleet-type-edit-modal-label">Container type</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body small">
+          <p class="text-body-secondary" id="fleet-type-edit-hint">Add or update a row in <code class="fleet-mono">types.json</code>.</p>
+          <div class="row g-2">
+            <div class="col-md-6">
+              <label class="form-label small mb-0" for="fleet-type-field-id">id</label>
+              <input class="form-control form-control-sm fleet-mono" id="fleet-type-field-id" autocomplete="off" />
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small mb-0" for="fleet-type-field-category">category_id</label>
+              <select class="form-select form-select-sm fleet-mono" id="fleet-type-field-category"></select>
+            </div>
+            <div class="col-12">
+              <label class="form-label small mb-0" for="fleet-type-field-cclass">container_class</label>
+              <input class="form-control form-control-sm fleet-mono" id="fleet-type-field-cclass" autocomplete="off" />
+            </div>
+            <div class="col-12">
+              <label class="form-label small mb-0" for="fleet-type-field-title">title</label>
+              <input class="form-control form-control-sm" id="fleet-type-field-title" autocomplete="off" />
+            </div>
+            <div class="col-12">
+              <label class="form-label small mb-0" for="fleet-type-field-notes">notes</label>
+              <textarea class="form-control form-control-sm" id="fleet-type-field-notes" rows="2"></textarea>
+            </div>
+            <div class="col-12">
+              <label class="form-label small mb-0" for="fleet-type-field-req">requirements (comma-separated slugs)</label>
+              <input class="form-control form-control-sm fleet-mono" id="fleet-type-field-req" placeholder="slug_a, slug_b" autocomplete="off" />
+            </div>
+            <div class="col-12">
+              <span class="form-label small d-block mb-1">Capability overrides (optional)</span>
+              <label class="me-3"><input type="checkbox" class="form-check-input me-1" id="fleet-type-cap-admin" /> admin_spawnable</label>
+              <label class="me-3"><input type="checkbox" class="form-check-input me-1" id="fleet-type-cap-api" /> api_manage_services</label>
+              <label class="me-3"><input type="checkbox" class="form-check-input me-1" id="fleet-type-cap-docker" /> allow_docker_argv_jobs</label>
+            </div>
+          </div>
+          <p class="text-danger small mb-0 d-none" id="fleet-type-edit-err"></p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-sm btn-primary" id="fleet-type-edit-save">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>

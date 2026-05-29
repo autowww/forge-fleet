@@ -1,0 +1,54 @@
+  <div
+    class="modal fade"
+    id="fleet-a11y-overview-modal"
+    tabindex="-1"
+    aria-labelledby="fleet-a11y-overview-label"
+    aria-hidden="true"
+  >
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 class="modal-title h5" id="fleet-a11y-overview-label">Page overview</h2>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p class="small text-body-secondary mb-3">
+            Approximate summary from this page’s text and controls. Values below are filled when you open this dialog;
+            they are <strong>not</strong> a verbatim JAWS, NVDA, or VoiceOver transcript.
+          </p>
+          <div
+            id="fleet-a11y-transcript-wrap"
+            class="small fleet-mono border rounded p-3 bg-body-secondary text-body"
+            style="white-space: pre-wrap; max-height: min(60vh, 28rem); overflow: auto"
+            aria-live="polite"
+          >
+            <span class="d-block mb-2 fw-semibold">Main title</span>
+            <span class="d-block mb-3" data-fleet-a11y-stub="page_heading">—</span>
+
+            <span class="d-block mb-2 fw-semibold">Version and remotes</span>
+            <span class="d-block mb-1 text-body-secondary small">Version line</span>
+            <span class="d-block mb-2" data-fleet-a11y-stub="version">__STUB_VERSION__</span>
+            <span class="d-block mb-1 text-body-secondary small">Git remote row</span>
+            <span class="d-block mb-2" data-fleet-a11y-stub="git_remote">__STUB_GIT_REMOTE__</span>
+            <span class="d-block mb-1 text-body-secondary small">Self-update status</span>
+            <span class="d-block mb-3" data-fleet-a11y-stub="self_update">__STUB_SELF_UPDATE__</span>
+
+            <span class="d-block mb-2 fw-semibold">Overview tiles</span>
+            <span class="d-block mb-3" data-fleet-a11y-stub="tiles">__STUB_TILES__</span>
+
+            <span class="d-block mb-2 fw-semibold">Jobs by status</span>
+            <span class="d-block mb-3" data-fleet-a11y-stub="job_counts">__STUB_JOB_COUNTS__</span>
+
+            <span class="d-block mb-2 fw-semibold">Active workers</span>
+            <span class="d-block mb-3" data-fleet-a11y-stub="workers">__STUB_WORKERS__</span>
+
+            <span class="d-block mb-2 fw-semibold">Recent jobs (first rows)</span>
+            <span class="d-block mb-3" data-fleet-a11y-stub="recent_jobs">__STUB_RECENT_JOBS__</span>
+
+            <span class="d-block mb-2 fw-semibold">Error banner (if any)</span>
+            <span class="d-block" data-fleet-a11y-stub="error_banner">__STUB_ERROR__</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
