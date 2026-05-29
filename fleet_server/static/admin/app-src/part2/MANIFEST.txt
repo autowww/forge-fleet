@@ -1,0 +1,15 @@
+# Order preserved when bundling the admin IIFE (part-2 region).
+tile-marks.js
+tile-format-load.js
+gpu-metrics.js
+cpu-compact-tile.js
+rapl-state.js
+gpu-branding.js
+disk-metrics.js
+trend-samples.js
+load-metrics.js
+host-metrics.js
+chart-series.js
+chart-aggregate.js
+chart-buckets.js
+modal-chart-rows.js

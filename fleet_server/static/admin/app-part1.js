@@ -660,15 +660,3 @@
       return out;
     }
 
-    function renderCpuCompactTile(host, trendCls) {
-      trendCls = trendCls || "";
-      var cpuP = cpuPct(host);
-      var disp =
-        cpuP != null && !isNaN(cpuP) ? fleetCpuAnim.widthForRender(cpuP) : null;
-      if (disp == null || isNaN(disp)) disp = cpuP != null && !isNaN(cpuP) ? Number(cpuP) : null;
-      var w = disp != null ? Math.min(100, Math.max(0, Number(disp))) : 0;
-      var z = loadZone4(w);
-      var logC = host.cpus != null && !isNaN(Number(host.cpus)) ? Number(host.cpus) : null;
-      var physC =
-        host.cpu_cores_physical != null && !isNaN(Number(host.cpu_cores_physical))
-          ? Number(host.cpu_cores_physical)

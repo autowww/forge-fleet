@@ -1,19 +1,3 @@
-          clipped.push(sorted[i]);
-        }
-      }
-      var bucketMs =
-        periodKey === "last_24_hours"
-          ? 5 * 60 * 1000
-          : pickNiceBucketMs(windowEndMs - windowStartMs, 556);
-      var averagedRows = averageMetricRowsIntoBuckets(clipped, bucketMs, windowStartMs, windowEndMs);
-      return {
-        averagedRows: averagedRows,
-        windowStartMs: windowStartMs,
-        windowEndMs: windowEndMs,
-        bucketMs: bucketMs,
-      };
-    }
-
     /** UTC x-axis ticks and labels below the plot (returns inner SVG fragment). */
     function fleetTelemetryXAxisMarkup(windowStartMs, windowEndMs, padL, iw, axisTopY, periodKey) {
       if (windowStartMs == null || windowEndMs == null || windowEndMs <= windowStartMs) return "";
