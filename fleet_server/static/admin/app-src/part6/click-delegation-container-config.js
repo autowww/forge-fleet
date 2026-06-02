@@ -97,7 +97,7 @@
               __fleetTypesLoaded = false;
               await loadContainerTypesOnce(true);
             } else {
-              setErr("Delete type: HTTP " + res.status + " — " + esc(String(j.error || ""));
+              setErr("Delete type: HTTP " + res.status + " — " + esc(String(j.error || "")));
             }
           } catch (e) {
             setErr(esc(String(e)));

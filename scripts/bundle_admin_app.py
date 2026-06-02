@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Concatenate admin app-src fragments and regenerate app-part*.js (valid IIFE)."""
+"""Concatenate admin app-src fragments into app-bundle.js and footprint app-part*.js slices."""
 
 from __future__ import annotations
 
@@ -16,9 +16,11 @@ PART4 = SRC / "part4"
 PART5 = SRC / "part5"
 PART6 = SRC / "part6"
 MAX_PART_LINES = 650
-PART_COUNT = 6
+PART_COUNT = 7
+BUNDLE_OUT = ADMIN / "app-bundle.js"
 
-_PART2_START_MARK = "    function renderCpuCompactTile"
+# Part-1 ends before part-2 region (see app-src/part2/MANIFEST.txt).
+_PART2_START_MARK = "    function memQuarterFills"
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
@@ -64,16 +66,20 @@ def _part6_fragments() -> str:
 
 
 def _trim_part1(text: str) -> str:
-    idx = text.find(_PART2_START_MARK)
-    if idx < 0:
-        # Already trimmed — part-2 region lives in app-src/part2 fragments.
-        if not text.endswith("\n"):
-            text += "\n"
-        return text
-    head = text[:idx]
-    if not head.endswith("\n"):
-        head += "\n"
-    return head
+    for mark in (
+        _PART2_START_MARK,
+        "    /* Tile header marks (inline SVG, currentColor from .fleet-tile__brand). */",
+        "    function renderCpuCompactTile",
+    ):
+        idx = text.find(mark)
+        if idx >= 0:
+            head = text[:idx]
+            if not head.endswith("\n"):
+                head += "\n"
+            return head
+    if not text.endswith("\n"):
+        text += "\n"
+    return text
 
 
 def build_full_source() -> str:
@@ -118,9 +124,13 @@ def write_parts(parts: list[str]) -> None:
 
 def main() -> None:
     full = build_full_source()
+    if not full.strip().endswith("})();"):
+        print("bundle_admin_app: warning: bundle does not end with IIFE close", file=sys.stderr)
+    BUNDLE_OUT.write_text(full, encoding="utf-8")
     parts = split_into_parts(full)
     write_parts(parts)
     line_counts = [len(p.splitlines()) for p in parts]
+    print(f"bundle_admin_app: wrote {BUNDLE_OUT.relative_to(REPO)} ({len(full.splitlines())} lines)")
     print(
         "bundle_admin_app: regenerated "
         + ", ".join(f"app-part{i}.js ({n} lines)" for i, n in enumerate(line_counts, start=1))

@@ -1,4 +1,5 @@
 # Order preserved when bundling the admin IIFE (part-2 region).
+mem-quarter-fills.js
 tile-marks.js
 tile-format-load.js
 gpu-metrics.js

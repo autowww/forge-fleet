@@ -80,12 +80,12 @@ class FleetHandlerBase(BaseHTTPRequestHandler):
                 self._send_raw(404, b"", "text/plain; charset=utf-8")
                 return
             static_parts = tuple(parts)
-        elif len(parts) == 1 and re.match(r"^app-part[1-6]\.js$", parts[0], re.I):
+        elif len(parts) == 1 and re.match(r"^app-(?:part[1-9]|bundle)\.js$", parts[0], re.I):
             static_parts = ("admin", parts[0])
         elif (
             len(parts) == 3
             and parts[0] == "app-src"
-            and parts[1] in ("part2", "part4")
+            and re.match(r"^part[2-6]$", parts[1], re.I)
             and re.match(r"^[a-z0-9-]+\.js$", parts[2], re.I)
         ):
             static_parts = ("admin", "app-src", parts[1], parts[2])
