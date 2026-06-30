@@ -19,6 +19,7 @@
 |------|------|
 | Tarball workspaces | **[Workspace upload](01-workspace-upload.md)** |
 | Requirement templates + BuildKit builds | **[Container templates](02-container-templates.md)** |
+| Fleet App packages (FAEP) | **[Fleet Apps protocol](03-fleet-apps-protocol.md)** |
 | Caddy on systemd hosts | **[Caddy + systemd](03-caddy-systemd.md)** |
 | Single hostname routing (Fleet + Granite) | **[Caddy unified Granite](04-caddy-unified-granite.md)** |
 | Topic-based snippets (Python / TS / CI) | **[Examples library](../examples/README.md)** |

@@ -174,6 +174,22 @@
           Jobs
         </button>
       </li>
+      <li class="nav-item" role="presentation">
+        <button
+          class="nav-link"
+          id="fleet-tab-apps-btn"
+          data-bs-toggle="tab"
+          data-bs-target="#fleet-tab-apps"
+          type="button"
+          role="tab"
+          aria-controls="fleet-tab-apps"
+          aria-selected="false"
+          tabindex="-1"
+        >
+          Apps
+        </button>
+      </li>
+      <span id="fleet-dynamic-app-tabs" class="d-contents"></span>
     </ul>
 
     <div class="tab-content" id="fleet-admin-tab-content">
@@ -361,6 +377,29 @@
           </div>
         </section>
       </div>
+
+      <div
+        class="tab-pane fade"
+        id="fleet-tab-apps"
+        role="tabpanel"
+        aria-labelledby="fleet-tab-apps-btn"
+        tabindex="0"
+      >
+        <section class="card mb-3 border-secondary-subtle shadow-sm">
+          <div class="card-body">
+            <h2 class="h6 text-uppercase text-body-secondary mb-3">Installed apps</h2>
+            <div id="fleet-apps-installed" class="small text-body-secondary">Loading…</div>
+          </div>
+        </section>
+        <section class="card mb-3 border-secondary-subtle shadow-sm">
+          <div class="card-body">
+            <h2 class="h6 text-uppercase text-body-secondary mb-3">Catalog</h2>
+            <p class="small text-body-secondary">Packages from <code class="fleet-mono">fleet.forgesdlc.com</code>.</p>
+            <div id="fleet-apps-catalog" class="small text-body-secondary">Loading catalog…</div>
+          </div>
+        </section>
+      </div>
+      <div id="fleet-dynamic-app-panes"></div>
     </div>
   </main>
 
@@ -655,6 +694,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
   <script src="/admin/ks/js/forge-theme.js"></script>
+  <script src="/admin/ks/js/forge-fleet-app-ui.js"></script>
   <script>
   /* forge-theme.js only registers DOMContentLoaded; if that event already fired, theme + clicks never wire — fix here. */
   (function () {
@@ -2059,6 +2099,14 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       }
       var windowStartMs = t0 * 1000;
       var windowEndMs = t1 * 1000;
+      if (doc && doc.format === "buckets" && Array.isArray(doc.buckets)) {
+        return {
+          averagedRows: sortMetricRows(doc.buckets),
+          windowStartMs: windowStartMs,
+          windowEndMs: windowEndMs,
+          bucketMs: doc.bucket_ms != null ? Number(doc.bucket_ms) : null,
+        };
+      }
       var sorted = sortMetricRows(rawRows || []);
       var clipped = [];
       for (var i = 0; i < sorted.length; i++) {
@@ -2749,7 +2797,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         var docs = await Promise.all(
           periods.map(function (p) {
             return fetch(
-              "/v1/telemetry?period=" + encodeURIComponent(p[0]) + "&limit=500000",
+              "/v1/telemetry?period=" + encodeURIComponent(p[0]) + "&format=buckets",
               { headers: authHeaders(), cache: "no-store" }
             ).then(function (r) {
               return r.json();
@@ -2758,7 +2806,9 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         );
         for (var di = 0; di < docs.length; di++) {
           var doc = docs[di];
-          if (doc && doc.ok && Array.isArray(doc.samples)) {
+          if (doc && doc.ok && doc.format === "buckets" && Array.isArray(doc.buckets)) {
+            for (var bi = 0; bi < doc.buckets.length; bi++) allRows.push(doc.buckets[bi]);
+          } else if (doc && doc.ok && Array.isArray(doc.samples)) {
             var part = samplesToMetricRows(doc.samples, null);
             for (var pi = 0; pi < part.length; pi++) allRows.push(part[pi]);
           }
@@ -2771,19 +2821,28 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         for (var ui = 0; ui < periods.length; ui++) {
           var doc2 = docs[ui];
           var slice = [];
-          if (doc2 && doc2.ok && Array.isArray(doc2.samples)) slice = samplesToMetricRows(doc2.samples, null);
+          if (doc2 && doc2.ok && doc2.format === "buckets" && Array.isArray(doc2.buckets)) {
+            slice = doc2.buckets;
+          } else if (doc2 && doc2.ok && Array.isArray(doc2.samples)) {
+            slice = samplesToMetricRows(doc2.samples, null);
+          }
           var box = document.getElementById(periods[ui][1]);
           var pKey = doc2 && doc2.period ? String(doc2.period) : periods[ui][0];
           renderTelemetryChartInto(box, slice, mm, cw, ch, periods[ui][2], doc2, pKey);
         }
         if (statusEl) {
+          var rollupNote = "";
+          var r0 = docs[0] && docs[0].rollup;
+          if (r0 && r0.gaps_remain) rollupNote = " · backfill in progress";
+          else if (r0 && r0.bucket_count) rollupNote = " · " + r0.bucket_count + " stored 5m buckets";
           statusEl.textContent =
             "Maxima (this browser): temp " +
             (mm.tempC > 0 ? mm.tempC.toFixed(1) + " °C" : "—") +
             " · load " +
             (mm.loadPct > 0 ? Math.round(mm.loadPct) + "%" : "—") +
             " · disk (tile scale) " +
-            (mm.diskUi > 0 ? Math.round(mm.diskUi) + "%" : "—");
+            (mm.diskUi > 0 ? Math.round(mm.diskUi) + "%" : "—") +
+            rollupNote;
         }
       } catch (_e) {
         if (statusEl) statusEl.textContent = "Could not load telemetry.";
@@ -3563,6 +3622,151 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       return h;
     }
 
+    var __fleetAppMounts = {};
+
+    function fleetAppsInstall(appId, version) {
+      var body = { app_id: appId };
+      if (version) body.version = version;
+      return fetch("/v1/fleet-apps/install", {
+        method: "POST",
+        headers: Object.assign({ "Content-Type": "application/json" }, authHeaders()),
+        body: JSON.stringify(body),
+      })
+        .then(function (r) {
+          return r.json();
+        })
+        .then(function (j) {
+          if (!j.ok) throw new Error(j.error || "install_failed");
+          return loadSnapshot();
+        });
+    }
+
+    function fleetAppsLoadCatalog() {
+      var el = document.getElementById("fleet-apps-catalog");
+      if (!el) return;
+      fetch("/v1/fleet-apps/catalog", { headers: authHeaders() })
+        .then(function (r) {
+          return r.json();
+        })
+        .then(function (j) {
+          var apps = (j.catalog && j.catalog.apps) || [];
+          if (!apps.length) {
+            el.innerHTML = "<span class=\"text-body-secondary\">No published apps in catalog yet.</span>";
+            return;
+          }
+          el.innerHTML = apps
+            .map(function (a) {
+              return (
+                '<div class="fleet-app-catalog-row border-bottom border-secondary-subtle py-2">' +
+                "<div><strong>" +
+                esc(a.title || a.id) +
+                "</strong> <span class=\"fleet-mono text-body-secondary\">v" +
+                esc(a.version || "") +
+                "</span><br/><span class=\"text-body-secondary\">" +
+                esc(a.summary || "") +
+                "</span></div>" +
+                '<button type="button" class="btn btn-sm btn-outline-primary fleet-install-app" data-app-id="' +
+                esc(a.id) +
+                '" data-app-version="' +
+                esc(a.version || "") +
+                '">Install</button></div>'
+              );
+            })
+            .join("");
+          el.querySelectorAll(".fleet-install-app").forEach(function (btn) {
+            btn.addEventListener("click", function () {
+              btn.disabled = true;
+              fleetAppsInstall(btn.getAttribute("data-app-id"), btn.getAttribute("data-app-version"))
+                .catch(function (ex) {
+                  setErr(String(ex.message || ex));
+                })
+                .finally(function () {
+                  btn.disabled = false;
+                });
+            });
+          });
+        })
+        .catch(function () {
+          el.innerHTML = "<span class=\"text-danger\">Could not load catalog.</span>";
+        });
+    }
+
+    function fleetAppsSyncTabs(apps) {
+      var tabHost = document.getElementById("fleet-dynamic-app-tabs");
+      var paneHost = document.getElementById("fleet-dynamic-app-panes");
+      var installedEl = document.getElementById("fleet-apps-installed");
+      if (!tabHost || !paneHost) return;
+      apps = apps || [];
+      if (installedEl) {
+        installedEl.innerHTML = apps.length
+          ? apps
+              .map(function (a) {
+                return (
+                  "<div class=\"mb-2\"><strong>" +
+                  esc(a.title || a.id) +
+                  "</strong> <span class=\"fleet-mono\">v" +
+                  esc(a.version || "") +
+                  "</span> · <a href=\"" +
+                  esc(a.docs_index || "#") +
+                  "\">Docs</a></div>"
+                );
+              })
+              .join("")
+          : "<span class=\"text-body-secondary\">No apps installed. Use the catalog below.</span>";
+      }
+      var ids = apps.map(function (a) {
+        return a.id;
+      });
+      Object.keys(__fleetAppMounts).forEach(function (id) {
+        if (ids.indexOf(id) < 0 && __fleetAppMounts[id]) {
+          __fleetAppMounts[id].destroy();
+          delete __fleetAppMounts[id];
+        }
+      });
+      tabHost.innerHTML = apps
+        .map(function (a) {
+          var slug = "fleet-app-tab-" + a.id;
+          return (
+            '<li class="nav-item" role="presentation">' +
+            '<button class="nav-link" id="' +
+            slug +
+            '-btn" data-bs-toggle="tab" data-bs-target="#' +
+            slug +
+            '" type="button" role="tab">' +
+            esc(a.title || a.id) +
+            "</button></li>"
+          );
+        })
+        .join("");
+      paneHost.innerHTML = apps
+        .map(function (a) {
+          var slug = "fleet-app-tab-" + a.id;
+          return (
+            '<div class="tab-pane fade" id="' +
+            slug +
+            '" role="tabpanel"><div class="fleet-app-host-mount" id="' +
+            slug +
+            '-mount" data-app-id="' +
+            esc(a.id) +
+            '"></div></div>"
+          );
+        })
+        .join("");
+      apps.forEach(function (a) {
+        var mount = document.getElementById("fleet-app-tab-" + a.id + "-mount");
+        if (!mount || !window.ForgeFleetAppUi) return;
+        if (__fleetAppMounts[a.id]) __fleetAppMounts[a.id].destroy();
+        __fleetAppMounts[a.id] = ForgeFleetAppUi.mount(mount, {
+          appId: a.id,
+          uiUrl: "/v1/fleet-apps/" + encodeURIComponent(a.id) + "/ui",
+          dataBase: "/v1/fleet-apps/" + encodeURIComponent(a.id) + "/data",
+          actionsBase: "/v1/fleet-apps/" + encodeURIComponent(a.id) + "/actions",
+          token: (localStorage.getItem(LS) || "").trim(),
+          docsIndex: a.docs_index,
+        });
+      });
+    }
+
     function setErr(msg) {
       if (!msg) {
         errEl.classList.add("d-none");
@@ -4197,6 +4401,11 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
 
       renderManagedServices(integ);
       loadContainerTypesOnce();
+      fleetAppsSyncTabs(data.apps || []);
+      if (!window.__fleetAppsCatalogLoaded) {
+        window.__fleetAppsCatalogLoaded = true;
+        fleetAppsLoadCatalog();
+      }
 
       var host = data.host || {};
       var hid =

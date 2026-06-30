@@ -58,6 +58,22 @@ def _regex_to_openapi_paths(patt: str) -> list[str]:
             "/v1/jobs/{id}/workspace-worker-complete",
         ]
 
+    # FAEP v1 fleet-apps (distinct OpenAPI path parameter names)
+    if inner == "/admin/apps/([^/]+)/?":
+        return ["/admin/apps/{id}"]
+    if inner in ("/admin/apps/([^/]+)/docs/", "/admin/apps/([^/]+)/docs"):
+        return ["/admin/apps/{id}/docs/"]
+    if inner == "/admin/apps/([^/]+)/docs/([^/]+)":
+        return ["/admin/apps/{id}/docs/{slug}"]
+    if inner == "/v1/fleet-apps/([^/]+)/ui":
+        return ["/v1/fleet-apps/{id}/ui"]
+    if inner == "/v1/fleet-apps/([^/]+)/data/([^/]+)":
+        return ["/v1/fleet-apps/{id}/data/{binding}"]
+    if inner == "/v1/fleet-apps/([^/]+)/actions/([^/]+)":
+        return ["/v1/fleet-apps/{id}/actions/{action}"]
+    if inner == "/v1/fleet-apps/([^/]+)":
+        return ["/v1/fleet-apps/{id}"]
+
     s = inner
     while "([^/]+)" in s:
         s = s.replace("([^/]+)", "{id}", 1)

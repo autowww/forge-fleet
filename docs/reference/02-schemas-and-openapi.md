@@ -23,6 +23,10 @@ Documentation and test-time artifacts (not enforced at HTTP runtime). Use with O
 | **[cooldown-summary-response.schema.json](../schemas/cooldown-summary-response.schema.json)** | **`GET /v1/cooldown-summary`** | |
 | **[version-response.schema.json](../schemas/version-response.schema.json)** | **`GET /v1/version`** | |
 | **[host-operator-steps.schema.json](../schemas/host-operator-steps.schema.json)** | Shape of [`host-operator-steps.json`](../host-operator-steps.json) | Human-maintained operator notes only |
+| **[fleet-app-manifest.schema.json](../schemas/fleet-app-manifest.schema.json)** | FAEP package root manifest | [`fleet_server/fleet_apps.py`](../../fleet_server/fleet_apps.py); install |
+| **[fleet-app-ui-v1.schema.json](../schemas/fleet-app-ui-v1.schema.json)** | Declarative admin UI spec | `forge-fleet-app-ui.js`; **`GET /v1/fleet-apps/{id}/ui`** |
+| **[fleet-apps-catalog.schema.json](../schemas/fleet-apps-catalog.schema.json)** | Published catalog index | `fleet.forgesdlc.com/catalog/catalog.json` |
+| **[fleet-app-installed.schema.json](../schemas/fleet-app-installed.schema.json)** | `etc/fleet-apps/*.json` | Installed app registry |
 
 ## Examples
 

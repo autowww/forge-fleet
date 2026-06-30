@@ -24,6 +24,9 @@ OPERATION_IDS: dict[tuple[str, str], str] = {
     ("get", "/admin/ks/{path}"): "getAdminKitchensinkAsset",
     ("get", "/admin/static/{path}"): "getAdminPackagedStatic",
     ("get", "/admin/theme.css"): "getAdminThemeCss",
+    ("get", "/admin/apps/{id}"): "getAdminFleetAppHost",
+    ("get", "/admin/apps/{id}/docs/"): "getAdminFleetAppDocsIndex",
+    ("get", "/admin/apps/{id}/docs/{slug}"): "getAdminFleetAppDocSlug",
     ("post", "/v1/admin/git-self-update"): "postAdminGitSelfUpdate",
     ("get", "/v1/admin/snapshot"): "getAdminSnapshot",
     ("post", "/v1/admin/test-fleet"): "postAdminTestFleet",
@@ -62,6 +65,14 @@ OPERATION_IDS: dict[tuple[str, str], str] = {
     ("get", "/v1/telemetry"): "getTelemetry",
     ("get", "/v1/templates"): "listTemplates",
     ("get", "/v1/version"): "getVersion",
+    ("get", "/v1/fleet-apps/catalog"): "getFleetAppsCatalog",
+    ("get", "/v1/fleet-apps/installed"): "listFleetAppsInstalled",
+    ("post", "/v1/fleet-apps/install"): "installFleetAppFromCatalog",
+    ("post", "/v1/fleet-apps/install-local"): "installFleetAppLocalZip",
+    ("delete", "/v1/fleet-apps/{id}"): "deleteFleetApp",
+    ("get", "/v1/fleet-apps/{id}/ui"): "getFleetAppUiSpec",
+    ("get", "/v1/fleet-apps/{id}/data/{binding}"): "getFleetAppDataBinding",
+    ("post", "/v1/fleet-apps/{id}/actions/{action}"): "postFleetAppAction",
 }
 
 
@@ -201,6 +212,8 @@ def _apply_request_bodies(path: str, method: str, op: dict) -> None:
         "/v1/admin/test-fleet",
         "/v1/admin/git-self-update",
         "/v1/container-templates/build",
+        "/v1/fleet-apps/install",
+        "/v1/fleet-apps/install-local",
     ) or path.endswith("/start") or path.endswith("/stop"):
         op.setdefault(
             "requestBody",
@@ -271,6 +284,16 @@ def _apply_responses(path: str, method: str, op: dict) -> None:
                 "image/svg+xml": {"schema": {"type": "string"}},
             },
         }
+    elif path == "/admin/apps/{id}" and m == "get":
+        responses["200"] = _text_response(
+            "FAEP app host shell HTML (loads forge-fleet-app-ui.js).",
+            "text/html",
+        )
+    elif path in ("/admin/apps/{id}/docs/", "/admin/apps/{id}/docs/{slug}") and m == "get":
+        responses["200"] = _text_response(
+            "In-package operator docs mirror rendered from installed app zip.",
+            "text/html",
+        )
     elif key == ("get", "/v1/version"):
         responses["200"] = _json_response(
             "Fleet build identity and DB schema version.", "VersionResponse"
@@ -329,6 +352,36 @@ def _apply_responses(path: str, method: str, op: dict) -> None:
         responses["200"] = _json_response(
             "Job record including argv, meta, logs fields when present.", "JobResponse"
         )
+    elif key == ("get", "/v1/fleet-apps/catalog"):
+        responses["200"] = _json_response(
+            "Published FAEP catalog from FLEET_APPS_CATALOG_URL.", "FleetAppsCatalog"
+        )
+    elif key == ("get", "/v1/fleet-apps/installed"):
+        responses["200"] = _json_response(
+            "Installed app records from etc/fleet-apps/.", "FleetJsonSuccess"
+        )
+    elif key == ("get", "/v1/fleet-apps/{id}/ui"):
+        responses["200"] = _json_response(
+            "Declarative UI spec from installed package.", "FleetAppUiV1"
+        )
+    elif key == ("get", "/v1/fleet-apps/{id}/data/{binding}"):
+        responses["200"] = _json_response(
+            "Named data handler JSON for UI widgets.", "FleetJsonSuccess"
+        )
+    elif key == ("post", "/v1/fleet-apps/{id}/actions/{action}"):
+        responses["200"] = _json_response(
+            "Named action handler result.", "FleetJsonSuccess"
+        )
+    elif key == ("post", "/v1/fleet-apps/install"):
+        responses["200"] = _json_response(
+            "Install app from published catalog.", "FleetAppInstalled"
+        )
+    elif key == ("post", "/v1/fleet-apps/install-local"):
+        responses["200"] = _json_response(
+            "Install app from raw zip body.", "FleetAppInstalled"
+        )
+    elif key == ("delete", "/v1/fleet-apps/{id}"):
+        responses["200"] = _json_response("Uninstall app.", "OkTrue")
     elif key == ("get", "/v1/jobs/{id}/workspace-worker-bundle"):
         responses["200"] = _json_response(
             "Argv bundle for inner workspace worker; requires `X-Workspace-Worker-Token`.",
@@ -442,6 +495,17 @@ def _apply_extra_parameters(path: str, method: str, op: dict) -> None:
                 },
             ]
         )
+    if path == "/v1/fleet-apps/install-local" and m == "post":
+        extra.append(
+            {
+                "name": "X-Fleet-App-Sha256",
+                "in": "header",
+                "required": False,
+                "schema": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+                "description": "Optional SHA-256 (hex) of the zip body; mismatch returns 400.",
+            }
+        )
+        op["requestBody"] = _binary_request_body("FAEP v1 fleet-app zip archive.")
     _merge_parameters(op, extra)
 
 

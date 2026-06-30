@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.forgesdlc.com/schemas/fleet-app-ui-v1.schema.json",
+  "title": "Forge Fleet App UI spec v1",
+  "description": "Declarative admin UI tree consumed by forge-fleet-app-ui.js.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol_version", "widgets"],
+  "properties": {
+    "protocol_version": { "type": "integer", "const": 1 },
+    "title": { "type": "string" },
+    "poll_ms": { "type": "integer", "minimum": 1000, "maximum": 300000 },
+    "widgets": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/widget" }
+    }
+  },
+  "$defs": {
+    "widget": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "section",
+            "heading",
+            "prose",
+            "kpi_row",
+            "data_table",
+            "action_button",
+            "alert",
+            "diagnostic_panel",
+            "chart",
+            "docs_link"
+          ]
+        },
+        "title": { "type": "string" },
+        "text": { "type": "string" },
+        "level": { "type": "integer", "minimum": 2, "maximum": 4 },
+        "variant": { "type": "string", "enum": ["info", "warning", "danger", "success"] },
+        "binding": { "type": "string", "minLength": 1 },
+        "action": { "type": "string", "minLength": 1 },
+        "label": { "type": "string" },
+        "columns": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["key", "label"],
+            "properties": {
+              "key": { "type": "string" },
+              "label": { "type": "string" }
+            }
+          }
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "label": { "type": "string" },
+              "binding": { "type": "string" },
+              "format": { "type": "string" }
+            }
+          }
+        },
+        "chart_kind": { "type": "string" },
+        "href": { "type": "string" },
+        "widgets": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/widget" }
+        }
+      }
+    }
+  }
+}

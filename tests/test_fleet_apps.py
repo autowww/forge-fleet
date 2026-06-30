@@ -1,0 +1,82 @@
+"""Tests for FAEP v1 fleet_apps module."""
+
+from __future__ import annotations
+
+import io
+import json
+import zipfile
+from pathlib import Path
+
+import pytest
+
+from fleet_server import fleet_apps
+
+
+def _minimal_zip(
+    *,
+    app_id: str = "test-app",
+    version: str = "0.0.1",
+    with_handlers: bool = True,
+) -> bytes:
+  buf = io.BytesIO()
+  manifest = {
+      "protocol_version": 1,
+      "id": app_id,
+      "version": version,
+      "title": "Test App",
+      "summary": "Test",
+      "python": {"package": "test_pkg", "handlers_module": "test_pkg.handlers"},
+      "ui": {"spec": "ui/app.ui.json"},
+      "docs": {"root": "docs"},
+      "permissions": [],
+  }
+  ui = {"protocol_version": 1, "widgets": [{"kind": "prose", "text": "Hello"}]}
+  handlers = '''
+def register_handlers():
+    return {
+        "data": {"ping": lambda ctx: {"ok": True, "value": "pong"}},
+        "actions": {"noop": lambda ctx, body: {"ok": True}},
+    }
+'''
+  with zipfile.ZipFile(buf, "w") as zf:
+      zf.writestr("fleet-app.manifest.json", json.dumps(manifest))
+      zf.writestr("ui/app.ui.json", json.dumps(ui))
+      zf.writestr("docs/README.md", "# Test docs\n")
+      if with_handlers:
+          zf.writestr("src/test_pkg/__init__.py", "")
+          zf.writestr("src/test_pkg/handlers.py", handlers)
+          zf.writestr("pyproject.toml", '[project]\nname="test_pkg"\nversion="0.0.1"\n')
+  return buf.getvalue()
+
+
+def test_install_and_ui_spec(tmp_path: Path) -> None:
+    data = _minimal_zip()
+    rec = fleet_apps.install_package_bytes(tmp_path, data)
+    assert rec["id"] == "test-app"
+    spec = fleet_apps.get_ui_spec(tmp_path, "test-app")
+    assert spec["protocol_version"] == 1
+    installed = fleet_apps.list_installed(tmp_path)
+    assert len(installed) == 1
+    snap = fleet_apps.snapshot_apps(tmp_path)
+    assert snap[0]["id"] == "test-app"
+
+
+def test_uninstall(tmp_path: Path) -> None:
+    data = _minimal_zip()
+    fleet_apps.install_package_bytes(tmp_path, data)
+    fleet_apps.uninstall(tmp_path, "test-app")
+    assert fleet_apps.load_installed_record(tmp_path, "test-app") is None
+
+
+def test_render_doc_html(tmp_path: Path) -> None:
+    data = _minimal_zip()
+    fleet_apps.install_package_bytes(tmp_path, data)
+    html = fleet_apps.render_doc_html(tmp_path, "test-app", "index")
+    assert html is not None
+    assert "Test docs" in html
+
+
+def test_sha256_mismatch(tmp_path: Path) -> None:
+    data = _minimal_zip()
+    with pytest.raises(ValueError, match="sha256_mismatch"):
+        fleet_apps.install_package_bytes(tmp_path, data, expected_sha256="0" * 64)

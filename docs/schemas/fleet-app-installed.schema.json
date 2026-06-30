@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.forgesdlc.com/schemas/fleet-app-installed.schema.json",
+  "title": "Forge Fleet installed app record",
+  "description": "JSON file under etc/fleet-apps/<id>.json on a running Fleet host.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "id", "app_version", "title", "enabled", "install_path", "installed_at"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{0,63}$" },
+    "app_version": { "type": "string" },
+    "title": { "type": "string" },
+    "summary": { "type": "string" },
+    "enabled": { "type": "boolean" },
+    "install_path": { "type": "string", "minLength": 1 },
+    "installed_at": { "type": "string", "format": "date-time" },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "permissions": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

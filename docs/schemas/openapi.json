@@ -134,6 +134,18 @@
       },
       "WorkspaceWorkerBundleResponse": {
         "$ref": "workspace-worker-bundle-response.schema.json"
+      },
+      "FleetAppInstalled": {
+        "$ref": "fleet-app-installed.schema.json"
+      },
+      "FleetAppManifest": {
+        "$ref": "fleet-app-manifest.schema.json"
+      },
+      "FleetAppUiV1": {
+        "$ref": "fleet-app-ui-v1.schema.json"
+      },
+      "FleetAppsCatalog": {
+        "$ref": "fleet-apps-catalog.schema.json"
       }
     }
   },
@@ -2476,6 +2488,436 @@
               "schema": {
                 "type": "string",
                 "format": "binary"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/apps/{id}": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "FAEP app host shell",
+        "security": [],
+        "operationId": "getAdminFleetAppHost",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Path parameter `id`."
+          }
+        ],
+        "description": "FAEP app host shell. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "FAEP app host shell HTML (loads forge-fleet-app-ui.js).",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/apps/{id}/docs/": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "In-package docs index",
+        "security": [],
+        "operationId": "getAdminFleetAppDocsIndex",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Path parameter `id`."
+          }
+        ],
+        "description": "In-package docs index. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "In-package operator docs mirror rendered from installed app zip.",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/apps/{id}/docs/{slug}": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "In-package docs page",
+        "security": [],
+        "operationId": "getAdminFleetAppDocSlug",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Path parameter `id`."
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Path parameter `slug`."
+          }
+        ],
+        "description": "In-package docs page. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "In-package operator docs mirror rendered from installed app zip.",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/fleet-apps/catalog": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Published FAEP catalog",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "operationId": "getFleetAppsCatalog",
+        "description": "Published FAEP catalog. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Published FAEP catalog from FLEET_APPS_CATALOG_URL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAppsCatalog"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/fleet-apps/installed": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Installed FAEP apps",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "operationId": "listFleetAppsInstalled",
+        "description": "Installed FAEP apps. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Installed app records from etc/fleet-apps/.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/fleet-apps/install": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Install FAEP app from catalog",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "operationId": "installFleetAppFromCatalog",
+        "description": "Install FAEP app from catalog. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`.",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Install app from published catalog.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAppInstalled"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/fleet-apps/install-local": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Install FAEP app from zip body",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "operationId": "installFleetAppLocalZip",
+        "description": "Install FAEP app from zip body. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`.",
+        "requestBody": {
+          "required": true,
+          "description": "FAEP v1 fleet-app zip archive.",
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "application/gzip": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-Fleet-App-Sha256",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "description": "Optional SHA-256 (hex) of the zip body; mismatch returns 400."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Install app from raw zip body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAppInstalled"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/fleet-apps/{id}": {
+      "delete": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Uninstall FAEP app",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "operationId": "deleteFleetApp",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Path parameter `id`."
+          }
+        ],
+        "description": "Uninstall FAEP app. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Uninstall app.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkTrue"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/fleet-apps/{id}/ui": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "FAEP UI spec JSON",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "operationId": "getFleetAppUiSpec",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Path parameter `id`."
+          }
+        ],
+        "description": "FAEP UI spec JSON. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Declarative UI spec from installed package.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetAppUiV1"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/fleet-apps/{id}/data/{binding}": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "FAEP data handler",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "operationId": "getFleetAppDataBinding",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Path parameter `id`."
+          },
+          {
+            "name": "binding",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Path parameter `binding`."
+          }
+        ],
+        "description": "FAEP data handler. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Named data handler JSON for UI widgets.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/fleet-apps/{id}/actions/{action}": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "FAEP action handler",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "operationId": "postFleetAppAction",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Path parameter `id`."
+          },
+          {
+            "name": "action",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Path parameter `action`."
+          }
+        ],
+        "description": "FAEP action handler. Operator narrative, authentication, and curl patterns: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Named action handler result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
               }
             }
           }

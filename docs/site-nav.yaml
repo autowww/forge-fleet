@@ -21,6 +21,11 @@ top_level:
     hub_href_md: docs/build-201/README.md
     sidebar_prefix: docs/build-201/
     dropdown_max_items: 14
+  - id: apps
+    label: Apps
+    hub_href_md: docs/apps/README.md
+    sidebar_prefix: docs/apps/
+    dropdown_max_items: 12
   - id: operate
     label: Operate
     hub_href_md: docs/operate-301/README.md

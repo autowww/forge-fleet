@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.forgesdlc.com/schemas/fleet-apps-catalog.schema.json",
+  "title": "Forge Fleet Apps public catalog",
+  "description": "Machine index published at fleet.forgesdlc.com/catalog/catalog.json.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol_version", "generated_at", "apps"],
+  "properties": {
+    "protocol_version": { "type": "integer", "const": 1 },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "apps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "title",
+          "summary",
+          "download_url",
+          "sha256",
+          "handbook_page"
+        ],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{0,63}$" },
+          "version": { "type": "string" },
+          "title": { "type": "string" },
+          "summary": { "type": "string" },
+          "download_url": { "type": "string", "format": "uri" },
+          "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "min_fleet_semver": { "type": "string" },
+          "min_fleet_protocol": { "type": "integer", "minimum": 1 },
+          "handbook_page": { "type": "string" }
+        }
+      }
+    }
+  }
+}

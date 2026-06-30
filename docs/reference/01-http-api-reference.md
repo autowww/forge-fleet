@@ -59,6 +59,18 @@ Feature docs (details beyond this table): [CONTAINER-TEMPLATES.md](../build-201/
 | PUT | `/v1/container-templates/{id}/package` | bearer | Binary template package; query **`title`**, **`notes`**, **`replace`**. |
 | POST | `/v1/services/forge-llm/start` | bearer | Legacy — start primary forge_llm. |
 | POST | `/v1/services/forge-llm/stop` | bearer | Legacy — stop primary forge_llm. |
+| GET | `/v1/fleet-apps/catalog` | bearer | Published FAEP catalog (`FLEET_APPS_CATALOG_URL`). |
+| GET | `/v1/fleet-apps/installed` | bearer | Installed apps on this host. |
+| POST | `/v1/fleet-apps/install` | bearer | Install from catalog (`app_id`, optional `version`). |
+| POST | `/v1/fleet-apps/install-local` | bearer | Raw zip body; optional `X-Fleet-App-Sha256`. |
+| DELETE | `/v1/fleet-apps/{id}` | bearer | Uninstall app. |
+| GET | `/v1/fleet-apps/{id}/ui` | bearer | Installed app UI spec JSON. |
+| GET | `/v1/fleet-apps/{id}/data/{binding}` | bearer | App data handler JSON. |
+| POST | `/v1/fleet-apps/{id}/actions/{action}` | bearer | App action handler JSON. |
+| GET | `/admin/apps/{id}/` | none | FAEP app host shell HTML. |
+| GET | `/admin/apps/{id}/docs/{slug}` | none | In-package docs mirror HTML. |
+
+Feature doc: [Fleet Apps API](04-fleet-apps-api.md).
 
 ### Response and query details
 

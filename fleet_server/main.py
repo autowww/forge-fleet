@@ -8,6 +8,7 @@ import json
 import os
 import re
 import sqlite3
+import sys
 import threading
 import time
 from datetime import UTC, datetime
@@ -20,12 +21,14 @@ from urllib.parse import parse_qs, urlparse
 from fleet_server import (
     container_layout,
     container_templates,
+    fleet_apps,
     forge_llm_service,
     host_stats,
     runner,
     self_update,
     store,
     telemetry_periods,
+    telemetry_rollup,
     templates_catalog,
     thermal_llm_policy,
     versioning,
@@ -230,6 +233,41 @@ class FleetHandler(BaseHTTPRequestHandler):
         if mst:
             self._serve_admin_packaged_static(mst.group(1))
             return
+        mapp = re.match(r"^/admin/apps/([^/]+)/?$", path)
+        if mapp:
+            app_id = mapp.group(1)
+            data_dir = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            rec = fleet_apps.load_installed_record(data_dir, app_id)
+            if rec is None:
+                self._send_raw(404, b"App not installed", "text/plain; charset=utf-8")
+                return
+            title = str(rec.get("title") or app_id)
+            html_doc = fleet_apps.app_host_html(app_id, title)
+            self._send_raw(200, html_doc.encode("utf-8"), "text/html; charset=utf-8")
+            return
+        mapp_docs_index = re.match(r"^/admin/apps/([^/]+)/docs/$", path)
+        if not mapp_docs_index:
+            mapp_docs_index = re.match(r"^/admin/apps/([^/]+)/docs$", path)
+        if mapp_docs_index:
+            app_id = mapp_docs_index.group(1)
+            data_dir = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            rendered = fleet_apps.render_doc_html(data_dir, app_id, "index")
+            if rendered is None:
+                self._send_raw(404, b"Doc not found", "text/plain; charset=utf-8")
+                return
+            self._send_raw(200, rendered.encode("utf-8"), "text/html; charset=utf-8")
+            return
+        mapp_docs_slug = re.match(r"^/admin/apps/([^/]+)/docs/([^/]+)$", path)
+        if mapp_docs_slug:
+            app_id = mapp_docs_slug.group(1)
+            slug = mapp_docs_slug.group(2)
+            data_dir = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            rendered = fleet_apps.render_doc_html(data_dir, app_id, slug)
+            if rendered is None:
+                self._send_raw(404, b"Doc not found", "text/plain; charset=utf-8")
+                return
+            self._send_raw(200, rendered.encode("utf-8"), "text/html; charset=utf-8")
+            return
         mb = re.match(r"^/v1/jobs/([^/]+)/workspace-worker-bundle$", path)
         if mb:
             jid = mb.group(1)
@@ -431,6 +469,7 @@ class FleetHandler(BaseHTTPRequestHandler):
                 except (OSError, RuntimeError, TypeError, ValueError, sqlite3.Error):
                     body["meta"]["cooldown_summary"] = {}
                 body["meta"]["self_update"] = self_update.self_update_meta(self._repo_root())
+                body["apps"] = fleet_apps.snapshot_apps(data_dir)
                 self._send(200, body)
             finally:
                 conn.close()
@@ -490,8 +529,13 @@ class FleetHandler(BaseHTTPRequestHandler):
                 limit = int(lim_raw)
             except (ValueError, IndexError):
                 limit = 200_000
+            fmt = (q.get("format") or ["samples"])[0].strip().lower()
             conn = store.connect(self.server.db_path)
             try:
+                try:
+                    telemetry_rollup.maybe_run_telemetry_rollup(conn)
+                except sqlite3.Error:
+                    pass
                 t_min, t_max, _n = store.telemetry_time_bounds(conn)
                 period_key = telemetry_periods.PERIOD_ALIASES.get(period_raw, period_raw)
                 try:
@@ -508,6 +552,34 @@ class FleetHandler(BaseHTTPRequestHandler):
                             "detail": str(ex),
                             "periods": list(telemetry_periods.ALL_PERIODS),
                             "aliases": dict(telemetry_periods.PERIOD_ALIASES),
+                        },
+                    )
+                    return
+                if fmt == "buckets":
+                    buckets, bucket_ms, bucket_source = telemetry_rollup.chart_buckets_for_period(
+                        conn, period_key=period_key, t0=t0, t1=t1
+                    )
+                    try:
+                        el = store.get_energy_ledger(conn)
+                    except (OSError, RuntimeError, TypeError, ValueError, sqlite3.Error):
+                        el = None
+                    self._send(
+                        200,
+                        {
+                            "ok": True,
+                            "format": "buckets",
+                            "period": period_key,
+                            "period_requested": period_raw,
+                            "timezone": "UTC",
+                            "window": {"start_epoch": t0, "end_epoch": t1},
+                            "buckets": buckets,
+                            "bucket_ms": bucket_ms,
+                            "bucket_source": bucket_source,
+                            "count": len(buckets),
+                            "truncated": False,
+                            "store_bounds": {"first_ts": t_min, "last_ts": t_max},
+                            "rollup": telemetry_rollup.rollup_state_public(conn),
+                            "energy_ledger_kwh": el,
                         },
                     )
                     return
@@ -601,7 +673,52 @@ class FleetHandler(BaseHTTPRequestHandler):
                 self._send(500, {"ok": False, "error": "service_missing"})
                 return
             st = forge_llm_service.status_for_record(rec)
-            self._send(200, {**st, "configured": True, "legacy_endpoint": True})
+            self._send(200, {**st, "configured": True, "legacy_endpoint": True}            )
+            return
+        if path == "/v1/fleet-apps/catalog":
+            data_dir = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            q = parse_qs(urlparse(self.path).query)
+            catalog_url = (q.get("catalog_url") or [""])[0].strip() or None
+            try:
+                doc = fleet_apps.fetch_remote_catalog(catalog_url)
+            except ValueError as ex:
+                self._send(502, {"ok": False, "error": str(ex)[:800]})
+                return
+            self._send(200, {"ok": True, "catalog": doc})
+            return
+        if path == "/v1/fleet-apps/installed":
+            data_dir = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            self._send(200, {"ok": True, "apps": fleet_apps.list_installed(data_dir)})
+            return
+        mfa_ui = re.match(r"^/v1/fleet-apps/([^/]+)/ui$", path)
+        if mfa_ui:
+            app_id = mfa_ui.group(1)
+            data_dir = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            try:
+                spec = fleet_apps.get_ui_spec(data_dir, app_id)
+            except ValueError as ex:
+                code = 404 if "not_installed" in str(ex) else 400
+                self._send(code, {"ok": False, "error": str(ex)[:800]})
+                return
+            self._send(200, {"ok": True, "ui": spec})
+            return
+        mfa_data = re.match(r"^/v1/fleet-apps/([^/]+)/data/([^/]+)$", path)
+        if mfa_data:
+            app_id = mfa_data.group(1)
+            binding = mfa_data.group(2)
+            data_dir = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            try:
+                payload = fleet_apps.call_data_handler(data_dir, app_id, binding)
+            except ValueError as ex:
+                code = 404 if "not_installed" in str(ex) or "unknown" in str(ex) else 400
+                self._send(code, {"ok": False, "error": str(ex)[:800]})
+                return
+            if isinstance(payload, dict):
+                out = dict(payload)
+                out.setdefault("ok", True)
+                self._send(200, out)
+            else:
+                self._send(200, {"ok": True, "data": payload})
             return
         m = re.match(r"^/v1/jobs/([^/]+)$", path)
         if m:
@@ -808,6 +925,49 @@ class FleetHandler(BaseHTTPRequestHandler):
             self._send(code, out)
             return
         data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+        if path == "/v1/fleet-apps/install":
+            app_id = str(body.get("app_id") or "").strip()
+            version = str(body.get("version") or "").strip() or None
+            catalog_url = str(body.get("catalog_url") or "").strip() or None
+            try:
+                rec = fleet_apps.install_from_catalog(
+                    data_dir_p, app_id, version=version, catalog_url=catalog_url
+                )
+            except ValueError as ex:
+                self._send(400, {"ok": False, "error": str(ex)[:800]})
+                return
+            self._send(200, {"ok": True, **rec})
+            return
+        if path == "/v1/fleet-apps/install-local":
+            sha_hdr = (self.headers.get("X-Fleet-App-Sha256") or "").strip() or None
+            blob = self._read_binary_body(fleet_apps._max_package_bytes())
+            if not blob:
+                self._send(400, {"ok": False, "error": "empty_body"})
+                return
+            try:
+                rec = fleet_apps.install_package_bytes(data_dir_p, blob, expected_sha256=sha_hdr)
+            except ValueError as ex:
+                self._send(400, {"ok": False, "error": str(ex)[:800]})
+                return
+            self._send(200, {"ok": True, **rec})
+            return
+        mfa_act = re.match(r"^/v1/fleet-apps/([^/]+)/actions/([^/]+)$", path)
+        if mfa_act:
+            app_id = mfa_act.group(1)
+            action = mfa_act.group(2)
+            try:
+                payload = fleet_apps.call_action_handler(data_dir_p, app_id, action, body)
+            except ValueError as ex:
+                code = 404 if "not_installed" in str(ex) or "unknown" in str(ex) else 400
+                self._send(code, {"ok": False, "error": str(ex)[:800]})
+                return
+            if isinstance(payload, dict):
+                out = dict(payload)
+                out.setdefault("ok", True)
+                self._send(200, out)
+            else:
+                self._send(200, {"ok": True, "result": payload})
+            return
         container_layout.ensure_layout(data_dir_p)
 
         def _forge_llm_record_or_503() -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
@@ -1162,6 +1322,16 @@ class FleetHandler(BaseHTTPRequestHandler):
                 return
             self._send(200, {"ok": True, "detail": detail})
             return
+        mfa_del = re.match(r"^/v1/fleet-apps/([^/]+)$", path)
+        if mfa_del:
+            try:
+                fleet_apps.uninstall(data_dir_p, mfa_del.group(1))
+            except ValueError as ex:
+                code = 404 if "not_installed" in str(ex) else 400
+                self._send(code, {"ok": False, "error": str(ex)[:800]})
+                return
+            self._send(200, {"ok": True, "id": mfa_del.group(1)})
+            return
         m = re.match(r"^/v1/container-services/([^/]+)$", path)
         if not m:
             self._send(404, {"ok": False, "error": "not_found"})
@@ -1204,6 +1374,22 @@ def main() -> None:
     conn = store.connect(db_path)
     conn.close()
     container_layout.ensure_layout(data_dir)
+
+    def _telemetry_rollup_bg() -> None:
+        try:
+            c = store.connect(db_path)
+            try:
+                telemetry_rollup.run_full_backfill(c)
+            finally:
+                c.close()
+        except (OSError, RuntimeError, sqlite3.Error) as ex:
+            print(f"[fleet] telemetry rollup backfill skipped: {ex}", file=sys.stderr)
+
+    threading.Thread(
+        target=_telemetry_rollup_bg,
+        name="fleet-telemetry-rollup",
+        daemon=True,
+    ).start()
     if container_templates.prefetch_template_images_enabled():
 
         def _prefetch_templates_bg() -> None:
