@@ -12,7 +12,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from fleet_server import telemetry_periods, versioning
+from fleet_server import telemetry_periods, telemetry_rollup, versioning
 
 _lock = threading.Lock()
 
@@ -75,8 +75,9 @@ def _ensure_cooldown_table(conn: sqlite3.Connection) -> None:
 
 def connect(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(db_path), check_same_thread=False)
+    conn = sqlite3.connect(str(db_path), check_same_thread=False, timeout=30.0)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout = 30000")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS jobs (
@@ -101,6 +102,7 @@ def connect(db_path: Path) -> sqlite3.Connection:
     _ensure_telemetry_table(conn)
     _ensure_energy_ledger(conn)
     _ensure_cooldown_table(conn)
+    telemetry_rollup.ensure_rollup_tables(conn)
     conn.commit()
     return conn
 
@@ -169,6 +171,8 @@ def _run_fleet_schema_migrations(conn: sqlite3.Connection, from_v: int, to_v: in
             _ensure_cooldown_table(conn)
         elif next_v == 6:
             _ensure_job_worker_bridge_columns(conn)
+        elif next_v == 7:
+            telemetry_rollup.ensure_rollup_tables(conn)
         else:
             raise RuntimeError(f"fleet_schema migration missing for {v} -> {next_v}")
         v = next_v
@@ -658,6 +662,7 @@ def maybe_record_telemetry_sample(
                 (now, payload),
             )
             _telemetry_prune(conn)
+            telemetry_rollup.prune_old_buckets(conn)
             conn.commit()
         except sqlite3.Error:
             conn.rollback()
@@ -665,6 +670,12 @@ def maybe_record_telemetry_sample(
         except Exception:
             conn.rollback()
             raise
+    try:
+        telemetry_rollup.finalize_telemetry_rollup(conn, max_buckets=4)
+        if telemetry_rollup.gaps_remain(conn):
+            telemetry_rollup.request_background_backfill(db_path)
+    except sqlite3.Error:
+        pass
     return True
 
 
