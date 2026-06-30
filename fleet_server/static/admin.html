@@ -1443,8 +1443,10 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       var mainPct =
         cpuP != null && !isNaN(cpuP) ? esc(String(Math.round(w))) + "%" : "—";
       var wBar = esc(String(Math.round(w * 100) / 100));
+      var cpuHeat = cpuP != null && !isNaN(cpuP) ? heat3(Number(cpuP)) : "low";
       return (
-        '<div class="fleet-tile fleet-cpu-compact' +
+        '<div class="fleet-tile fleet-cpu-compact fleet-tile--cpu-' +
+        cpuHeat +
         trendCls +
         '">' +
         '<div class="fleet-tile__brand">' + tileMark(MARK_CPU, "") + "</div>" +
@@ -1792,6 +1794,19 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
     }
 
     function syncFleetTileHeatClasses(host) {
+      var cpuP = cpuPct(host);
+      if (cpuP != null && !isNaN(cpuP)) {
+        var cpuAnchor = document.getElementById("fleet-cpu-value");
+        if (cpuAnchor) {
+          var cpuTile = cpuAnchor.closest(".fleet-tile");
+          swapFleetTileClassToken(cpuTile, "fleet-tile--cpu-", heat3(Number(cpuP)));
+          var cpuShell = document.getElementById("fleet-cpu-shell");
+          if (cpuShell) {
+            var z = loadZone4(Number(cpuP));
+            swapFleetTileClassToken(cpuShell, "fleet-cpu-wide--z", String(z));
+          }
+        }
+      }
       var lm = hostLoadForUi(host);
       if (lm) {
         var loadAnchor = document.getElementById("fleet-load-hero-l1");
