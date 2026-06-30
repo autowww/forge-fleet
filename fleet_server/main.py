@@ -162,7 +162,7 @@ class FleetHandler(BaseHTTPRequestHandler):
         raw = self.rfile.read(n)
         try:
             o = json.loads(raw.decode("utf-8"))
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, UnicodeDecodeError):
             return {}
         return o if isinstance(o, dict) else {}
 
@@ -776,6 +776,23 @@ class FleetHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path
+        if path == "/v1/fleet-apps/install-local":
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+            data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            sha_hdr = (self.headers.get("X-Fleet-App-Sha256") or "").strip() or None
+            blob = self._read_binary_body(fleet_apps._max_package_bytes())
+            if not blob:
+                self._send(400, {"ok": False, "error": "empty_body"})
+                return
+            try:
+                rec = fleet_apps.install_package_bytes(data_dir_p, blob, expected_sha256=sha_hdr)
+            except ValueError as ex:
+                self._send(400, {"ok": False, "error": str(ex)[:800]})
+                return
+            self._send(200, {"ok": True, **rec})
+            return
         body = self._read_json()
         m_br = re.match(r"^/v1/jobs/([^/]+)/workspace-worker-(progress|complete)$", path)
         if m_br:
@@ -956,19 +973,6 @@ class FleetHandler(BaseHTTPRequestHandler):
             catalog_url = str(body.get("catalog_url") or "").strip() or None
             try:
                 rec = fleet_apps.upgrade_from_catalog(data_dir_p, app_id, catalog_url=catalog_url)
-            except ValueError as ex:
-                self._send(400, {"ok": False, "error": str(ex)[:800]})
-                return
-            self._send(200, {"ok": True, **rec})
-            return
-        if path == "/v1/fleet-apps/install-local":
-            sha_hdr = (self.headers.get("X-Fleet-App-Sha256") or "").strip() or None
-            blob = self._read_binary_body(fleet_apps._max_package_bytes())
-            if not blob:
-                self._send(400, {"ok": False, "error": "empty_body"})
-                return
-            try:
-                rec = fleet_apps.install_package_bytes(data_dir_p, blob, expected_sha256=sha_hdr)
             except ValueError as ex:
                 self._send(400, {"ok": False, "error": str(ex)[:800]})
                 return
