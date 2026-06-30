@@ -25,5 +25,5 @@ def test_faep_schemas_load() -> None:
 def test_ui_schema_includes_v02_widgets() -> None:
     doc = json.loads((SCHEMAS / "fleet-app-ui-v1.schema.json").read_text(encoding="utf-8"))
     kinds = doc["$defs"]["widget"]["properties"]["kind"]["enum"]
-    for kind in ("toggle", "status_badge", "event_feed", "link_button"):
+    for kind in ("toggle", "status_badge", "event_feed", "link_button", "health_card"):
         assert kind in kinds

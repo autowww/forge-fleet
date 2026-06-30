@@ -31,6 +31,7 @@
             "action_button",
             "alert",
             "diagnostic_panel",
+            "health_card",
             "chart",
             "docs_link",
             "toggle",
