@@ -10,7 +10,37 @@
       "sha256": "569f2a9ac2ca823bb1d4934966fdd71a9c3525b9e8f5e2fe3f4009957fb2cb7d",
       "min_fleet_protocol": 1,
       "handbook_page": "docs-apps-forge-cdp-manager.html"
+    },
+    {
+      "id": "forge-cdp-manager",
+      "version": "0.2.0",
+      "title": "Forge CDP Manager",
+      "summary": "Cross-process Edge CDP surface leases and connect serialization",
+      "download_url": "https://fleet.forgesdlc.com/packages/forge-cdp-manager-0.2.0.zip",
+      "sha256": "a637e462ab6d7b29d33423fc78cf7059f24e66ba46037301705b67eca9a3a3d8",
+      "min_fleet_protocol": 1,
+      "handbook_page": "docs-apps-forge-cdp-manager-page.html"
+    },
+    {
+      "id": "forge-cdp-manager",
+      "version": "0.3.0",
+      "title": "Forge CDP Manager",
+      "summary": "Cross-process Edge CDP surface leases and connect serialization",
+      "download_url": "https://fleet.forgesdlc.com/packages/forge-cdp-manager-0.3.0.zip",
+      "sha256": "f280d53c75e4cb2c5ccc67752648a796f96d9b8eae62d1547af01493918c5cad",
+      "min_fleet_protocol": 1,
+      "handbook_page": "docs-apps-forge-cdp-manager-page.html"
+    },
+    {
+      "id": "forge-cdp-manager",
+      "version": "0.3.1",
+      "title": "Forge CDP Manager",
+      "summary": "Cross-process Edge CDP surface leases and connect serialization",
+      "download_url": "https://fleet.forgesdlc.com/packages/forge-cdp-manager-0.3.1.zip",
+      "sha256": "ea84a6ce5e614d2d6363231a9411fc66fc757cc7cb470f2643f922c622fbd2c6",
+      "min_fleet_protocol": 1,
+      "handbook_page": "docs-apps-forge-cdp-manager-page.html"
     }
   ],
-  "generated_at": "2026-06-30T05:19:28Z"
+  "generated_at": "2026-06-30T21:53:24Z"
 }

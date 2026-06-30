@@ -1,13 +1,24 @@
----
-title: Forge CDP Manager
-summary: Cross-process Edge CDP surface leases for shared Edge profiles
-nav_order: 10
-audience: operator
----
-
 # Forge CDP Manager
 
-Install this **Fleet App** to inspect and reclaim **CDP surface leases** when Cockpit, Knowledge Assistant, and CLI harnesses share one operator Edge profile (`:9222`, `:9223`, …).
+Install this **Fleet App** to inspect and reclaim **CDP surface leases**, toggle the session manager, and monitor **forge-cdp-serve** sessions from Fleet `/admin/`.
+
+## Changelog
+
+### 0.3.0
+
+- **Control clarity** — session manager vs managed/external/off daemon process vs HTTP reachable; reconcile alerts when env disagrees with Fleet config.
+- **Surface overview** and **registered workers** tables from `GET /v1/fleet` per Edge CDP port.
+- **Session telemetry** — heartbeat, progress message, counts, CDP URL, sync run id; per-row and bulk cancel actions.
+- **Scoped stale release** for Cockpit `:9222` and KA `:9223`.
+- Stream preview page **Cancel session** button (requires Fleet host with FAEP action routing).
+
+### 0.2.0
+
+- Manifest version stamped from `pyproject.toml` at build time.
+- Fleet tab: manager/daemon toggles, live sessions table, session event feed, stream preview links.
+- **Prepare Edge sessions** — attach to operator CDP or launch isolated KA profile on :9223.
+- Runtime config at `{FLEET_DATA_DIR}/etc/fleet-apps-runtime/forge-cdp-manager.json`.
+- Requires `invoke_local_cli` permission to start/stop a local `forge-cdp-serve` subprocess.
 
 ## What you get
 
@@ -17,7 +28,7 @@ Install this **Fleet App** to inspect and reclaim **CDP surface leases** when Co
 ## Trust boundary
 
 - Handlers read lease files under `~/.cache/forge-cdp/leases` (or `FORGE_CDP_MANAGER_LOCK_DIR`).
-- Fleet does not start Edge or attach Playwright; it only surfaces lease metadata and reclaim helpers.
+- Fleet does not attach Playwright from this tab; **Prepare Edge sessions** can launch an isolated Edge profile for KA or guide operator debugging for Cockpit.
 - This package does not replace Cockpit HTTP routes on port 9775.
 
 ## Prerequisites
@@ -30,6 +41,16 @@ Install this **Fleet App** to inspect and reclaim **CDP surface leases** when Co
 1. Open **`/admin/`** → **Apps** tab.
 2. Click **Install** next to **Forge CDP Manager**.
 3. Open the **Forge CDP Manager** tab to view leases.
+
+## HTTP control plane (:18770)
+
+When `forge-cdp-serve` runs on the operator machine:
+
+- Fleet lease tab reads flock files (same as today).
+- Operators and agents can also use `GET /v1/fleet` and `GET /v1/leases` on `http://127.0.0.1:18770`.
+- Set `FORGE_CDP_MANAGER_URL` on Cockpit and Knowledge Assistant consumers.
+
+See [CDP-OPERATOR-RUNBOOK.md](https://github.com/autowww/forge-cdp-manager/blob/main/docs/CDP-OPERATOR-RUNBOOK.md) in the upstream repo.
 
 ## See also
 
