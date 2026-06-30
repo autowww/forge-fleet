@@ -29,7 +29,9 @@
             "kpi_row",
             "data_table",
             "action_button",
+            "action_row",
             "alert",
+            "alert_list",
             "diagnostic_panel",
             "health_card",
             "chart",
@@ -48,6 +50,19 @@
         "action": { "type": "string", "minLength": 1 },
         "label": { "type": "string" },
         "body": { "type": "object" },
+        "buttons": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["action", "label"],
+            "properties": {
+              "action": { "type": "string" },
+              "label": { "type": "string" },
+              "body": { "type": "object" },
+              "variant": { "type": "string", "enum": ["primary", "ghost"] }
+            }
+          }
+        },
         "variants": {
           "type": "object",
           "additionalProperties": { "type": "string" }
@@ -60,7 +75,13 @@
             "properties": {
               "key": { "type": "string" },
               "label": { "type": "string" },
-              "format": { "type": "string", "enum": ["badge", "link"] },
+              "format": { "type": "string", "enum": ["badge", "link", "row_action"] },
+              "action": { "type": "string" },
+              "body_keys": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "action_label": { "type": "string" },
               "variants": {
                 "type": "object",
                 "additionalProperties": { "type": "string" }
