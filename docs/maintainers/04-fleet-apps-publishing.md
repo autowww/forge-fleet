@@ -14,14 +14,18 @@ From **`forge-fleet-website`**:
 
 ```bash
 ./scripts/publish-fleet-app.sh \
-  --package /path/to/app/dist/forge-cdp-manager-0.1.0.fleet-app.zip
+  --package /path/to/app/dist/forge-cdp-manager-0.2.0.fleet-app.zip
 ```
+
+App repos may ship a thin wrapper, e.g. `forge-cdp-manager/scripts/publish-fleet-app.sh --deploy`, which builds then calls this script.
+
+Manifest `version` is stamped from `pyproject.toml` at build time; `validate-fleet-app-package.py` checks wheel semver matches manifest.
 
 With deploy:
 
 ```bash
 ./scripts/publish-fleet-app.sh \
-  --package /path/to/app/dist/forge-cdp-manager-0.1.0.fleet-app.zip \
+  --package /path/to/app/dist/forge-cdp-manager-0.2.0.fleet-app.zip \
   --deploy
 ```
 

@@ -32,7 +32,11 @@
             "alert",
             "diagnostic_panel",
             "chart",
-            "docs_link"
+            "docs_link",
+            "toggle",
+            "status_badge",
+            "event_feed",
+            "link_button"
           ]
         },
         "title": { "type": "string" },
@@ -42,6 +46,11 @@
         "binding": { "type": "string", "minLength": 1 },
         "action": { "type": "string", "minLength": 1 },
         "label": { "type": "string" },
+        "body": { "type": "object" },
+        "variants": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
         "columns": {
           "type": "array",
           "items": {
@@ -49,7 +58,12 @@
             "required": ["key", "label"],
             "properties": {
               "key": { "type": "string" },
-              "label": { "type": "string" }
+              "label": { "type": "string" },
+              "format": { "type": "string", "enum": ["badge", "link"] },
+              "variants": {
+                "type": "object",
+                "additionalProperties": { "type": "string" }
+              }
             }
           }
         },

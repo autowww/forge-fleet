@@ -76,6 +76,34 @@ def test_render_doc_html(tmp_path: Path) -> None:
     assert "Test docs" in html
 
 
+def test_compare_versions() -> None:
+    assert fleet_apps.compare_versions("0.2.0", "0.1.0") > 0
+    assert fleet_apps.compare_versions("0.1.0", "0.2.0") < 0
+    assert fleet_apps.compare_versions("1.0.0", "1.0.0") == 0
+    assert fleet_apps.version_gt("0.2.1", "0.2.0")
+
+
+def test_runtime_config_roundtrip(tmp_path: Path) -> None:
+    fleet_apps.write_app_runtime_config(tmp_path, "forge-cdp-manager", {"manager_enabled": True})
+    doc = fleet_apps.read_app_runtime_config(tmp_path, "forge-cdp-manager")
+    assert doc["manager_enabled"] is True
+
+
+def test_upgrade_replaces_old_install_dir(tmp_path: Path) -> None:
+    v1 = _minimal_zip(version="0.1.0")
+    v2 = _minimal_zip(version="0.2.0")
+    fleet_apps.install_package_bytes(tmp_path, v1)
+    first = fleet_apps.load_installed_record(tmp_path, "test-app")
+    assert first is not None
+    old_path = Path(str(first["install_path"]))
+    assert old_path.is_dir()
+    fleet_apps.install_package_bytes(tmp_path, v2)
+    second = fleet_apps.load_installed_record(tmp_path, "test-app")
+    assert second is not None
+    assert second["app_version"] == "0.2.0"
+    assert not old_path.exists()
+
+
 def test_sha256_mismatch(tmp_path: Path) -> None:
     data = _minimal_zip()
     with pytest.raises(ValueError, match="sha256_mismatch"):

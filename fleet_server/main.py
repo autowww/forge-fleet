@@ -268,6 +268,19 @@ class FleetHandler(BaseHTTPRequestHandler):
                 return
             self._send_raw(200, rendered.encode("utf-8"), "text/html; charset=utf-8")
             return
+        mapp_stream = re.match(r"^/admin/apps/([^/]+)/sessions/([^/]+)/stream$", path)
+        if mapp_stream:
+            app_id = mapp_stream.group(1)
+            session_id = mapp_stream.group(2)
+            data_dir = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            if fleet_apps.load_installed_record(data_dir, app_id) is None:
+                self._send_raw(404, b"App not installed", "text/plain; charset=utf-8")
+                return
+            runtime = fleet_apps.read_app_runtime_config(data_dir, app_id)
+            daemon_url = str(runtime.get("daemon_url") or "http://127.0.0.1:18770")
+            html_doc = fleet_apps.session_stream_viewer_html(app_id, session_id, daemon_url)
+            self._send_raw(200, html_doc.encode("utf-8"), "text/html; charset=utf-8")
+            return
         mb = re.match(r"^/v1/jobs/([^/]+)/workspace-worker-bundle$", path)
         if mb:
             jid = mb.group(1)
@@ -938,6 +951,16 @@ class FleetHandler(BaseHTTPRequestHandler):
                 return
             self._send(200, {"ok": True, **rec})
             return
+        if path == "/v1/fleet-apps/upgrade":
+            app_id = str(body.get("app_id") or "").strip()
+            catalog_url = str(body.get("catalog_url") or "").strip() or None
+            try:
+                rec = fleet_apps.upgrade_from_catalog(data_dir_p, app_id, catalog_url=catalog_url)
+            except ValueError as ex:
+                self._send(400, {"ok": False, "error": str(ex)[:800]})
+                return
+            self._send(200, {"ok": True, **rec})
+            return
         if path == "/v1/fleet-apps/install-local":
             sha_hdr = (self.headers.get("X-Fleet-App-Sha256") or "").strip() or None
             blob = self._read_binary_body(fleet_apps._max_package_bytes())
@@ -957,6 +980,9 @@ class FleetHandler(BaseHTTPRequestHandler):
             action = mfa_act.group(2)
             try:
                 payload = fleet_apps.call_action_handler(data_dir_p, app_id, action, body)
+            except PermissionError as ex:
+                self._send(403, {"ok": False, "error": str(ex)[:800]})
+                return
             except ValueError as ex:
                 code = 404 if "not_installed" in str(ex) or "unknown" in str(ex) else 400
                 self._send(code, {"ok": False, "error": str(ex)[:800]})

@@ -13,6 +13,7 @@ All `/v1/fleet-apps/*` routes follow the same bearer policy as other `/v1/*` rou
 | GET | `/v1/fleet-apps/catalog` | Remote published catalog (`FLEET_APPS_CATALOG_URL`). |
 | GET | `/v1/fleet-apps/installed` | Installed apps on this host (`etc/fleet-apps/`). |
 | POST | `/v1/fleet-apps/install` | Body `app_id`, optional `version`, optional `catalog_url`. |
+| POST | `/v1/fleet-apps/upgrade` | Body `app_id`, optional `catalog_url` — installs latest catalog version when newer than installed. |
 | POST | `/v1/fleet-apps/install-local` | Body omitted; raw zip body; optional `X-Fleet-App-Sha256` header. |
 | DELETE | `/v1/fleet-apps/{id}` | Uninstall app record and remove install tree. |
 | GET | `/v1/fleet-apps/{id}/ui` | Resolved `ui/app.ui.json` from installed package. |
@@ -78,11 +79,23 @@ Response:
 {
   "id": "forge-cdp-manager",
   "title": "Forge CDP Manager",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "enabled": true,
-  "docs_index": "/admin/apps/forge-cdp-manager/docs/"
+  "docs_index": "/admin/apps/forge-cdp-manager/docs/",
+  "catalog_version": "0.2.0",
+  "update_available": false
 }
 ```
+
+`apps[]` also includes `catalog_version`, `catalog_sha256`, and `update_available` when the remote catalog is reachable.
+
+## Upgrade
+
+`POST /v1/fleet-apps/upgrade` with body `{"app_id":"forge-cdp-manager"}` installs the newest catalog entry when semver is greater than the installed `app_version`. Admin **Apps** catalog rows show **Install**, **Upgrade to vX.Y.Z**, or **Installed** based on the same fields.
+
+## Stream preview (forge-cdp-manager)
+
+`GET /admin/apps/forge-cdp-manager/sessions/{session_id}/stream` — minimal JPEG WebSocket viewer relaying `forge-cdp-serve` on the configured `daemon_url`.
 
 ## Environment
 

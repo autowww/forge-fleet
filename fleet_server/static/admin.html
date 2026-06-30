@@ -3843,6 +3843,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
     }
 
     var __fleetAppMounts = {};
+    var __fleetCatalogApps = [];
 
     function fleetAppsInstall(appId, version) {
       var body = { app_id: appId };
@@ -3861,50 +3862,87 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         });
     }
 
-    function fleetAppsLoadCatalog() {
+    function fleetAppsRenderCatalog(installed) {
+      var el = document.getElementById("fleet-apps-catalog");
+      if (!el || !__fleetCatalogApps.length) return;
+      installed = installed || [];
+      var instMap = {};
+      installed.forEach(function (a) {
+        instMap[a.id] = a;
+      });
+      el.innerHTML = __fleetCatalogApps
+        .map(function (a) {
+          var inst = instMap[a.id];
+          var btn = "";
+          if (!inst) {
+            btn =
+              '<button type="button" class="btn btn-sm btn-outline-primary fleet-install-app" data-app-id="' +
+              esc(a.id) +
+              '" data-app-version="' +
+              esc(a.version || "") +
+              '">Install</button>';
+          } else if (inst.update_available || (a.version && inst.version && a.version !== inst.version)) {
+            btn =
+              '<button type="button" class="btn btn-sm btn-warning fleet-install-app" data-app-id="' +
+              esc(a.id) +
+              '" data-app-version="' +
+              esc(a.version || inst.catalog_version || "") +
+              '">Upgrade to v' +
+              esc(a.version || inst.catalog_version || "") +
+              "</button>";
+          } else {
+            btn =
+              '<span class="badge bg-success-subtle text-success-emphasis">Installed v' +
+              esc(inst.version || "") +
+              "</span>";
+          }
+          return (
+            '<div class="fleet-app-catalog-row border-bottom border-secondary-subtle py-2">' +
+            "<div><strong>" +
+            esc(a.title || a.id) +
+            "</strong> <span class=\"fleet-mono text-body-secondary\">v" +
+            esc(a.version || "") +
+            "</span><br/><span class=\"text-body-secondary\">" +
+            esc(a.summary || "") +
+            "</span></div>" +
+            btn +
+            "</div>"
+          );
+        })
+        .join("");
+      el.querySelectorAll(".fleet-install-app").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          btn.disabled = true;
+          fleetAppsInstall(btn.getAttribute("data-app-id"), btn.getAttribute("data-app-version"))
+            .catch(function (ex) {
+              setErr(String(ex.message || ex));
+            })
+            .finally(function () {
+              btn.disabled = false;
+            });
+        });
+      });
+    }
+
+    function fleetAppsLoadCatalog(installed) {
+      installed = installed || [];
       var el = document.getElementById("fleet-apps-catalog");
       if (!el) return;
+      if (__fleetCatalogApps.length) {
+        fleetAppsRenderCatalog(installed);
+        return;
+      }
       fetch("/v1/fleet-apps/catalog", { headers: authHeaders() })
         .then(function (r) {
           return r.json();
         })
         .then(function (j) {
-          var apps = (j.catalog && j.catalog.apps) || [];
-          if (!apps.length) {
+          __fleetCatalogApps = (j.catalog && j.catalog.apps) || [];
+          if (!__fleetCatalogApps.length) {
             el.innerHTML = "<span class=\"text-body-secondary\">No published apps in catalog yet.</span>";
             return;
           }
-          el.innerHTML = apps
-            .map(function (a) {
-              return (
-                '<div class="fleet-app-catalog-row border-bottom border-secondary-subtle py-2">' +
-                "<div><strong>" +
-                esc(a.title || a.id) +
-                "</strong> <span class=\"fleet-mono text-body-secondary\">v" +
-                esc(a.version || "") +
-                "</span><br/><span class=\"text-body-secondary\">" +
-                esc(a.summary || "") +
-                "</span></div>" +
-                '<button type="button" class="btn btn-sm btn-outline-primary fleet-install-app" data-app-id="' +
-                esc(a.id) +
-                '" data-app-version="' +
-                esc(a.version || "") +
-                '">Install</button></div>'
-              );
-            })
-            .join("");
-          el.querySelectorAll(".fleet-install-app").forEach(function (btn) {
-            btn.addEventListener("click", function () {
-              btn.disabled = true;
-              fleetAppsInstall(btn.getAttribute("data-app-id"), btn.getAttribute("data-app-version"))
-                .catch(function (ex) {
-                  setErr(String(ex.message || ex));
-                })
-                .finally(function () {
-                  btn.disabled = false;
-                });
-            });
-          });
+          fleetAppsRenderCatalog(installed);
         })
         .catch(function () {
           el.innerHTML = "<span class=\"text-danger\">Could not load catalog.</span>";
@@ -3938,7 +3976,13 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
                   esc(a.title || a.id) +
                   "</strong> <span class=\"fleet-mono\">v" +
                   esc(a.version || "") +
-                  "</span> · <a href=\"" +
+                  "</span>" +
+                  (a.update_available
+                    ? ' <span class="badge bg-warning text-dark">Update v' +
+                      esc(a.catalog_version || "") +
+                      "</span>"
+                    : "") +
+                  " · <a href=\"" +
                   esc(a.docs_index || "#") +
                   "\">Docs</a></div>"
                 );
@@ -4640,10 +4684,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       renderManagedServices(integ);
       loadContainerTypesOnce();
       fleetAppsSyncTabs(data.apps || []);
-      if (!window.__fleetAppsCatalogLoaded) {
-        window.__fleetAppsCatalogLoaded = true;
-        fleetAppsLoadCatalog();
-      }
+      fleetAppsLoadCatalog(data.apps || []);
 
       var host = data.host || {};
       var hid =
