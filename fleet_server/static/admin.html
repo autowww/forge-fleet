@@ -1705,6 +1705,220 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       return " fleet-tile--trend-cool-" + tier;
     }
 
+    var __fleetTilesLayoutSig = "";
+    var FLEET_TILE_TREND_RE = /\bfleet-tile--trend-(?:heat|cool)-[12]\b/g;
+
+    function thermalTilePresent(host) {
+      var th = (host && host.thermal) || {};
+      var mc = th.max_c;
+      var cpuOk = mc != null && !isNaN(Number(mc));
+      var gn = host && host.gpu && host.gpu.nvidia;
+      var gpuMax = null;
+      if (gn && gn.available && gn.devices && gn.devices.length) {
+        var gt = [];
+        for (var gi = 0; gi < gn.devices.length; gi++) {
+          var d = gn.devices[gi];
+          var tt = d && d.temperature_c;
+          if (tt != null && !isNaN(Number(tt))) gt.push(Number(tt));
+        }
+        if (gt.length) gpuMax = Math.max.apply(null, gt);
+      }
+      return cpuOk || (gpuMax != null && !isNaN(Number(gpuMax)));
+    }
+
+    function powerTilePresent(host) {
+      var en = (host && host.energy) || {};
+      var raplOk =
+        en.rapl_available === true && en.rapl_package_uj != null && !isNaN(Number(en.rapl_package_uj));
+      var gpuW =
+        en.gpu_power_draw_w_sum != null && !isNaN(Number(en.gpu_power_draw_w_sum))
+          ? Number(en.gpu_power_draw_w_sum)
+          : null;
+      return raplOk || gpuW != null;
+    }
+
+    function cooldownTilePresent(cs) {
+      return renderCooldownTile(cs) !== "";
+    }
+
+    function tilesLayoutSignature(host, energyLedger, cooldownSummary) {
+      var g = host.gpu || {};
+      var lm = hostLoadForUi(host);
+      var dk = diskAgg(host);
+      var memHost = host.memory || {};
+      var ramPct =
+        memHost.used_pct != null && !isNaN(Number(memHost.used_pct)) ? "mem" : "nomem";
+      var diskMode = "nodisk";
+      if (dk.has) {
+        var prim = diskPrimaryPct(dk);
+        var hasTput =
+          dk.ioAgg && dk.ioAgg.total_mbps != null && !isNaN(Number(dk.ioAgg.total_mbps));
+        diskMode = prim != null ? "pct" : hasTput ? "mbps" : "empty";
+      }
+      return [
+        lm ? "load" : "noload",
+        ramPct,
+        diskMode,
+        gpuNvidiaHasDevices(g) ? "nv" : "",
+        gpuAmdHasDevices(g) ? "am" : "",
+        gpuIntelHasDevices(g) ? "ir" : "",
+        !gpuNvidiaHasDevices(g) && !gpuAmdHasDevices(g) && !gpuIntelHasDevices(g) ? "gpustub" : "",
+        thermalTilePresent(host) ? "th" : "noth",
+        powerTilePresent(host) ? "pwr" : "nopwr",
+        cooldownTilePresent(cooldownSummary) ? "cd" : "nocd",
+      ].join("|");
+    }
+
+    function applyTileTrendClass(anchorId, trendCls) {
+      var el = document.getElementById(anchorId);
+      if (!el) return;
+      var tile = el.closest(".fleet-tile");
+      if (!tile) return;
+      tile.className = tile.className.replace(FLEET_TILE_TREND_RE, "").replace(/\s+/g, " ").trim();
+      if (trendCls && String(trendCls).trim()) {
+        tile.className = (tile.className + " " + String(trendCls).trim()).trim();
+      }
+    }
+
+    function syncFleetTileTrends(host) {
+      applyTileTrendClass("fleet-cpu-value", trendClassFor("cpu", cpuPct(host)));
+      var memHost = host.memory || {};
+      if (memHost.used_pct != null && !isNaN(Number(memHost.used_pct))) {
+        applyTileTrendClass("fleet-mem-val", trendClassFor("ram", Number(memHost.used_pct)));
+      }
+      var lm = hostLoadForUi(host);
+      if (lm != null && lm.pct1 != null && !isNaN(lm.pct1)) {
+        applyTileTrendClass("fleet-load-hero-l1", trendClassFor("load1", lm.pct1));
+      }
+      var dk = diskAgg(host);
+      var diskTrendPct = diskPrimaryPct(dk);
+      if (diskTrendPct != null) {
+        if (document.getElementById("fleet-disk-pct-val")) {
+          applyTileTrendClass("fleet-disk-pct-val", trendClassFor("disk", diskTrendPct));
+        } else if (document.getElementById("fleet-disk-mbps-val")) {
+          applyTileTrendClass("fleet-disk-mbps-val", trendClassFor("disk", diskTrendPct));
+        }
+      }
+    }
+
+    function patchFleetTileText(role, html) {
+      if (!html) return;
+      var tile = document.querySelector('#fleet-tiles [data-fleet-tile-role="' + role + '"]');
+      if (!tile) return;
+      var wrap = document.createElement("div");
+      wrap.innerHTML = html;
+      var neu = wrap.firstElementChild;
+      if (!neu) return;
+      var valOld = tile.querySelector(".fleet-tile__value");
+      var valNeu = neu.querySelector(".fleet-tile__value");
+      if (valOld && valNeu && role !== "power") valOld.innerHTML = valNeu.innerHTML;
+      var memOld = tile.querySelector(".fleet-tile__mem");
+      var memNeu = neu.querySelector(".fleet-tile__mem");
+      if (memOld && memNeu) memOld.textContent = memNeu.textContent;
+      var hintOld = tile.querySelector(".fleet-tile__hint");
+      var hintNeu = neu.querySelector(".fleet-tile__hint");
+      if (hintOld && hintNeu) hintOld.textContent = hintNeu.textContent;
+      var fineOld = tile.querySelector(".fleet-tile__fine");
+      var fineNeu = neu.querySelector(".fleet-tile__fine");
+      if (fineNeu) {
+        if (fineOld) fineOld.textContent = fineNeu.textContent;
+        else if (fineNeu.textContent) {
+          var brand = tile.querySelector(".fleet-tile__brand");
+          if (brand && brand.nextElementSibling) {
+            var fineEl = document.createElement("div");
+            fineEl.className = "fleet-tile__fine";
+            fineEl.textContent = fineNeu.textContent;
+            brand.parentNode.insertBefore(fineEl, brand.nextElementSibling.nextElementSibling);
+          }
+        }
+      } else if (fineOld) {
+        fineOld.remove();
+      }
+      tile.className = neu.className;
+    }
+
+    function patchFleetTilesAux(host, energyLedger, cooldownSummary) {
+      var cpuMeta = document.querySelector("#fleet-cpu-value");
+      if (cpuMeta) {
+        cpuMeta = cpuMeta.closest(".fleet-cpu-stack");
+        if (cpuMeta) {
+          var metaEl = cpuMeta.querySelector(".fleet-cpu-wide__meta");
+          if (metaEl) {
+            var logC = host.cpus != null && !isNaN(Number(host.cpus)) ? Number(host.cpus) : null;
+            var physC =
+              host.cpu_cores_physical != null && !isNaN(Number(host.cpu_cores_physical))
+                ? Number(host.cpu_cores_physical)
+                : null;
+            var coreStr =
+              logC != null ? (physC != null ? String(logC) + "/" + String(physC) : String(logC)) : "—";
+            var ghzStr =
+              host.cpu_freq_mhz_avg != null && !isNaN(Number(host.cpu_freq_mhz_avg))
+                ? (Number(host.cpu_freq_mhz_avg) / 1000).toFixed(1) + " GHz"
+                : "—";
+            metaEl.textContent = ghzStr + " · Core: " + coreStr;
+          }
+        }
+      }
+
+      var lm = hostLoadForUi(host);
+      var foot = document.getElementById("fleet-load-foot");
+      if (foot && lm) {
+        var loadIsApprox = !!lm.approx;
+        foot.textContent =
+          "L " + String(lm.l1) + " · " + String(lm.l5) + " · " + String(lm.l15);
+        var fine = document.getElementById("fleet-load-foot-fine");
+        if (loadIsApprox) {
+          if (!fine) {
+            fine = document.createElement("div");
+            fine.id = "fleet-load-foot-fine";
+            fine.className = "fleet-tile__fine";
+            foot.parentNode.appendChild(fine);
+          }
+          fine.textContent =
+            "Approx. % using divisor n=" + String(lm.cpus) + " (CPU count missing or invalid)";
+        } else if (fine) {
+          fine.remove();
+        }
+      }
+
+      var dk = diskAgg(host);
+      var diskAnchor = document.getElementById("fleet-disk-pct-val") || document.getElementById("fleet-disk-mbps-val");
+      if (diskAnchor) {
+        var diskTile = diskAnchor.closest(".fleet-tile");
+        if (diskTile) {
+          var hint = diskTile.querySelector(".fleet-tile__hint");
+          if (hint) {
+            hint.textContent =
+              dk.ioAgg && dk.ioAgg.total_mbps != null && !isNaN(Number(dk.ioAgg.total_mbps))
+                ? String(Math.round(Number(dk.ioAgg.total_mbps))) + " MB/s"
+                : "— MB/s";
+          }
+        }
+      }
+
+      patchFleetTileText("thermal", renderThermalTile(host));
+      patchFleetTileText("cooldown", renderCooldownTile(cooldownSummary));
+      if (document.querySelector('#fleet-tiles [data-fleet-tile-role="power"]')) {
+        var powerHtml = renderPowerTile(host, energyLedger);
+        patchFleetTileText("power", powerHtml);
+      }
+    }
+
+    function syncFleetTiles(host, energyLedger, cooldownSummary) {
+      var sig = tilesLayoutSignature(host, energyLedger, cooldownSummary);
+      var tilesEl = document.getElementById("fleet-tiles");
+      if (!tilesEl) return;
+      var rebuild = sig !== __fleetTilesLayoutSig || !tilesEl.querySelector(".fleet-tile");
+      if (rebuild) {
+        __fleetTilesLayoutSig = sig;
+        tilesEl.innerHTML = renderTiles(host, energyLedger, cooldownSummary);
+      } else {
+        syncFleetTileTrends(host);
+        patchFleetTilesAux(host, energyLedger, cooldownSummary);
+      }
+      applyKpiTileAnims(host);
+    }
+
     function pushFleetTrendSample(host) {
       var now = Date.now();
       var c = cpuPct(host);
@@ -2611,7 +2825,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       return (
         '<div class="fleet-tile fleet-tile--power-' +
         pHeat +
-        '">' +
+        '" data-fleet-tile-role="power">' +
         '<div class="fleet-tile__brand">' +
         tileMark(MARK_POWER, "Power") +
         "</div>" +
@@ -2673,7 +2887,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       return (
         '<div class="fleet-tile fleet-tile--mem-' +
         hz +
-        '">' +
+        '" data-fleet-tile-role="thermal">' +
         '<div class="fleet-tile__brand">' +
         tileMark(MARK_THERMAL, "Thermal") +
         "</div>" +
@@ -3081,7 +3295,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       return (
         '<div class="' +
         cls +
-        '">' +
+        '" data-fleet-tile-role="cooldown">' +
         '<div class="fleet-tile__brand">' +
         tileMark(MARK_COOLDOWN, "LLM throttle waits") +
         '</div><div class="fleet-tile__value fleet-mono">' +
@@ -3153,16 +3367,16 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         mergeLoadPeakPct(Math.round(lm.pct1));
         var loadHeat = heat3(Math.max(lm.pct1, lm.pct5, lm.pct15));
         var loadFoot = loadIsApprox
-          ? '<div class="fleet-tile__mem fleet-load-inline fleet-mono">L ' +
+          ? '<div id="fleet-load-foot" class="fleet-tile__mem fleet-load-inline fleet-mono">L ' +
             esc(String(lm.l1)) +
             " · " +
             esc(String(lm.l5)) +
             " · " +
             esc(String(lm.l15)) +
-            '</div><div class="fleet-tile__fine">Approx. % using divisor n=' +
+            '</div><div id="fleet-load-foot-fine" class="fleet-tile__fine">Approx. % using divisor n=' +
             esc(String(lm.cpus)) +
             " (CPU count missing or invalid)</div>"
-          : '<div class="fleet-tile__mem fleet-load-inline fleet-mono">L ' +
+          : '<div id="fleet-load-foot" class="fleet-tile__mem fleet-load-inline fleet-mono">L ' +
             esc(String(lm.l1)) +
             " · " +
             esc(String(lm.l5)) +
@@ -3171,6 +3385,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
             "</div>";
         var w1Hero = fleetLoad1Anim.widthForRender(Number(lm.pct1));
         var w1p = w1Hero != null && !isNaN(w1Hero) ? Math.min(100, Math.max(0, Number(w1Hero))) : Math.min(100, Math.max(0, Number(lm.pct1)));
+        var angHero = -180 + (w1p / 100) * 180;
         loadTile =
           '<div class="fleet-tile fleet-tile--load-' +
           loadHeat +
@@ -3190,8 +3405,12 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
           '<div class="fleet-load-gauge-wrap" aria-hidden="true">' +
           '<svg class="fleet-load-gauge-svg" viewBox="0 0 80 44" xmlns="http://www.w3.org/2000/svg">' +
           '<path class="fleet-load-gauge-track" d="M 12 38 A 28 28 0 0 1 68 38" fill="none" stroke-linecap="round"/>' +
-          '<line id="fleet-load-gauge-needle-ghost" class="fleet-load-gauge-needle-ghost" x1="40" y1="38" x2="68" y2="38" stroke-linecap="round" transform="rotate(-180 40 38)" opacity="0"/>' +
-          '<line id="fleet-load-gauge-needle" class="fleet-load-gauge-needle-line" x1="40" y1="38" x2="68" y2="38" stroke-linecap="round" transform="rotate(-180 40 38)"/>' +
+          '<line id="fleet-load-gauge-needle-ghost" class="fleet-load-gauge-needle-ghost" x1="40" y1="38" x2="68" y2="38" stroke-linecap="round" transform="rotate(' +
+          esc(String(angHero)) +
+          ' 40 38)" opacity="0"/>' +
+          '<line id="fleet-load-gauge-needle" class="fleet-load-gauge-needle-line" x1="40" y1="38" x2="68" y2="38" stroke-linecap="round" transform="rotate(' +
+          esc(String(angHero)) +
+          ' 40 38)"/>' +
           "</svg></div></div></div>" +
           '<div class="fleet-load-gauges">' +
           loadGaugeRow("1m", "1", lm.pct1) +
@@ -4438,16 +4657,11 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         chartBuf = [];
         orchBuf = [];
       }
+      syncFleetTiles(host, meta.energy_ledger_kwh || null, meta.cooldown_summary || null);
+      pushFleetTrendSample(host);
+
       await refreshTelemetryChartsFromDb(host, integ.orchestration);
       paintOrchestrationHeader(integ.orchestration);
-
-      document.getElementById("fleet-tiles").innerHTML = renderTiles(
-        host,
-        meta.energy_ledger_kwh || null,
-        meta.cooldown_summary || null
-      );
-      applyKpiTileAnims(host);
-      pushFleetTrendSample(host);
       refreshChartYHint();
 
       var bs = data.jobs_by_status || {};
