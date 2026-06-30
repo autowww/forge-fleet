@@ -399,7 +399,7 @@
           </div>
         </section>
       </div>
-      <div id="fleet-dynamic-app-panes"></div>
+      <div id="fleet-dynamic-app-panes" class="d-contents"></div>
     </div>
   </main>
 
@@ -765,6 +765,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
     /** JSON: { tempC, loadPct, diskUi } peaks for %-of-max series (diskUi = storage tile 0–100 scale) */
     var LS_METRIC_MAX = "forgeFleetMetricMaximaV2";
     var POLL_MS = 3000;
+    var REMOTE_GIT_POLL_MS = 300000;
     /** Recent jobs table: page size and offset (passed as ``jobs_limit`` / ``jobs_offset`` on snapshot). */
     var fleetJobsPageSize = 10;
     var fleetJobsOffset = 0;
@@ -3691,12 +3692,24 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         });
     }
 
+    var __fleetAppsSig = "";
+
+    function fleetAppsSignature(apps) {
+      return (apps || [])
+        .map(function (a) {
+          return String(a.id || "") + "@" + String(a.version || "");
+        })
+        .sort()
+        .join("|");
+    }
+
     function fleetAppsSyncTabs(apps) {
       var tabHost = document.getElementById("fleet-dynamic-app-tabs");
       var paneHost = document.getElementById("fleet-dynamic-app-panes");
       var installedEl = document.getElementById("fleet-apps-installed");
       if (!tabHost || !paneHost) return;
       apps = apps || [];
+      var sig = fleetAppsSignature(apps);
       if (installedEl) {
         installedEl.innerHTML = apps.length
           ? apps
@@ -3714,6 +3727,8 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
               .join("")
           : "<span class=\"text-body-secondary\">No apps installed. Use the catalog below.</span>";
       }
+      if (sig === __fleetAppsSig) return;
+      __fleetAppsSig = sig;
       var ids = apps.map(function (a) {
         return a.id;
       });
@@ -3732,7 +3747,9 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
             slug +
             '-btn" data-bs-toggle="tab" data-bs-target="#' +
             slug +
-            '" type="button" role="tab">' +
+            '" type="button" role="tab" aria-controls="' +
+            slug +
+            '">' +
             esc(a.title || a.id) +
             "</button></li>"
           );
@@ -3744,11 +3761,13 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
           return (
             '<div class="tab-pane fade" id="' +
             slug +
-            '" role="tabpanel"><div class="fleet-app-host-mount" id="' +
+            '" role="tabpanel" aria-labelledby="' +
+            slug +
+            '-btn" tabindex="0"><div class="fleet-app-host-mount" id="' +
             slug +
             '-mount" data-app-id="' +
             esc(a.id) +
-            '"></div></div>"
+            '"></div></div>'
           );
         })
         .join("");

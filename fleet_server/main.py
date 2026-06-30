@@ -533,8 +533,8 @@ class FleetHandler(BaseHTTPRequestHandler):
             conn = store.connect(self.server.db_path)
             try:
                 try:
-                    telemetry_rollup.maybe_run_telemetry_rollup(conn)
-                except sqlite3.Error:
+                    telemetry_rollup.maybe_run_telemetry_rollup(conn, self.server.db_path)
+                except (sqlite3.Error, TypeError, ValueError):
                     pass
                 t_min, t_max, _n = store.telemetry_time_bounds(conn)
                 period_key = telemetry_periods.PERIOD_ALIASES.get(period_raw, period_raw)
@@ -1379,7 +1379,8 @@ def main() -> None:
         try:
             c = store.connect(db_path)
             try:
-                telemetry_rollup.run_full_backfill(c)
+                if telemetry_rollup.gaps_remain(c):
+                    telemetry_rollup.run_full_backfill(c)
             finally:
                 c.close()
         except (OSError, RuntimeError, sqlite3.Error) as ex:
