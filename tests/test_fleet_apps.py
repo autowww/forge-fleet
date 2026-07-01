@@ -108,3 +108,55 @@ def test_sha256_mismatch(tmp_path: Path) -> None:
     data = _minimal_zip()
     with pytest.raises(ValueError, match="sha256_mismatch"):
         fleet_apps.install_package_bytes(tmp_path, data, expected_sha256="0" * 64)
+
+
+def test_proxy_surface_snapshot_not_installed(tmp_path: Path) -> None:
+    code, body, ctype, _headers = fleet_apps.proxy_surface_snapshot(
+        tmp_path,
+        "forge-cdp-manager",
+        "outlook_mail",
+        "http://127.0.0.1:9222",
+    )
+    assert code == 404
+    assert b"not installed" in body.lower()
+
+
+def test_proxy_surface_snapshot_upstream(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    data = _minimal_zip(app_id="forge-cdp-manager")
+    fleet_apps.install_package_bytes(tmp_path, data)
+    fleet_apps.write_app_runtime_config(
+        tmp_path,
+        "forge-cdp-manager",
+        {"daemon_url": "http://127.0.0.1:18770"},
+    )
+    fake_jpeg = b"\xff\xd8\xff\xd9"
+
+    class _FakeResp:
+        headers = {"Content-Type": "image/jpeg", "Cache-Control": "max-age=55, private"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return fake_jpeg
+
+    def _fake_urlopen(req, timeout=30.0):
+        assert "snapshot.jpg" in req.full_url
+        assert "outlook_mail" in req.full_url
+        return _FakeResp()
+
+    monkeypatch.setattr("fleet_server.fleet_apps.urllib.request.urlopen", _fake_urlopen)
+    code, body, ctype, headers = fleet_apps.proxy_surface_snapshot(
+        tmp_path,
+        "forge-cdp-manager",
+        "outlook_mail",
+        "http://127.0.0.1:9222",
+    )
+    assert code == 200
+    assert body == fake_jpeg
+    assert ctype == "image/jpeg"
+    assert "max-age=55" in headers.get("Cache-Control", "")
+

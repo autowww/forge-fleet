@@ -66,6 +66,14 @@ class FleetHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_raw_with_headers(self, code: int, body: bytes, headers: dict[str, str]) -> None:
+        self.send_response(code)
+        for key, value in headers.items():
+            self.send_header(key, value)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def _serve_admin_shell(self) -> None:
         try:
             data = resources.files("fleet_server").joinpath("static/admin.html").read_bytes()
@@ -280,6 +288,21 @@ class FleetHandler(BaseHTTPRequestHandler):
             daemon_url = str(runtime.get("daemon_url") or "http://127.0.0.1:18770")
             html_doc = fleet_apps.session_stream_viewer_html(app_id, session_id, daemon_url)
             self._send_raw(200, html_doc.encode("utf-8"), "text/html; charset=utf-8")
+            return
+        mapp_snap = re.match(r"^/admin/apps/([^/]+)/surfaces/([^/]+)/snapshot\.jpg$", path)
+        if mapp_snap:
+            app_id = mapp_snap.group(1)
+            surface_id = mapp_snap.group(2)
+            parsed = urlparse(self.path)
+            qs = parse_qs(parsed.query or "")
+            cdp_url = (qs.get("cdp_url") or [""])[0]
+            data_dir = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            code, body, ctype, extra_headers = fleet_apps.proxy_surface_snapshot(
+                data_dir, app_id, surface_id, cdp_url
+            )
+            headers = {"Content-Type": ctype}
+            headers.update(extra_headers)
+            self._send_raw_with_headers(code, body, headers)
             return
         mb = re.match(r"^/v1/jobs/([^/]+)/workspace-worker-bundle$", path)
         if mb:

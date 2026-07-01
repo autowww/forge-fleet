@@ -22,6 +22,7 @@ All `/v1/fleet-apps/*` routes follow the same bearer policy as other `/v1/*` rou
 | GET | `/admin/apps/{id}/` | Minimal host page mounting `ForgeFleetAppUi`. |
 | GET | `/admin/apps/{id}/docs/` | Redirect to docs index. |
 | GET | `/admin/apps/{id}/docs/{slug}` | Rendered in-package markdown (`.html` suffix optional). |
+| GET | `/admin/apps/{id}/surfaces/{surface_id}/snapshot.jpg` | JPEG CDP tab snapshot proxy (`?cdp_url=` required). |
 
 ## Install request
 
@@ -96,6 +97,12 @@ Response:
 ## Stream preview (forge-cdp-manager)
 
 `GET /admin/apps/forge-cdp-manager/sessions/{session_id}/stream` — minimal JPEG WebSocket viewer relaying `forge-cdp-serve` on the configured `daemon_url`.
+
+## Surface snapshot (forge-cdp-manager)
+
+`GET /admin/apps/forge-cdp-manager/surfaces/{surface_id}/snapshot.jpg?cdp_url=http://127.0.0.1:9222` — proxies `GET {daemon_url}/v1/surfaces/{surface_id}/snapshot.jpg` for idle tab previews in the **Surface operations wall** FAEP widget (`surface_wall` binding). Response is `image/jpeg` with `Cache-Control: max-age=55, private`.
+
+`GET /v1/fleet-apps/forge-cdp-manager/data/surface_wall` returns per-surface rows with `activity` (`working` | `idle` | `offline`), optional `stream_ws_url`, and optional `snapshot_href`.
 
 ## Environment
 

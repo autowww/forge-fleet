@@ -39,10 +39,12 @@
             "toggle",
             "status_badge",
             "event_feed",
-            "link_button"
+            "link_button",
+            "surface_wall"
           ]
         },
         "title": { "type": "string" },
+        "collapsed": { "type": "boolean" },
         "text": { "type": "string" },
         "level": { "type": "integer", "minimum": 2, "maximum": 4 },
         "variant": { "type": "string", "enum": ["info", "warning", "danger", "success"] },

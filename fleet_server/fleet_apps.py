@@ -15,6 +15,7 @@ import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import zipfile
 from datetime import UTC, datetime
@@ -685,6 +686,42 @@ def app_host_html(app_id: str, title: str) -> str:
         f"}})();"
         f"</script></main></body></html>"
     )
+
+
+def proxy_surface_snapshot(
+    data_dir: Path,
+    app_id: str,
+    surface_id: str,
+    cdp_url: str,
+) -> tuple[int, bytes, str, dict[str, str]]:
+    """Fetch JPEG snapshot from forge-cdp-serve; returns status, body, content-type, headers."""
+    if not APP_ID_RE.match(app_id):
+        return 400, b"invalid app_id", "text/plain; charset=utf-8", {}
+    if not re.match(r"^[a-z][a-z0-9_]{0,63}$", surface_id):
+        return 400, b"invalid surface_id", "text/plain; charset=utf-8", {}
+    if load_installed_record(data_dir, app_id) is None:
+        return 404, b"App not installed", "text/plain; charset=utf-8", {}
+    runtime = read_app_runtime_config(data_dir, app_id)
+    daemon_base = str(runtime.get("daemon_url") or "http://127.0.0.1:18770").rstrip("/")
+    cdp = str(cdp_url or "http://127.0.0.1:9222").strip()
+    upstream = (
+        f"{daemon_base}/v1/surfaces/{urllib.parse.quote(surface_id, safe='')}/snapshot.jpg"
+        f"?cdp_url={urllib.parse.quote(cdp, safe='')}"
+    )
+    req = urllib.request.Request(upstream, headers={"Accept": "image/jpeg"})
+    try:
+        with urllib.request.urlopen(req, timeout=30.0) as resp:
+            body = resp.read()
+            ctype = resp.headers.get("Content-Type", "image/jpeg")
+            cache = resp.headers.get("Cache-Control", "max-age=55, private")
+            return 200, body, ctype, {"Cache-Control": cache}
+    except urllib.error.HTTPError as exc:
+        detail = exc.read()
+        ctype = exc.headers.get("Content-Type", "text/plain; charset=utf-8")
+        return exc.code, detail, ctype, {}
+    except (urllib.error.URLError, OSError, TimeoutError) as exc:
+        msg = f"snapshot_proxy_failed: {exc}".encode("utf-8")
+        return 503, msg, "text/plain; charset=utf-8", {}
 
 
 def session_stream_viewer_html(app_id: str, session_id: str, daemon_url: str) -> str:
