@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "templates": [
+    {
+      "id": "docs_check_worker",
+      "title": "Docs check worker (build + link check + scorecard)",
+      "kind": "image",
+      "ref": "python:3.12-slim",
+      "image_semver": "3.12",
+      "notes": "Hydration v2 docs-quality rail: runs site builds, link checks, and docs scorecard scripts over an uploaded docs workspace. Install markdown/pyyaml inside the job argv."
+    }
+  ]
+}
