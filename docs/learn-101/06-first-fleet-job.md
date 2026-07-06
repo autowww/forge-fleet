@@ -1,3 +1,14 @@
+---
+content_id: forge.docs.fleet.first-fleet-job
+canonical_owner: forge-fleet
+primary_persona: operator
+reader_stage: adopt
+maturity: demonstrated
+evidence_level: canonical_doc
+refresh_policy: on_claim_change
+last_reviewed: '2026-07-03'
+---
+
 # Learn 101 — Your first Fleet job
 
 **Audience:** Developers who completed local install and want a guided **`curl`** lab. **Outcome:** submit a **`docker_argv`** job with **`curl`**, poll lifecycle states, inspect stdout/stderr, optionally cancel.
@@ -13,12 +24,13 @@
 POST /v1/jobs   -->   queued   -->   running   -->   completed | failed | canceled
 ```
 
-```blueprint-diagram-ascii
+```blueprint-diagram
 key: state
 alt: Fleet job status transitions
 caption: Jobs advance from queued through running to a terminal result.
-queued -> running -> completed
-queued -> running -> failed
+fallback_ascii: |
+  queued -> running -> completed
+  queued -> running -> failed
 ```
 
 ## Happy path
@@ -98,3 +110,27 @@ curl -sS "${curl_auth[@]}" -X POST "${FLEET_BASE_URL}/v1/jobs/${JOB_ID}/cancel" 
 | Copy-ready **`curl`** expansions | **[Examples hub](../build-201/05-examples-and-recipes.md)** · **[Integration recipes](../build-201/06-integration-recipes-index.md)** |
 | Workspace uploads | **[Workspace upload](../build-201/01-workspace-upload.md)** |
 | **`/admin/`** visibility | **[Admin dashboard & Studio](07-admin-dashboard-and-studio.md)** |
+
+## Executive capsule
+
+**Audience:** Developers who completed local install and want a guided **`curl`** lab. **Outcome:** submit a **`docker_argv`** job with **`curl`**, poll lifecycle states, inspect stdout/stderr, optionally cancel. Maturity: **demonstrated**.
+
+## Who this is for
+
+Operators and delivery leads at the **adopt** stage. Skim the executive capsule first; agents should respect the page frontmatter contract.
+
+## Evidence and maturity
+
+Maturity: **demonstrated**. Statements here reflect the owning repo (`forge-fleet`) at `last_reviewed`; treat anything not explicitly marked as demonstrated as design direction rather than a shipped guarantee.
+
+## Trust boundary
+
+Forge keeps humans in charge of promotion, approval, and release decisions; automation proposes and executes only within approved boundaries described here.
+
+## The problem this solves
+
+Teams adopting AI-assisted delivery need structure they can trust before they scale it. This page addresses that gap for its topic: it explains the situation the reader is in, the failure mode without the mechanism described here, and the outcome when it is applied.
+
+## How it fits the Forge ecosystem
+
+This page belongs to its owning repo's canonical documentation and links outward to the related Forge surfaces (methodology in Blueprints, product docs in each product handbook, adoption narrative on forgesdlc.com). Follow the related links to stay on the governed path.

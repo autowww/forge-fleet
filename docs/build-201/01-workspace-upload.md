@@ -2,14 +2,15 @@
 
 Optional **gzip-compressed tarball** staging for `docker_argv` jobs so workers do not rely on host bind-mounts of consumer repos.
 
-```blueprint-diagram-ascii
+```blueprint-diagram
 key: sequence
 alt: Workspace upload sequence between client and Fleet
 caption: Create job with workspace_upload_required, upload tarball, then runner starts.
-Client -> Fleet POST job pending_upload
-Client -> Fleet PUT workspace bytes
-Fleet -> Fleet extract validate ready
-Fleet -> Docker run with volume
+fallback_ascii: |
+  Client -> Fleet POST job pending_upload
+  Client -> Fleet PUT workspace bytes
+  Fleet -> Fleet extract validate ready
+  Fleet -> Docker run with volume
 ```
 
 ## Flow

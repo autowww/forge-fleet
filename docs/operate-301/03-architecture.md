@@ -10,11 +10,12 @@ Forge Fleet is a **Python** **BaseHTTPRequestHandler** server (`fleet_server/mai
 4. All other **`/v1/*`** routes go through **`_auth_ok()`** (bearer vs loopback policy).
 5. Unmatched routes return **404** JSON.
 
-```blueprint-diagram-ascii
+```blueprint-diagram
 key: linear
 alt: Dispatch path inside fleet_server
 caption: Parsed HTTP path picks admin static, workspace worker, or bearer-gated v1 handler.
-Request path -> matcher -> auth gate or static -> handler -> SQLite or Docker
+fallback_ascii: |
+  Request path -> matcher -> auth gate or static -> handler -> SQLite or Docker
 ```
 
 ## Persistence (SQLite)

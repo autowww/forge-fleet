@@ -1,11 +1,12 @@
 # Caddy in front of Fleet (systemd)
 
-```blueprint-diagram-ascii
+```blueprint-diagram
 key: network
 alt: TLS termination at Caddy forwarding to Fleet
 caption: Internet clients hit Caddy on 443; Caddy proxies JSON to loopback Fleet.
-Internet -> Caddy TLS :443
-Caddy -> Fleet HTTP 127.0.0.1
+fallback_ascii: |
+  Internet -> Caddy TLS :443
+  Caddy -> Fleet HTTP 127.0.0.1
 ```
 
 Primary installer (interactive prompts for layout, bearer, ports; Ubuntu `apt` for Caddy):

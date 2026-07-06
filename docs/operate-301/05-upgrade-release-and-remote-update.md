@@ -2,12 +2,13 @@
 
 This page ties together **semver shipping**, **bare-metal refresh**, and the authenticated **`POST /v1/admin/git-self-update`** path so operators aren’t juggling three contradictory README excerpts.
 
-```blueprint-diagram-ascii
+```blueprint-diagram
 key: linear
 alt: Release branch versus remote git self-update
 caption: Maintainers bump semver and push; remote hosts may pull via authenticated POST.
-Maintainer clone -> update-fleet.sh -> git push
-Operator client -> POST admin git-self-update -> Fleet host git pull
+fallback_ascii: |
+  Maintainer clone -> update-fleet.sh -> git push
+  Operator client -> POST admin git-self-update -> Fleet host git pull
 ```
 
 ## Local maintainer workstation — ship Fleet

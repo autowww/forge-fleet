@@ -17,11 +17,12 @@ Forge Fleet is an **operator-controlled orchestrator**. It can run **arbitrary c
 
 **Trust boundary (prose):** callers on the **trusted** side of your API perimeter may cause **Fleet** to invoke **Docker** on **this host**. Anyone who can enqueue **`docker_argv`** jobs should be cleared to run arbitrary containers *subject to your Docker policy*—that is **not** a multi-tenant safe boundary by default.
 
-```blueprint-diagram-ascii
+```blueprint-diagram
 key: network
 alt: High-level trust zones around Fleet
 caption: External callers cross TLS to Caddy; Fleet controls Docker on the host.
-Clients -> TLS -> Caddy -> Fleet loopback -> Docker socket -> Containers
+fallback_ascii: |
+  Clients -> TLS -> Caddy -> Fleet loopback -> Docker socket -> Containers
 ```
 
 ## Authentication

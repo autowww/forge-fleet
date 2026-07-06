@@ -4,12 +4,13 @@ Fleet stores operator-defined **container types** in `etc/containers/types.json`
 
 Built or pulled **template images** are recorded in `**etc/containers/build_cache.json`** (alongside SQLite). Template builds are a convenience for trusted operator hosts; they are **not** a substitute for sandboxing untrusted workloads (see `01-workspace-upload.md`).
 
-```blueprint-diagram-ascii
+```blueprint-diagram
 key: gate
 alt: Template resolve and optional docker build
 caption: API resolves requirement ids; Fleet may build or pull images before jobs run.
-API request -> resolve fingerprints -> cache hit path
-cache miss -> docker build or pull -> updated cache -> job argv inject
+fallback_ascii: |
+  API request -> resolve fingerprints -> cache hit path
+  cache miss -> docker build or pull -> updated cache -> job argv inject
 ```
 
 ## Files
