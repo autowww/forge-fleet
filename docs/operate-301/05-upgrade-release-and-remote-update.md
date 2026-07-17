@@ -5,6 +5,14 @@ This page ties together **semver shipping**, **bare-metal refresh**, and the aut
 ```blueprint-diagram
 key: linear
 alt: Release branch versus remote git self-update
+title: Release ship and remote pull
+summary: Maintainers publish semver releases to git; remote Fleet hosts refresh via an authenticated admin POST.
+node: Maintainer clone -> update-fleet.sh -> git push
+detail: Maintainer runs the release script, bumps semver, and pushes to origin.
+more: update-fleet.sh syncs submodules, commits chore(release), and may run local install or trigger remote git-self-update after push.
+node: Operator client -> POST admin git-self-update -> Fleet host git pull
+detail: Bearer-authenticated POST tells the remote host to fast-forward its Fleet tree.
+more: The host pulls against FLEET_GIT_ROOT; /opt installs may return 400 with a sudo command for SSH operators.
 caption: Maintainers bump semver and push; remote hosts may pull via authenticated POST.
 fallback_ascii: |
   Maintainer clone -> update-fleet.sh -> git push

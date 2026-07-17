@@ -3,44 +3,15 @@
   "apps": [
     {
       "id": "forge-cdp-manager",
-      "version": "0.1.0",
+      "version": "0.3.2",
       "title": "Forge CDP Manager",
       "summary": "Cross-process Edge CDP surface leases and connect serialization",
-      "download_url": "https://fleet.forgesdlc.com/packages/forge-cdp-manager-0.1.0.zip",
-      "sha256": "569f2a9ac2ca823bb1d4934966fdd71a9c3525b9e8f5e2fe3f4009957fb2cb7d",
+      "download_url": "https://fleet.forgesdlc.com/packages/forge-cdp-manager-0.3.2.zip",
+      "sha256": "03d49c0fb9a796392620c69f28f50dddeb053d958907713bdb0b8dea7a12c18a",
       "min_fleet_protocol": 1,
-      "handbook_page": "docs-apps-forge-cdp-manager.html"
-    },
-    {
-      "id": "forge-cdp-manager",
-      "version": "0.2.0",
-      "title": "Forge CDP Manager",
-      "summary": "Cross-process Edge CDP surface leases and connect serialization",
-      "download_url": "https://fleet.forgesdlc.com/packages/forge-cdp-manager-0.2.0.zip",
-      "sha256": "a637e462ab6d7b29d33423fc78cf7059f24e66ba46037301705b67eca9a3a3d8",
-      "min_fleet_protocol": 1,
-      "handbook_page": "docs-apps-forge-cdp-manager-page.html"
-    },
-    {
-      "id": "forge-cdp-manager",
-      "version": "0.3.0",
-      "title": "Forge CDP Manager",
-      "summary": "Cross-process Edge CDP surface leases and connect serialization",
-      "download_url": "https://fleet.forgesdlc.com/packages/forge-cdp-manager-0.3.0.zip",
-      "sha256": "f280d53c75e4cb2c5ccc67752648a796f96d9b8eae62d1547af01493918c5cad",
-      "min_fleet_protocol": 1,
-      "handbook_page": "docs-apps-forge-cdp-manager-page.html"
-    },
-    {
-      "id": "forge-cdp-manager",
-      "version": "0.3.1",
-      "title": "Forge CDP Manager",
-      "summary": "Cross-process Edge CDP surface leases and connect serialization",
-      "download_url": "https://fleet.forgesdlc.com/packages/forge-cdp-manager-0.3.1.zip",
-      "sha256": "ea84a6ce5e614d2d6363231a9411fc66fc757cc7cb470f2643f922c622fbd2c6",
-      "min_fleet_protocol": 1,
-      "handbook_page": "docs-apps-forge-cdp-manager-page.html"
+      "handbook_page": "docs-apps-forge-cdp-manager-page.html",
+      "release_notes": "# Forge CDP Manager 0.3.2\n\n## Catalog and documentation\n\n- **Release notes in package** \u2014 `RELEASE-NOTES.md` ships inside each FAEP zip and surfaces in Fleet admin **About** fly-out.\n- **Latest-only catalog** \u2014 publishing replaces older catalog rows for the same app id (one install target per package).\n- **Handbook** \u2014 full changelog and operator guide on [fleet.forgesdlc.com](https://fleet.forgesdlc.com/docs-apps-forge-cdp-manager-page.html).\n\n## Surface operations wall (from 0.3.1)\n\n- Live surface grid: working sessions stream at ~1 fps; idle tabs refresh via CDP snapshots about once per minute.\n- Fleet snapshot proxy at `/admin/apps/forge-cdp-manager/surfaces/{id}/snapshot.jpg`.\n- Collapsed detail sections for sessions, workers, leases, and operator Edge.\n\n## Operator notes\n\n- Teams live preview requires `FORGE_CDP_STREAM_TEAMS=1` on the daemon host."
     }
   ],
-  "generated_at": "2026-06-30T21:53:24Z"
+  "generated_at": "2026-07-01T07:22:35Z"
 }

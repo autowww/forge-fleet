@@ -104,6 +104,12 @@ Response:
 
 `GET /v1/fleet-apps/forge-cdp-manager/data/surface_wall` returns per-surface rows with `activity` (`working` | `idle` | `offline`), optional `stream_ws_url`, and optional `snapshot_href`.
 
+## App about fly-out
+
+`GET /v1/fleet-apps/{id}/about` — JSON summary for the Fleet admin **About** off-canvas: `title`, `summary`, `installed_version`, `catalog_version`, `release_notes`, `handbook_url`, `docs_index`, `update_available`.
+
+Catalog responses (`GET /v1/fleet-apps/catalog`) include **only the latest version per app id** (older catalog rows are omitted from the API view). Each catalog entry may include `release_notes` (markdown for the published version). FAEP packages should ship `RELEASE-NOTES.md` at the zip root; Fleet stores it on install for offline About display.
+
 ## Environment
 
 | Variable | Default | Meaning |

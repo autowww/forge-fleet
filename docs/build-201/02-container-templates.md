@@ -7,6 +7,29 @@ Built or pulled **template images** are recorded in `**etc/containers/build_cach
 ```blueprint-diagram
 key: gate
 alt: Template resolve and optional docker build
+title: Template resolve and build gate
+summary: How Fleet fingerprints requirement bundles, uses the build cache, and injects resolved images into job argv.
+node: API request
+detail: A resolve call or job enqueue carries requirement template ids.
+more: GET /v1/container-templates/resolve and POST /v1/jobs with meta.use_fleet_template_image both enter this path when templates are requested.
+node: resolve fingerprints
+detail: Fleet hashes the sorted requirement set into a bundle fingerprint.
+more: The same bundle_fingerprint keys build_cache.json for resolve and build endpoints in container_templates.py.
+node: cache hit path
+detail: A cached image tag is returned without running Docker on the host.
+more: Fleet reads the matching build_cache.json entry and skips docker build or pull when the fingerprint is already materialized.
+node: cache miss
+detail: No matching entry exists in build_cache.json for this bundle.
+more: Unless build_if_missing is explicitly disabled, Fleet proceeds to materialize the image before returning or enqueueing the job.
+node: docker build or pull
+detail: Fleet materializes the template image according to requirement kind rules.
+more: A single dockerfile runs docker build; image kind runs docker pull; multi-id bundles require all image refs to match or Fleet fails with a documented error token.
+node: updated cache
+detail: The resolved image tag and metadata are written to build_cache.json.
+more: Operators can inspect timestamps and errors via GET /v1/container-templates/status after a build or pull completes.
+node: job argv inject
+detail: Fleet rewrites the docker run image token in the submitted argv.
+more: Applies when meta.use_fleet_template_image is set; Fleet replaces the first image-looking token after docker run or docker container run.
 caption: API resolves requirement ids; Fleet may build or pull images before jobs run.
 fallback_ascii: |
   API request -> resolve fingerprints -> cache hit path

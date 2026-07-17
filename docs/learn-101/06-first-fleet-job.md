@@ -27,6 +27,20 @@ POST /v1/jobs   -->   queued   -->   running   -->   completed | failed | cancel
 ```blueprint-diagram
 key: state
 alt: Fleet job status transitions
+title: Fleet job lifecycle states
+summary: How a submitted docker_argv job advances from acceptance through execution to a terminal, inspectable outcome.
+node: queued
+detail: Fleet accepts the create request and holds the job until a runner slot is free.
+more: POST /v1/jobs returns HTTP 201 with status queued; poll GET /v1/jobs/{id} to watch the transition.
+node: running
+detail: Fleet launches the container and records stdout and stderr tails while work runs.
+more: The runner executes argv against Docker reachable by the Fleet OS user; status stays running until the process exits.
+node: completed
+detail: The container exited successfully and output tails are ready for review.
+more: Inspect stdout_tail on GET /v1/jobs/{id}; the hello-world lab expects a greeting when status is completed.
+node: failed
+detail: The run ended with a launch error or non-zero exit captured in job metadata.
+more: Read stderr_tail and meta.failure via GET when status is failed instead of completed.
 caption: Jobs advance from queued through running to a terminal result.
 fallback_ascii: |
   queued -> running -> completed

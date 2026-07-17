@@ -150,6 +150,9 @@ def snapshot_apps(data_dir: Path) -> list[dict[str, Any]]:
         installed_ver = str(rec.get("app_version") or "")
         catalog_ver = ""
         catalog_sha = ""
+        handbook_page = ""
+        handbook_url = ""
+        release_notes = ""
         update_available = False
         if catalog:
             catalog_ver = _catalog_best_version(catalog, app_id) or ""
@@ -157,7 +160,17 @@ def snapshot_apps(data_dir: Path) -> list[dict[str, Any]]:
                 entry = _catalog_entry_for_version(catalog, app_id, catalog_ver)
                 if entry:
                     catalog_sha = str(entry.get("sha256") or "")
+                    handbook_page = str(entry.get("handbook_page") or "")
+                    handbook_url = handbook_url_for_page(handbook_page)
+                    if not release_notes:
+                        release_notes = str(entry.get("release_notes") or "").strip()
                 update_available = bool(installed_ver and version_gt(catalog_ver, installed_ver))
+        release_notes = release_notes or _release_notes_for_app(
+            data_dir,
+            app_id,
+            catalog=catalog,
+            installed_ver=installed_ver,
+        )
         rows.append(
             {
                 "id": app_id,
@@ -169,6 +182,9 @@ def snapshot_apps(data_dir: Path) -> list[dict[str, Any]]:
                 "admin_href": f"/admin/apps/{app_id}/",
                 "catalog_version": catalog_ver,
                 "catalog_sha256": catalog_sha,
+                "handbook_page": handbook_page,
+                "handbook_url": handbook_url,
+                "release_notes": release_notes,
                 "update_available": update_available,
             }
         )
@@ -212,6 +228,122 @@ def _catalog_entry_for_version(catalog: dict[str, Any], app_id: str, version: st
         if str(row.get("version") or "") == version:
             return row
     return None
+
+
+def catalog_apps_latest_only(catalog: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return one catalog row per app id (highest semver)."""
+    apps = catalog.get("apps")
+    if not isinstance(apps, list):
+        return []
+    by_id: dict[str, dict[str, Any]] = {}
+    for row in apps:
+        if not isinstance(row, dict):
+            continue
+        app_id = str(row.get("id") or "")
+        if not app_id:
+            continue
+        ver = str(row.get("version") or "")
+        prior = by_id.get(app_id)
+        if prior is None or (ver and version_gt(ver, str(prior.get("version") or ""))):
+            by_id[app_id] = row
+    return sorted(by_id.values(), key=lambda a: str(a.get("id") or ""))
+
+
+def catalog_public_view(catalog: dict[str, Any]) -> dict[str, Any]:
+    """Catalog document with only the latest version per app id."""
+    out = dict(catalog)
+    out["apps"] = catalog_apps_latest_only(catalog)
+    return out
+
+
+def default_handbook_base_url() -> str:
+    return os.environ.get("FLEET_HANDBOOK_BASE_URL", "https://fleet.forgesdlc.com").rstrip("/")
+
+
+def handbook_url_for_page(handbook_page: str) -> str:
+    page = str(handbook_page or "").strip()
+    if not page:
+        return ""
+    if page.startswith("http://") or page.startswith("https://"):
+        return page
+    return f"{default_handbook_base_url()}/{page.lstrip('/')}"
+
+
+def _read_release_notes_from_dir(install_dir: Path) -> str:
+    p = install_dir / "RELEASE-NOTES.md"
+    if not p.is_file():
+        return ""
+    try:
+        return p.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def _release_notes_for_app(
+    data_dir: Path,
+    app_id: str,
+    *,
+    catalog: dict[str, Any] | None = None,
+    installed_ver: str = "",
+) -> str:
+    rec = load_installed_record(data_dir, app_id)
+    if rec:
+        stored = str(rec.get("release_notes") or "").strip()
+        if stored:
+            return stored
+        install_path = Path(str(rec.get("install_path") or ""))
+        if install_path.is_dir():
+            from_disk = _read_release_notes_from_dir(install_path)
+            if from_disk:
+                return from_disk
+    if catalog and installed_ver:
+        entry = _catalog_entry_for_version(catalog, app_id, installed_ver)
+        if entry:
+            return str(entry.get("release_notes") or "").strip()
+    if catalog:
+        best = _catalog_best_version(catalog, app_id)
+        if best:
+            entry = _catalog_entry_for_version(catalog, app_id, best)
+            if entry:
+                return str(entry.get("release_notes") or "").strip()
+    return ""
+
+
+def app_about(data_dir: Path, app_id: str) -> dict[str, Any]:
+    """Operator-facing app summary for admin fly-out (installed + catalog metadata)."""
+    if not APP_ID_RE.match(app_id):
+        raise ValueError("invalid_app_id")
+    rec = load_installed_record(data_dir, app_id)
+    catalog = _catalog_cached()
+    installed_ver = str(rec.get("app_version") or "") if rec else ""
+    catalog_ver = _catalog_best_version(catalog, app_id) if catalog else ""
+    catalog_entry = None
+    if catalog and catalog_ver:
+        catalog_entry = _catalog_entry_for_version(catalog, app_id, catalog_ver)
+    title = str((rec or {}).get("title") or (catalog_entry or {}).get("title") or app_id)
+    summary = str((rec or {}).get("summary") or (catalog_entry or {}).get("summary") or "")
+    handbook_page = str((catalog_entry or {}).get("handbook_page") or "")
+    release_notes = _release_notes_for_app(
+        data_dir,
+        app_id,
+        catalog=catalog,
+        installed_ver=installed_ver,
+    )
+    if not release_notes and catalog_entry:
+        release_notes = str(catalog_entry.get("release_notes") or "").strip()
+    return {
+        "id": app_id,
+        "title": title,
+        "summary": summary,
+        "installed_version": installed_ver,
+        "catalog_version": catalog_ver,
+        "release_notes": release_notes,
+        "handbook_url": handbook_url_for_page(handbook_page),
+        "docs_index": f"/admin/apps/{app_id}/docs/",
+        "update_available": bool(
+            installed_ver and catalog_ver and version_gt(catalog_ver, installed_ver)
+        ),
+    }
 
 
 def fetch_remote_catalog(url: str | None = None) -> dict[str, Any]:
@@ -374,12 +506,14 @@ def install_package_bytes(
             record_site = str(site.resolve())
         else:
             record_site = None
+        release_notes = _read_release_notes_from_dir(install_path)
         record = {
             "version": 1,
             "id": app_id,
             "app_version": version,
             "title": str(manifest.get("title") or app_id),
             "summary": str(manifest.get("summary") or ""),
+            "release_notes": release_notes,
             "enabled": True,
             "install_path": str(install_path.resolve()),
             "python_site": record_site,

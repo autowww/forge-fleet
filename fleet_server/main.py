@@ -720,7 +720,19 @@ class FleetHandler(BaseHTTPRequestHandler):
             except ValueError as ex:
                 self._send(502, {"ok": False, "error": str(ex)[:800]})
                 return
-            self._send(200, {"ok": True, "catalog": doc})
+            self._send(200, {"ok": True, "catalog": fleet_apps.catalog_public_view(doc)})
+            return
+        mfa_about = re.match(r"^/v1/fleet-apps/([^/]+)/about$", path)
+        if mfa_about:
+            app_id = mfa_about.group(1)
+            data_dir = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            try:
+                payload = fleet_apps.app_about(data_dir, app_id)
+            except ValueError as ex:
+                code = 404 if "not_installed" in str(ex) else 400
+                self._send(code, {"ok": False, "error": str(ex)[:800]})
+                return
+            self._send(200, {"ok": True, **payload})
             return
         if path == "/v1/fleet-apps/installed":
             data_dir = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()

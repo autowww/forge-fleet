@@ -13,6 +13,23 @@ Forge Fleet is a **Python** **BaseHTTPRequestHandler** server (`fleet_server/mai
 ```blueprint-diagram
 key: linear
 alt: Dispatch path inside fleet_server
+title: Fleet HTTP request dispatch
+summary: How an inbound request is matched, gated, and routed to SQLite persistence or Docker execution.
+node: Request path
+detail: The parsed URL path from the incoming HTTP request.
+more: main.py reads urlparse(self.path).path before any route-specific handler runs.
+node: matcher
+detail: Classifies the path into admin, workspace-worker, or v1 API routes.
+more: Unmatched paths return 404 JSON without reading or mutating job rows.
+node: auth gate or static
+detail: Applies the route trust check or serves admin static assets without bearer auth.
+more: Workspace-worker routes validate X-Workspace-Worker-Token in SQLite; other /v1/* paths use _auth_ok() bearer or loopback policy.
+node: handler
+detail: Executes the matched admin, static, or JSON API handler.
+more: Handlers enqueue or update jobs, surface telemetry, or return catalog and snapshot payloads.
+node: SQLite or Docker
+detail: Persists orchestration state or invokes the container runtime for job argv.
+more: Job rows and telemetry live in fleet.sqlite under FLEET_DATA_DIR; the runner resolves docker or podman for execution.
 caption: Parsed HTTP path picks admin static, workspace worker, or bearer-gated v1 handler.
 fallback_ascii: |
   Request path -> matcher -> auth gate or static -> handler -> SQLite or Docker

@@ -40,6 +40,26 @@ Forge Fleet is a **small HTTP service** (optional **bearer** authentication) tha
 ```blueprint-diagram
 key: linear
 alt: Fleet HTTP path from client to SQLite ledger and Docker runner
+title: Fleet HTTP job lifecycle
+summary: How clients submit docker_argv jobs, Fleet persists state, Docker runs workloads, and callers poll for completion.
+node: Client
+detail: Submits a docker_argv job spec over HTTP to Fleet.
+more: POST /v1/jobs carries argv, session_id, and optional meta; bearer auth applies when the server policy requires it.
+node: Fleet API
+detail: Validates the request and opens a bounded execution path.
+more: The fleet_server process exposes /v1/* endpoints and hands accepted jobs to the local runner on the same host.
+node: SQLite
+detail: Records job lifecycle, status, and operator-visible history.
+more: Each Fleet instance owns one fleet.sqlite under FLEET_DATA_DIR; Studio and curl must target the same instance to see the same ledger.
+node: Docker runner
+detail: Runs the argv vector with docker run semantics on the host.
+more: Bind mounts assume same-host paths as the caller; docker_argv is the literal argv handed to Docker.
+node: logs
+detail: Captures stdout and stderr tails for reviewable audit.
+more: GET /v1/jobs/{id} returns lifecycle plus log tails so operators and Studio can inspect outcomes without shell access.
+node: Poll GET job
+detail: Caller polls until the job reaches a terminal state.
+more: Clients use GET /v1/jobs/{id} to track queued, running, succeeded, or failed status rather than blocking on the container.
 caption: Clients call /v1; Fleet persists jobs; Docker runs argv; clients poll job status.
 fallback_ascii: |
   Client -> Fleet API -> SQLite -> Docker runner -> logs -> Poll GET job

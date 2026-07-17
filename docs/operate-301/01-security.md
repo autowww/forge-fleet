@@ -20,6 +20,26 @@ Forge Fleet is an **operator-controlled orchestrator**. It can run **arbitrary c
 ```blueprint-diagram
 key: network
 alt: High-level trust zones around Fleet
+title: Fleet perimeter trust zones
+summary: How external callers reach Fleet through TLS and Caddy before workloads run on the host.
+node: Clients
+detail: Trusted callers submit jobs and read API responses from outside the host.
+more: Anyone who can reach this path with a valid bearer token can schedule docker_argv workloads; treat tokens as root-equivalent on the host.
+node: TLS
+detail: Encrypts traffic at the public network perimeter.
+more: Production setups terminate HTTPS at a reverse proxy; Fleet itself does not serve TLS on the public name.
+node: Caddy
+detail: Terminates HTTPS and forwards HTTP to Fleet on loopback.
+more: Restrict network ACLs on the proxy and bind Fleet to loopback so only the proxy can reach the API port.
+node: Fleet loopback
+detail: Token-protected orchestrator that accepts /v1 jobs on a local bind address.
+more: /admin/ is served without bearer by design; safety depends on who can reach the bind address on the network.
+node: Docker socket
+detail: Fleet invokes docker or podman on behalf of authenticated callers.
+more: Socket access is the execution boundary: scheduled images run with whatever privileges your Docker policy grants.
+node: Containers
+detail: Isolated workloads Fleet starts from caller-submitted job definitions.
+more: Images can read and write FLEET_DATA_DIR and, when configured, may receive injected host metrics env including the Fleet bearer.
 caption: External callers cross TLS to Caddy; Fleet controls Docker on the host.
 fallback_ascii: |
   Clients -> TLS -> Caddy -> Fleet loopback -> Docker socket -> Containers

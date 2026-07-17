@@ -150,9 +150,18 @@ write_unified_caddyfile() {
       printf '		respond @deny_llm "Unauthorized" 401\n'
       printf '		reverse_proxy %s:%s {\n' "$ollama_host" "$ollama_port"
       printf '			header_up -Authorization\n'
+      printf '			transport http {\n'
+      printf '				read_timeout 15m\n'
+      printf '				write_timeout 15m\n'
+      printf '			}\n'
       printf '		}\n'
     else
-      printf '		reverse_proxy %s:%s\n' "$ollama_host" "$ollama_port"
+      printf '		reverse_proxy %s:%s {\n' "$ollama_host" "$ollama_port"
+      printf '			transport http {\n'
+      printf '				read_timeout 15m\n'
+      printf '				write_timeout 15m\n'
+      printf '			}\n'
+      printf '		}\n'
     fi
     printf '	}\n'
     printf '\n'

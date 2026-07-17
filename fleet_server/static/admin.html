@@ -404,6 +404,26 @@
   </main>
 
   <div
+    class="offcanvas offcanvas-end fleet-app-about-offcanvas"
+    tabindex="-1"
+    id="fleet-app-about-offcanvas"
+    aria-labelledby="fleet-app-about-title"
+  >
+    <div class="offcanvas-header border-bottom border-secondary-subtle">
+      <h2 class="offcanvas-title h5 mb-0" id="fleet-app-about-title">Fleet app</h2>
+      <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+    </div>
+    <div class="offcanvas-body">
+      <p id="fleet-app-about-summary" class="text-body-secondary small"></p>
+      <div id="fleet-app-about-version" class="small mb-3"></div>
+      <h3 class="h6 text-uppercase text-body-secondary">Release notes</h3>
+      <div id="fleet-app-about-release" class="fleet-app-about-release small mb-3"></div>
+      <h3 class="h6 text-uppercase text-body-secondary">Documentation</h3>
+      <ul id="fleet-app-about-links" class="small mb-0 ps-3"></ul>
+    </div>
+  </div>
+
+  <div
     class="modal fade"
     id="fleet-job-detail-modal"
     tabindex="-1"
@@ -3905,6 +3925,128 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
 
     var __fleetAppMounts = {};
     var __fleetCatalogApps = [];
+    var __fleetAppsInstalled = [];
+    var __fleetAppAboutCanvas = null;
+
+    function fleetAppsCatalogLatest(apps) {
+      var byId = {};
+      (apps || []).forEach(function (a) {
+        if (!a || !a.id) return;
+        if (!byId[a.id]) byId[a.id] = a;
+      });
+      return Object.keys(byId)
+        .sort()
+        .map(function (id) {
+          return byId[id];
+        });
+    }
+
+    function fleetAppsAboutButton(appId) {
+      return (
+        '<button type="button" class="btn btn-sm btn-outline-secondary fleet-app-about-btn ms-1"' +
+        ' data-app-id="' +
+        esc(appId) +
+        '" title="About this app">About</button>'
+      );
+    }
+
+    function fleetAppsRenderReleaseNotesHtml(text) {
+      var raw = String(text || "").trim();
+      if (!raw) {
+        return '<p class="text-body-secondary mb-0">No release notes for this version.</p>';
+      }
+      return raw
+        .split(/\n/)
+        .map(function (line) {
+          var t = line.trim();
+          if (!t) return "";
+          if (t.indexOf("### ") === 0) {
+            return '<h4 class="h6 mt-2 mb-1">' + esc(t.slice(4)) + "</h4>";
+          }
+          if (t.indexOf("## ") === 0) {
+            return '<h4 class="h6 mt-2 mb-1">' + esc(t.slice(3)) + "</h4>";
+          }
+          if (t.indexOf("- ") === 0) {
+            return '<li class="mb-1">' + esc(t.slice(2)) + "</li>";
+          }
+          return '<p class="mb-1">' + esc(t) + "</p>";
+        })
+        .join("");
+    }
+
+    function fleetAppsShowAbout(appId) {
+      var panel = document.getElementById("fleet-app-about-offcanvas");
+      if (!panel || !window.bootstrap) return;
+      var titleEl = document.getElementById("fleet-app-about-title");
+      var summaryEl = document.getElementById("fleet-app-about-summary");
+      var versionEl = document.getElementById("fleet-app-about-version");
+      var releaseEl = document.getElementById("fleet-app-about-release");
+      var linksEl = document.getElementById("fleet-app-about-links");
+      if (titleEl) titleEl.textContent = "Loading…";
+      if (summaryEl) summaryEl.textContent = "";
+      if (versionEl) versionEl.innerHTML = "";
+      if (releaseEl) releaseEl.innerHTML = "";
+      if (linksEl) linksEl.innerHTML = "";
+      if (!__fleetAppAboutCanvas) {
+        __fleetAppAboutCanvas = new bootstrap.Offcanvas(panel);
+      }
+      __fleetAppAboutCanvas.show();
+      fetch("/v1/fleet-apps/" + encodeURIComponent(appId) + "/about", {
+        headers: authHeaders(),
+      })
+        .then(function (r) {
+          return r.json();
+        })
+        .then(function (j) {
+          if (!j.ok) throw new Error(j.error || "about_failed");
+          if (titleEl) titleEl.textContent = j.title || appId;
+          if (summaryEl) summaryEl.textContent = j.summary || "";
+          if (versionEl) {
+            var parts = [];
+            if (j.installed_version) parts.push("Installed v" + j.installed_version);
+            if (j.catalog_version && j.catalog_version !== j.installed_version) {
+              parts.push("Catalog v" + j.catalog_version);
+            } else if (j.catalog_version && !j.installed_version) {
+              parts.push("Catalog v" + j.catalog_version);
+            }
+            if (j.update_available) {
+              parts.push('<span class="badge bg-warning-subtle text-warning-emphasis">Update available</span>');
+            }
+            versionEl.innerHTML = parts.join(" · ");
+          }
+          if (releaseEl) releaseEl.innerHTML = fleetAppsRenderReleaseNotesHtml(j.release_notes);
+          if (linksEl) {
+            var links = [];
+            if (j.docs_index) {
+              links.push(
+                '<li><a href="' + esc(j.docs_index) + '" target="_blank" rel="noopener">In-host operator docs</a></li>'
+              );
+            }
+            if (j.handbook_url) {
+              links.push(
+                '<li><a href="' +
+                  esc(j.handbook_url) +
+                  '" target="_blank" rel="noopener">Fleet handbook (fleet.forgesdlc.com)</a></li>'
+              );
+            }
+            linksEl.innerHTML = links.length ? links.join("") : '<li class="text-body-secondary">No links</li>';
+          }
+        })
+        .catch(function (ex) {
+          if (titleEl) titleEl.textContent = appId;
+          if (summaryEl) summaryEl.textContent = String(ex.message || ex);
+        });
+    }
+
+    function fleetAppsWireAboutButtons(root) {
+      (root || document).querySelectorAll(".fleet-app-about-btn").forEach(function (btn) {
+        if (btn.getAttribute("data-fleet-about-wired") === "1") return;
+        btn.setAttribute("data-fleet-about-wired", "1");
+        btn.addEventListener("click", function () {
+          fleetAppsShowAbout(btn.getAttribute("data-app-id") || "");
+        });
+      });
+    }
 
     function fleetAppsInstall(appId, version) {
       var body = { app_id: appId };
@@ -3927,11 +4069,13 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       var el = document.getElementById("fleet-apps-catalog");
       if (!el || !__fleetCatalogApps.length) return;
       installed = installed || [];
+      __fleetAppsInstalled = installed;
       var instMap = {};
       installed.forEach(function (a) {
         instMap[a.id] = a;
       });
-      el.innerHTML = __fleetCatalogApps
+      var catalogRows = fleetAppsCatalogLatest(__fleetCatalogApps);
+      el.innerHTML = catalogRows
         .map(function (a) {
           var inst = instMap[a.id];
           var btn = "";
@@ -3942,7 +4086,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
               '" data-app-version="' +
               esc(a.version || "") +
               '">Install</button>';
-          } else if (inst.update_available || (a.version && inst.version && a.version !== inst.version)) {
+          } else if (inst.update_available) {
             btn =
               '<button type="button" class="btn btn-sm btn-warning fleet-install-app" data-app-id="' +
               esc(a.id) +
@@ -3957,15 +4101,26 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
               esc(inst.version || "") +
               "</span>";
           }
+          var notes = String(a.release_notes || "").trim();
+          var notesPreview = notes
+            ? '<div class="fleet-app-release-preview text-body-secondary mt-1">' +
+              esc(notes.split("\n")[0].replace(/^#+\s*/, "").slice(0, 120)) +
+              (notes.length > 120 ? "…" : "") +
+              "</div>"
+            : "";
           return (
             '<div class="fleet-app-catalog-row border-bottom border-secondary-subtle py-2">' +
             "<div><strong>" +
             esc(a.title || a.id) +
             "</strong> <span class=\"fleet-mono text-body-secondary\">v" +
             esc(a.version || "") +
-            "</span><br/><span class=\"text-body-secondary\">" +
+            "</span>" +
+            fleetAppsAboutButton(a.id) +
+            "<br/><span class=\"text-body-secondary\">" +
             esc(a.summary || "") +
-            "</span></div>" +
+            "</span>" +
+            notesPreview +
+            "</div>" +
             btn +
             "</div>"
           );
@@ -3983,6 +4138,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
             });
         });
       });
+      fleetAppsWireAboutButtons(el);
     }
 
     function fleetAppsLoadCatalog(installed) {
@@ -4043,6 +4199,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
                       esc(a.catalog_version || "") +
                       "</span>"
                     : "") +
+                  fleetAppsAboutButton(a.id) +
                   " · <a href=\"" +
                   esc(a.docs_index || "#") +
                   "\">Docs</a></div>"
@@ -4050,6 +4207,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
               })
               .join("")
           : "<span class=\"text-body-secondary\">No apps installed. Use the catalog below.</span>";
+        fleetAppsWireAboutButtons(installedEl);
       }
       if (sig === __fleetAppsSig) return;
       __fleetAppsSig = sig;

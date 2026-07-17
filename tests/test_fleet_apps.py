@@ -110,6 +110,64 @@ def test_sha256_mismatch(tmp_path: Path) -> None:
         fleet_apps.install_package_bytes(tmp_path, data, expected_sha256="0" * 64)
 
 
+def test_catalog_apps_latest_only() -> None:
+    cat = {
+        "protocol_version": 1,
+        "apps": [
+            {"id": "demo", "version": "0.1.0", "title": "Demo"},
+            {"id": "demo", "version": "0.2.0", "title": "Demo"},
+            {"id": "other", "version": "1.0.0", "title": "Other"},
+        ],
+    }
+    latest = fleet_apps.catalog_apps_latest_only(cat)
+    assert len(latest) == 2
+    demo = next(r for r in latest if r["id"] == "demo")
+    assert demo["version"] == "0.2.0"
+
+
+def test_catalog_public_view_dedupes() -> None:
+    cat = {
+        "protocol_version": 1,
+        "generated_at": "2026-01-01T00:00:00Z",
+        "apps": [
+            {"id": "x", "version": "0.1.0"},
+            {"id": "x", "version": "0.3.0"},
+        ],
+    }
+    pub = fleet_apps.catalog_public_view(cat)
+    assert len(pub["apps"]) == 1
+    assert pub["apps"][0]["version"] == "0.3.0"
+
+
+def test_install_stores_release_notes(tmp_path: Path) -> None:
+    buf = io.BytesIO()
+    manifest = {
+        "protocol_version": 1,
+        "id": "notes-app",
+        "version": "1.0.0",
+        "title": "Notes",
+        "summary": "Test",
+        "python": {"package": "notes_pkg", "handlers_module": "notes_pkg.handlers"},
+        "ui": {"spec": "ui/app.ui.json"},
+        "docs": {"root": "docs"},
+        "permissions": [],
+    }
+    ui = {"protocol_version": 1, "widgets": []}
+    handlers = "def register_handlers():\n    return {'data': {}, 'actions': {}}\n"
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("fleet-app.manifest.json", json.dumps(manifest))
+        zf.writestr("ui/app.ui.json", json.dumps(ui))
+        zf.writestr("docs/README.md", "# Notes\n")
+        zf.writestr("RELEASE-NOTES.md", "# v1.0.0\n\n- First release\n")
+        zf.writestr("src/notes_pkg/__init__.py", "")
+        zf.writestr("src/notes_pkg/handlers.py", handlers)
+        zf.writestr("pyproject.toml", '[project]\nname="notes_pkg"\nversion="1.0.0"\n')
+    rec = fleet_apps.install_package_bytes(tmp_path, buf.getvalue())
+    stored = fleet_apps.load_installed_record(tmp_path, "notes-app")
+    assert stored is not None
+    assert "First release" in str(stored.get("release_notes") or "")
+
+
 def test_proxy_surface_snapshot_not_installed(tmp_path: Path) -> None:
     code, body, ctype, _headers = fleet_apps.proxy_surface_snapshot(
         tmp_path,

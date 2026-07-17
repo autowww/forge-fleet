@@ -3,6 +3,14 @@
 ```blueprint-diagram
 key: network
 alt: TLS termination at Caddy forwarding to Fleet
+title: Caddy TLS proxy to Fleet
+summary: Public HTTPS terminates at Caddy; Fleet stays on loopback with bearer-enforced JSON on /v1/*.
+node: Internet -> Caddy TLS :443
+detail: Internet clients connect to Caddy on the public HTTPS port.
+more: Caddy terminates TLS so Fleet never exposes a public listener; the installer can later use automatic HTTPS with a hostname site block.
+node: Caddy -> Fleet HTTP 127.0.0.1
+detail: Caddy forwards API traffic to Fleet on loopback HTTP.
+more: Fleet binds to 127.0.0.1 by default; with FLEET_ENFORCE_BEARER=1, /v1/* requires the bearer token Caddy passes through.
 caption: Internet clients hit Caddy on 443; Caddy proxies JSON to loopback Fleet.
 fallback_ascii: |
   Internet -> Caddy TLS :443

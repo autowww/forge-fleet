@@ -4,6 +4,17 @@ Install this **Fleet App** to inspect and reclaim **CDP surface leases**, toggle
 
 ## Changelog
 
+### 0.3.2
+
+- **Release notes in package** — `RELEASE-NOTES.md` for Fleet admin About fly-out and catalog preview.
+- **Latest-only catalog** — one published row per app id on fleet.forgesdlc.com.
+
+### 0.3.1
+
+- **Surface operations wall** — live surface grid in Fleet admin with 1 fps session streams and ~60s idle tab snapshots.
+- **Fleet snapshot proxy** — `/admin/apps/forge-cdp-manager/surfaces/{id}/snapshot.jpg` for idle previews.
+- **Collapsed operational detail** — sessions, workers, leases, and Edge tables below the wall.
+
 ### 0.3.0
 
 - **Control clarity** — session manager vs managed/external/off daemon process vs HTTP reachable; reconcile alerts when env disagrees with Fleet config.
