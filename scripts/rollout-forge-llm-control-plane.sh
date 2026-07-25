@@ -126,6 +126,7 @@ retarget_caddy() {
   fi
   [[ -n "$fleet_token" ]] || die "FLEET_BEARER_TOKEN required for Caddy retarget"
   [[ -n "$llm_token" ]] || die "LLM_BEARER_TOKEN required for Caddy retarget"
+  export LAYOUT=user
   log "retargeting unified Caddy LLM upstream -> 127.0.0.1:$GATEWAY_HOST_PORT"
   LAYOUT=user \
     OLLAMA_UPSTREAM_HOST=127.0.0.1 \
