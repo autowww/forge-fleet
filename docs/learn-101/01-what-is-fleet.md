@@ -1,3 +1,14 @@
+---
+content_id: forge.docs.fleet.what-is-fleet
+canonical_owner: forge-fleet
+primary_persona: operator
+reader_stage: discover
+maturity: demonstrated
+evidence_level: canonical_doc
+refresh_policy: on_claim_change
+last_reviewed: '2026-07-03'
+---
+
 # Learn 101 — What is Fleet?
 
 **Outcome:** explain Fleet to another engineer without opening **`fleet_server/main.py`**.
@@ -26,15 +37,32 @@ Forge Fleet is a **small HTTP service** (optional **bearer** authentication) tha
 
 ## Mental model
 
-```text
- Client (curl / Studio ) --> Fleet HTTP (/v1/*) --> SQLite job rows --> Docker CLI --> Container stdout/stderr --> Fleet tails --> GET /v1/jobs/{id}
-```
-
-```blueprint-diagram-ascii
+```blueprint-diagram
 key: linear
 alt: Fleet HTTP path from client to SQLite ledger and Docker runner
+title: Fleet HTTP job lifecycle
+summary: How clients submit docker_argv jobs, Fleet persists state, Docker runs workloads, and callers poll for completion.
+node: Client
+detail: Submits a docker_argv job spec over HTTP to Fleet.
+more: POST /v1/jobs carries argv, session_id, and optional meta; bearer auth applies when the server policy requires it.
+node: Fleet API
+detail: Validates the request and opens a bounded execution path.
+more: The fleet_server process exposes /v1/* endpoints and hands accepted jobs to the local runner on the same host.
+node: SQLite
+detail: Records job lifecycle, status, and operator-visible history.
+more: Each Fleet instance owns one fleet.sqlite under FLEET_DATA_DIR; Studio and curl must target the same instance to see the same ledger.
+node: Docker runner
+detail: Runs the argv vector with docker run semantics on the host.
+more: Bind mounts assume same-host paths as the caller; docker_argv is the literal argv handed to Docker.
+node: logs
+detail: Captures stdout and stderr tails for reviewable audit.
+more: GET /v1/jobs/{id} returns lifecycle plus log tails so operators and Studio can inspect outcomes without shell access.
+node: Poll GET job
+detail: Caller polls until the job reaches a terminal state.
+more: Clients use GET /v1/jobs/{id} to track queued, running, succeeded, or failed status rather than blocking on the container.
 caption: Clients call /v1; Fleet persists jobs; Docker runs argv; clients poll job status.
-Client -> Fleet API -> SQLite -> Docker runner -> logs -> Poll GET job
+fallback_ascii: |
+  Client -> Fleet API -> SQLite -> Docker runner -> logs -> Poll GET job
 ```
 
 | Concept | Meaning |
@@ -92,3 +120,19 @@ Explain aloud:
 | Guided **`curl`** proofs | **[Quickstarts](05-quickstarts.md)** |
 
 Deep protocol tables remain in **[HTTP API](../reference/01-http-api-reference.md)**—finish **Learn 101** before living there permanently.
+
+## Executive capsule
+
+**Outcome:** explain Fleet to another engineer without opening **`fleet_server/main.py`**. Maturity: **demonstrated**.
+
+## Who this is for
+
+Operators and delivery leads at the **discover** stage. Skim the executive capsule first; agents should respect the page frontmatter contract.
+
+## Evidence and maturity
+
+Maturity: **demonstrated**. Statements here reflect the owning repo (`forge-fleet`) at `last_reviewed`; treat anything not explicitly marked as demonstrated as design direction rather than a shipped guarantee.
+
+## Trust boundary
+
+Forge keeps humans in charge of promotion, approval, and release decisions; automation proposes and executes only within approved boundaries described here.

@@ -7,6 +7,7 @@ Use this checklist before publishing a FAEP package to `fleet.forgesdlc.com`.
 - Package built with `scripts/build-fleet-app.sh` in the app repo.
 - `fleet-app.page.md` frontmatter matches [`fleet-app-manifest.schema.json`](../schemas/fleet-app-manifest.schema.json).
 - `ui/app.ui.json` validates against [`fleet-app-ui-v1.schema.json`](../schemas/fleet-app-ui-v1.schema.json).
+- Ship **`RELEASE-NOTES.md`** at the zip root (markdown for the published version only). The publish script copies it into `catalog.json` as `release_notes` and Fleet stores it on install for the admin **About** fly-out.
 
 ## Publish (forge-fleet-website)
 
@@ -33,7 +34,7 @@ The script:
 
 1. Validates the zip layout and schemas.
 2. Copies the zip to `website/packages/`.
-3. Updates `forge-fleet/docs/apps/{id}/page.md` and `catalog/catalog.json` in the submodule.
+3. Updates `forge-fleet/docs/apps/{id}/page.md` and `catalog/catalog.json` in the submodule (**one row per app id** — older versions are removed from the catalog index).
 4. Runs `python3 generator/build-site.py`.
 5. Optionally deploys Firebase hosting.
 

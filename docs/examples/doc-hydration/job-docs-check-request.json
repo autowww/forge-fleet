@@ -1,0 +1,22 @@
+{
+  "kind": "docker_argv",
+  "argv": [
+    "docker",
+    "run",
+    "--rm",
+    "-e",
+    "FLEET_DOCS_CHECK=1",
+    "fleet-template-placeholder:latest",
+    "sh",
+    "-lc",
+    "pip install --quiet markdown pyyaml && python3 scripts/build-site.py && python3 scripts/check_links.py --out link_report.json && python3 scripts/docs_scorecard.py --site-root website"
+  ],
+  "session_id": "doc-hydration-docs-check",
+  "meta": {
+    "container_class": "docs_check",
+    "use_fleet_template_image": true,
+    "requirements": ["docs_check_worker"],
+    "workspace_upload_required": true,
+    "workspace_profile": "generic"
+  }
+}

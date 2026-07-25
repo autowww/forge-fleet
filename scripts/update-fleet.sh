@@ -33,6 +33,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=../scripts/lib/forge-script-help-json.sh
+source "$ROOT/../scripts/lib/forge-script-help-json.sh"
 cd "$ROOT"
 
 BUMP_KIND=patch
@@ -48,7 +50,76 @@ REMOTE_BEARER_OVERRIDE=""
 
 usage() {
   sed -n '2,/^# Options:/p' "$0" | sed 's/^# \{0,1\}//' >&2
+  forge_help_json_footer "./scripts/update-fleet.sh"
   exit "${1:-0}"
+}
+
+forge_help_json() {
+  forge_help_json_emit "$(cat <<'EOF'
+{
+  "schema_version": 1,
+  "id": "update-fleet",
+  "title": "Update Fleet",
+  "description": "Propagate dev checkout to git and local production (submodule sync, semver bump, push, install).",
+  "cwd": "forge-fleet",
+  "argv0": "scripts/update-fleet.sh",
+  "destructive": true,
+  "options": [
+    {
+      "type": "enum",
+      "id": "bump_patch",
+      "group": "bump",
+      "label": "Patch bump (default)",
+      "values": [
+        {"value": "patch", "label": "Patch"}
+      ]
+    },
+    {
+      "type": "enum",
+      "id": "bump_minor",
+      "group": "bump",
+      "flag": "--minor",
+      "label": "Minor bump",
+      "values": [
+        {"value": "minor", "label": "Minor"}
+      ]
+    },
+    {
+      "type": "boolean",
+      "id": "dry_run",
+      "flag": "--dry-run",
+      "label": "Print plan only",
+      "default": false
+    },
+    {
+      "type": "boolean",
+      "id": "no_push",
+      "flag": "--no-push",
+      "label": "Commit only, do not push",
+      "default": false
+    },
+    {
+      "type": "boolean",
+      "id": "no_install",
+      "flag": "--no-install",
+      "label": "Skip sudo install-update (no local /opt refresh)",
+      "default": false
+    },
+    {
+      "type": "boolean",
+      "id": "remote_git_self_update",
+      "flag": "--remote-git-self-update",
+      "label": "POST remote git-self-update after push",
+      "default": false
+    }
+  ],
+  "presets": [
+    {"label": "Dry run", "args": ["--dry-run"]}
+  ]
+}
+EOF
+)"
+  exit 0
 }
 
 while [[ $# -gt 0 ]]; do
@@ -73,6 +144,7 @@ while [[ $# -gt 0 ]]; do
       if [[ -z "$REMOTE_BEARER_OVERRIDE" ]]; then echo "update-fleet: --remote-bearer requires a value" >&2; exit 2; fi
       shift 2
       ;;
+    --help-json) forge_help_json ;;
     -h|--help) usage 0 ;;
     *)
       echo "unknown option: $1" >&2

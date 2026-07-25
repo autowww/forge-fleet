@@ -32,7 +32,8 @@
           "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
           "min_fleet_semver": { "type": "string" },
           "min_fleet_protocol": { "type": "integer", "minimum": 1 },
-          "handbook_page": { "type": "string" }
+          "handbook_page": { "type": "string" },
+          "release_notes": { "type": "string" }
         }
       }
     }

@@ -120,6 +120,21 @@ def gateway_host_port_from_compose_ps(rows: list[dict[str, Any]]) -> dict[str, A
     return None
 
 
+def fetch_gateway_control_plane(host_port: int, *, timeout: float = 3.0) -> dict[str, Any] | None:
+    """Best-effort scrape of forge-gateway ``/v1/llm/stats`` from Fleet host."""
+    import urllib.error
+    import urllib.request
+
+    url = f"http://127.0.0.1:{int(host_port)}/v1/llm/stats?hours=1"
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+        data = json.loads(raw)
+        return data if isinstance(data, dict) else None
+    except (OSError, urllib.error.URLError, json.JSONDecodeError, ValueError, TypeError):
+        return None
+
+
 def _summarize_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
     running = 0
     slim: list[dict[str, Any]] = []
@@ -162,6 +177,9 @@ def status_for_record(record: dict[str, Any]) -> dict[str, Any]:
     }
     if gw:
         out["gateway_publish"] = gw
+        cp = fetch_gateway_control_plane(int(gw["host_port"]))
+        if cp:
+            out["control_plane"] = cp
     return out
 
 

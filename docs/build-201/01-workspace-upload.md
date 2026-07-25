@@ -2,14 +2,29 @@
 
 Optional **gzip-compressed tarball** staging for `docker_argv` jobs so workers do not rely on host bind-mounts of consumer repos.
 
-```blueprint-diagram-ascii
+```blueprint-diagram
 key: sequence
 alt: Workspace upload sequence between client and Fleet
+title: Workspace tarball upload sequence
+summary: How a client stages a gzip workspace so Fleet defers the runner until extraction succeeds.
+node: Client -> Fleet POST job pending_upload
+detail: Registers a docker_argv job with workspace_upload_required and pending_upload state.
+more: Fleet creates the job record but does not invoke the runner until workspace_state becomes ready.
+node: Client -> Fleet PUT workspace bytes
+detail: Uploads the raw gzip tarball bytes with bearer authentication.
+more: Optional X-Workspace-Archive-Sha256 header must match the body or Fleet returns 400 archive_sha256_mismatch.
+node: Fleet -> Fleet extract validate ready
+detail: Extracts the archive, enforces profile limits, and marks workspace_state ready.
+more: Files land under job-workspaces/{job_id}/extracted; optional .forge_workspace_manifest.json entries are re-hashed on disk.
+node: Fleet -> Docker run with volume
+detail: Starts the runner with a read-only bind-mount of the extracted tree.
+more: Mount path comes from workspace_profile; Fleet deletes the per-job workspace directory after terminal job status.
 caption: Create job with workspace_upload_required, upload tarball, then runner starts.
-Client -> Fleet POST job pending_upload
-Client -> Fleet PUT workspace bytes
-Fleet -> Fleet extract validate ready
-Fleet -> Docker run with volume
+fallback_ascii: |
+  Client -> Fleet POST job pending_upload
+  Client -> Fleet PUT workspace bytes
+  Fleet -> Fleet extract validate ready
+  Fleet -> Docker run with volume
 ```
 
 ## Flow
