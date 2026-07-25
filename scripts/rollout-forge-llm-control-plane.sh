@@ -131,6 +131,7 @@ retarget_caddy() {
   LAYOUT=user \
     OLLAMA_UPSTREAM_HOST=127.0.0.1 \
     OLLAMA_UPSTREAM_PORT="$GATEWAY_HOST_PORT" \
+    OLLAMA_UPSTREAM_REINJECT_BEARER=1 \
     FLEET_BEARER_TOKEN="$fleet_token" \
     LLM_BEARER_TOKEN="$llm_token" \
     CADDY_SITE_ADDRESS="$site" \

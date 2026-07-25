@@ -21,6 +21,8 @@
 #   FLEET_UPSTREAM_PORT (default 18766 user / 18765 system)
 #   OLLAMA_UPSTREAM_HOST (default 127.0.0.1)
 #   OLLAMA_UPSTREAM_PORT (default 11434)
+#   OLLAMA_UPSTREAM_REINJECT_BEARER — when 1, forward LLM bearer to upstream after edge check
+#     (required for forge-gateway; raw Ollama uses strip via default)
 #   CADDY_PUBLIC_PORT    (default 18767 user / 18766 system)
 #   FLEET_BEARER_TOKEN   — injected upstream to Fleet (clients need not send it)
 #   LLM_BEARER_TOKEN     — optional; when set, clients must send this Bearer on Ollama routes;
@@ -150,7 +152,11 @@ write_unified_caddyfile() {
       printf '		@deny_llm not header Authorization "Bearer %s"\n' "${esc_l}"
       printf '		respond @deny_llm "Unauthorized" 401\n'
       printf '		reverse_proxy %s:%s {\n' "$ollama_host" "$ollama_port"
-      printf '			header_up -Authorization\n'
+      if [[ "${OLLAMA_UPSTREAM_REINJECT_BEARER:-0}" == "1" ]]; then
+        printf '			header_up Authorization "Bearer %s"\n' "${esc_l}"
+      else
+        printf '			header_up -Authorization\n'
+      fi
       printf '			transport http {\n'
       printf '				read_timeout 15m\n'
       printf '				write_timeout 15m\n'
