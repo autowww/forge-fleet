@@ -55,7 +55,12 @@ ensure_forge_llm_checkout() {
 ensure_env_file() {
   cd "$FORGE_LLM_ROOT"
   if [[ ! -f .env ]]; then
-    cp .env.example .env
+    cat >.env <<EOF
+HOST_BIND_IP=127.0.0.1
+GATEWAY_PORT=${GATEWAY_HOST_PORT}
+GATEWAY_AUTH_REQUIRED=true
+OLLAMA_HOST_URL=http://host.docker.internal:11434
+EOF
   fi
   if ! grep -q '^GATEWAY_PORT=' .env; then
     echo "GATEWAY_PORT=$GATEWAY_HOST_PORT" >>.env
