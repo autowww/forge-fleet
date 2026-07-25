@@ -22,6 +22,7 @@ from fleet_server import (
     container_layout,
     container_templates,
     fleet_apps,
+    forge_llm_rollout,
     forge_llm_service,
     host_stats,
     runner,
@@ -987,6 +988,19 @@ class FleetHandler(BaseHTTPRequestHandler):
         if path == "/v1/admin/git-self-update":
             out = self_update.run_git_self_update(self._repo_root())
             code = 200 if out.get("ok") else 400
+            self._send(code, out)
+            return
+        if path == "/v1/admin/forge-llm-control-plane-rollout":
+            sync = str(body.get("sync") or "").strip().lower() in ("1", "true", "yes")
+            try:
+                if sync:
+                    out = forge_llm_rollout.run_rollout_sync(self._repo_root())
+                else:
+                    out = forge_llm_rollout.schedule_rollout(self._repo_root())
+            except FileNotFoundError as ex:
+                self._send(400, {"ok": False, "error": "rollout_script_missing", "detail": str(ex)[:400]})
+                return
+            code = 200 if out.get("ok") else 502
             self._send(code, out)
             return
         data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()

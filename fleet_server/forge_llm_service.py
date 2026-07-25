@@ -15,6 +15,7 @@ _ALLOWED_COMPOSE_FILES = frozenset(
         "compose.yaml",
         "compose.cpu.yaml",
         "compose.gpu.yaml",
+        "compose.host-ollama.yaml",
         "compose.observability-ports.yaml",
         "compose.observability-dcgm.yaml",
     }
