@@ -415,6 +415,9 @@ class FleetHandler(BaseHTTPRequestHandler):
                 },
             )
             return
+        if path == "/v1/admin/forge-llm-rollout-log":
+            self._send(200, forge_llm_rollout.read_rollout_log())
+            return
         if path == "/v1/admin/snapshot":
             conn = store.connect(self.server.db_path)
             try:
