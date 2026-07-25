@@ -372,7 +372,7 @@ CADDY_SITE_ADDRESS="${CADDY_SITE_ADDRESS:-}"
 if [[ "$INTERACTIVE" -eq 1 ]]; then
   [[ -n "$LAYOUT" ]] || prompt_layout
 else
-  [[ -n "${LAYOUT:-}" ]] || die "Set LAYOUT=user or LAYOUT=system for --non-interactive"
+  LAYOUT="${LAYOUT:-user}"
 fi
 
 LAYOUT="${LAYOUT:?}"
