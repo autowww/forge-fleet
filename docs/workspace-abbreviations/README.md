@@ -16,4 +16,4 @@ python3 scripts/generate-workspace-abbreviations.py
 
 Then rebuild **forgesdlc** and **blueprints-website** per `auto-build-sites.mdc`.
 
-Term count: **84** · Bridges: **8**
+Term count: **88** · Bridges: **8**

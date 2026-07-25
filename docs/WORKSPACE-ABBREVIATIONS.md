@@ -78,9 +78,11 @@ Repo folders are under ~/Code/ unless noted; handbook shells deploy to Firebase 
 |------|---------|-----------|
 | **bpw** | Public static handbook generator for blueprints.forgesdlc.com — consumes bp and ks submodules. | [open](workspace-abbreviations/terms/bpw.md) |
 | **ffw** | Private handbook deploy for Fleet — forge-fleet submodule + kitchensink → Firebase fleet-2f1d3. | [open](workspace-abbreviations/terms/ffw.md) |
+| **fiw** | Private handbook deploy for Intelligence — forge-intelligence submodule + kitchensink → forge-intelligence-handbook (int | [open](workspace-abbreviations/terms/fiw.md) |
 | **flsw** | Private Firebase deploy shell for the Lenses handbook — submodules forge-lenses + kitchensink. | [open](workspace-abbreviations/terms/flsw.md) |
 | **flw** | Private handbook deploy for LCDL — forge-lcdl submodule + kitchensink → Firebase lcdl-542d8. | [open](workspace-abbreviations/terms/flw.md) |
 | **fpw** | Private handbook deploy for Platform — forge-platform submodule + kitchensink → forge-platform-1541d. | [open](workspace-abbreviations/terms/fpw.md) |
+| **stiw** | Private handbook deploy for STI — forge-sti submodule + kitchensink → Firebase sti-PLACEHOLDER. | [open](workspace-abbreviations/terms/stiw.md) |
 
 ### Hub
 
@@ -146,6 +148,7 @@ Repo folders are under ~/Code/ unless noted; handbook shells deploy to Firebase 
 | **fccmem** | Fleet remote memory client — PulseEvent payloads, API and MCP ingest/feed adapters for Cockpit aromas. | [open](workspace-abbreviations/terms/fccmem.md) |
 | **fccw** | Spoken/file alias for cockpit — same repo as forge-cockpit-web/. | [open](workspace-abbreviations/terms/fccw.md) |
 | **ff** | HTTP bearer orchestrator for Docker-argv jobs — SQLite job store, admin UI, git-self-update endpoint. | [open](workspace-abbreviations/terms/ff.md) |
+| **fi** | Private product for problem-class intelligence — general + specific packs, session dual-wiki, v1 attach schemas. | [open](workspace-abbreviations/terms/fi.md) |
 | **fka** | Local case-study knowledge assistant — SharePoint sync, LCDL atoms, SQLite+FTS, Granite copilot RAG. | [open](workspace-abbreviations/terms/fka.md) |
 | **fl** | Local-first workspace control plane — lenses Python package, Studio on /studio/, Classic dashboard on :8080. | [open](workspace-abbreviations/terms/fl.md) |
 | **forge** | Public methodology product site at forgesdlc.com — encyclopedic knowledge and tutorials. | [open](workspace-abbreviations/terms/forge.md) |
@@ -154,6 +157,7 @@ Repo folders are under ~/Code/ unless noted; handbook shells deploy to Firebase 
 | **ks** | Shared design system — CSS themes, Python UI components, SVG templates, forge-autodoc, UX auditor tooling. | [open](workspace-abbreviations/terms/ks.md) |
 | **lcdl** | Private Python library for governed synchronous LLM tasks, operators, and OpenAI-compatible transport. | [open](workspace-abbreviations/terms/lcdl.md) |
 | **s8w** | Marketing site generator for situ8.app / www.situ8.app — Python + Markdown + kitchensink submodule. | [open](workspace-abbreviations/terms/s8w.md) |
+| **sti** | Private product for governed test strategy, plans, cases, and campaigns on lmeta/LCDL. | [open](workspace-abbreviations/terms/sti.md) |
 
 ### Ux Governance
 
