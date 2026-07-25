@@ -25,14 +25,18 @@ compose() {
 }
 
 ensure_forge_llm_checkout() {
+  if [[ -d "$FORGE_LLM_ROOT" && ! -f "$FORGE_LLM_ROOT/compose.yaml" ]]; then
+    log "removing incomplete forge-llm checkout at $FORGE_LLM_ROOT"
+    rm -rf "$FORGE_LLM_ROOT"
+  fi
   if [[ ! -d "$FORGE_LLM_ROOT/.git" ]]; then
     log "cloning $FORGE_LLM_GIT_URL -> $FORGE_LLM_ROOT"
-    git clone --depth 1 --branch "$FORGE_LLM_GIT_BRANCH" "$FORGE_LLM_GIT_URL" "$FORGE_LLM_ROOT"
+    GIT_TERMINAL_PROMPT=0 git -c credential.helper= clone --depth 1 --branch "$FORGE_LLM_GIT_BRANCH" "$FORGE_LLM_GIT_URL" "$FORGE_LLM_ROOT"
   else
     log "pulling $FORGE_LLM_ROOT ($FORGE_LLM_GIT_BRANCH)"
-    git -C "$FORGE_LLM_ROOT" fetch origin "$FORGE_LLM_GIT_BRANCH"
+    GIT_TERMINAL_PROMPT=0 git -C "$FORGE_LLM_ROOT" -c credential.helper= fetch origin "$FORGE_LLM_GIT_BRANCH"
     git -C "$FORGE_LLM_ROOT" checkout "$FORGE_LLM_GIT_BRANCH"
-    git -C "$FORGE_LLM_ROOT" pull --ff-only origin "$FORGE_LLM_GIT_BRANCH"
+    GIT_TERMINAL_PROMPT=0 git -C "$FORGE_LLM_ROOT" -c credential.helper= pull --ff-only origin "$FORGE_LLM_GIT_BRANCH"
   fi
 }
 
