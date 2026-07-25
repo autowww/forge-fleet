@@ -29,15 +29,27 @@ ensure_forge_llm_checkout() {
     log "removing incomplete forge-llm checkout at $FORGE_LLM_ROOT"
     rm -rf "$FORGE_LLM_ROOT"
   fi
-  if [[ ! -d "$FORGE_LLM_ROOT/.git" ]]; then
-    log "cloning $FORGE_LLM_GIT_URL -> $FORGE_LLM_ROOT"
-    GIT_TERMINAL_PROMPT=0 git -c credential.helper= clone --depth 1 --branch "$FORGE_LLM_GIT_BRANCH" "$FORGE_LLM_GIT_URL" "$FORGE_LLM_ROOT"
-  else
-    log "pulling $FORGE_LLM_ROOT ($FORGE_LLM_GIT_BRANCH)"
-    GIT_TERMINAL_PROMPT=0 git -C "$FORGE_LLM_ROOT" -c credential.helper= fetch origin "$FORGE_LLM_GIT_BRANCH"
-    git -C "$FORGE_LLM_ROOT" checkout "$FORGE_LLM_GIT_BRANCH"
-    GIT_TERMINAL_PROMPT=0 git -C "$FORGE_LLM_ROOT" -c credential.helper= pull --ff-only origin "$FORGE_LLM_GIT_BRANCH"
+  if [[ -f "$FORGE_LLM_ROOT/compose.yaml" ]]; then
+    log "using existing forge-llm tree at $FORGE_LLM_ROOT"
+    return 0
   fi
+  local archive_url="https://github.com/autowww/forge-llm/archive/refs/heads/${FORGE_LLM_GIT_BRANCH}.tar.gz"
+  local tmp
+  tmp="$(mktemp -d)"
+  log "fetching $archive_url"
+  if ! curl -fsSL "$archive_url" -o "$tmp/forge-llm.tar.gz"; then
+    rm -rf "$tmp"
+    die "failed to download forge-llm archive"
+  fi
+  tar -xzf "$tmp/forge-llm.tar.gz" -C "$tmp"
+  rm -rf "$tmp/forge-llm.tar.gz"
+  local extracted
+  extracted="$(find "$tmp" -maxdepth 1 -type d -name 'forge-llm-*' | head -1)"
+  [[ -n "$extracted" && -f "$extracted/compose.yaml" ]] || die "archive missing compose.yaml"
+  rm -rf "$FORGE_LLM_ROOT"
+  mv "$extracted" "$FORGE_LLM_ROOT"
+  rm -rf "$tmp"
+  log "extracted forge-llm to $FORGE_LLM_ROOT"
 }
 
 ensure_env_file() {
