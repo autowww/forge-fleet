@@ -3,7 +3,7 @@
 set -euo pipefail
 
 FLEET_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-FORGE_LLM_ROOT="${FORGE_LLM_ROOT:-$HOME/forge-llm}"
+FORGE_LLM_ROOT="${FORGE_LLM_ROOT:-$FLEET_ROOT/deploy/forge-llm-control-plane}"
 FORGE_LLM_GIT_URL="${FORGE_LLM_GIT_URL:-https://github.com/autowww/forge-llm.git}"
 FORGE_LLM_GIT_BRANCH="${FORGE_LLM_GIT_BRANCH:-main}"
 GATEWAY_HOST_PORT="${FORGE_GATEWAY_HOST_PORT:-18080}"
@@ -25,13 +25,13 @@ compose() {
 }
 
 ensure_forge_llm_checkout() {
+  if [[ -f "$FORGE_LLM_ROOT/compose.yaml" ]]; then
+    log "using bundled forge-llm control plane at $FORGE_LLM_ROOT"
+    return 0
+  fi
   if [[ -d "$FORGE_LLM_ROOT" && ! -f "$FORGE_LLM_ROOT/compose.yaml" ]]; then
     log "removing incomplete forge-llm checkout at $FORGE_LLM_ROOT"
     rm -rf "$FORGE_LLM_ROOT"
-  fi
-  if [[ -f "$FORGE_LLM_ROOT/compose.yaml" ]]; then
-    log "using existing forge-llm tree at $FORGE_LLM_ROOT"
-    return 0
   fi
   local archive_url="https://github.com/autowww/forge-llm/archive/refs/heads/${FORGE_LLM_GIT_BRANCH}.tar.gz"
   local tmp
@@ -83,9 +83,9 @@ deploy_gateway_stack() {
   cd "$FORGE_LLM_ROOT"
   export OLLAMA_HOST_URL="${OLLAMA_HOST_URL:-http://host.docker.internal:11434}"
   log "building forge-gateway"
-  compose -f compose.yaml -f compose.host-ollama.yaml build forge-gateway
-  log "starting forge-gateway (+ observability deps)"
-  compose -f compose.yaml -f compose.host-ollama.yaml up -d forge-gateway prometheus node-exporter cadvisor
+  compose -f compose.yaml build forge-gateway
+  log "starting forge-gateway"
+  compose -f compose.yaml up -d forge-gateway
 }
 
 register_fleet_service() {
@@ -104,7 +104,7 @@ register_fleet_service() {
   curl -fsS -X POST "http://127.0.0.1:${fleet_port}/v1/container-services" \
     -H "Authorization: Bearer ${fleet_token}" \
     -H "Content-Type: application/json" \
-    -d "{\"id\":\"default\",\"type_id\":\"forge_llm\",\"compose_root\":\"${FORGE_LLM_ROOT}\",\"compose_files\":[\"compose.host-ollama.yaml\"],\"label\":\"Granite control plane\"}" \
+    -d "{\"id\":\"default\",\"type_id\":\"forge_llm\",\"compose_root\":\"${FORGE_LLM_ROOT}\",\"compose_files\":[],\"label\":\"Granite control plane\"}" \
     2>/dev/null || log "Fleet registration skipped (may already exist)"
 }
 
@@ -136,7 +136,7 @@ smoke() {
   FORGE_GATEWAY_BASE="http://127.0.0.1:${GATEWAY_HOST_PORT}" \
     FORGE_API_TOKEN="${FORGE_API_TOKEN:-${LLM_BEARER_TOKEN:-}}" \
     LLM_API_KEY="${LLM_API_KEY:-${LLM_BEARER_TOKEN:-}}" \
-    ./scripts/smoke-control-plane.sh
+    ./smoke-control-plane.sh
 }
 
 
