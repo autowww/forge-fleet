@@ -4311,6 +4311,17 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         .map(function (s) {
           var st = (s.services_running != null ? s.services_running : "—") + " / " + (s.services_total != null ? s.services_total : "—") + " running";
           if (s.ps_ok === false) st += " · ps failed";
+          if (s.llm_rack) {
+            var rack = s.llm_rack;
+            st +=
+              "<div class=\"small text-body-secondary mt-1\">LLM rack: " +
+              esc(String(rack.active_model || "—")) +
+              " · queue " +
+              esc(String(rack.queue_depth != null ? rack.queue_depth : "—")) +
+              " · 1h req " +
+              esc(String(rack.requests_1h != null ? rack.requests_1h : "—")) +
+              "</div>";
+          }
           var root = String(s.compose_root || "").slice(0, 48) + (String(s.compose_root || "").length > 48 ? "…" : "");
           var cf = (s.compose_files || []).join(", ") || "compose.yaml";
           var sid = String(s.id || "");

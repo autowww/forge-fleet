@@ -486,8 +486,7 @@ def services_status_snapshot(data_dir: Path) -> list[dict[str, Any]]:
         if str(rec.get("type_id")) != "forge_llm":
             continue
         st = forge_llm_service.status_for_record(rec)
-        out.append(
-            {
+        entry: dict[str, Any] = {
                 "id": rec.get("id"),
                 "label": rec.get("label"),
                 "type_id": rec.get("type_id"),
@@ -497,8 +496,21 @@ def services_status_snapshot(data_dir: Path) -> list[dict[str, Any]]:
                 "services_running": st.get("services_running"),
                 "services_total": st.get("services_total"),
                 "last_error": st.get("last_error"),
+                "gateway_publish": st.get("gateway_publish"),
             }
-        )
+        cp = st.get("control_plane")
+        if isinstance(cp, dict):
+            rollup = cp.get("rollup") if isinstance(cp.get("rollup"), dict) else {}
+            active = cp.get("active") if isinstance(cp.get("active"), dict) else {}
+            entry["llm_rack"] = {
+                "active_model": active.get("active_model"),
+                "active_mode": active.get("active_mode"),
+                "queue_depth": cp.get("queue_depth"),
+                "requests_1h": rollup.get("requests"),
+                "avg_total_ms_1h": rollup.get("avg_total_ms"),
+                "swaps_1h": rollup.get("swaps"),
+            }
+        out.append(entry)
     return out
 
 
