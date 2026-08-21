@@ -30,6 +30,12 @@ WORKSPACE_PROFILES: dict[str, dict[str, Any]] = {
         "max_files": 50_000,
         "max_path_depth": 40,
     },
+    "migration_bundle": {
+        "container_mount": "/migration/bundle",
+        "max_uncompressed_bytes": 2 * 1024 * 1024 * 1024,
+        "max_files": 200_000,
+        "max_path_depth": 50,
+    },
 }
 
 _DEFAULT_MAX_UPLOAD_BYTES = 256 * 1024 * 1024

@@ -102,6 +102,7 @@ def connect(db_path: Path) -> sqlite3.Connection:
     _ensure_telemetry_table(conn)
     _ensure_energy_ledger(conn)
     _ensure_cooldown_table(conn)
+    _ensure_migration_tables(conn)
     telemetry_rollup.ensure_rollup_tables(conn)
     conn.commit()
     return conn
@@ -172,6 +173,8 @@ def _run_fleet_schema_migrations(conn: sqlite3.Connection, from_v: int, to_v: in
         elif next_v == 6:
             _ensure_job_worker_bridge_columns(conn)
         elif next_v == 7:
+            _ensure_migration_tables(conn)
+        elif next_v == 8:
             telemetry_rollup.ensure_rollup_tables(conn)
         else:
             raise RuntimeError(f"fleet_schema migration missing for {v} -> {next_v}")
@@ -848,3 +851,212 @@ def cooldown_summary_presets(conn: sqlite3.Connection) -> dict[str, Any]:
         }
     out["_store"] = {"first_ts": t_min, "last_ts": t_max, "event_count": n}
     return out
+
+
+def _ensure_migration_tables(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS migrations (
+            id TEXT PRIMARY KEY,
+            status TEXT NOT NULL,
+            source_label TEXT,
+            target_label TEXT,
+            meta_json TEXT,
+            bundle_state TEXT NOT NULL DEFAULT 'pending_upload',
+            bundle_sha256 TEXT,
+            bundle_upload_bytes INTEGER,
+            bundle_uncompressed_bytes INTEGER,
+            manifest_json TEXT,
+            bytes_transferred INTEGER NOT NULL DEFAULT 0,
+            created REAL NOT NULL,
+            updated REAL NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS migration_steps (
+            id TEXT PRIMARY KEY,
+            migration_id TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            status TEXT NOT NULL,
+            job_id TEXT,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            meta_json TEXT,
+            created REAL NOT NULL,
+            updated REAL NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_migration_steps_migration_id ON migration_steps (migration_id)"
+    )
+
+
+def create_migration(
+    conn: sqlite3.Connection,
+    *,
+    source_label: str = "",
+    target_label: str = "",
+    meta: dict[str, Any] | None = None,
+    step_kinds: list[str] | None = None,
+) -> str:
+    mid = uuid.uuid4().hex
+    now = time.time()
+    kinds = list(step_kinds or [])
+    meta_blob = json.dumps(meta or {})
+    with _lock:
+        conn.execute(
+            """
+            INSERT INTO migrations (
+                id, status, source_label, target_label, meta_json,
+                bundle_state, bundle_sha256, bundle_upload_bytes, bundle_uncompressed_bytes,
+                manifest_json, bytes_transferred, created, updated
+            ) VALUES (?, 'pending', ?, ?, ?, 'pending_upload', NULL, NULL, NULL, NULL, 0, ?, ?)
+            """,
+            (mid, source_label, target_label, meta_blob, now, now),
+        )
+        for idx, kind in enumerate(kinds):
+            sid = uuid.uuid4().hex
+            conn.execute(
+                """
+                INSERT INTO migration_steps (
+                    id, migration_id, kind, status, job_id, sort_order, meta_json, created, updated
+                ) VALUES (?, ?, ?, 'pending', NULL, ?, '{}', ?, ?)
+                """,
+                (sid, mid, str(kind), int(idx), now, now),
+            )
+        conn.commit()
+    return mid
+
+
+def _migration_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
+    d = dict(row)
+    d["meta"] = json.loads(d.pop("meta_json") or "{}")
+    manifest_raw = d.pop("manifest_json", None)
+    if manifest_raw:
+        try:
+            d["manifest"] = json.loads(manifest_raw)
+        except json.JSONDecodeError:
+            d["manifest"] = None
+    else:
+        d["manifest"] = None
+    return d
+
+
+def get_migration(conn: sqlite3.Connection, migration_id: str) -> dict[str, Any] | None:
+    cur = conn.execute("SELECT * FROM migrations WHERE id = ?", (migration_id,))
+    row = cur.fetchone()
+    if row is None:
+        return None
+    out = _migration_row_to_dict(row)
+    out["steps"] = list_migration_steps(conn, migration_id)
+    return out
+
+
+def list_migration_steps(conn: sqlite3.Connection, migration_id: str) -> list[dict[str, Any]]:
+    cur = conn.execute(
+        """
+        SELECT * FROM migration_steps
+        WHERE migration_id = ?
+        ORDER BY sort_order ASC, created ASC
+        """,
+        (migration_id,),
+    )
+    rows: list[dict[str, Any]] = []
+    for r in cur.fetchall():
+        d = dict(r)
+        d["meta"] = json.loads(d.pop("meta_json") or "{}")
+        rows.append(d)
+    return rows
+
+
+def update_migration(
+    conn: sqlite3.Connection,
+    migration_id: str,
+    *,
+    status: str | None = None,
+    bundle_state: str | None = None,
+    bundle_sha256: str | None = None,
+    bundle_upload_bytes: int | None = None,
+    bundle_uncompressed_bytes: int | None = None,
+    manifest: dict[str, Any] | None = None,
+    bytes_transferred: int | None = None,
+    meta_patch: dict[str, Any] | None = None,
+) -> bool:
+    row = get_migration(conn, migration_id)
+    if row is None:
+        return False
+    now = time.time()
+    fields: list[str] = ["updated = ?"]
+    vals: list[Any] = [now]
+    if status is not None:
+        fields.append("status = ?")
+        vals.append(status)
+    if bundle_state is not None:
+        fields.append("bundle_state = ?")
+        vals.append(bundle_state)
+    if bundle_sha256 is not None:
+        fields.append("bundle_sha256 = ?")
+        vals.append(bundle_sha256)
+    if bundle_upload_bytes is not None:
+        fields.append("bundle_upload_bytes = ?")
+        vals.append(int(bundle_upload_bytes))
+    if bundle_uncompressed_bytes is not None:
+        fields.append("bundle_uncompressed_bytes = ?")
+        vals.append(int(bundle_uncompressed_bytes))
+    if manifest is not None:
+        fields.append("manifest_json = ?")
+        vals.append(json.dumps(manifest))
+    if bytes_transferred is not None:
+        fields.append("bytes_transferred = ?")
+        vals.append(int(bytes_transferred))
+    if meta_patch is not None:
+        meta = dict(row.get("meta") or {})
+        meta.update(meta_patch)
+        fields.append("meta_json = ?")
+        vals.append(json.dumps(meta))
+    vals.append(migration_id)
+    with _lock:
+        conn.execute(f"UPDATE migrations SET {', '.join(fields)} WHERE id = ?", vals)
+        conn.commit()
+    return True
+
+
+def update_step(
+    conn: sqlite3.Connection,
+    step_id: str,
+    *,
+    status: str | None = None,
+    job_id: str | None = None,
+    meta_patch: dict[str, Any] | None = None,
+) -> bool:
+    cur = conn.execute("SELECT * FROM migration_steps WHERE id = ?", (step_id,))
+    row = cur.fetchone()
+    if row is None:
+        return False
+    now = time.time()
+    fields: list[str] = ["updated = ?"]
+    vals: list[Any] = [now]
+    if status is not None:
+        fields.append("status = ?")
+        vals.append(status)
+    if job_id is not None:
+        fields.append("job_id = ?")
+        vals.append(job_id)
+    if meta_patch is not None:
+        meta = json.loads(row["meta_json"] or "{}")
+        if not isinstance(meta, dict):
+            meta = {}
+        meta.update(meta_patch)
+        fields.append("meta_json = ?")
+        vals.append(json.dumps(meta))
+    vals.append(step_id)
+    with _lock:
+        conn.execute(f"UPDATE migration_steps SET {', '.join(fields)} WHERE id = ?", vals)
+        conn.commit()
+    return True
+
+
+def cancel_migration(conn: sqlite3.Connection, migration_id: str) -> bool:
+    return update_migration(conn, migration_id, status="cancelled")

@@ -21,7 +21,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from fleet_server import container_templates, forge_llm_service, store
+from fleet_server import container_templates, forge_llm_service, managed_compose_service, store
 
 _SERVICE_ID_RE = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 
@@ -96,6 +96,13 @@ DEFAULT_TYPES: dict[str, Any] = {
             "title": "Forge LLM (Compose)",
             "notes": "Docker Compose stack; add instances under etc/services/*.json or POST /v1/container-services.",
         },
+        {
+            "id": "forge_market_studio",
+            "category_id": "service",
+            "container_class": "forge_market_studio",
+            "title": "Forge Market Studio (Compose)",
+            "notes": "Docker Compose stack for Market Studio; register under etc/services/*.json or rollout API.",
+        },
     ],
 }
 
@@ -103,6 +110,7 @@ _DEFAULT_TYPE_TO_CATEGORY: dict[str, str] = {
     "empty": "system",
     "host_cpu_probe": "job",
     "forge_llm": "service",
+    "forge_market_studio": "service",
 }
 
 
@@ -355,9 +363,12 @@ def delete_service(data_dir: Path, service_id: str) -> tuple[bool, str]:
     rec = read_service(data_dir, sid)
     if rec is None:
         return False, "not_found"
-    if rec.get("type_id") == "forge_llm":
+    tid = str(rec.get("type_id") or "").strip()
+    eff = effective_type_by_id(data_dir, tid)
+    caps = eff.get("effective_capabilities") if isinstance(eff, dict) else {}
+    if isinstance(caps, dict) and bool(caps.get("api_manage_services")):
         try:
-            st = forge_llm_service.status_for_record(rec)
+            st = managed_compose_service.status_for_record(rec)
             if int(st.get("services_running") or 0) > 0:
                 return False, "stop_service_first"
         except (ValueError, FileNotFoundError, OSError):
@@ -399,7 +410,7 @@ def upsert_service(
         raise ValueError("type_not_api_manageable")
     root = _validate_compose_root(compose_root)
     extras = [str(x) for x in (compose_files or [])]
-    forge_llm_service.resolve_compose_files(root, extras)  # raises if invalid / missing files
+    managed_compose_service.resolve_compose_files(root, extras)  # raises if invalid / missing files
     existing = read_service(data_dir, sid)
     if existing is not None and not allow_replace:
         raise ValueError("service_id_exists")
@@ -451,7 +462,7 @@ def orchestration_metrics_snapshot(data_dir: Path, conn: sqlite3.Connection) -> 
         tid = str(rec.get("type_id") or "").strip()
         if not tid:
             continue
-        st = forge_llm_service.status_for_record(rec)
+        st = managed_compose_service.status_for_record(rec)
         sr = st.get("services_running")
         stt = st.get("services_total")
         try:

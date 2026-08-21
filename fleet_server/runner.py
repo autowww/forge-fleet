@@ -328,6 +328,11 @@ def run_job(db_path: Path, job_id: str) -> None:
             exit_code=code,
             container_id=cid,
         )
+        job_row = store.get_job(conn, job_id)
+        if job_row is not None:
+            from fleet_server import migrations as fleet_migrations
+
+            fleet_migrations.sync_step_from_job(conn, job_row)
     finally:
         conn.close()
     if cleanup_workspace:

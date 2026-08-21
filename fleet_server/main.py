@@ -24,7 +24,9 @@ from fleet_server import (
     fleet_apps,
     forge_llm_rollout,
     forge_llm_service,
+    forge_market_studio_rollout,
     host_stats,
+    managed_compose_service,
     runner,
     self_update,
     store,
@@ -35,7 +37,27 @@ from fleet_server import (
     versioning,
     workspace_bundle,
 )
+from fleet_server import migrations as fleet_migrations
 from fleet_server.test_fleet import spawn_test_fleet
+
+
+def _compose_status_for_record(rec: dict[str, Any]) -> dict[str, Any]:
+    if str(rec.get("type_id")) == "forge_llm":
+        return forge_llm_service.status_for_record(rec)
+    return managed_compose_service.status_for_record(rec)
+
+
+def _managed_compose_record(
+    rec: dict[str, Any], data_dir: Path
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    type_id = str(rec.get("type_id") or "").strip()
+    eff = container_layout.effective_type_by_id(data_dir, type_id)
+    if eff is None:
+        return None, {"ok": False, "error": "unknown_type_id"}
+    caps = eff.get("effective_capabilities")
+    if not isinstance(caps, dict) or not bool(caps.get("api_manage_services")):
+        return None, {"ok": False, "error": "unsupported_service_type"}
+    return rec, None
 
 
 def _json_bytes(obj: Any) -> bytes:
@@ -676,8 +698,9 @@ class FleetHandler(BaseHTTPRequestHandler):
             rows: list[dict[str, Any]] = []
             for rec in container_layout.list_service_records(data_dir):
                 row = dict(rec)
-                if str(row.get("type_id")) == "forge_llm":
-                    row["status"] = forge_llm_service.status_for_record(rec)
+                _rec_ok, _err = _managed_compose_record(rec, data_dir)
+                if _rec_ok is not None:
+                    row["status"] = _compose_status_for_record(rec)
                 rows.append(row)
             self._send(
                 200,
@@ -692,8 +715,9 @@ class FleetHandler(BaseHTTPRequestHandler):
                 self._send(404, {"ok": False, "error": "not_found"})
                 return
             out = dict(rec)
-            if str(out.get("type_id")) == "forge_llm":
-                out["status"] = forge_llm_service.status_for_record(rec)
+            _rec_ok, _err = _managed_compose_record(rec, data_dir)
+            if _rec_ok is not None:
+                out["status"] = _compose_status_for_record(rec)
             self._send(200, {"ok": True, "service": out, "paths": container_layout.layout_paths_payload(data_dir)})
             return
         if path == "/v1/services/forge-llm":
@@ -771,6 +795,21 @@ class FleetHandler(BaseHTTPRequestHandler):
                 self._send(200, out)
             else:
                 self._send(200, {"ok": True, "data": payload})
+            return
+        m_mig = re.match(r"^/v1/migrations/([^/]+)$", path)
+        if m_mig:
+            mid = m_mig.group(1)
+            conn = store.connect(self.server.db_path)
+            try:
+                row = store.get_migration(conn, mid)
+            finally:
+                conn.close()
+            if row is None:
+                self._send(404, {"ok": False, "error": "not_found"})
+                return
+            payload = fleet_migrations.public_migration_payload(row)
+            payload["ok"] = True
+            self._send(200, payload)
             return
         m = re.match(r"^/v1/jobs/([^/]+)$", path)
         if m:
@@ -908,6 +947,24 @@ class FleetHandler(BaseHTTPRequestHandler):
                 },
             )
             return
+        if path == "/v1/migrations":
+            source_label = str(body.get("source_label") or "")
+            target_label = str(body.get("target_label") or "")
+            meta = body.get("meta") if isinstance(body.get("meta"), dict) else {}
+            include_restore = bool(body.get("include_restore_step"))
+            conn = store.connect(self.server.db_path)
+            try:
+                out = fleet_migrations.create_migration_session(
+                    conn,
+                    source_label=source_label,
+                    target_label=target_label,
+                    meta=meta,
+                    include_restore_step=include_restore,
+                )
+            finally:
+                conn.close()
+            self._send(201, {"ok": True, **out})
+            return
         if path == "/v1/jobs":
             kind = str(body.get("kind") or "").strip()
             argv = body.get("argv")
@@ -1006,6 +1063,19 @@ class FleetHandler(BaseHTTPRequestHandler):
             code = 200 if out.get("ok") else 502
             self._send(code, out)
             return
+        if path == "/v1/admin/forge-market-studio-rollout":
+            sync = str(body.get("sync") or "").strip().lower() in ("1", "true", "yes")
+            try:
+                if sync:
+                    out = forge_market_studio_rollout.run_rollout_sync(self._repo_root())
+                else:
+                    out = forge_market_studio_rollout.schedule_rollout(self._repo_root())
+            except FileNotFoundError as ex:
+                self._send(400, {"ok": False, "error": "rollout_script_missing", "detail": str(ex)[:400]})
+                return
+            code = 200 if out.get("ok") else 502
+            self._send(code, out)
+            return
         data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
         if path == "/v1/fleet-apps/install":
             app_id = str(body.get("app_id") or "").strip()
@@ -1072,11 +1142,12 @@ class FleetHandler(BaseHTTPRequestHandler):
             if rec is None:
                 self._send(404, {"ok": False, "error": "not_found"})
                 return
-            if str(rec.get("type_id")) != "forge_llm":
-                self._send(400, {"ok": False, "error": "unsupported_service_type"})
+            rec_ok, err = _managed_compose_record(rec, data_dir_p)
+            if rec_ok is None:
+                self._send(400, err or {"ok": False, "error": "unsupported_service_type"})
                 return
             try:
-                out = forge_llm_service.start_for_record(rec)
+                out = managed_compose_service.start_for_record(rec_ok)
             except (ValueError, FileNotFoundError) as ex:
                 self._send(400, {"ok": False, "error": "invalid_service_record", "detail": str(ex)[:800]})
                 return
@@ -1092,11 +1163,12 @@ class FleetHandler(BaseHTTPRequestHandler):
             if rec is None:
                 self._send(404, {"ok": False, "error": "not_found"})
                 return
-            if str(rec.get("type_id")) != "forge_llm":
-                self._send(400, {"ok": False, "error": "unsupported_service_type"})
+            rec_ok, err = _managed_compose_record(rec, data_dir_p)
+            if rec_ok is None:
+                self._send(400, err or {"ok": False, "error": "unsupported_service_type"})
                 return
             try:
-                out = forge_llm_service.stop_for_record(rec)
+                out = managed_compose_service.stop_for_record(rec_ok)
             except (ValueError, FileNotFoundError) as ex:
                 self._send(400, {"ok": False, "error": "invalid_service_record", "detail": str(ex)[:800]})
                 return
@@ -1186,6 +1258,42 @@ class FleetHandler(BaseHTTPRequestHandler):
             merged["ok"] = bool(out.get("ok"))
             self._send(code, merged)
             return
+        m_mig_cancel = re.match(r"^/v1/migrations/([^/]+)/cancel$", path)
+        if m_mig_cancel:
+            mid = m_mig_cancel.group(1)
+            conn = store.connect(self.server.db_path)
+            try:
+                out = fleet_migrations.cancel_migration_session(
+                    conn, self.server.db_path, mid
+                )
+            finally:
+                conn.close()
+            code = 200 if out.get("ok") else 404
+            self._send(code, out)
+            return
+        m_mig_run = re.match(r"^/v1/migrations/([^/]+)/steps/([^/]+)/run$", path)
+        if m_mig_run:
+            mid = m_mig_run.group(1)
+            step_id = m_mig_run.group(2)
+            data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            conn = store.connect(self.server.db_path)
+            try:
+                ok_payload, err_payload = fleet_migrations.run_migration_step(
+                    conn,
+                    self.server.db_path,
+                    data_dir_p,
+                    mid,
+                    step_id,
+                )
+            finally:
+                conn.close()
+            if err_payload is not None:
+                err = err_payload.get("error") or "failed"
+                code = 404 if err == "not_found" else 400
+                self._send(code, err_payload)
+                return
+            self._send(200, ok_payload or {"ok": True})
+            return
         m = re.match(r"^/v1/jobs/([^/]+)/cancel$", path)
         if m:
             jid = m.group(1)
@@ -1207,6 +1315,51 @@ class FleetHandler(BaseHTTPRequestHandler):
             return
         path = urlparse(self.path).path
         data_dir = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+        m_mig_bundle = re.match(r"^/v1/migrations/([^/]+)/data-bundle$", path)
+        if m_mig_bundle:
+            mid = m_mig_bundle.group(1)
+            max_up = fleet_migrations.max_migration_bundle_upload_bytes()
+            raw = self._read_binary_body(max_up)
+            if len(raw) == 0:
+                self._send(
+                    400,
+                    {
+                        "ok": False,
+                        "error": "invalid_body",
+                        "detail": "empty or oversized body (check Content-Length)",
+                    },
+                )
+                return
+            body_sha = hashlib.sha256(raw).hexdigest()
+            hdr_sha = (self.headers.get("X-Migration-Bundle-Sha256") or "").strip().lower()
+            if hdr_sha and hdr_sha != body_sha:
+                self._send(
+                    400,
+                    {
+                        "ok": False,
+                        "error": "bundle_sha256_mismatch",
+                        "detail": "X-Migration-Bundle-Sha256 does not match request body digest",
+                    },
+                )
+                return
+            conn = store.connect(self.server.db_path)
+            try:
+                ok_payload, err_payload = fleet_migrations.upload_data_bundle(
+                    conn,
+                    self.server.db_path,
+                    data_dir,
+                    mid,
+                    raw,
+                )
+            finally:
+                conn.close()
+            if err_payload is not None:
+                err = err_payload.get("error") or "failed"
+                code = 404 if err == "not_found" else 400
+                self._send(code, err_payload)
+                return
+            self._send(200, ok_payload or {"ok": True})
+            return
         m_job_ws = re.match(r"^/v1/jobs/([^/]+)/workspace$", path)
         if m_job_ws:
             jid = m_job_ws.group(1)

@@ -1,0 +1,22 @@
+# Build context: forge-market repository root (see compose.yaml FORGE_MARKET_ROOT).
+FROM python:3.12-slim
+
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY studio-server/requirements.txt /app/studio-server/requirements.txt
+RUN pip install --no-cache-dir -r /app/studio-server/requirements.txt "psycopg[binary]>=3.1"
+
+COPY . /app
+
+ENV FORGE_MARKET_STUDIO_PORT=9792
+ENV PYTHONPATH=/app/src
+EXPOSE 9792
+
+HEALTHCHECK --interval=15s --timeout=5s --retries=5 --start-period=45s \
+  CMD curl -fsS http://127.0.0.1:9792/health >/dev/null || exit 1
+
+CMD ["python", "studio-server/studio_server.py"]

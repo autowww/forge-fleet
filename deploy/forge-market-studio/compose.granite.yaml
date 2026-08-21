@@ -1,0 +1,9 @@
+# Granite host overlay — publish Market Studio and Postgres on loopback.
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:${FORGE_MARKET_POSTGRES_HOST_PORT:-15432}:5432"
+
+  market-app:
+    ports:
+      - "127.0.0.1:${FORGE_MARKET_STUDIO_HOST_PORT:-19792}:9792"

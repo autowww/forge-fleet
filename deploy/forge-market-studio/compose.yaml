@@ -1,0 +1,59 @@
+# Forge Market Studio — base compose (no host ports; use compose.granite.yaml overlay).
+name: forge-market-studio
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: forge-market-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-forge_market}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-forge_market_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-forge_market}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-forge_market} -d ${POSTGRES_DB:-forge_market}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  market-app:
+    build:
+      context: ${FORGE_MARKET_ROOT:-../../../forge-market}
+      dockerfile: ${FORGE_MARKET_DOCKERFILE:?FORGE_MARKET_DOCKERFILE required — see .env.example}
+    image: forge-market-app:studio
+    container_name: forge-market-app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      FORGE_MARKET_DATABASE_URL: ${FORGE_MARKET_DATABASE_URL:-postgresql://forge_market:forge_market_dev@postgres:5432/forge_market}
+      FORGE_MARKET_STUDIO_PORT: "9792"
+      FORGE_MARKET_STUDIO_API_TOKEN: ${FORGE_MARKET_STUDIO_API_TOKEN:-}
+    volumes:
+      - corpus:/data/corpus
+      - broker:/data/broker
+      - wiki:/data/wiki
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9792/health >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
+
+volumes:
+  pgdata:
+    name: forge_market_studio_pgdata
+  corpus:
+    name: forge_market_studio_corpus
+  broker:
+    name: forge_market_studio_broker
+  wiki:
+    name: forge_market_studio_wiki

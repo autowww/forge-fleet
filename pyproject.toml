@@ -26,6 +26,7 @@ packages = ["fleet_server"]
 fleet_server = [
     "static/*.html",
     "static/gpu-logos/*.png",
+    "migration_stubs/*.sh",
 ]
 
 [tool.pytest.ini_options]
