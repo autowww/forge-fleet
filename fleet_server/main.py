@@ -1271,6 +1271,52 @@ class FleetHandler(BaseHTTPRequestHandler):
             code = 200 if out.get("ok") else 404
             self._send(code, out)
             return
+        m_mig_upload_sess = re.match(r"^/v1/migrations/([^/]+)/data-bundle/upload-session$", path)
+        if m_mig_upload_sess:
+            mid = m_mig_upload_sess.group(1)
+            data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            conn = store.connect(self.server.db_path)
+            try:
+                ok_payload, err_payload = fleet_migrations.start_bundle_upload_session(
+                    conn,
+                    data_dir_p,
+                    mid,
+                    sha256=str(body.get("sha256") or ""),
+                    total_bytes=int(body.get("total_bytes") or 0),
+                    chunk_size=int(body["chunk_size"]) if body.get("chunk_size") is not None else None,
+                )
+            except (TypeError, ValueError):
+                ok_payload, err_payload = None, {"ok": False, "error": "invalid_body"}
+            finally:
+                conn.close()
+            if err_payload is not None:
+                err = err_payload.get("error") or "failed"
+                code = 404 if err == "not_found" else 400
+                self._send(code, err_payload)
+                return
+            self._send(201, ok_payload or {"ok": True})
+            return
+        m_mig_finalize = re.match(r"^/v1/migrations/([^/]+)/data-bundle/finalize$", path)
+        if m_mig_finalize:
+            mid = m_mig_finalize.group(1)
+            data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            conn = store.connect(self.server.db_path)
+            try:
+                ok_payload, err_payload = fleet_migrations.finalize_chunked_bundle(
+                    conn,
+                    self.server.db_path,
+                    data_dir_p,
+                    mid,
+                )
+            finally:
+                conn.close()
+            if err_payload is not None:
+                err = err_payload.get("error") or "failed"
+                code = 404 if err == "not_found" else 400
+                self._send(code, err_payload)
+                return
+            self._send(200, ok_payload or {"ok": True})
+            return
         m_mig_run = re.match(r"^/v1/migrations/([^/]+)/steps/([^/]+)/run$", path)
         if m_mig_run:
             mid = m_mig_run.group(1)
@@ -1349,6 +1395,40 @@ class FleetHandler(BaseHTTPRequestHandler):
                     self.server.db_path,
                     data_dir,
                     mid,
+                    raw,
+                )
+            finally:
+                conn.close()
+            if err_payload is not None:
+                err = err_payload.get("error") or "failed"
+                code = 404 if err == "not_found" else 400
+                self._send(code, err_payload)
+                return
+            self._send(200, ok_payload or {"ok": True})
+            return
+        m_mig_chunk = re.match(r"^/v1/migrations/([^/]+)/data-bundle/chunks/(\d+)$", path)
+        if m_mig_chunk:
+            mid = m_mig_chunk.group(1)
+            chunk_index = int(m_mig_chunk.group(2))
+            max_up = fleet_migrations.max_chunk_upload_bytes()
+            raw = self._read_binary_body(max_up)
+            if len(raw) == 0:
+                self._send(
+                    400,
+                    {
+                        "ok": False,
+                        "error": "invalid_body",
+                        "detail": "empty or oversized chunk body",
+                    },
+                )
+                return
+            conn = store.connect(self.server.db_path)
+            try:
+                ok_payload, err_payload = fleet_migrations.upload_bundle_chunk(
+                    conn,
+                    data_dir,
+                    mid,
+                    chunk_index,
                     raw,
                 )
             finally:

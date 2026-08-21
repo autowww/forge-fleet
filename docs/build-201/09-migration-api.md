@@ -6,7 +6,13 @@ Fleet-controlled **data bundle upload** and **step jobs** for Granite cutover �
 
 1. **`POST /v1/migrations`** — create a migration session with default step kinds (`seed_corpus_volume`, `migrate_db`, `build_image`, `deploy_service`, `register_edge_route`). Optional body field `include_restore_step: true` adds `restore_from_bundle` for rollback recipes.
 
-2. **`PUT /v1/migrations/{id}/data-bundle`** — upload a gzip tarball (same safety limits as workspace upload, **`migration_bundle`** profile: up to **2 GiB** uncompressed). Optional header **`X-Migration-Bundle-Sha256`** must match the body digest when set. Default upload cap **500 MiB** (`FLEET_MIGRATION_BUNDLE_UPLOAD_MAX_BYTES`).
+2. **`PUT /v1/migrations/{id}/data-bundle`** — upload a gzip tarball in one request (legacy/small bundles). Optional header **`X-Migration-Bundle-Sha256`**.
+
+   **Chunked upload (recommended through Cloudflare, 64 MiB chunks):**
+
+   1. **`POST /v1/migrations/{id}/data-bundle/upload-session`** — body `{ "sha256", "total_bytes", "chunk_size"? }` (default chunk size **64 MiB**).
+   2. **`PUT /v1/migrations/{id}/data-bundle/chunks/{index}`** — upload each chunk (`index` from `0` .. `chunk_count-1`).
+   3. **`POST /v1/migrations/{id}/data-bundle/finalize`** — Fleet assembles chunks, verifies digest, extracts bundle.
 
 3. **`GET /v1/migrations/{id}`** — session status, **`bytes_transferred`**, bundle digests, parsed manifest flags, and per-step state.
 
@@ -44,6 +50,7 @@ After upload, Fleet stores the manifest on the session and may **skip** steps th
 | Variable | Default | Meaning |
 |----------|---------|---------|
 | `FLEET_MIGRATION_BUNDLE_UPLOAD_MAX_BYTES` | `524288000` (500 MiB) | Max compressed upload size |
+| `FLEET_MIGRATION_CHUNK_SIZE_BYTES` | `67108864` (64 MiB) | Default chunk size for chunked upload |
 | `FLEET_MIGRATION_STUB_IMAGE` | `alpine:3.20` | Image for GW-2 stub step containers |
 
 ## Related

@@ -252,6 +252,69 @@ def test_cancel_migration(tmp_path: Path) -> None:
         _stop_fleet_httpd(httpd, th)
 
 
+def test_chunked_data_bundle_upload(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FLEET_MIGRATION_CHUNK_SIZE_BYTES", "4096")
+    data_dir = tmp_path / "fd6"
+    data_dir.mkdir()
+    httpd, th, base = _start_fleet_httpd(data_dir)
+    try:
+        req = urllib.request.Request(
+            f"{base}/v1/migrations",
+            data=json.dumps({"source_label": "chunk", "target_label": "granite"}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            created = json.loads(resp.read().decode())
+        mid = created["id"]
+        blob = _migration_tar_gz({"corpus": True, "raw_sec": False, "broker": False, "wiki": False})
+        sha = hashlib.sha256(blob).hexdigest()
+        chunk_size = 4096
+        chunk_count = (len(blob) + chunk_size - 1) // chunk_size
+
+        sess_req = urllib.request.Request(
+            f"{base}/v1/migrations/{mid}/data-bundle/upload-session",
+            data=json.dumps(
+                {"sha256": sha, "total_bytes": len(blob), "chunk_size": chunk_size}
+            ).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(sess_req, timeout=30) as resp_sess:
+            sess = json.loads(resp_sess.read().decode())
+        assert sess.get("ok") is True
+        assert sess["chunk_count"] == chunk_count
+
+        for idx in range(chunk_count):
+            start = idx * chunk_size
+            end = min(start + chunk_size, len(blob))
+            chunk = blob[start:end]
+            chunk_req = urllib.request.Request(
+                f"{base}/v1/migrations/{mid}/data-bundle/chunks/{idx}",
+                data=chunk,
+                headers={"Content-Type": "application/octet-stream", "Content-Length": str(len(chunk))},
+                method="PUT",
+            )
+            with urllib.request.urlopen(chunk_req, timeout=30) as resp_chunk:
+                out = json.loads(resp_chunk.read().decode())
+            assert out.get("ok") is True
+
+        fin_req = urllib.request.Request(
+            f"{base}/v1/migrations/{mid}/data-bundle/finalize",
+            data=b"{}",
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(fin_req, timeout=60) as resp_fin:
+            up = json.loads(resp_fin.read().decode())
+        assert up.get("ok") is True
+        assert up["bundle_state"] == "ready"
+        assert up["bundle_sha256"] == sha
+        assert up.get("upload_mode") == "chunked"
+    finally:
+        _stop_fleet_httpd(httpd, th)
+
+
 def test_run_step_before_bundle_rejected(tmp_path: Path) -> None:
     data_dir = tmp_path / "fd5"
     data_dir.mkdir()

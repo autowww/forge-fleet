@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import shutil
+import time
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +31,105 @@ _FLAG_TO_STEP: dict[str, str] = {
 }
 
 _DEFAULT_MAX_MIGRATION_UPLOAD = 500 * 1024 * 1024
+_DEFAULT_CHUNK_SIZE_BYTES = 64 * 1024 * 1024
+
+
+def default_chunk_size_bytes() -> int:
+    raw = str(os.environ.get("FLEET_MIGRATION_CHUNK_SIZE_BYTES") or "").strip()
+    if not raw:
+        return _DEFAULT_CHUNK_SIZE_BYTES
+    try:
+        return max(1_048_576, int(raw, 10))
+    except ValueError:
+        return _DEFAULT_CHUNK_SIZE_BYTES
+
+
+def max_chunk_upload_bytes() -> int:
+    return default_chunk_size_bytes() + (1024 * 1024)
+
+
+def _upload_session_path(data_dir: Path, migration_id: str) -> Path:
+    return migration_bundle_dir(data_dir, migration_id) / "upload-session.json"
+
+
+def _chunks_dir(data_dir: Path, migration_id: str) -> Path:
+    return migration_bundle_dir(data_dir, migration_id) / "chunks"
+
+
+def _load_upload_session(data_dir: Path, migration_id: str) -> dict[str, Any] | None:
+    path = _upload_session_path(data_dir, migration_id)
+    if not path.is_file():
+        return None
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    return doc if isinstance(doc, dict) else None
+
+
+def _save_upload_session(data_dir: Path, migration_id: str, session: dict[str, Any]) -> None:
+    jdir = migration_bundle_dir(data_dir, migration_id)
+    jdir.mkdir(parents=True, exist_ok=True)
+    _upload_session_path(data_dir, migration_id).write_text(
+        json.dumps(session, separators=(",", ":")),
+        encoding="utf-8",
+    )
+
+
+def _clear_chunk_upload_state(data_dir: Path, migration_id: str) -> None:
+    jdir = migration_bundle_dir(data_dir, migration_id)
+    if jdir.is_dir():
+        shutil.rmtree(jdir, ignore_errors=True)
+
+
+def _migration_upload_guard(row: dict[str, Any] | None) -> dict[str, Any] | None:
+    if row is None:
+        return {"ok": False, "error": "not_found"}
+    st = str(row.get("status") or "")
+    if st in ("cancelled", "completed"):
+        return {"ok": False, "error": "migration_terminal"}
+    if str(row.get("bundle_state") or "") == "ready":
+        return {"ok": False, "error": "bundle_already_uploaded"}
+    return None
+
+
+def _complete_bundle_upload(
+    conn: Any,
+    db_path: Path,
+    data_dir: Path,
+    migration_id: str,
+    raw: bytes,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    row = store.get_migration(conn, migration_id)
+    guard = _migration_upload_guard(row)
+    if guard:
+        return None, guard
+
+    unc, sha256_hex, err, manifest = extract_migration_bundle(
+        raw, data_dir=data_dir, migration_id=migration_id
+    )
+    if err:
+        return None, {"ok": False, "error": "extract_failed", "detail": err}
+
+    st = str(row.get("status") or "")
+    patch: dict[str, Any] = {
+        "bundle_state": "ready",
+        "bundle_sha256": sha256_hex,
+        "bundle_upload_bytes": len(raw),
+        "bundle_uncompressed_bytes": unc,
+        "bytes_transferred": int(row.get("bytes_transferred") or 0) + len(raw),
+        "manifest": manifest,
+    }
+    if st == "pending":
+        patch["status"] = "active"
+    store.update_migration(conn, migration_id, **patch)
+    if manifest:
+        apply_manifest_to_steps(conn, migration_id, manifest)
+
+    updated = store.get_migration(conn, migration_id)
+    payload = public_migration_payload(updated) if updated else {"id": migration_id}
+    payload["ok"] = True
+    return payload, None
 
 
 def max_migration_bundle_upload_bytes() -> int:
@@ -247,43 +347,204 @@ def upload_data_bundle(
     raw: bytes,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     """
-    Handle ``PUT /v1/migrations/{id}/data-bundle`` body.
+    Handle ``PUT /v1/migrations/{id}/data-bundle`` body (single-shot upload).
 
     Returns ``(success_payload, error_response)`` — one is always None.
     """
+    session = _load_upload_session(data_dir, migration_id)
+    if session is not None:
+        return None, {
+            "ok": False,
+            "error": "chunked_upload_in_progress",
+            "detail": "finish chunked upload via POST …/data-bundle/finalize",
+        }
+    return _complete_bundle_upload(conn, db_path, data_dir, migration_id, raw)
+
+
+def start_bundle_upload_session(
+    conn: Any,
+    data_dir: Path,
+    migration_id: str,
+    *,
+    sha256: str,
+    total_bytes: int,
+    chunk_size: int | None = None,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Begin a chunked bundle upload session."""
     row = store.get_migration(conn, migration_id)
-    if row is None:
-        return None, {"ok": False, "error": "not_found"}
-    st = str(row.get("status") or "")
-    if st in ("cancelled", "completed"):
-        return None, {"ok": False, "error": "migration_terminal"}
-    if str(row.get("bundle_state") or "") == "ready":
-        return None, {"ok": False, "error": "bundle_already_uploaded"}
+    guard = _migration_upload_guard(row)
+    if guard:
+        return None, guard
 
-    unc, sha256_hex, err, manifest = extract_migration_bundle(
-        raw, data_dir=data_dir, migration_id=migration_id
-    )
-    if err:
-        return None, {"ok": False, "error": "extract_failed", "detail": err}
+    digest = str(sha256 or "").strip().lower()
+    if len(digest) != 64 or not all(c in "0123456789abcdef" for c in digest):
+        return None, {"ok": False, "error": "invalid_body", "detail": "sha256 must be 64 hex chars"}
+    try:
+        total = int(total_bytes)
+    except (TypeError, ValueError):
+        return None, {"ok": False, "error": "invalid_body", "detail": "total_bytes must be a positive integer"}
+    if total <= 0:
+        return None, {"ok": False, "error": "invalid_body", "detail": "total_bytes must be > 0"}
+    max_up = max_migration_bundle_upload_bytes()
+    if total > max_up:
+        return None, {
+            "ok": False,
+            "error": "bundle_too_large",
+            "detail": f"total_bytes {total} exceeds max {max_up}",
+        }
 
-    patch: dict[str, Any] = {
-        "bundle_state": "ready",
-        "bundle_sha256": sha256_hex,
-        "bundle_upload_bytes": len(raw),
-        "bundle_uncompressed_bytes": unc,
-        "bytes_transferred": int(row.get("bytes_transferred") or 0) + len(raw),
-        "manifest": manifest,
+    size = int(chunk_size or default_chunk_size_bytes())
+    if size <= 0 or size > max_chunk_upload_bytes():
+        return None, {"ok": False, "error": "invalid_body", "detail": "chunk_size out of range"}
+
+    chunk_count = (total + size - 1) // size
+    _clear_chunk_upload_state(data_dir, migration_id)
+    chunks_dir = _chunks_dir(data_dir, migration_id)
+    chunks_dir.mkdir(parents=True, exist_ok=True)
+
+    session_doc = {
+        "sha256": digest,
+        "total_bytes": total,
+        "chunk_size": size,
+        "chunk_count": chunk_count,
+        "received": [],
+        "created": time.time(),
     }
-    if st == "pending":
-        patch["status"] = "active"
-    store.update_migration(conn, migration_id, **patch)
-    if manifest:
-        apply_manifest_to_steps(conn, migration_id, manifest)
+    _save_upload_session(data_dir, migration_id, session_doc)
+    store.update_migration(conn, migration_id, bundle_state="uploading")
 
-    updated = store.get_migration(conn, migration_id)
-    payload = public_migration_payload(updated) if updated else {"id": migration_id}
-    payload["ok"] = True
-    return payload, None
+    return (
+        {
+            "ok": True,
+            "migration_id": migration_id,
+            "sha256": digest,
+            "total_bytes": total,
+            "chunk_size": size,
+            "chunk_count": chunk_count,
+            "bundle_state": "uploading",
+        },
+        None,
+    )
+
+
+def upload_bundle_chunk(
+    conn: Any,
+    data_dir: Path,
+    migration_id: str,
+    chunk_index: int,
+    raw: bytes,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Store one chunk for an in-progress upload session."""
+    row = store.get_migration(conn, migration_id)
+    guard = _migration_upload_guard(row)
+    if guard:
+        return None, guard
+
+    session = _load_upload_session(data_dir, migration_id)
+    if session is None:
+        return None, {"ok": False, "error": "upload_session_missing"}
+
+    try:
+        idx = int(chunk_index)
+    except (TypeError, ValueError):
+        return None, {"ok": False, "error": "invalid_chunk_index"}
+    chunk_count = int(session.get("chunk_count") or 0)
+    if idx < 0 or idx >= chunk_count:
+        return None, {"ok": False, "error": "invalid_chunk_index"}
+
+    total = int(session.get("total_bytes") or 0)
+    size = int(session.get("chunk_size") or default_chunk_size_bytes())
+    expected = min(size, total - (idx * size))
+    if len(raw) != expected:
+        return None, {
+            "ok": False,
+            "error": "invalid_chunk_size",
+            "detail": f"chunk {idx} expected {expected} bytes, got {len(raw)}",
+        }
+
+    chunk_path = _chunks_dir(data_dir, migration_id) / f"{idx:06d}"
+    chunk_path.write_bytes(raw)
+
+    received = sorted(set(int(x) for x in (session.get("received") or [])) | {idx})
+    session["received"] = received
+    _save_upload_session(data_dir, migration_id, session)
+
+    bytes_done = sum(
+        min(size, total - (i * size))
+        for i in received
+    )
+    return (
+        {
+            "ok": True,
+            "migration_id": migration_id,
+            "chunk_index": idx,
+            "received_chunks": len(received),
+            "chunk_count": chunk_count,
+            "bytes_received": bytes_done,
+            "total_bytes": total,
+        },
+        None,
+    )
+
+
+def finalize_chunked_bundle(
+    conn: Any,
+    db_path: Path,
+    data_dir: Path,
+    migration_id: str,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Assemble uploaded chunks, verify digest, extract bundle."""
+    row = store.get_migration(conn, migration_id)
+    guard = _migration_upload_guard(row)
+    if guard:
+        return None, guard
+
+    session = _load_upload_session(data_dir, migration_id)
+    if session is None:
+        return None, {"ok": False, "error": "upload_session_missing"}
+
+    chunk_count = int(session.get("chunk_count") or 0)
+    received = sorted(int(x) for x in (session.get("received") or []))
+    if len(received) != chunk_count or received != list(range(chunk_count)):
+        missing = [i for i in range(chunk_count) if i not in received]
+        return None, {
+            "ok": False,
+            "error": "chunks_incomplete",
+            "detail": f"missing chunk indexes: {missing[:20]}",
+            "received_chunks": len(received),
+            "chunk_count": chunk_count,
+        }
+
+    chunks_dir = _chunks_dir(data_dir, migration_id)
+    parts: list[bytes] = []
+    for idx in range(chunk_count):
+        chunk_path = chunks_dir / f"{idx:06d}"
+        if not chunk_path.is_file():
+            return None, {"ok": False, "error": "chunks_incomplete", "detail": f"missing chunk file {idx}"}
+        parts.append(chunk_path.read_bytes())
+
+    raw = b"".join(parts)
+    expected_sha = str(session.get("sha256") or "").lower()
+    actual_sha = hashlib.sha256(raw).hexdigest()
+    if actual_sha != expected_sha:
+        return None, {
+            "ok": False,
+            "error": "bundle_sha256_mismatch",
+            "detail": "assembled bundle digest does not match upload session sha256",
+        }
+    if len(raw) != int(session.get("total_bytes") or 0):
+        return None, {"ok": False, "error": "bundle_size_mismatch"}
+
+    ok_payload, err_payload = _complete_bundle_upload(conn, db_path, data_dir, migration_id, raw)
+    if err_payload is None:
+        shutil.rmtree(chunks_dir, ignore_errors=True)
+        session_path = _upload_session_path(data_dir, migration_id)
+        if session_path.is_file():
+            session_path.unlink(missing_ok=True)
+        if ok_payload is not None:
+            ok_payload["upload_mode"] = "chunked"
+            ok_payload["chunk_count"] = chunk_count
+    return ok_payload, err_payload
 
 
 def cancel_migration_session(conn: Any, db_path: Path, migration_id: str) -> dict[str, Any]:
