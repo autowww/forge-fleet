@@ -42,6 +42,7 @@ Forge-Spark
 ## Related terms
 
 - [**Forge-Spark**](forge-spark.md)
+- [**Epic-execution-profile**](epic-execution-profile.md)
 - [**PoC**](poc.md)
 - [**MVP**](mvp.md)
 - [**WBS**](wbs.md)
@@ -49,6 +50,7 @@ Forge-Spark
 ## Disambiguation bridges
 
 - [product-spark-vs-forge-spark](../bridges/product-spark-vs-forge-spark.md)
+- [epic-vs-spark-vs-product-spark](../bridges/epic-vs-spark-vs-product-spark.md)
 
 ---
 

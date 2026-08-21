@@ -17,7 +17,7 @@ Repo folders are under ~/Code/ unless noted; handbook shells deploy to Firebase 
 | Term pages | `…/workspace-abbreviations/terms/<abbr>.html` on blueprints.forgesdlc.com |
 | Local workspace handbook | `workspace-handbook/abbreviations.html` |
 
-**Last updated:** 2026-07-01
+**Last updated:** 2026-08-21
 
 ---
 
@@ -82,7 +82,7 @@ Repo folders are under ~/Code/ unless noted; handbook shells deploy to Firebase 
 | **flsw** | Private Firebase deploy shell for the Lenses handbook — submodules forge-lenses + kitchensink. | [open](workspace-abbreviations/terms/flsw.md) |
 | **flw** | Private handbook deploy for LCDL — forge-lcdl submodule + kitchensink → Firebase lcdl-542d8. | [open](workspace-abbreviations/terms/flw.md) |
 | **fpw** | Private handbook deploy for Platform — forge-platform submodule + kitchensink → forge-platform-1541d. | [open](workspace-abbreviations/terms/fpw.md) |
-| **stiw** | Private handbook deploy for STI — forge-sti submodule + kitchensink → Firebase sti-PLACEHOLDER. | [open](workspace-abbreviations/terms/stiw.md) |
+| **stiw** | Private handbook deploy for STI — forge-sti submodule + kitchensink → Firebase forge-sti-handbook. | [open](workspace-abbreviations/terms/stiw.md) |
 
 ### Hub
 
@@ -96,9 +96,11 @@ Repo folders are under ~/Code/ unless noted; handbook shells deploy to Firebase 
 | Abbr | Summary | Term page |
 |------|---------|-----------|
 | **ADR** | Dated decision log capturing context, decision, and consequences — common in fp and product repos. | [open](workspace-abbreviations/terms/adr.md) |
+| **Charge** | Daily commitment **view** — not a Kanban system of record. **Dual profile:** core Forge lists today's **Forge Sparks**; | [open](workspace-abbreviations/terms/charge.md) |
 | **DoD** | Exit criteria proving a work item or phase is complete — evidence-based, not narrative-only. | [open](workspace-abbreviations/terms/dod.md) |
 | **DoR** | Entry criteria before work starts — e.g. Roadmap DoR before WBS, story DoR before sprint commit. | [open](workspace-abbreviations/terms/dor.md) |
-| **Forge-Spark** | Smallest delivery unit (~1–4h task), phase-prefixed discover:/specify:/…; maps to WBS Task. | [open](workspace-abbreviations/terms/forge-spark.md) |
+| **Epic-execution-profile** | Opt-in overlay on core Forge — Charge lists **Epics**; smallest committed unit = L3 Epic (`M1E3`) with OpenSpec acceptan | [open](workspace-abbreviations/terms/epic-execution-profile.md) |
+| **Forge-Spark** | Smallest delivery unit (~1–4h task) in **core Forge** — phase-prefixed discover:/specify:/…; maps to WBS Task. | [open](workspace-abbreviations/terms/forge-spark.md) |
 | **IPE** | Compact phase view in PRODUCT-DELIVERY-FORGE-IPE.md — industry + Forge + IPE per lifecycle phase. | [open](workspace-abbreviations/terms/ipe.md) |
 | **MVP** | Smallest product slice that tests core value hypothesis — a Product Spark category. | [open](workspace-abbreviations/terms/mvp.md) |
 | **PDCA** | Remediation loop — define acceptance, implement, check, act until green; used in Forge Cursor planning. | [open](workspace-abbreviations/terms/pdca.md) |
@@ -173,6 +175,7 @@ Read these when a message mixes terms that sound alike:
 - [Product repo ↔ handbook deploy shell](workspace-abbreviations/bridges/handbook-deploy-pairs.md)
 - [forge-lcdl library vs ~/LCDL/ hub](workspace-abbreviations/bridges/lcdl-repo-vs-lcdl-hub.md)
 - [Product Spark vs Forge Spark](workspace-abbreviations/bridges/product-spark-vs-forge-spark.md)
+- [Epic vs Product Spark vs Forge Spark (dual profile)](workspace-abbreviations/bridges/epic-vs-spark-vs-product-spark.md)
 - [forge-a11y-checker vs Forge A11y Studio](workspace-abbreviations/bridges/a11y-checker-vs-a11y-studio.md)
 - [Forge control-plane stack](workspace-abbreviations/bridges/control-plane-stack.md)
 - [Kitchen Sink consumer chain](workspace-abbreviations/bridges/ks-consumer-chain.md)

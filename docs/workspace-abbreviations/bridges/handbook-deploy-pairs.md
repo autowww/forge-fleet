@@ -31,7 +31,7 @@ product submodule pointer — handbook shows stale docs.
 ## Using several at once
 
 ff+ffw (fleet-2f1d3), lcdl+flw (lcdl-542d8), fl+flsw (lenses-d0fdb), fp+fpw (forge-platform-1541d),
-fi+fiw (forge-intelligence-handbook, intelligence.forgesdlc.com), sti+stiw (sti-PLACEHOLDER).
+fi+fiw (forge-intelligence-handbook, intelligence.forgesdlc.com), sti+stiw (forge-sti-handbook).
 Each shell submodules kitchensink/ and the matching product repo.
 
 ## Terms covered

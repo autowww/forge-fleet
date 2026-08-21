@@ -64,6 +64,8 @@ Edits belong upstream in **`autowww/blueprints`** and **`autowww/forgesdlc-kitch
 
 Methodology wiring for Cursor (Versonas, Charge paths, Ember log) lives under **`forge/`**, **`ember-logs/`**, and **`forge-logs/`**, driven by **`forge/forge.config.yaml`**. One-time scaffold is already committed when you pull; after a **`blueprints`** submodule bump, refresh rules if templates drifted:
 
+> **Dual profile.** Core Forge **keeps** Ore → Ingot → **Forge Spark** → Charge (**Sparks**). **Under the [Epic execution profile](blueprints/sdlc/methodologies/forge/EPIC-EXECUTION-PROFILE.md)**, Charge lists **Epics** — Spark is not removed for all Forge teams.
+
 ```bash
 bash blueprints/sdlc/methodologies/forge/setup/sync-forge-cursor-rules.sh sync --preset recommended
 bash blueprints/sdlc/methodologies/forge/setup/sync-forge-cursor-rules.sh sync

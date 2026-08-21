@@ -4,7 +4,7 @@ audience: public
 handbook_area: blueprints
 learning_level: reference
 nav_title: "stiw — Forge STI handbook shell"
-description: "Private handbook deploy for STI — forge-sti submodule + kitchensink → Firebase sti-PLACEHOLDER.
+description: "Private handbook deploy for STI — forge-sti submodule + kitchensink → Firebase forge-sti-handbook.
 "
 term_abbr: "stiw"
 term_category: "handbook_shell"
@@ -12,7 +12,7 @@ term_category: "handbook_shell"
 
 # stiw — Forge STI handbook shell
 
-Private handbook deploy for STI — forge-sti submodule + kitchensink → Firebase sti-PLACEHOLDER.
+Private handbook deploy for STI — forge-sti submodule + kitchensink → Firebase forge-sti-handbook.
 
 
 ## What it is

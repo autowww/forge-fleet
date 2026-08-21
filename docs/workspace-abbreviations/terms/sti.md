@@ -29,7 +29,7 @@ forge-sti/
 
 ## How it fits the ecosystem
 
-Handbook via stiw → sti-PLACEHOLDER (sti.forgesdlc.com). Composes with Platform, LCDL, Fleet, Lenses, Blueprints testing discipline.
+Handbook via stiw → forge-sti-handbook (sti.forgesdlc.com). Composes with Platform, LCDL, Fleet, Lenses, Blueprints testing discipline.
 
 ## Typical usage in plans and chat
 
