@@ -18,7 +18,7 @@ def test_ensure_layout_writes_types(tmp_path: Path) -> None:
     assert int(doc.get("version") or 0) >= 2
     assert isinstance(doc.get("categories"), list) and doc["categories"]
     ids = {t["id"] for t in doc.get("types", []) if isinstance(t, dict)}
-    assert "empty" in ids and "forge_llm" in ids
+    assert "empty" in ids and "forge_llm" in ids and "forge_market_studio" in ids
     for t in doc.get("types", []):
         if isinstance(t, dict) and t.get("id") == "forge_llm":
             assert t.get("category_id") == "service"

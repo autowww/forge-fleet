@@ -1,0 +1,298 @@
+# Forge Fleet Granite hosting PDCA — phase order
+
+phases:
+  FH00:
+    title: PDCA scaffold and gate harness
+    wave: GW-0
+    depends_on: []
+    requirement_ids: []
+  FH01:
+    title: Requirements ledger and granite operator boundary
+    wave: GW-0
+    depends_on: [FH00]
+    requirement_ids: [R01, R02, R03, R04, R05, R06, R07, R08, R09, R10, R11, R12, R13, R14, R15, R16, R17, R18, R19, R20, R21, R22, R23, R24]
+  FH02:
+    title: forge-studio-shell private repo skeleton
+    wave: GW-0
+    depends_on: [FH01]
+    requirement_ids: [R11]
+  FH03:
+    title: forge-market private repo and integration branch
+    wave: GW-0
+    depends_on: [FH02]
+    requirement_ids: [R12]
+  FH04:
+    title: forge-migrator private repo skeleton
+    wave: GW-0
+    depends_on: [FH03]
+    requirement_ids: [R10]
+  FH05:
+    title: GW-0 wave closeout
+    wave: GW-0
+    depends_on: [FH04]
+    requirement_ids: []
+  FH10:
+    title: managed_compose_service refactor
+    wave: GW-1
+    depends_on: [FH05]
+    requirement_ids: [R01, R16]
+  FH11:
+    title: Container type catalog forge_market_studio
+    wave: GW-1
+    depends_on: [FH10]
+    requirement_ids: [R01]
+  FH12:
+    title: main.py capability guards
+    wave: GW-1
+    depends_on: [FH11]
+    requirement_ids: [R01, R16]
+  FH13:
+    title: Market Studio compose stack
+    wave: GW-1
+    depends_on: [FH12]
+    requirement_ids: [R02]
+  FH14:
+    title: Compose integration tests
+    wave: GW-1
+    depends_on: [FH13]
+    requirement_ids: [R16]
+  FH15:
+    title: Container service API docs
+    wave: GW-1
+    depends_on: [FH14]
+    requirement_ids: [R17]
+  FH16:
+    title: Market image build job
+    wave: GW-1
+    depends_on: [FH15]
+    requirement_ids: [R23]
+  FH17:
+    title: Market Studio rollout API
+    wave: GW-1
+    depends_on: [FH16]
+    requirement_ids: [R02, R23]
+  FH18:
+    title: GW-1 wave closeout
+    wave: GW-1
+    depends_on: [FH17]
+    requirement_ids: []
+  FH20:
+    title: Migration store schema
+    wave: GW-2
+    depends_on: [FH18]
+    requirement_ids: [R04, R05]
+  FH21:
+    title: Migration REST API
+    wave: GW-2
+    depends_on: [FH20]
+    requirement_ids: [R04, R05, R22]
+  FH22:
+    title: Data bundle upload
+    wave: GW-2
+    depends_on: [FH21]
+    requirement_ids: [R05, R13]
+  FH23:
+    title: Bundle manifest spec
+    wave: GW-2
+    depends_on: [FH22]
+    requirement_ids: [R13, R14, R19]
+  FH24:
+    title: Migration progress API
+    wave: GW-2
+    depends_on: [FH23]
+    requirement_ids: [R22]
+  FH25:
+    title: Job seed corpus volume
+    wave: GW-2
+    depends_on: [FH24]
+    requirement_ids: [R05]
+  FH26:
+    title: Job sqlite to postgres
+    wave: GW-2
+    depends_on: [FH25]
+    requirement_ids: [R03, R05, R21]
+  FH27:
+    title: Job register edge route
+    wave: GW-2
+    depends_on: [FH26]
+    requirement_ids: [R24]
+  FH28:
+    title: GW-2 wave closeout
+    wave: GW-2
+    depends_on: [FH27]
+    requirement_ids: [R17]
+  FH30:
+    title: Postgres connection factory (FMH01)
+    wave: GW-3
+    depends_on: [FH28]
+    requirement_ids: [R03]
+  FH31:
+    title: Postgres DDL (FMH02)
+    wave: GW-3
+    depends_on: [FH30]
+    requirement_ids: [R03]
+  FH32:
+    title: CLI runner wiring (FMH03)
+    wave: GW-3
+    depends_on: [FH31]
+    requirement_ids: [R03]
+  FH33:
+    title: migrate sqlite to postgres tool (FMH04)
+    wave: GW-3
+    depends_on: [FH32]
+    requirement_ids: [R03, R05]
+  FH34:
+    title: Dockerfile container contract (FMH05)
+    wave: GW-3
+    depends_on: [FH33]
+    requirement_ids: [R02, R15]
+  FH35:
+    title: Secondary stores ADR (FMH06)
+    wave: GW-3
+    depends_on: [FH34]
+    requirement_ids: [R14]
+  FH36:
+    title: Postgres tests (FMH07)
+    wave: GW-3
+    depends_on: [FH35]
+    requirement_ids: [R03]
+  FH37:
+    title: Edge sync ADR (FMH08)
+    wave: GW-3
+    depends_on: [FH36]
+    requirement_ids: [R20]
+  FH38:
+    title: GW-3 wave closeout
+    wave: GW-3
+    depends_on: [FH37]
+    requirement_ids: [R18]
+  FH40:
+    title: createStudioApp core (FSS01)
+    wave: GW-4
+    depends_on: [FH38]
+    requirement_ids: [R11]
+  FH41:
+    title: Shell profiles simple attach (FSS02)
+    wave: GW-4
+    depends_on: [FH40]
+    requirement_ids: [R11]
+  FH42:
+    title: Preload IPC tiers (FSS03)
+    wave: GW-4
+    depends_on: [FH41]
+    requirement_ids: [R11]
+  FH43:
+    title: Schema and examples (FSS04)
+    wave: GW-4
+    depends_on: [FH42]
+    requirement_ids: [R11]
+  FH44:
+    title: npm publish shell package (FSS05)
+    wave: GW-4
+    depends_on: [FH43]
+    requirement_ids: [R11]
+  FH45:
+    title: forge-market adopts shell
+    wave: GW-4
+    depends_on: [FH44]
+    requirement_ids: [R11]
+  FH46:
+    title: Shell regression (FSS06)
+    wave: GW-4
+    depends_on: [FH45]
+    requirement_ids: [R11]
+  FH47:
+    title: forge-migrator adopts shell
+    wave: GW-4
+    depends_on: [FH46]
+    requirement_ids: [R10]
+  FH48:
+    title: GW-4 wave closeout
+    wave: GW-4
+    depends_on: [FH47]
+    requirement_ids: []
+  FH50:
+    title: Migrator scaffold (FMI01)
+    wave: GW-5
+    depends_on: [FH48]
+    requirement_ids: [R10]
+  FH51:
+    title: Recipe schema engine (FMI02)
+    wave: GW-5
+    depends_on: [FH50]
+    requirement_ids: [R07]
+  FH52:
+    title: Fleet client (FMI03)
+    wave: GW-5
+    depends_on: [FH51]
+    requirement_ids: [R04, R05]
+  FH53:
+    title: Progress and logs UI (FMI04)
+    wave: GW-5
+    depends_on: [FH52]
+    requirement_ids: [R09]
+  FH54:
+    title: Test results UI (FMI05)
+    wave: GW-5
+    depends_on: [FH53]
+    requirement_ids: [R09]
+  FH55:
+    title: Cursor SDK integration (FMI06)
+    wave: GW-5
+    depends_on: [FH54]
+    requirement_ids: [R08]
+  FH56:
+    title: forge-market recipe (FMI07)
+    wave: GW-5
+    depends_on: [FH55]
+    requirement_ids: [R07, R08]
+  FH57:
+    title: Generic recipe fixture (FMI08)
+    wave: GW-5
+    depends_on: [FH56]
+    requirement_ids: [R07]
+  FH58:
+    title: Migrator e2e Playwright (FMI09)
+    wave: GW-5
+    depends_on: [FH57]
+    requirement_ids: [R09]
+  FH59:
+    title: GW-5 wave closeout
+    wave: GW-5
+    depends_on: [FH58]
+    requirement_ids: []
+  FH60:
+    title: Fleet upgrade on Granite
+    wave: GW-6
+    depends_on: [FH59]
+    requirement_ids: [R06]
+  FH61:
+    title: Staging migration dry run
+    wave: GW-6
+    depends_on: [FH60]
+    requirement_ids: [R04, R05]
+  FH62:
+    title: Production cutover
+    wave: GW-6
+    depends_on: [FH61]
+    requirement_ids: [R04, R05, R24]
+  FH63:
+    title: Rollback drill
+    wave: GW-6
+    depends_on: [FH62]
+    requirement_ids: [R21]
+  FH64:
+    title: Handbooks and OpenAPI
+    wave: GW-6
+    depends_on: [FH63]
+    requirement_ids: [R17, R18]
+  FH65:
+    title: Granite boundary audit
+    wave: GW-6
+    depends_on: [FH64]
+    requirement_ids: [R06]
+  FH70:
+    title: Program closeout
+    wave: GW-6
+    depends_on: [FH65]
+    requirement_ids: [R01, R02, R03, R04, R05, R06, R07, R08, R09, R10, R11, R12, R13, R14, R15, R16, R17, R18, R19, R20, R21, R22, R23, R24]

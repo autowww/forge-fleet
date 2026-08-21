@@ -25,5 +25,7 @@
 | Topic-based snippets (Python / TS / CI) | **[Examples library](../examples/README.md)** |
 | Copy‑paste **`curl`** / **`jq`** | **[Examples & recipes](05-examples-and-recipes.md)** |
 | Curated integrations index | **[Integration recipes hub](06-integration-recipes-index.md)** |
+| Migration API (Granite cutover) | **[Migration API](09-migration-api.md)** |
+| Managed compose services (`forge_llm`, Market Studio) | **[Managed compose services](08-managed-compose-services.md)** |
 
 **Before:** **[Learn 101](../learn-101/README.md)** · **After:** **[Operate 301](../operate-301/README.md)** · **Lookup:** **[HTTP API](../reference/01-http-api-reference.md)** · **[Schemas](../reference/02-schemas-and-openapi.md)**

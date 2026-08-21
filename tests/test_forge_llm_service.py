@@ -27,17 +27,19 @@ def test_resolve_rejects_unknown_file(tmp_path: Path) -> None:
 
 def test_compose_argv_paths(tmp_path: Path) -> None:
     (tmp_path / "compose.yaml").write_text("x", encoding="utf-8")
-    argv = fls._compose_argv(tmp_path, ["compose.yaml"])
+    argv = fls.compose_argv(tmp_path, ["compose.yaml"])
     assert argv[:3] == ["docker", "compose", "-f"]
     assert argv[3] == str((tmp_path / "compose.yaml").resolve())
 
 
 def test_summarize_rows() -> None:
+    from fleet_server import managed_compose_service as mcs
+
     rows = [
         {"Name": "a", "State": "running", "Health": "healthy"},
         {"Name": "b", "State": "exited", "Health": ""},
     ]
-    s = fls._summarize_rows(rows)
+    s = mcs._summarize_rows(rows)
     assert s["services_total"] == 2
     assert s["services_running"] == 1
 
@@ -47,7 +49,7 @@ def test_status_for_record(tmp_path: Path) -> None:
     rec = {"id": "t1", "compose_root": str(tmp_path), "compose_files": []}
     line = json.dumps({"Name": "x", "State": "running"})
     cp = subprocess.CompletedProcess(args=[], returncode=0, stdout=line + "\n", stderr="")
-    with patch("fleet_server.forge_llm_service.subprocess.run", return_value=cp):
+    with patch("fleet_server.managed_compose_service.subprocess.run", return_value=cp):
         st = fls.status_for_record(rec)
     assert st["ok"] is True
     assert st["service_id"] == "t1"
@@ -61,7 +63,7 @@ def test_start_for_record_mock(tmp_path: Path) -> None:
     def fake_run(*_a: object, **_k: object) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(args=[], returncode=0, stdout="ok\n", stderr="")
 
-    with patch("fleet_server.forge_llm_service.subprocess.run", side_effect=fake_run):
+    with patch("fleet_server.managed_compose_service.subprocess.run", side_effect=fake_run):
         out = fls.start_for_record(rec)
     assert out["ok"] is True
 
