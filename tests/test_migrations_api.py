@@ -343,3 +343,49 @@ def test_run_step_before_bundle_rejected(tmp_path: Path) -> None:
         assert body.get("error") == "bundle_not_ready"
     finally:
         _stop_fleet_httpd(httpd, th)
+
+
+def test_extract_uncompressed_limit_returns_recovery_code(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "fleet_server.migrations.migration_bundle_limits.max_bundle_uncompressed_bytes",
+        lambda row=None: 80,
+    )
+    data_dir = tmp_path / "fd-unc"
+    data_dir.mkdir()
+    httpd, th, base = _start_fleet_httpd(data_dir)
+    try:
+        req = urllib.request.Request(
+            f"{base}/v1/migrations",
+            data=json.dumps({"source_label": "forge-market", "meta": {"app_slug": "forge-market"}}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            created = json.loads(resp.read().decode())
+        assert created.get("bundle_uncompressed_max_bytes") == 80
+        mid = created["id"]
+        blob = _migration_tar_gz(
+            {"corpus": True, "raw_sec": False, "broker": False, "wiki": False},
+            extra_files={"data/big.bin": b"x" * 200},
+        )
+        req2 = urllib.request.Request(
+            f"{base}/v1/migrations/{mid}/data-bundle",
+            data=blob,
+            headers={
+                "Content-Type": "application/octet-stream",
+                "Content-Length": str(len(blob)),
+            },
+            method="PUT",
+        )
+        with pytest.raises(urllib.error.HTTPError) as exc_info:
+            urllib.request.urlopen(req2, timeout=60)
+        assert exc_info.value.code == 400
+        body = json.loads(exc_info.value.read().decode())
+        assert body.get("error") == "extract_failed"
+        assert body.get("detail") == "uncompressed_size_exceeded"
+        assert body.get("recovery_code") == "uncompressed_size_exceeded"
+        assert body.get("max_uncompressed_bytes") == 80
+    finally:
+        _stop_fleet_httpd(httpd, th)

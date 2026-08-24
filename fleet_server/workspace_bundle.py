@@ -339,26 +339,14 @@ def inject_workspace_bind_mount(
     return argv[:ins] + pair + argv[ins:]
 
 
-def extract_tarball_bytes_to_directory(
-    data: bytes,
+def _extract_opened_tar(
+    tf: tarfile.TarFile,
     dest_root: Path,
     *,
     max_uncompressed_bytes: int,
     max_files: int,
     max_path_depth: int,
 ) -> str | None:
-    """
-    Safely extract a gzip tarball (or uncompressed tar) into ``dest_root``.
-
-    Returns ``None`` on success, or a short machine-readable error token on failure.
-    """
-    is_gz = len(data) >= 2 and data[0] == 0x1F and data[1] == 0x8B
-    try:
-        mode = "r:gz" if is_gz else "r:"
-        tf = tarfile.open(fileobj=io.BytesIO(data), mode=mode)
-    except (tarfile.TarError, OSError, EOFError) as ex:
-        return f"invalid_archive:{ex}"
-
     unc_bytes = 0
     n_files = 0
     try:
@@ -398,9 +386,70 @@ def extract_tarball_bytes_to_directory(
                     return "extract_failed"
     except (tarfile.TarError, OSError) as ex:
         return f"extract_failed:{ex}"
+    return None
+
+
+def extract_tarball_bytes_to_directory(
+    data: bytes,
+    dest_root: Path,
+    *,
+    max_uncompressed_bytes: int,
+    max_files: int,
+    max_path_depth: int,
+) -> str | None:
+    """
+    Safely extract a gzip tarball (or uncompressed tar) into ``dest_root``.
+
+    Returns ``None`` on success, or a short machine-readable error token on failure.
+    """
+    is_gz = len(data) >= 2 and data[0] == 0x1F and data[1] == 0x8B
+    try:
+        mode = "r:gz" if is_gz else "r:"
+        tf = tarfile.open(fileobj=io.BytesIO(data), mode=mode)
+    except (tarfile.TarError, OSError, EOFError) as ex:
+        return f"invalid_archive:{ex}"
+    try:
+        return _extract_opened_tar(
+            tf,
+            dest_root,
+            max_uncompressed_bytes=max_uncompressed_bytes,
+            max_files=max_files,
+            max_path_depth=max_path_depth,
+        )
     finally:
         try:
             tf.close()
         except OSError:
             pass
-    return None
+
+
+def extract_tarball_path_to_directory(
+    archive_path: Path,
+    dest_root: Path,
+    *,
+    max_uncompressed_bytes: int,
+    max_files: int,
+    max_path_depth: int,
+) -> str | None:
+    """Extract a tar/tar.gz from disk so large Market bundles are not fully buffered."""
+    try:
+        with archive_path.open("rb") as fh:
+            magic = fh.read(2)
+        is_gz = magic == b"\x1f\x8b"
+        mode = "r:gz" if is_gz else "r:"
+        tf = tarfile.open(archive_path, mode=mode)
+    except (tarfile.TarError, OSError, EOFError) as ex:
+        return f"invalid_archive:{ex}"
+    try:
+        return _extract_opened_tar(
+            tf,
+            dest_root,
+            max_uncompressed_bytes=max_uncompressed_bytes,
+            max_files=max_files,
+            max_path_depth=max_path_depth,
+        )
+    finally:
+        try:
+            tf.close()
+        except OSError:
+            pass

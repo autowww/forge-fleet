@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from fleet_server import migration_jobs, runner, store, workspace_bundle
+from fleet_server import migration_bundle_limits, migration_jobs, runner, store, workspace_bundle
 
 MIGRATION_MANIFEST_FILENAME = ".forge_migration_manifest.json"
 
@@ -30,7 +30,7 @@ _FLAG_TO_STEP: dict[str, str] = {
     "wiki": "seed_corpus_volume",
 }
 
-_DEFAULT_MAX_MIGRATION_UPLOAD = 500 * 1024 * 1024
+_DEFAULT_MAX_MIGRATION_UPLOAD = migration_bundle_limits._DEFAULT_GLOBAL_MAX_BYTES
 _DEFAULT_CHUNK_SIZE_BYTES = 64 * 1024 * 1024
 
 
@@ -93,31 +93,70 @@ def _migration_upload_guard(row: dict[str, Any] | None) -> dict[str, Any] | None
     return None
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        while True:
+            buf = fh.read(1024 * 1024)
+            if not buf:
+                break
+            digest.update(buf)
+    return digest.hexdigest()
+
+
+def _extract_error_payload(err: str, row: dict[str, Any] | None) -> dict[str, Any]:
+    token = str(err or "extract_failed").split(":", 1)[0]
+    payload: dict[str, Any] = {
+        "ok": False,
+        "error": "extract_failed",
+        "detail": err,
+        "recovery_code": token,
+    }
+    if token == "uncompressed_size_exceeded":
+        payload["max_uncompressed_bytes"] = migration_bundle_limits.max_bundle_uncompressed_bytes(row)
+    if token == "too_many_files":
+        payload["max_files"] = migration_bundle_limits.max_bundle_files(row)
+    return payload
+
+
 def _complete_bundle_upload(
     conn: Any,
     db_path: Path,
     data_dir: Path,
     migration_id: str,
-    raw: bytes,
+    raw: bytes | None = None,
+    *,
+    archive_path: Path | None = None,
+    sha256_hex: str | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     row = store.get_migration(conn, migration_id)
     guard = _migration_upload_guard(row)
     if guard:
         return None, guard
 
-    unc, sha256_hex, err, manifest = extract_migration_bundle(
-        raw, data_dir=data_dir, migration_id=migration_id
+    unc, sha256_out, err, manifest = extract_migration_bundle(
+        raw,
+        archive_path=archive_path,
+        data_dir=data_dir,
+        migration_id=migration_id,
+        migration_row=row,
+        sha256_hex=sha256_hex,
     )
     if err:
-        return None, {"ok": False, "error": "extract_failed", "detail": err}
+        return None, _extract_error_payload(err, row)
+
+    if archive_path is not None:
+        upload_len = int(archive_path.stat().st_size)
+    else:
+        upload_len = len(raw or b"")
 
     st = str(row.get("status") or "")
     patch: dict[str, Any] = {
         "bundle_state": "ready",
-        "bundle_sha256": sha256_hex,
-        "bundle_upload_bytes": len(raw),
+        "bundle_sha256": sha256_out,
+        "bundle_upload_bytes": upload_len,
         "bundle_uncompressed_bytes": unc,
-        "bytes_transferred": int(row.get("bytes_transferred") or 0) + len(raw),
+        "bytes_transferred": int(row.get("bytes_transferred") or 0) + upload_len,
         "manifest": manifest,
     }
     if st == "pending":
@@ -132,14 +171,8 @@ def _complete_bundle_upload(
     return payload, None
 
 
-def max_migration_bundle_upload_bytes() -> int:
-    raw = str(os.environ.get("FLEET_MIGRATION_BUNDLE_UPLOAD_MAX_BYTES") or "").strip()
-    if not raw:
-        return _DEFAULT_MAX_MIGRATION_UPLOAD
-    try:
-        return max(1_048_576, int(raw, 10))
-    except ValueError:
-        return _DEFAULT_MAX_MIGRATION_UPLOAD
+def max_migration_bundle_upload_bytes(migration_row: dict[str, Any] | None = None) -> int:
+    return migration_bundle_limits.max_bundle_upload_bytes(migration_row)
 
 
 def migration_bundle_dir(data_dir: Path, migration_id: str) -> Path:
@@ -184,6 +217,7 @@ def parse_migration_manifest(ext_root: Path) -> tuple[dict[str, Any] | None, str
         "raw_sec": bool(flags.get("raw_sec")),
         "broker": bool(flags.get("broker")),
         "wiki": bool(flags.get("wiki")),
+        "database": bool(flags.get("database")),
     }
     out: dict[str, Any] = {
         "schema_version": 1,
@@ -201,9 +235,11 @@ def _flag_skip_reason(kind: str, flags: dict[str, bool]) -> str | None:
     k = str(kind)
     if k == "restore_from_bundle":
         return None
-    if k == "seed_corpus_volume" and not (flags.get("corpus") or flags.get("wiki")):
-        return "manifest_flags_no_corpus_or_wiki"
-    if k == "migrate_db" and not (flags.get("raw_sec") or flags.get("broker")):
+    if k == "seed_corpus_volume":
+        return None
+    if k == "migrate_db" and not (
+        flags.get("database") or flags.get("raw_sec") or flags.get("broker")
+    ):
         return "manifest_flags_no_db_payload"
     if k in ("build_image", "deploy_service", "register_edge_route"):
         return None
@@ -230,39 +266,70 @@ def apply_manifest_to_steps(
 
 
 def extract_migration_bundle(
-    data: bytes,
+    data: bytes | None = None,
     *,
+    archive_path: Path | None = None,
     data_dir: Path,
     migration_id: str,
+    migration_row: dict[str, Any] | None = None,
+    sha256_hex: str | None = None,
 ) -> tuple[int, str, str | None, dict[str, Any] | None]:
     """
-    Extract tarball bytes into ``migration-bundles/{id}/extracted``.
+    Extract a tarball into ``migration-bundles/{id}/extracted``.
+
+    Pass either in-memory ``data`` (small/single-shot uploads) or ``archive_path``
+    (chunked Market bundles) so Granite does not buffer multi-gigabyte archives.
 
     Returns ``(uncompressed_bytes, sha256_hex, error_or_none, manifest_or_none)``.
     """
+    if (data is None) == (archive_path is None):
+        return 0, "", "extract_input_invalid", None
+
     prof = migration_profile()
+    max_unc = migration_bundle_limits.max_bundle_uncompressed_bytes(migration_row)
+    max_files = migration_bundle_limits.max_bundle_files(migration_row)
+    max_depth = int(prof.get("max_path_depth") or 50)
     jdir = migration_bundle_dir(data_dir, migration_id)
-    if jdir.exists():
-        shutil.rmtree(jdir, ignore_errors=True)
     ext_root = jdir / "extracted"
     jdir.mkdir(parents=True, exist_ok=True)
-    (jdir / "upload.raw").write_bytes(data)
-    sha_body = hashlib.sha256(data).hexdigest()
 
-    err = workspace_bundle.extract_tarball_bytes_to_directory(
-        data,
-        ext_root,
-        max_uncompressed_bytes=int(prof.get("max_uncompressed_bytes") or 2 * 1024 * 1024 * 1024),
-        max_files=int(prof.get("max_files") or 200_000),
-        max_path_depth=int(prof.get("max_path_depth") or 50),
-    )
-    if err:
-        shutil.rmtree(jdir, ignore_errors=True)
-        return 0, sha_body, err, None
+    if archive_path is not None:
+        if ext_root.exists():
+            shutil.rmtree(ext_root, ignore_errors=True)
+        sha_body = sha256_hex or _sha256_file(archive_path)
+        err = workspace_bundle.extract_tarball_path_to_directory(
+            archive_path,
+            ext_root,
+            max_uncompressed_bytes=max_unc,
+            max_files=max_files,
+            max_path_depth=max_depth,
+        )
+        if err:
+            shutil.rmtree(ext_root, ignore_errors=True)
+            return 0, sha_body, err, None
+    else:
+        if jdir.exists():
+            shutil.rmtree(jdir, ignore_errors=True)
+        jdir.mkdir(parents=True, exist_ok=True)
+        blob = data or b""
+        (jdir / "upload.raw").write_bytes(blob)
+        sha_body = hashlib.sha256(blob).hexdigest()
+        err = workspace_bundle.extract_tarball_bytes_to_directory(
+            blob,
+            ext_root,
+            max_uncompressed_bytes=max_unc,
+            max_files=max_files,
+            max_path_depth=max_depth,
+        )
+        if err:
+            shutil.rmtree(jdir, ignore_errors=True)
+            return 0, sha_body, err, None
 
     manifest, m_err = parse_migration_manifest(ext_root)
     if m_err:
-        shutil.rmtree(jdir, ignore_errors=True)
+        shutil.rmtree(ext_root, ignore_errors=True)
+        if data is not None:
+            shutil.rmtree(jdir, ignore_errors=True)
         return 0, sha_body, m_err, None
     return _sum_extracted_bytes(ext_root), sha_body, None, manifest
 
@@ -333,6 +400,9 @@ def public_migration_payload(row: dict[str, Any]) -> dict[str, Any]:
         "bytes_transferred": row.get("bytes_transferred") or 0,
         "manifest": manifest,
         "meta": dict(row.get("meta") or {}) if isinstance(row.get("meta"), dict) else {},
+        "bundle_upload_max_bytes": max_migration_bundle_upload_bytes(row),
+        "bundle_uncompressed_max_bytes": migration_bundle_limits.max_bundle_uncompressed_bytes(row),
+        "bundle_max_files": migration_bundle_limits.max_bundle_files(row),
         "steps": steps_out,
         "created": row.get("created"),
         "updated": row.get("updated"),
@@ -385,12 +455,14 @@ def start_bundle_upload_session(
         return None, {"ok": False, "error": "invalid_body", "detail": "total_bytes must be a positive integer"}
     if total <= 0:
         return None, {"ok": False, "error": "invalid_body", "detail": "total_bytes must be > 0"}
-    max_up = max_migration_bundle_upload_bytes()
+    max_up = max_migration_bundle_upload_bytes(row)
     if total > max_up:
         return None, {
             "ok": False,
             "error": "bundle_too_large",
             "detail": f"total_bytes {total} exceeds max {max_up}",
+            "recovery_code": "bundle_too_large",
+            "max_upload_bytes": max_up,
         }
 
     size = int(chunk_size or default_chunk_size_bytes())
@@ -513,31 +585,64 @@ def finalize_chunked_bundle(
             "detail": f"missing chunk indexes: {missing[:20]}",
             "received_chunks": len(received),
             "chunk_count": chunk_count,
+            "recovery_code": "chunks_incomplete",
         }
 
     chunks_dir = _chunks_dir(data_dir, migration_id)
-    parts: list[bytes] = []
-    for idx in range(chunk_count):
-        chunk_path = chunks_dir / f"{idx:06d}"
-        if not chunk_path.is_file():
-            return None, {"ok": False, "error": "chunks_incomplete", "detail": f"missing chunk file {idx}"}
-        parts.append(chunk_path.read_bytes())
+    jdir = migration_bundle_dir(data_dir, migration_id)
+    jdir.mkdir(parents=True, exist_ok=True)
+    assembled = jdir / "assembled.bin"
+    hasher = hashlib.sha256()
+    written = 0
+    with assembled.open("wb") as out:
+        for idx in range(chunk_count):
+            chunk_path = chunks_dir / f"{idx:06d}"
+            if not chunk_path.is_file():
+                assembled.unlink(missing_ok=True)
+                return None, {
+                    "ok": False,
+                    "error": "chunks_incomplete",
+                    "detail": f"missing chunk file {idx}",
+                    "recovery_code": "chunks_incomplete",
+                }
+            with chunk_path.open("rb") as fh:
+                while True:
+                    buf = fh.read(1024 * 1024)
+                    if not buf:
+                        break
+                    hasher.update(buf)
+                    out.write(buf)
+                    written += len(buf)
 
-    raw = b"".join(parts)
     expected_sha = str(session.get("sha256") or "").lower()
-    actual_sha = hashlib.sha256(raw).hexdigest()
+    actual_sha = hasher.hexdigest()
     if actual_sha != expected_sha:
+        assembled.unlink(missing_ok=True)
         return None, {
             "ok": False,
             "error": "bundle_sha256_mismatch",
             "detail": "assembled bundle digest does not match upload session sha256",
+            "recovery_code": "bundle_sha256_mismatch",
         }
-    if len(raw) != int(session.get("total_bytes") or 0):
-        return None, {"ok": False, "error": "bundle_size_mismatch"}
+    if written != int(session.get("total_bytes") or 0):
+        assembled.unlink(missing_ok=True)
+        return None, {
+            "ok": False,
+            "error": "bundle_size_mismatch",
+            "recovery_code": "bundle_size_mismatch",
+        }
 
-    ok_payload, err_payload = _complete_bundle_upload(conn, db_path, data_dir, migration_id, raw)
+    shutil.rmtree(chunks_dir, ignore_errors=True)
+    ok_payload, err_payload = _complete_bundle_upload(
+        conn,
+        db_path,
+        data_dir,
+        migration_id,
+        archive_path=assembled,
+        sha256_hex=actual_sha,
+    )
+    assembled.unlink(missing_ok=True)
     if err_payload is None:
-        shutil.rmtree(chunks_dir, ignore_errors=True)
         session_path = _upload_session_path(data_dir, migration_id)
         if session_path.is_file():
             session_path.unlink(missing_ok=True)
@@ -598,7 +703,42 @@ def run_migration_step(
         return None, {"ok": False, "error": "step_already_active"}
 
     kind = str(step.get("kind") or "")
+    mig_meta = dict(row.get("meta") or {}) if isinstance(row.get("meta"), dict) else {}
     step_meta = dict(step.get("meta") or {}) if isinstance(step.get("meta"), dict) else {}
+    step_meta = {**mig_meta, **step_meta}
+    from fleet_server import app_gateway
+
+    if kind == "deploy_service":
+        try:
+            app_gateway.apply_compose_env(step_meta)
+            prep = app_gateway.prepare_compose_app_bearer(step_meta)
+        except ValueError as ex:
+            return None, {"ok": False, "error": "app_bearer_setup_failed", "detail": str(ex)[:800]}
+        if prep.get("generated"):
+            step_meta = {**step_meta, "force_recreate": True}
+
+    if kind == "register_edge_route":
+        try:
+            result = app_gateway.register_from_migration_meta(data_dir, step_meta)
+        except ValueError as ex:
+            return None, {"ok": False, "error": "gateway_register_failed", "detail": str(ex)[:800]}
+        store.update_step(
+            conn,
+            step_id,
+            status="completed",
+            meta_patch={"gateway": result, "new_tunnel": False},
+        )
+        return (
+            {
+                "ok": True,
+                "migration_id": migration_id,
+                "step_id": step_id,
+                "status": "completed",
+                "gateway": result,
+            },
+            None,
+        )
+
     bundle_root = bundle_extracted_root(data_dir, migration_id)
     try:
         argv = migration_jobs.build_argv_for_step(
