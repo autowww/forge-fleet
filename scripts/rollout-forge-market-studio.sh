@@ -98,6 +98,15 @@ EOF
   fi
 }
 
+sync_forge_market_checkout() {
+  if [[ -d "${FORGE_MARKET_ROOT}/.git" ]]; then
+    log "git pull --ff-only in ${FORGE_MARKET_ROOT}"
+    git -C "${FORGE_MARKET_ROOT}" pull --ff-only || die "forge-market git pull failed"
+  else
+    log "forge-market root is not a git checkout — using tree as-is"
+  fi
+}
+
 deploy_compose_stack() {
   cd "$MARKET_STUDIO_ROOT"
   local -a files=(-f compose.yaml)
@@ -155,10 +164,13 @@ main() {
   command -v curl >/dev/null || die "curl missing"
   ensure_paths
   ensure_env_file
+  sync_forge_market_checkout
   deploy_compose_stack
   register_fleet_service
   smoke
   log "rollout complete (market studio loopback :${FORGE_MARKET_STUDIO_HOST_PORT:-19792})"
+  log "optional Granite host edge: forge-market/scripts/granite/install-granite-edge-plane.sh"
+  log "optional Granite scheduler: forge-fleet/scripts/install-granite-market-scheduler.sh"
 }
 
 main "$@"
