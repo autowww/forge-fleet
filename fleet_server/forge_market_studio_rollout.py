@@ -14,6 +14,7 @@ _ROLLOUT_ENV_KEYS = (
     "FORGE_MARKET_STUDIO_ROOT",
     "FORGE_MARKET_COMPOSE_FILES",
     "FORGE_MARKET_STUDIO_HOST_PORT",
+    "FORGE_MARKET_DOCKERFILE",
 )
 
 
@@ -49,6 +50,7 @@ def _apply_rollout_overrides(env: dict[str, str], overrides: dict[str, Any]) -> 
         "forge_market_studio_root": "FORGE_MARKET_STUDIO_ROOT",
         "forge_market_compose_files": "FORGE_MARKET_COMPOSE_FILES",
         "forge_market_studio_host_port": "FORGE_MARKET_STUDIO_HOST_PORT",
+        "forge_market_dockerfile": "FORGE_MARKET_DOCKERFILE",
     }
     for src, dst in alias.items():
         val = str(overrides.get(src) or overrides.get(dst) or "").strip()

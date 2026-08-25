@@ -1181,6 +1181,7 @@ class FleetHandler(BaseHTTPRequestHandler):
                     "forge_market_studio_root",
                     "forge_market_compose_files",
                     "forge_market_studio_host_port",
+                    "forge_market_dockerfile",
                 )
                 if body.get(k) is not None
             }

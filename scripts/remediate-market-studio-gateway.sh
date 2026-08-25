@@ -15,6 +15,9 @@ fi
 BASE="${FORGE_FLEET_BASE_URL:-${FLEET_BASE_URL:-}}"
 TOK="${FORGE_FLEET_BEARER_TOKEN:-${FLEET_BEARER_TOKEN:-}}"
 GATEWAY="${FORGE_MARKET_REMOTE_API:-${BASE}/v1/app-gateways/market-studio}"
+REMEDIATE_STUDIO_ROOT="${REMEDIATE_STUDIO_ROOT:-/home/administrator/.local/share/forge-fleet/deploy/forge-market-studio}"
+REMEDIATE_MARKET_ROOT="${REMEDIATE_MARKET_ROOT:-/home/administrator/forge-market}"
+REMEDIATE_DOCKERFILE="${REMEDIATE_DOCKERFILE:-${REMEDIATE_STUDIO_ROOT}/Dockerfile.market-app}"
 FORGE_MARKET_ROOT="${FORGE_MARKET_ROOT:-}"
 POLL_SEC="${REMEDIATE_POLL_SEC:-15}"
 MAX_WAIT_SEC="${REMEDIATE_MAX_WAIT_SEC:-900}"
@@ -47,14 +50,16 @@ log "2/5 sync built-in container types (forge_market_studio)"
 fleet_post /v1/admin/sync-container-types '{}' | python3 -c "import json,sys; d=json.load(sys.stdin); print('added', d.get('added',[]))" || true
 
 log "3/5 schedule market-studio compose rollout (async — docker build may take several minutes)"
-ROLL_BODY='{"sync": false}'
-if [[ -n "${FORGE_MARKET_ROOT}" ]]; then
-  ROLL_BODY="$(python3 - <<PY
+ROLL_BODY="$(python3 - <<'PY'
 import json, os
-print(json.dumps({"sync": False, "forge_market_root": os.environ["FORGE_MARKET_ROOT"]}))
+print(json.dumps({
+  "sync": False,
+  "forge_market_root": os.environ["REMEDIATE_MARKET_ROOT"],
+  "forge_market_studio_root": os.environ["REMEDIATE_STUDIO_ROOT"],
+  "forge_market_dockerfile": os.environ["REMEDIATE_DOCKERFILE"],
+}))
 PY
 )"
-fi
 fleet_post /v1/admin/forge-market-studio-rollout "$ROLL_BODY" | python3 -m json.tool
 
 log "4/5 poll rollout log + gateway health (up to ${MAX_WAIT_SEC}s)"
