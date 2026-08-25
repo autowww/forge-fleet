@@ -332,7 +332,7 @@ def run_job(db_path: Path, job_id: str) -> None:
         if job_row is not None:
             from fleet_server import migrations as fleet_migrations
 
-            fleet_migrations.sync_step_from_job(conn, job_row)
+            fleet_migrations.sync_step_from_job(conn, job_row, data_dir=data_dir)
     finally:
         conn.close()
     if cleanup_workspace:

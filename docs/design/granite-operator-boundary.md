@@ -13,10 +13,12 @@ Hard rule for **ff-granite-hosting-pdca**: Granite SSH is **only** for upgrading
 | Register HTTPS route | Fleet migration step `register_edge_route` (app gateway on the existing Fleet API hostname; no new Cloudflare tunnel) |
 | Rollback | `POST …/stop`, re-run restore migration steps from same bundle |
 | Debug | Read-only `journalctl`, `docker ps` **only when Fleet API status is insufficient** — no mutating commands |
+| Granite host edge bootstrap (once) | Documented scripts in [granite-market-edge-plane.md](../operate/granite-market-edge-plane.md) — Edge CDP + scheduler; **not** IB Gateway; **not** laptop profile copy |
 
 ## Forbidden on Granite SSH
 
 - `scp`, `rsync`, manual `tar` extract for migration bundles
+- Copying analyst laptop Edge profile (`~/.config/microsoft-edge`) to Granite
 - Manual `docker compose` for Market Studio or market-related stacks
 - Manual volume copies or volume surgery
 - Manual Caddy / edge config edits for Market Studio routes

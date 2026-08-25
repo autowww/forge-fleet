@@ -76,10 +76,87 @@ def _save_upload_session(data_dir: Path, migration_id: str, session: dict[str, A
     )
 
 
-def _clear_chunk_upload_state(data_dir: Path, migration_id: str) -> None:
+_EXTRACT_STEP_KINDS = {"seed_corpus_volume", "migrate_db", "restore_from_bundle"}
+_SCRATCH_ACTIVE_STEPS = {"pending", "queued", "running", "failed"}
+
+
+def _dir_bytes(root: Path) -> int:
+    return _sum_extracted_bytes(root) if root.is_dir() else 0
+
+
+def purge_migration_scratch(data_dir: Path, migration_id: str) -> int:
+    """Delete chunk files, assembled archive, and extracted tree for one session."""
     jdir = migration_bundle_dir(data_dir, migration_id)
-    if jdir.is_dir():
-        shutil.rmtree(jdir, ignore_errors=True)
+    if not jdir.is_dir():
+        return 0
+    freed = _dir_bytes(jdir)
+    shutil.rmtree(jdir, ignore_errors=True)
+    return freed
+
+
+def _clear_chunk_upload_state(data_dir: Path, migration_id: str) -> None:
+    purge_migration_scratch(data_dir, migration_id)
+
+
+def migration_scratch_needed(row: dict[str, Any] | None) -> bool:
+    """True when chunk/extracted files are still required for upload or extract steps."""
+    if row is None:
+        return False
+    status = str(row.get("status") or "")
+    if status in {"cancelled", "completed"}:
+        return False
+    if str(row.get("bundle_state") or "") == "uploading":
+        return True
+    steps = row.get("steps") if isinstance(row.get("steps"), list) else []
+    for step in steps:
+        if str(step.get("kind") or "") not in _EXTRACT_STEP_KINDS:
+            continue
+        if str(step.get("status") or "") in _SCRATCH_ACTIVE_STEPS:
+            return True
+    return False
+
+
+def maybe_purge_migration_scratch(conn: Any, data_dir: Path, migration_id: str) -> int:
+    row = store.get_migration(conn, migration_id)
+    if migration_scratch_needed(row):
+        return 0
+    return purge_migration_scratch(data_dir, migration_id)
+
+
+def purge_idle_migration_scratch(conn: Any, data_dir: Path) -> dict[str, Any]:
+    """Remove leftover Market/Fleet bundle chunks after cancel, complete, or skipped extract steps."""
+    root = data_dir / "migration-bundles"
+    purged: list[dict[str, Any]] = []
+    kept: list[dict[str, Any]] = []
+    bytes_freed = 0
+    if not root.is_dir():
+        return {"ok": True, "purged": purged, "kept": kept, "bytes_freed": 0}
+    for child in sorted(root.iterdir()):
+        if not child.is_dir():
+            continue
+        mid = child.name
+        row = store.get_migration(conn, mid)
+        if migration_scratch_needed(row):
+            kept.append(
+                {
+                    "id": mid,
+                    "status": str((row or {}).get("status") or "unknown"),
+                    "bundle_state": str((row or {}).get("bundle_state") or ""),
+                }
+            )
+            continue
+        freed = _dir_bytes(child)
+        shutil.rmtree(child, ignore_errors=True)
+        if not child.exists():
+            bytes_freed += freed
+            purged.append(
+                {
+                    "id": mid,
+                    "status": str((row or {}).get("status") or "missing"),
+                    "bytes_freed": freed,
+                }
+            )
+    return {"ok": True, "purged": purged, "kept": kept, "bytes_freed": bytes_freed}
 
 
 def _migration_upload_guard(row: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -652,13 +729,24 @@ def finalize_chunked_bundle(
     return ok_payload, err_payload
 
 
-def cancel_migration_session(conn: Any, db_path: Path, migration_id: str) -> dict[str, Any]:
+def cancel_migration_session(
+    conn: Any,
+    db_path: Path,
+    migration_id: str,
+    data_dir: Path | None = None,
+) -> dict[str, Any]:
     row = store.get_migration(conn, migration_id)
     if row is None:
         return {"ok": False, "error": "not_found"}
     st = str(row.get("status") or "")
     if st in ("cancelled", "completed"):
-        return {"ok": True, "status": st, "already_terminal": True}
+        bytes_freed = purge_migration_scratch(data_dir, migration_id) if data_dir is not None else 0
+        return {
+            "ok": True,
+            "status": st,
+            "already_terminal": True,
+            "bytes_freed": bytes_freed,
+        }
 
     for step in row.get("steps") if isinstance(row.get("steps"), list) else []:
         jid = str(step.get("job_id") or "").strip()
@@ -670,7 +758,8 @@ def cancel_migration_session(conn: Any, db_path: Path, migration_id: str) -> dic
             store.update_step(conn, str(step["id"]), status="cancelled")
 
     store.update_migration(conn, migration_id, status="cancelled")
-    return {"ok": True, "status": "cancelled"}
+    bytes_freed = purge_migration_scratch(data_dir, migration_id) if data_dir is not None else 0
+    return {"ok": True, "status": "cancelled", "bytes_freed": bytes_freed}
 
 
 def run_migration_step(
@@ -728,6 +817,7 @@ def run_migration_step(
             status="completed",
             meta_patch={"gateway": result, "new_tunnel": False},
         )
+        _maybe_finalize_migration(conn, migration_id, data_dir=data_dir)
         return (
             {
                 "ok": True,
@@ -775,7 +865,11 @@ def run_migration_step(
     )
 
 
-def sync_step_from_job(conn: Any, job_row: dict[str, Any]) -> None:
+def sync_step_from_job(
+    conn: Any,
+    job_row: dict[str, Any],
+    data_dir: Path | None = None,
+) -> None:
     """Advance migration step state when a linked job reaches a terminal status."""
     meta = job_row.get("meta") if isinstance(job_row.get("meta"), dict) else {}
     step_id = str(meta.get("migration_step_id") or "").strip()
@@ -788,10 +882,14 @@ def sync_step_from_job(conn: Any, job_row: dict[str, Any]) -> None:
         store.update_step(conn, step_id, status=job_status)
     migration_id = str(meta.get("migration_id") or "").strip()
     if migration_id:
-        _maybe_finalize_migration(conn, migration_id)
+        _maybe_finalize_migration(conn, migration_id, data_dir=data_dir)
 
 
-def _maybe_finalize_migration(conn: Any, migration_id: str) -> None:
+def _maybe_finalize_migration(
+    conn: Any,
+    migration_id: str,
+    data_dir: Path | None = None,
+) -> None:
     row = store.get_migration(conn, migration_id)
     if row is None:
         return
@@ -806,3 +904,5 @@ def _maybe_finalize_migration(conn: Any, migration_id: str) -> None:
             store.update_migration(conn, migration_id, status="cancelled")
         else:
             store.update_migration(conn, migration_id, status="completed")
+    if data_dir is not None:
+        maybe_purge_migration_scratch(conn, data_dir, migration_id)

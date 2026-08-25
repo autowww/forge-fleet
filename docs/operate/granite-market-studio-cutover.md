@@ -11,16 +11,24 @@ Deploy and migrate Forge Market Studio on Granite **without SSH file operations*
 
 ## Preferred operator path — Market Studio Settings
 
-1. Launch UI against Granite data plane (operator plane stays local):
+1. Launch UI against Granite data plane (operator optional for migrate only):
 
    ```bash
    cd forge-market
+   ./scripts/start-market-studio.sh --ui-remote --with-operator
+   ```
+
+   Thin client: all `/api` and `/health` go to the Fleet app gateway. With `--with-operator`, `/api/operator/*` stays on local `:9792` for Settings migrate/wipe. Default thin mode (no flag) runs **Vite only**.
+
+2. After cutover, daily use:
+
+   ```bash
    ./scripts/start-market-studio.sh --ui-remote
    ```
 
-   Vite proxies `/api` and `/health` to the Fleet app gateway; `/api/operator/*` stays on local `:9792`.
+3. On Granite host, install edge plane + scheduler — [granite-market-edge-plane.md](../operate/granite-market-edge-plane.md).
 
-2. Open **Settings → Move data to Granite** — selects corpus/DB/broker/wiki flags, runs local backup, builds a chunked Fleet bundle, and runs Fleet steps in order.
+4. Open **Settings → Move data to Granite** — selects corpus/DB/raw flags, runs local backup, builds a chunked Fleet bundle, and runs Fleet steps in order.
 
 3. After completion, **Test remote data** compares gateway `/health` and `/api/storage/inventory` to the pre-migrate local snapshot.
 
