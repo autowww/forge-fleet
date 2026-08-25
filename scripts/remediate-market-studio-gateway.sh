@@ -50,6 +50,7 @@ log "2/5 sync built-in container types (forge_market_studio)"
 fleet_post /v1/admin/sync-container-types '{}' | python3 -c "import json,sys; d=json.load(sys.stdin); print('added', d.get('added',[]))" || true
 
 log "3/5 schedule market-studio compose rollout (async — docker build may take several minutes)"
+export REMEDIATE_STUDIO_ROOT REMEDIATE_MARKET_ROOT REMEDIATE_DOCKERFILE
 ROLL_BODY="$(python3 - <<'PY'
 import json, os
 print(json.dumps({

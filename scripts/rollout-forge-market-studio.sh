@@ -71,11 +71,21 @@ EOF
     # shellcheck disable=SC1090
     set -a && source "$ENV_FILE" && set +a
   fi
+  _root_override="${FORGE_MARKET_ROOT:-}"
+  _dockerfile_override="${FORGE_MARKET_DOCKERFILE:-}"
   # shellcheck disable=SC1091
   set -a && source .env && set +a
-  FORGE_MARKET_ROOT="$(resolve_forge_market_root)" || die "forge-market checkout missing (set FORGE_MARKET_ROOT)"
+  if [[ -n "$_root_override" ]]; then
+    FORGE_MARKET_ROOT="$_root_override"
+  else
+    FORGE_MARKET_ROOT="$(resolve_forge_market_root)" || die "forge-market checkout missing (set FORGE_MARKET_ROOT)"
+  fi
   export FORGE_MARKET_ROOT
-  export FORGE_MARKET_DOCKERFILE="${FORGE_MARKET_DOCKERFILE:-$FLEET_ROOT/deploy/forge-market-studio/Dockerfile.market-app}"
+  if [[ -n "$_dockerfile_override" ]]; then
+    export FORGE_MARKET_DOCKERFILE="$_dockerfile_override"
+  else
+    export FORGE_MARKET_DOCKERFILE="$FLEET_ROOT/deploy/forge-market-studio/Dockerfile.market-app"
+  fi
   if grep -q '^FORGE_MARKET_ROOT=' .env 2>/dev/null; then
     sed -i "s|^FORGE_MARKET_ROOT=.*|FORGE_MARKET_ROOT=${FORGE_MARKET_ROOT}|" .env
   else
