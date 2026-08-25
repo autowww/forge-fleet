@@ -39,22 +39,22 @@ fleet_get() {
   curl -fsS --max-time 60 -H "Authorization: Bearer ${TOK}" "${BASE}${path}"
 }
 
-log "1/5 git-self-update on Fleet host"
-fleet_post /v1/admin/git-self-update '{}' >/dev/null || log "WARN: git-self-update failed (continuing)"
-sleep 5
+log "1/5 git-self-update on Fleet host (stash dirty tree when needed)"
+fleet_post /v1/admin/git-self-update '{"stash": true}' >/dev/null || log "WARN: git-self-update failed (continuing)"
+sleep 8
 
 log "2/5 sync built-in container types (forge_market_studio)"
 fleet_post /v1/admin/sync-container-types '{}' | python3 -c "import json,sys; d=json.load(sys.stdin); print('added', d.get('added',[]))" || true
 
 log "3/5 schedule market-studio compose rollout (async — docker build may take several minutes)"
-ROLL_BODY="$(python3 - <<PY
+ROLL_BODY='{"sync": false}'
+if [[ -n "${FORGE_MARKET_ROOT}" ]]; then
+  ROLL_BODY="$(python3 - <<PY
 import json, os
-print(json.dumps({
-  "sync": False,
-  "forge_market_root": os.environ.get("FORGE_MARKET_ROOT", ""),
-}))
+print(json.dumps({"sync": False, "forge_market_root": os.environ["FORGE_MARKET_ROOT"]}))
 PY
 )"
+fi
 fleet_post /v1/admin/forge-market-studio-rollout "$ROLL_BODY" | python3 -m json.tool
 
 log "4/5 poll rollout log + gateway health (up to ${MAX_WAIT_SEC}s)"

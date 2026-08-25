@@ -107,8 +107,18 @@ def _run_cmd(
     }
 
 
-def run_git_steps(git_root: Path) -> tuple[list[dict[str, Any]], int]:
+def run_git_steps(git_root: Path, *, stash_dirty: bool = False) -> tuple[list[dict[str, Any]], int]:
     steps: list[dict[str, Any]] = []
+    if stash_dirty:
+        stash = _run_cmd(
+            ["git", "-C", str(git_root), "stash", "push", "-u", "-m", "fleet-self-update"],
+            cwd=git_root,
+            timeout_s=120,
+            label="git stash push -u",
+        )
+        steps.append(stash)
+        if not stash["ok"]:
+            return steps, int(stash.get("returncode") or 1)
     specs: list[tuple[str, list[str]]] = [
         ("git pull --ff-only", ["git", "-C", str(git_root), "pull", "--ff-only"]),
         ("git submodule update --init --recursive", ["git", "-C", str(git_root), "submodule", "update", "--init", "--recursive"]),
@@ -191,7 +201,7 @@ def schedule_post_git_and_restart(git_root: Path) -> tuple[bool, str]:
     )
 
 
-def run_git_self_update(repo_root: Path) -> dict[str, Any]:
+def run_git_self_update(repo_root: Path, *, stash_dirty: bool = False) -> dict[str, Any]:
     git_root = resolve_git_root(repo_root)
     if git_root is None:
         return {
@@ -208,7 +218,7 @@ def run_git_self_update(repo_root: Path) -> dict[str, Any]:
             "git_root": str(git_root),
             "system_root_install_command": build_system_root_install_command(git_root),
         }
-    steps, rc = run_git_steps(git_root)
+    steps, rc = run_git_steps(git_root, stash_dirty=stash_dirty)
     if rc != 0:
         return {
             "ok": False,

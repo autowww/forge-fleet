@@ -73,8 +73,19 @@ EOF
   fi
   # shellcheck disable=SC1091
   set -a && source .env && set +a
+  FORGE_MARKET_ROOT="$(resolve_forge_market_root)" || die "forge-market checkout missing (set FORGE_MARKET_ROOT)"
   export FORGE_MARKET_ROOT
   export FORGE_MARKET_DOCKERFILE="${FORGE_MARKET_DOCKERFILE:-$FLEET_ROOT/deploy/forge-market-studio/Dockerfile.market-app}"
+  if grep -q '^FORGE_MARKET_ROOT=' .env 2>/dev/null; then
+    sed -i "s|^FORGE_MARKET_ROOT=.*|FORGE_MARKET_ROOT=${FORGE_MARKET_ROOT}|" .env
+  else
+    echo "FORGE_MARKET_ROOT=${FORGE_MARKET_ROOT}" >>.env
+  fi
+  if grep -q '^FORGE_MARKET_DOCKERFILE=' .env 2>/dev/null; then
+    sed -i "s|^FORGE_MARKET_DOCKERFILE=.*|FORGE_MARKET_DOCKERFILE=${FORGE_MARKET_DOCKERFILE}|" .env
+  else
+    echo "FORGE_MARKET_DOCKERFILE=${FORGE_MARKET_DOCKERFILE}" >>.env
+  fi
 }
 
 deploy_compose_stack() {

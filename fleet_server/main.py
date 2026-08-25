@@ -1145,7 +1145,13 @@ class FleetHandler(BaseHTTPRequestHandler):
                 self._send(500, {"ok": False, "error": "test_fleet_failed", "detail": str(ex)[:800]})
             return
         if path == "/v1/admin/git-self-update":
-            out = self_update.run_git_self_update(self._repo_root())
+            stash_dirty = str(body.get("stash") or body.get("stash_dirty") or "").strip().lower() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }
+            out = self_update.run_git_self_update(self._repo_root(), stash_dirty=stash_dirty)
             code = 200 if out.get("ok") else 400
             self._send(code, out)
             return
