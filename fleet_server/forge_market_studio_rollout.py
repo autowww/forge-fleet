@@ -9,6 +9,13 @@ import time
 from pathlib import Path
 from typing import Any
 
+_ROLLOUT_ENV_KEYS = (
+    "FORGE_MARKET_ROOT",
+    "FORGE_MARKET_STUDIO_ROOT",
+    "FORGE_MARKET_COMPOSE_FILES",
+    "FORGE_MARKET_STUDIO_HOST_PORT",
+)
+
 
 def _fleet_user_env_file() -> Path:
     return Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "forge-fleet" / "forge-fleet.env"
@@ -28,10 +35,25 @@ def _merge_env_file(env: dict[str, str], path: Path) -> None:
             env[key] = val
 
 
-def _rollout_env() -> dict[str, str]:
+def _rollout_env(overrides: dict[str, Any] | None = None) -> dict[str, str]:
     env = os.environ.copy()
     _merge_env_file(env, _fleet_user_env_file())
+    if overrides:
+        _apply_rollout_overrides(env, overrides)
     return env
+
+
+def _apply_rollout_overrides(env: dict[str, str], overrides: dict[str, Any]) -> None:
+    alias = {
+        "forge_market_root": "FORGE_MARKET_ROOT",
+        "forge_market_studio_root": "FORGE_MARKET_STUDIO_ROOT",
+        "forge_market_compose_files": "FORGE_MARKET_COMPOSE_FILES",
+        "forge_market_studio_host_port": "FORGE_MARKET_STUDIO_HOST_PORT",
+    }
+    for src, dst in alias.items():
+        val = str(overrides.get(src) or overrides.get(dst) or "").strip()
+        if val:
+            env[dst] = val
 
 
 def rollout_log_path() -> Path:
@@ -62,9 +84,9 @@ def _rollout_script(repo_root: Path) -> Path:
     return p
 
 
-def schedule_rollout(repo_root: Path) -> dict[str, Any]:
+def schedule_rollout(repo_root: Path, *, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
     script = _rollout_script(repo_root)
-    env = _rollout_env()
+    env = _rollout_env(overrides)
     log_path = rollout_log_path()
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -94,13 +116,14 @@ def schedule_rollout(repo_root: Path) -> dict[str, Any]:
         "scheduled": True,
         "script": str(script),
         "log_path": str(log_path),
-        "note": "Rollout runs in background; tail log_path on the host for progress.",
+        "overrides": {k: env.get(k) for k in _ROLLOUT_ENV_KEYS if env.get(k)},
+        "note": "Rollout runs in background; poll GET /v1/admin/forge-market-studio-rollout-log for progress.",
     }
 
 
-def run_rollout_sync(repo_root: Path, *, timeout_sec: int = 1800) -> dict[str, Any]:
+def run_rollout_sync(repo_root: Path, *, timeout_sec: int = 1800, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
     script = _rollout_script(repo_root)
-    env = _rollout_env()
+    env = _rollout_env(overrides)
     try:
         r = subprocess.run(
             ["bash", str(script)],
@@ -118,4 +141,5 @@ def run_rollout_sync(repo_root: Path, *, timeout_sec: int = 1800) -> dict[str, A
         "returncode": r.returncode,
         "stdout": (r.stdout or "")[-16000:],
         "stderr": (r.stderr or "")[-8000:],
+        "overrides": {k: env.get(k) for k in _ROLLOUT_ENV_KEYS if env.get(k)},
     }

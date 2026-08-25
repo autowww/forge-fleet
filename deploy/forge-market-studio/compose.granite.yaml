@@ -1,4 +1,10 @@
 # Granite host overlay — publish Market Studio and Postgres on loopback.
+# appdata is created by the generic Fleet seed step before compose up.
+volumes:
+  appdata:
+    name: forge_market_studio_data
+    external: true
+
 services:
   postgres:
     ports:
@@ -7,3 +13,9 @@ services:
   market-app:
     ports:
       - "127.0.0.1:${FORGE_MARKET_STUDIO_HOST_PORT:-19792}:9792"
+    environment:
+      FORGE_MARKET_BIND_HOST: "0.0.0.0"
+      FORGE_MARKET_CONTAINER: "1"
+      FORGE_MARKET_STUDIO_API_TOKEN: ${FORGE_MARKET_STUDIO_API_TOKEN:-}
+      FORGE_MARKET_STUDIO_ALLOW_ANON: ${FORGE_MARKET_STUDIO_ALLOW_ANON:-1}
+      FORGE_MARKET_API_ONLY: ${FORGE_MARKET_API_ONLY:-1}

@@ -24,6 +24,18 @@ def test_ensure_layout_writes_types(tmp_path: Path) -> None:
             assert t.get("category_id") == "service"
 
 
+def test_sync_builtin_types_adds_missing_rows(tmp_path: Path) -> None:
+    cl.ensure_layout(tmp_path)
+    doc = cl.load_types(tmp_path)
+    doc["types"] = [t for t in doc.get("types", []) if str(t.get("id")) != "forge_market_studio"]
+    cl.save_types_document(tmp_path, doc)
+    added = cl.sync_builtin_types(tmp_path)
+    assert added == ["forge_market_studio"]
+    reloaded = cl.load_types(tmp_path)
+    ids = {str(t.get("id")) for t in reloaded.get("types", []) if isinstance(t, dict)}
+    assert "forge_market_studio" in ids
+
+
 def test_materialize_forge_llm_inherits_service_capabilities(tmp_path: Path) -> None:
     cl.ensure_layout(tmp_path)
     doc = cl.load_types(tmp_path)

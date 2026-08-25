@@ -7,9 +7,38 @@ Deploy and migrate Forge Market Studio on Granite **without SSH file operations*
 - Fleet GW-1/GW-2 code deployed on Granite (`POST /v1/admin/git-self-update` or [Fleet upgrade SSH exception](granite-fleet-upgrade-only-ssh.md) for the daemon only).
 - Local backup: `forge-market/scripts/backup-market-studio.sh` (optionally include broker/raw-sec per manifest flags).
 - `FORGE_FLEET_BASE_URL` and `FORGE_FLEET_BEARER_TOKEN` on the operator workstation.
-- **forge-migrator** installed locally (`./scripts/start-migrator.sh`).
+- **forge-migrator** installed locally (`./scripts/start-migrator.sh`) for sandbox/debug cycles — optional when using Market Studio Settings.
 
-## API-only cutover sequence
+## Preferred operator path — Market Studio Settings
+
+1. Launch UI against Granite data plane (operator plane stays local):
+
+   ```bash
+   cd forge-market
+   ./scripts/start-market-studio.sh --ui-remote
+   ```
+
+   Vite proxies `/api` and `/health` to the Fleet app gateway; `/api/operator/*` stays on local `:9792`.
+
+2. Open **Settings → Move data to Granite** — selects corpus/DB/broker/wiki flags, runs local backup, builds a chunked Fleet bundle, and runs Fleet steps in order.
+
+3. After completion, **Test remote data** compares gateway `/health` and `/api/storage/inventory` to the pre-migrate local snapshot.
+
+4. Optional **Remove local data** — separate dialog; typed confirm `DELETE LOCAL MARKET DATA`; never deletes `config/` or `.env.local`.
+
+Operator HTTP surface (local studio-server only):
+
+| Method | Path | Role |
+|--------|------|------|
+| GET | `/api/operator/hosting` | Fleet/gateway readiness + local inventory |
+| POST | `/api/operator/migrations` | Create session |
+| POST | `/api/operator/migrations/{id}/start` | Background upload + Fleet steps (`market-prod`) |
+| GET | `/api/operator/migrations/{id}` | Poll upload bytes + Fleet step status |
+| POST | `/api/operator/migrations/{id}/verify` | Remote smoke vs local snapshot |
+| GET | `/api/operator/wipe/preview` | List delete candidates + keep-list |
+| POST | `/api/operator/wipe` | Dry-run or delete local `data/` (guarded) |
+
+## API-only cutover sequence (curl / migrator)
 
 1. **Rollout compose stack registration** (once per Fleet data-dir):
 
@@ -27,16 +56,19 @@ Deploy and migrate Forge Market Studio on Granite **without SSH file operations*
    curl -sS -X POST "${FORGE_FLEET_BASE_URL}/v1/migrations" \
      -H "Authorization: Bearer ${FORGE_FLEET_BEARER_TOKEN}" \
      -H "Content-Type: application/json" \
-     -d '{"recipe_id":"forge-market","target_service_id":"market-prod"}'
+     -d '{"source_label":"forge-market-local","target_label":"market-prod","meta":{"recipe":"forge-market","app_slug":"forge-market"}}'
 
-   # Upload backup tarball (replace MIGRATION_ID)
-   curl -sS -X PUT "${FORGE_FLEET_BASE_URL}/v1/migrations/MIGRATION_ID/data-bundle" \
+   # Upload backup tarball (replace MIGRATION_ID) — prefer chunked upload-session for multi-GB payloads
+   curl -sS -X POST "${FORGE_FLEET_BASE_URL}/v1/migrations/MIGRATION_ID/data-bundle/upload-session" \
      -H "Authorization: Bearer ${FORGE_FLEET_BEARER_TOKEN}" \
-     -H "Content-Type: application/gzip" \
-     --data-binary @forge-market-backup.tar.gz
+     -H "Content-Type: application/json" \
+     -d '{"sha256":"<64 hex>","total_bytes":N,"chunk_size":67108864}'
 
-   # Run steps in order (build_image, seed_corpus, migrate_db, deploy_service, register_edge_route, verify)
-   curl -sS -X POST "${FORGE_FLEET_BASE_URL}/v1/migrations/MIGRATION_ID/steps/seed_corpus/run" \
+   # PUT chunks, POST finalize, then run steps using UUIDs from GET /v1/migrations/MIGRATION_ID
+   FLEET_STEP_ID="$(curl -sS "${FORGE_FLEET_BASE_URL}/v1/migrations/MIGRATION_ID" \
+     -H "Authorization: Bearer ${FORGE_FLEET_BEARER_TOKEN}" \
+     | jq -r '.steps[] | select(.kind=="seed_corpus_volume") | .id')"
+   curl -sS -X POST "${FORGE_FLEET_BASE_URL}/v1/migrations/MIGRATION_ID/steps/${FLEET_STEP_ID}/run" \
      -H "Authorization: Bearer ${FORGE_FLEET_BEARER_TOKEN}" \
      -H "Content-Type: application/json" \
      -d '{}'
@@ -47,8 +79,8 @@ Deploy and migrate Forge Market Studio on Granite **without SSH file operations*
    ```bash
    curl -sS "${FORGE_FLEET_BASE_URL}/v1/container-services/market-prod" \
      -H "Authorization: Bearer ${FORGE_FLEET_BEARER_TOKEN}"
-   curl -sS "https://GRANITE_HOST/market-studio/health" \
-     -H "Authorization: Bearer ${FORGE_MARKET_STUDIO_API_TOKEN}"
+   curl -sS "${FORGE_FLEET_BASE_URL}/v1/app-gateways/market-studio/health" \
+     -H "Authorization: Bearer ${FORGE_FLEET_BEARER_TOKEN}"
    ```
 
 ## Rollback (API only)
@@ -59,7 +91,10 @@ curl -sS -X POST "${FORGE_FLEET_BASE_URL}/v1/container-services/market-prod/stop
   -H "Content-Type: application/json" \
   -d '{}'
 
-curl -sS -X POST "${FORGE_FLEET_BASE_URL}/v1/migrations/MIGRATION_ID/steps/restore_from_bundle/run" \
+FLEET_RESTORE_ID="$(curl -sS "${FORGE_FLEET_BASE_URL}/v1/migrations/MIGRATION_ID" \
+  -H "Authorization: Bearer ${FORGE_FLEET_BEARER_TOKEN}" \
+  | jq -r '.steps[] | select(.kind=="restore_from_bundle") | .id')"
+curl -sS -X POST "${FORGE_FLEET_BASE_URL}/v1/migrations/MIGRATION_ID/steps/${FLEET_RESTORE_ID}/run" \
   -H "Authorization: Bearer ${FORGE_FLEET_BEARER_TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{}'
@@ -69,4 +104,4 @@ curl -sS -X POST "${FORGE_FLEET_BASE_URL}/v1/migrations/MIGRATION_ID/steps/resto
 
 - `scp`, `rsync`, manual `tar` extract for Market data
 - Manual `docker compose` for Market Studio
-- Manual Caddy file edits (use `register_edge_route` migration step)
+- Manual Caddy file edits (use `register_edge_route` — Fleet app gateway, no new tunnel)

@@ -19,6 +19,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from fleet_server import (
+    app_gateway,
     container_layout,
     container_templates,
     fleet_apps,
@@ -197,6 +198,85 @@ class FleetHandler(BaseHTTPRequestHandler):
             return {}
         return o if isinstance(o, dict) else {}
 
+    def _data_dir(self) -> Path:
+        return Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+
+    def _handle_app_gateway(self, method: str) -> bool:
+        """True when the request was an app-gateway call and a response was sent."""
+        parsed = urlparse(self.path)
+        path = parsed.path
+        if path == "/v1/app-gateways" and method == "GET":
+            self._send(200, {"ok": True, "gateways": app_gateway.list_gateways(self._data_dir())})
+            return True
+        m = re.match(r"^/v1/app-gateways/([^/]+)(?:/(.*))?$", path)
+        if not m:
+            return False
+        service_id = m.group(1)
+        rest = m.group(2)
+        data_dir = self._data_dir()
+        if method == "OPTIONS":
+            rec = app_gateway.load_gateway(data_dir, service_id)
+            if rec is None:
+                self._send(404, {"ok": False, "error": "gateway_not_found"})
+                return True
+            headers: dict[str, str] = {}
+            app_gateway.apply_cors(headers, self.headers)
+            self._send_raw_with_headers(204, b"", headers)
+            return True
+        if method == "PUT" and rest is None:
+            body = self._read_json()
+            try:
+                rec = app_gateway.save_gateway(
+                    data_dir,
+                    {
+                        "service_id": service_id,
+                        "upstream": str(body.get("upstream") or ""),
+                        "inject_bearer": body.get("inject_bearer", True),
+                        "upstream_bearer": str(body.get("upstream_bearer") or ""),
+                        "app_bearer_env": str(body.get("app_bearer_env") or ""),
+                    },
+                )
+            except ValueError as exc:
+                self._send(400, {"ok": False, "error": str(exc)[:400]})
+                return True
+            self._send(200, {"ok": True, "gateway": app_gateway.public_record(rec)})
+            return True
+        if method == "DELETE" and rest is None:
+            if not app_gateway.delete_gateway(data_dir, service_id):
+                self._send(404, {"ok": False, "error": "gateway_not_found"})
+                return True
+            self._send(200, {"ok": True, "deleted": service_id})
+            return True
+        if method == "GET" and rest is None:
+            rec = app_gateway.load_gateway(data_dir, service_id)
+            if rec is None:
+                self._send(404, {"ok": False, "error": "gateway_not_found"})
+                return True
+            accept = (self.headers.get("Accept") or "").lower()
+            if "text/html" not in accept:
+                self._send(200, {"ok": True, "gateway": app_gateway.public_record(rec)})
+                return True
+            # Browsers opening the service URL get the upstream UI through the gateway.
+        rec = app_gateway.load_gateway(data_dir, service_id)
+        if rec is None:
+            self._send(404, {"ok": False, "error": "gateway_not_found"})
+            return True
+        body = b""
+        if method in {"POST", "PUT", "PATCH", "DELETE"}:
+            length = int(self.headers.get("Content-Length") or 0)
+            if 0 < length <= app_gateway._MAX_PROXY_BODY:
+                body = self.rfile.read(length)
+        status, headers, payload = app_gateway.proxy(
+            rec,
+            method=method,
+            rest_path=rest or "",
+            query=parsed.query or "",
+            req_headers=self.headers,
+            body=body,
+        )
+        self._send_raw_with_headers(status, payload, headers)
+        return True
+
     def _auth_ok(self) -> bool:
         if getattr(self.server, "loopback_bind_skips_auth", False):
             return True
@@ -374,6 +454,8 @@ class FleetHandler(BaseHTTPRequestHandler):
         if not self._auth_ok():
             self._send_unauthorized()
             return
+        if self._handle_app_gateway("GET"):
+            return
         if path == "/v1/version":
             conn = store.connect(self.server.db_path)
             try:
@@ -439,6 +521,9 @@ class FleetHandler(BaseHTTPRequestHandler):
             return
         if path == "/v1/admin/forge-llm-rollout-log":
             self._send(200, forge_llm_rollout.read_rollout_log())
+            return
+        if path == "/v1/admin/forge-market-studio-rollout-log":
+            self._send(200, forge_market_studio_rollout.read_rollout_log())
             return
         if path == "/v1/admin/snapshot":
             conn = store.connect(self.server.db_path)
@@ -852,8 +937,22 @@ class FleetHandler(BaseHTTPRequestHandler):
             return
         self._send(404, {"ok": False, "error": "not_found"})
 
+    def do_OPTIONS(self) -> None:
+        if not self._auth_ok():
+            self._send_unauthorized()
+            return
+        if self._handle_app_gateway("OPTIONS"):
+            return
+        self._send(404, {"ok": False, "error": "not_found"})
+
     def do_POST(self) -> None:
         path = urlparse(self.path).path
+        if path.startswith("/v1/app-gateways"):
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+            if self._handle_app_gateway("POST"):
+                return
         if path == "/v1/fleet-apps/install-local":
             if not self._auth_ok():
                 self._send_unauthorized()
@@ -1050,6 +1149,10 @@ class FleetHandler(BaseHTTPRequestHandler):
             code = 200 if out.get("ok") else 400
             self._send(code, out)
             return
+        if path == "/v1/admin/sync-container-types":
+            added = container_layout.sync_builtin_types(self._data_dir())
+            self._send(200, {"ok": True, "added": added})
+            return
         if path == "/v1/admin/forge-llm-control-plane-rollout":
             sync = str(body.get("sync") or "").strip().lower() in ("1", "true", "yes")
             try:
@@ -1065,11 +1168,21 @@ class FleetHandler(BaseHTTPRequestHandler):
             return
         if path == "/v1/admin/forge-market-studio-rollout":
             sync = str(body.get("sync") or "").strip().lower() in ("1", "true", "yes")
+            overrides = {
+                k: body.get(k)
+                for k in (
+                    "forge_market_root",
+                    "forge_market_studio_root",
+                    "forge_market_compose_files",
+                    "forge_market_studio_host_port",
+                )
+                if body.get(k) is not None
+            }
             try:
                 if sync:
-                    out = forge_market_studio_rollout.run_rollout_sync(self._repo_root())
+                    out = forge_market_studio_rollout.run_rollout_sync(self._repo_root(), overrides=overrides or None)
                 else:
-                    out = forge_market_studio_rollout.schedule_rollout(self._repo_root())
+                    out = forge_market_studio_rollout.schedule_rollout(self._repo_root(), overrides=overrides or None)
             except FileNotFoundError as ex:
                 self._send(400, {"ok": False, "error": "rollout_script_missing", "detail": str(ex)[:400]})
                 return
@@ -1359,12 +1472,19 @@ class FleetHandler(BaseHTTPRequestHandler):
         if not self._auth_ok():
             self._send_unauthorized()
             return
+        if self._handle_app_gateway("PUT"):
+            return
         path = urlparse(self.path).path
         data_dir = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
         m_mig_bundle = re.match(r"^/v1/migrations/([^/]+)/data-bundle$", path)
         if m_mig_bundle:
             mid = m_mig_bundle.group(1)
-            max_up = fleet_migrations.max_migration_bundle_upload_bytes()
+            conn = store.connect(self.server.db_path)
+            try:
+                row = store.get_migration(conn, mid)
+            finally:
+                conn.close()
+            max_up = fleet_migrations.max_migration_bundle_upload_bytes(row)
             raw = self._read_binary_body(max_up)
             if len(raw) == 0:
                 self._send(
@@ -1616,6 +1736,8 @@ class FleetHandler(BaseHTTPRequestHandler):
     def do_DELETE(self) -> None:
         if not self._auth_ok():
             self._send_unauthorized()
+            return
+        if self._handle_app_gateway("DELETE"):
             return
         path = urlparse(self.path).path
         data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()

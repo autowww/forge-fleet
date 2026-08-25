@@ -27,6 +27,16 @@ Feature docs (details beyond this table): [CONTAINER-TEMPLATES.md](../build-201/
 | GET | `/v1/version` | bearer | Semver, DB schema, template library, optional git SHA. |
 | GET | `/v1/templates` | bearer | Container template catalog (`host_cpu_probe`, etc.). |
 | GET | `/v1/health` | bearer | `service: forge-fleet`, host CPU/mem/load, energy ledger; may sample telemetry. |
+| GET | `/v1/app-gateways` | bearer | List registered loopback app gateways (no secrets). |
+| GET | `/v1/app-gateways/{id}` | bearer | Gateway metadata JSON, or upstream UI when `Accept: text/html`. |
+| PUT | `/v1/app-gateways/{id}` | bearer | Register/update loopback upstream (`upstream` must be 127.0.0.1/localhost). |
+| DELETE | `/v1/app-gateways/{id}` | bearer | Unregister gateway (does not stop the compose app). |
+| * | `/v1/app-gateways/{id}/{path}` | bearer | Proxy to loopback app; Fleet bearer at the edge, app bearer injected upstream. |
+| POST | `/v1/migrations` | bearer | Create a migration session (step kinds from body/recipe). |
+| GET | `/v1/migrations/{id}` | bearer | Session status, bundle digests, per-step state. |
+| PUT | `/v1/migrations/{id}/data-bundle` | bearer | Upload gzip tarball (or chunked session — see migration API). |
+| POST | `/v1/migrations/{id}/steps/{step_id}/run` | bearer | Run one step; `register_edge_route` completes in-process as an app gateway. |
+| POST | `/v1/migrations/{id}/cancel` | bearer | Cancel pending steps and linked jobs. |
 | GET | `/v1/admin/snapshot` | bearer | Jobs, integrations, host, **`jobs_recent`** paging (`jobs_limit`, `jobs_offset`), thermal advisory, self-update meta. |
 | GET | `/v1/cooldown-summary` | bearer | Query **`period=`** required (same values as **`/v1/telemetry`**). |
 | GET | `/v1/telemetry` | bearer | Query **`period=`** required; optional **`limit`** (default large). |

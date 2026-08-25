@@ -5,13 +5,29 @@ set -euo pipefail
 
 FLEET_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MARKET_STUDIO_ROOT="${FORGE_MARKET_STUDIO_ROOT:-$FLEET_ROOT/deploy/forge-market-studio}"
-FORGE_MARKET_ROOT="${FORGE_MARKET_ROOT:-$FLEET_ROOT/../forge-market}"
-CFG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/forge-fleet"
-ENV_FILE="$CFG_DIR/forge-fleet.env"
+FORGE_MARKET_ROOT="${FORGE_MARKET_ROOT:-}"
 COMPOSE_FILES="${FORGE_MARKET_COMPOSE_FILES:-compose.granite.yaml}"
 
 log() { printf 'rollout-forge-market-studio: %s\n' "$*"; }
 die() { log "ERROR: $*"; exit 1; }
+
+resolve_forge_market_root() {
+  if [[ -n "${FORGE_MARKET_ROOT}" && -f "${FORGE_MARKET_ROOT}/studio-server/studio_server.py" ]]; then
+    printf '%s' "$FORGE_MARKET_ROOT"
+    return 0
+  fi
+  local candidate
+  for candidate in \
+    "$FLEET_ROOT/../forge-market" \
+    "$HOME/forge-market" \
+    "$HOME/Code/forge-market"; do
+    if [[ -f "$candidate/studio-server/studio_server.py" ]]; then
+      printf '%s' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
 
 compose() {
   if docker compose version &>/dev/null; then
@@ -26,13 +42,15 @@ compose() {
 
 ensure_paths() {
   [[ -f "$MARKET_STUDIO_ROOT/compose.yaml" ]] || die "missing $MARKET_STUDIO_ROOT/compose.yaml"
-  [[ -d "$FORGE_MARKET_ROOT" ]] || die "forge-market checkout missing at $FORGE_MARKET_ROOT"
-  [[ -f "$FORGE_MARKET_ROOT/studio-server/studio_server.py" ]] \
-    || die "forge-market studio server missing under $FORGE_MARKET_ROOT"
+  FORGE_MARKET_ROOT="$(resolve_forge_market_root)" || die "forge-market checkout missing (set FORGE_MARKET_ROOT or clone beside Fleet)"
+  export FORGE_MARKET_ROOT
+  log "using forge-market root $FORGE_MARKET_ROOT"
 }
 
 ensure_env_file() {
   cd "$MARKET_STUDIO_ROOT"
+  CFG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/forge-fleet"
+  ENV_FILE="$CFG_DIR/forge-fleet.env"
   if [[ ! -f .env ]]; then
     if [[ -f .env.example ]]; then
       cp .env.example .env

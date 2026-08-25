@@ -172,6 +172,41 @@ def ensure_layout(data_dir: Path) -> None:
     container_templates.ensure_template_layout(data_dir)
 
 
+def sync_builtin_types(data_dir: Path) -> list[str]:
+    """Merge missing built-in container types into the on-disk catalog."""
+    data_dir = data_dir.resolve()
+    tpath = types_file(data_dir)
+    if not tpath.is_file():
+        return []
+    try:
+        raw = json.loads(tpath.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeError):
+        return []
+    doc = _migrate_types_doc_if_needed(raw if isinstance(raw, dict) else copy.deepcopy(DEFAULT_TYPES))
+    existing = {str(t.get("id") or "") for t in doc.get("types", []) if isinstance(t, dict)}
+    cats = _categories_by_id(doc)
+    added: list[str] = []
+    types_list = [t for t in doc.get("types", []) if isinstance(t, dict)]
+    for default_row in DEFAULT_TYPES.get("types", []):
+        if not isinstance(default_row, dict):
+            continue
+        tid = str(default_row.get("id") or "")
+        if not tid or tid in existing:
+            continue
+        types_list.append(validate_type_row(data_dir, default_row, categories_by_id=cats))
+        existing.add(tid)
+        added.append(tid)
+    if added:
+        doc["types"] = types_list
+        try:
+            v = int(doc.get("version") or 2)
+        except (TypeError, ValueError):
+            v = 2
+        doc["version"] = max(v, 2)
+        _write_json_atomic(tpath, doc)
+    return added
+
+
 def _migrate_env_llm_service(data_dir: Path) -> None:
     root_raw = str(os.environ.get("FLEET_FORGE_LLM_ROOT") or "").strip()
     if not root_raw:
@@ -266,6 +301,7 @@ def materialize_types(doc: dict[str, Any]) -> list[dict[str, Any]]:
 
 def load_types(data_dir: Path) -> dict[str, Any]:
     ensure_layout(data_dir)
+    sync_builtin_types(data_dir)
     p = types_file(data_dir)
     try:
         raw = p.read_text(encoding="utf-8")

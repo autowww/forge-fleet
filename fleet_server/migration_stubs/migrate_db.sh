@@ -1,6 +1,7 @@
 #!/bin/sh
-# Stub: sqlite → postgres migration using bundle SQL dumps.
+# Fallback stub — Fleet prefers recipe meta.migrate_argv in the app image.
 set -eu
-echo "fleet-migration-stub: migrate_db migration=${FLEET_MIGRATION_ID:-} step=${FLEET_MIGRATION_STEP_ID:-}"
+echo "fleet-migration: migrate_db stub (recipe migrate_argv missing) migration=${FLEET_MIGRATION_ID:-}"
 test -d /migration/bundle || { echo "bundle_mount_missing"; exit 2; }
-echo "stub_ok: migrate_db"
+echo "migrate_db_requires_recipe_migrate_argv"
+exit 2
