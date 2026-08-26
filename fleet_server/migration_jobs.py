@@ -61,8 +61,10 @@ def _meta_list(meta: dict[str, Any], key: str) -> list[str]:
 
 
 def _resolve_migrate_tool_path(bundle_extracted: Path | None, tool_name: str) -> Path | None:
-    """Prefer host forge-market tools (newer fixes) over bundle-extracted copies."""
+    """Prefer Fleet-shipped tools, then explicit override, then host clone, then bundle."""
     candidates: list[Path] = []
+    fleet_tools = Path(__file__).resolve().parent / "migration_tools" / tool_name
+    candidates.append(fleet_tools)
     override_root = str(os.environ.get("FLEET_MARKET_REPO_ROOT") or "").strip()
     if override_root:
         candidates.append(Path(override_root).expanduser() / "tools" / tool_name)
@@ -73,8 +75,6 @@ def _resolve_migrate_tool_path(bundle_extracted: Path | None, tool_name: str) ->
         str(Path.home() / "forge-market"),
     ):
         candidates.append(Path(default_root) / "tools" / tool_name)
-    fleet_tools = Path(__file__).resolve().parent / "migration_tools" / tool_name
-    candidates.append(fleet_tools)
     if bundle_extracted is not None:
         candidates.append(bundle_extracted / "tools" / tool_name)
     seen: set[str] = set()
