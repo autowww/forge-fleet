@@ -60,6 +60,34 @@ def _meta_list(meta: dict[str, Any], key: str) -> list[str]:
     return []
 
 
+def _resolve_migrate_tool_path(bundle_extracted: Path | None, tool_name: str) -> Path | None:
+    """Prefer host forge-market tools (newer fixes) over bundle-extracted copies."""
+    candidates: list[Path] = []
+    override_root = str(os.environ.get("FLEET_MARKET_REPO_ROOT") or "").strip()
+    if override_root:
+        candidates.append(Path(override_root).expanduser() / "tools" / tool_name)
+    for default_root in (
+        "/home/administrator/Code/forge-market",
+        "/home/administrator/forge-market",
+        str(Path.home() / "Code" / "forge-market"),
+        str(Path.home() / "forge-market"),
+    ):
+        candidates.append(Path(default_root) / "tools" / tool_name)
+    fleet_tools = Path(__file__).resolve().parent / "migration_tools" / tool_name
+    candidates.append(fleet_tools)
+    if bundle_extracted is not None:
+        candidates.append(bundle_extracted / "tools" / tool_name)
+    seen: set[str] = set()
+    for path in candidates:
+        key = str(path.resolve()) if path.exists() else str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        if path.is_file():
+            return path.resolve()
+    return None
+
+
 def _resolve_compose_root(meta: dict[str, Any]) -> Path | None:
     raw = _meta_str(meta, "compose_root", "compose_root")
     if not raw:
@@ -158,10 +186,10 @@ def _build_migrate_db_argv(
     if data_volume:
         argv.extend(["-v", f"{data_volume}:{data_mount}"])
     for tool_name in ("migrate_sqlite_to_postgres.py", "inventory_sqlite_databases.py"):
-        bundled = bundle_extracted / "tools" / tool_name
-        if bundled.is_file():
+        bundled = _resolve_migrate_tool_path(bundle_extracted, tool_name)
+        if bundled is not None:
             argv.extend(
-                ["-v", f"{bundled.resolve()}:{app_root}/tools/{tool_name}:ro"]
+                ["-v", f"{bundled}:{app_root}/tools/{tool_name}:ro"]
             )
     argv.append(image)
     argv.extend(command)
