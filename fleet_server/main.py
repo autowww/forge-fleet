@@ -39,6 +39,7 @@ from fleet_server import (
     workspace_bundle,
 )
 from fleet_server import migrations as fleet_migrations
+from fleet_server import docker_gc as fleet_docker_gc
 from fleet_server.test_fleet import spawn_test_fleet
 
 
@@ -1155,6 +1156,15 @@ class FleetHandler(BaseHTTPRequestHandler):
             code = 200 if out.get("ok") else 400
             self._send(code, out)
             return
+        if path == "/v1/admin/migration-scratch-gc":
+            dry_run = str(body.get("dry_run") or "").strip().lower() in {"1", "true", "yes", "on"}
+            out = fleet_migrations.gc_stale_migration_scratch(
+                self._data_dir(),
+                self.server.db_path,
+                dry_run=dry_run,
+            )
+            self._send(200, out)
+            return
         if path == "/v1/admin/sync-container-types":
             added = container_layout.sync_builtin_types(self._data_dir())
             self._send(200, {"ok": True, "added": added})
@@ -1381,10 +1391,14 @@ class FleetHandler(BaseHTTPRequestHandler):
         m_mig_cancel = re.match(r"^/v1/migrations/([^/]+)/cancel$", path)
         if m_mig_cancel:
             mid = m_mig_cancel.group(1)
+            data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
             conn = store.connect(self.server.db_path)
             try:
                 out = fleet_migrations.cancel_migration_session(
-                    conn, self.server.db_path, mid
+                    conn,
+                    self.server.db_path,
+                    mid,
+                    data_dir=data_dir_p,
                 )
             finally:
                 conn.close()
@@ -1849,6 +1863,21 @@ def main() -> None:
         n_gc = workspace_bundle.gc_stale_workspaces(data_dir, db_path, max_age_seconds=86400.0 * 7)
         if n_gc:
             print(f"[fleet] workspace GC removed {n_gc} stale job-workspaces dir(s)")
+    except OSError:
+        pass
+    try:
+        mig_gc = fleet_migrations.gc_stale_migration_scratch(data_dir, db_path)
+        if mig_gc.get("purged"):
+            print(
+                f"[fleet] migration scratch GC removed {len(mig_gc['purged'])} bundle dir(s), "
+                f"freed {int(mig_gc.get('bytes_freed') or 0)} bytes"
+            )
+    except OSError:
+        pass
+    try:
+        prune_out = fleet_docker_gc.prune_docker_builder_cache()
+        if prune_out.get("ok") and not prune_out.get("skipped"):
+            print(f"[fleet] docker builder prune (until={prune_out.get('hours')}h) ok")
     except OSError:
         pass
 

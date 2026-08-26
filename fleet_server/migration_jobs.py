@@ -113,6 +113,17 @@ def _common_env(migration_id: str, step_id: str, kind: str) -> list[str]:
     ]
 
 
+def _compose_stop_context(meta: dict[str, Any]) -> tuple[str, str, str]:
+    """Return (compose_root, service_name, comma-separated compose file paths) for host stop."""
+    compose_root = _resolve_compose_root(meta)
+    service = _meta_str(meta, "compose_service") or "market-app"
+    if compose_root is None or not compose_root.is_dir():
+        return "-", "-", "-"
+    files = _meta_list(meta, "compose_files") or ["compose.yaml"]
+    paths = ",".join(str((compose_root / Path(name).name).resolve()) for name in files)
+    return str(compose_root.resolve()), service, paths or "-"
+
+
 def _build_migrate_db_argv(
     *,
     migration_id: str,
@@ -137,6 +148,7 @@ def _build_migrate_db_argv(
     data_volume = _meta_str(meta, "data_volume")
     data_mount = _meta_str(meta, "data_mount") or "/app/data"
     network = _meta_str(meta, "docker_network")
+    app_root = str(Path(data_mount).parent or Path("/app"))
 
     argv: list[str] = ["docker", "run", "--rm", *_common_env(migration_id, step_id, "migrate_db")]
     argv.extend(["-e", f"{env_name}={dsn}", "-e", f"DATABASE_URL={dsn}"])
@@ -145,9 +157,20 @@ def _build_migrate_db_argv(
     argv.extend(["-v", f"{bundle_extracted.resolve()}:/migration/bundle:ro"])
     if data_volume:
         argv.extend(["-v", f"{data_volume}:{data_mount}"])
+    for tool_name in ("migrate_sqlite_to_postgres.py", "inventory_sqlite_databases.py"):
+        bundled = bundle_extracted / "tools" / tool_name
+        if bundled.is_file():
+            argv.extend(
+                ["-v", f"{bundled.resolve()}:{app_root}/tools/{tool_name}:ro"]
+            )
     argv.append(image)
     argv.extend(command)
-    return argv
+
+    wrapper = _stub_script_host_path("migrate_db_host")
+    if not wrapper.is_file():
+        return argv
+    root, service, files = _compose_stop_context(meta)
+    return [str(wrapper.resolve()), root, service, files, *argv]
 
 
 def _build_seed_argv(

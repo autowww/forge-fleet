@@ -101,7 +101,9 @@ EOF
 sync_forge_market_checkout() {
   if [[ -d "${FORGE_MARKET_ROOT}/.git" ]]; then
     log "git pull --ff-only in ${FORGE_MARKET_ROOT}"
-    git -C "${FORGE_MARKET_ROOT}" pull --ff-only || die "forge-market git pull failed"
+    if ! git -C "${FORGE_MARKET_ROOT}" pull --ff-only; then
+      log "WARN: forge-market git pull failed — using tree as-is"
+    fi
   else
     log "forge-market root is not a git checkout — using tree as-is"
   fi

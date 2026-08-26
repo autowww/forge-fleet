@@ -78,6 +78,29 @@ def _save_upload_session(data_dir: Path, migration_id: str, session: dict[str, A
 
 _EXTRACT_STEP_KINDS = {"seed_corpus_volume", "migrate_db", "restore_from_bundle"}
 _SCRATCH_ACTIVE_STEPS = {"pending", "queued", "running", "failed"}
+_EXTRACT_BLOCKING_STEPS = {"pending", "queued", "running"}
+_DEFAULT_SCRATCH_RETENTION_HOURS = 24.0
+_DEFAULT_ABANDONED_HOURS = 24.0
+
+
+def migration_scratch_retention_hours() -> float:
+    raw = str(os.environ.get("FLEET_MIGRATION_SCRATCH_RETENTION_HOURS") or "").strip()
+    if not raw:
+        return _DEFAULT_SCRATCH_RETENTION_HOURS
+    try:
+        return max(1.0, float(raw))
+    except ValueError:
+        return _DEFAULT_SCRATCH_RETENTION_HOURS
+
+
+def migration_abandoned_hours() -> float:
+    raw = str(os.environ.get("FLEET_MIGRATION_ABANDONED_HOURS") or "").strip()
+    if not raw:
+        return _DEFAULT_ABANDONED_HOURS
+    try:
+        return max(1.0, float(raw))
+    except ValueError:
+        return _DEFAULT_ABANDONED_HOURS
 
 
 def _dir_bytes(root: Path) -> int:
@@ -98,22 +121,90 @@ def _clear_chunk_upload_state(data_dir: Path, migration_id: str) -> None:
     purge_migration_scratch(data_dir, migration_id)
 
 
+def _extract_steps_matching(row: dict[str, Any], statuses: set[str]) -> list[dict[str, Any]]:
+    steps = row.get("steps") if isinstance(row.get("steps"), list) else []
+    out: list[dict[str, Any]] = []
+    for step in steps:
+        if str(step.get("kind") or "") not in _EXTRACT_STEP_KINDS:
+            continue
+        if str(step.get("status") or "") in statuses:
+            out.append(step)
+    return out
+
+
 def migration_scratch_needed(row: dict[str, Any] | None) -> bool:
     """True when chunk/extracted files are still required for upload or extract steps."""
     if row is None:
         return False
     status = str(row.get("status") or "")
-    if status in {"cancelled", "completed"}:
+    if status in {"cancelled", "completed", "failed"}:
+        if _extract_steps_matching(row, _EXTRACT_BLOCKING_STEPS):
+            return True
         return False
     if str(row.get("bundle_state") or "") == "uploading":
         return True
-    steps = row.get("steps") if isinstance(row.get("steps"), list) else []
-    for step in steps:
-        if str(step.get("kind") or "") not in _EXTRACT_STEP_KINDS:
-            continue
-        if str(step.get("status") or "") in _SCRATCH_ACTIVE_STEPS:
-            return True
+    if _extract_steps_matching(row, _SCRATCH_ACTIVE_STEPS):
+        return True
     return False
+
+
+def _step_age_seconds(step: dict[str, Any], now: float) -> float:
+    updated = float(step.get("updated") or step.get("created") or 0)
+    if updated <= 0:
+        return 0.0
+    return max(0.0, now - updated)
+
+
+def _migration_age_seconds(row: dict[str, Any], now: float) -> float:
+    updated = float(row.get("updated") or row.get("created") or 0)
+    if updated <= 0:
+        return 0.0
+    return max(0.0, now - updated)
+
+
+def _scratch_gc_reason(
+    row: dict[str, Any] | None,
+    *,
+    now: float,
+    retention_seconds: float,
+    abandoned_seconds: float,
+) -> str | None:
+    """Return purge reason when scratch dir should be removed, else None."""
+    if row is None:
+        return "orphan"
+    status = str(row.get("status") or "")
+    bundle_state = str(row.get("bundle_state") or "")
+
+    if status in {"cancelled", "completed", "failed"}:
+        if not _extract_steps_matching(row, _EXTRACT_BLOCKING_STEPS):
+            return f"terminal_{status}"
+        failed_extract = _extract_steps_matching(row, {"failed"})
+        if failed_extract and all(_step_age_seconds(s, now) >= retention_seconds for s in failed_extract):
+            return "failed_extract_retention"
+        return None
+
+    if bundle_state == "uploading":
+        return None
+
+    blocking = _extract_steps_matching(row, _EXTRACT_BLOCKING_STEPS)
+    if blocking:
+        if all(_step_age_seconds(s, now) >= abandoned_seconds for s in blocking):
+            return "abandoned_extract"
+        return None
+
+    failed_extract = _extract_steps_matching(row, {"failed"})
+    if failed_extract:
+        if all(_step_age_seconds(s, now) >= retention_seconds for s in failed_extract):
+            return "failed_extract_retention"
+        return None
+
+    if bundle_state == "ready" and status in {"active", "pending"} and _migration_age_seconds(row, now) >= abandoned_seconds:
+        return "abandoned_ready"
+
+    if not migration_scratch_needed(row):
+        return "idle_scratch"
+
+    return None
 
 
 def maybe_purge_migration_scratch(conn: Any, data_dir: Path, migration_id: str) -> int:
@@ -123,40 +214,86 @@ def maybe_purge_migration_scratch(conn: Any, data_dir: Path, migration_id: str) 
     return purge_migration_scratch(data_dir, migration_id)
 
 
-def purge_idle_migration_scratch(conn: Any, data_dir: Path) -> dict[str, Any]:
-    """Remove leftover Market/Fleet bundle chunks after cancel, complete, or skipped extract steps."""
+def gc_stale_migration_scratch(
+    data_dir: Path,
+    db_path: Path,
+    *,
+    dry_run: bool = False,
+    retention_hours: float | None = None,
+    abandoned_hours: float | None = None,
+) -> dict[str, Any]:
+    """Remove migration bundle scratch dirs that are terminal, orphaned, or past retention TTL."""
+    retention_seconds = (retention_hours if retention_hours is not None else migration_scratch_retention_hours()) * 3600.0
+    abandoned_seconds = (abandoned_hours if abandoned_hours is not None else migration_abandoned_hours()) * 3600.0
     root = data_dir / "migration-bundles"
     purged: list[dict[str, Any]] = []
     kept: list[dict[str, Any]] = []
     bytes_freed = 0
     if not root.is_dir():
-        return {"ok": True, "purged": purged, "kept": kept, "bytes_freed": 0}
-    for child in sorted(root.iterdir()):
-        if not child.is_dir():
-            continue
-        mid = child.name
-        row = store.get_migration(conn, mid)
-        if migration_scratch_needed(row):
-            kept.append(
-                {
-                    "id": mid,
-                    "status": str((row or {}).get("status") or "unknown"),
-                    "bundle_state": str((row or {}).get("bundle_state") or ""),
-                }
+        return {
+            "ok": True,
+            "dry_run": dry_run,
+            "purged": purged,
+            "kept": kept,
+            "bytes_freed": 0,
+            "retention_hours": retention_seconds / 3600.0,
+            "abandoned_hours": abandoned_seconds / 3600.0,
+        }
+
+    conn = store.connect(db_path)
+    try:
+        now = time.time()
+        for child in sorted(root.iterdir()):
+            if not child.is_dir():
+                continue
+            mid = child.name
+            row = store.get_migration(conn, mid)
+            reason = _scratch_gc_reason(
+                row,
+                now=now,
+                retention_seconds=retention_seconds,
+                abandoned_seconds=abandoned_seconds,
             )
-            continue
-        freed = _dir_bytes(child)
-        shutil.rmtree(child, ignore_errors=True)
-        if not child.exists():
-            bytes_freed += freed
-            purged.append(
-                {
-                    "id": mid,
-                    "status": str((row or {}).get("status") or "missing"),
-                    "bytes_freed": freed,
-                }
-            )
-    return {"ok": True, "purged": purged, "kept": kept, "bytes_freed": bytes_freed}
+            if reason is None:
+                kept.append(
+                    {
+                        "id": mid,
+                        "status": str((row or {}).get("status") or "unknown"),
+                        "bundle_state": str((row or {}).get("bundle_state") or ""),
+                    }
+                )
+                continue
+            freed = _dir_bytes(child)
+            if not dry_run:
+                shutil.rmtree(child, ignore_errors=True)
+            if dry_run or not child.exists():
+                bytes_freed += freed
+                purged.append(
+                    {
+                        "id": mid,
+                        "status": str((row or {}).get("status") or "missing"),
+                        "reason": reason,
+                        "bytes_freed": freed,
+                    }
+                )
+    finally:
+        conn.close()
+
+    return {
+        "ok": True,
+        "dry_run": dry_run,
+        "purged": purged,
+        "kept": kept,
+        "bytes_freed": bytes_freed,
+        "retention_hours": retention_seconds / 3600.0,
+        "abandoned_hours": abandoned_seconds / 3600.0,
+    }
+
+
+def purge_idle_migration_scratch(conn: Any, data_dir: Path, *, dry_run: bool = False) -> dict[str, Any]:
+    """Remove leftover Market/Fleet bundle chunks after cancel, complete, or skipped extract steps."""
+    _ = conn
+    return gc_stale_migration_scratch(data_dir, data_dir / "fleet.sqlite", dry_run=dry_run)
 
 
 def _migration_upload_guard(row: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -282,7 +419,7 @@ def parse_migration_manifest(ext_root: Path) -> tuple[dict[str, Any] | None, str
     if not isinstance(doc, dict):
         return None, "manifest_not_object"
     ver = doc.get("schema_version")
-    if ver != 1:
+    if ver not in (1, 2):
         return None, f"unsupported_schema_version:{ver!r}"
     flags = doc.get("flags")
     if flags is None:

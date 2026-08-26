@@ -10,6 +10,10 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-forge_market}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-forge_market_dev}
       POSTGRES_DB: ${POSTGRES_DB:-forge_market}
+    command:
+      - postgres
+      - -c
+      - max_connections=200
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:

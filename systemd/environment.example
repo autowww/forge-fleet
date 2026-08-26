@@ -48,3 +48,10 @@ FLEET_BEARER_TOKEN=change-me
 # A bare name works too (Fleet expands via PATH), e.g. FLEET_DOCKER_BIN=docker — do not rely on a non-existent path.
 # When the Docker CLI is missing but Podman is installed, Fleet uses ``podman`` automatically; set
 # FLEET_NO_PODMAN_FALLBACK=1 to disable that and fail fast instead.
+#
+# Migration bundle scratch GC (``migration-bundles/`` under FLEET_DATA_DIR; runs at startup + POST /v1/admin/migration-scratch-gc)
+# FLEET_MIGRATION_SCRATCH_RETENTION_HOURS=24
+# FLEET_MIGRATION_ABANDONED_HOURS=24
+#
+# Docker BuildKit cache prune at Fleet startup (0 = disable)
+# FLEET_DOCKER_BUILDER_PRUNE_HOURS=168

@@ -47,6 +47,9 @@ Values are **case-sensitive**. Empty/unset usually means “use default” where
 | **`FLEET_TEMPLATE_PACKAGE_MAX_FILES`** | File count guard. |
 | **`FLEET_TEMPLATE_PACKAGE_MAX_PATH_DEPTH`** | Path depth guard. |
 | **`FLEET_DOCKER_BUILDKIT`** | Pass-through for **`docker build`** BuildKit preference. |
+| **`FLEET_MIGRATION_SCRATCH_RETENTION_HOURS`** | Hours to keep bundle scratch after a **failed** extract step before GC (default **24**). |
+| **`FLEET_MIGRATION_ABANDONED_HOURS`** | Hours before GC removes **ready** bundles whose extract steps never started (default **24**). |
+| **`FLEET_DOCKER_BUILDER_PRUNE_HOURS`** | Prune Docker BuildKit layers older than this many hours at Fleet startup (**0** = off; default **168**). |
 
 ## Runner / Docker
 

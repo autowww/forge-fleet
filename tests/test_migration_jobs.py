@@ -42,6 +42,49 @@ def test_migrate_db_argv_uses_recipe_meta(tmp_path) -> None:
     assert "migrate_sqlite_to_postgres.py" not in argv
 
 
+def test_migrate_db_argv_wraps_compose_stop(tmp_path) -> None:
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    compose = tmp_path / "compose"
+    compose.mkdir()
+    (compose / "compose.yaml").write_text("name: example\n", encoding="utf-8")
+    meta = {
+        **_RECIPE_META,
+        "compose_root": str(compose),
+        "compose_service": "market-app",
+        "compose_files": ["compose.yaml"],
+    }
+    argv = migration_jobs.build_argv_for_step(
+        "migrate_db",
+        migration_id="mig-wrap",
+        step_id="step-wrap",
+        bundle_extracted=bundle,
+        meta=meta,
+    )
+    assert "migrate_db_host.sh" in argv[0]
+    assert argv[1] == str(compose.resolve())
+    assert argv[2] == "market-app"
+    assert "docker" in argv
+    assert "run" in argv
+
+
+def test_migrate_db_argv_overlays_bundled_migrate_tools(tmp_path) -> None:
+    bundle = tmp_path / "bundle"
+    tools = bundle / "tools"
+    tools.mkdir(parents=True)
+    (tools / "migrate_sqlite_to_postgres.py").write_text("# stub\n", encoding="utf-8")
+    (tools / "inventory_sqlite_databases.py").write_text("# stub\n", encoding="utf-8")
+    argv = migration_jobs.build_argv_for_step(
+        "migrate_db",
+        migration_id="mig-overlay",
+        step_id="step-overlay",
+        bundle_extracted=bundle,
+        meta=_RECIPE_META,
+    )
+    assert any("migrate_sqlite_to_postgres.py:/app/tools/migrate_sqlite_to_postgres.py:ro" in a for a in argv)
+    assert any("inventory_sqlite_databases.py:/app/tools/inventory_sqlite_databases.py:ro" in a for a in argv)
+
+
 def test_migrate_db_argv_requires_recipe_image(tmp_path) -> None:
     bundle = tmp_path / "bundle"
     bundle.mkdir()
