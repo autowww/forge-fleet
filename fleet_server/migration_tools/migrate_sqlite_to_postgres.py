@@ -40,10 +40,76 @@ _POSTGRES_COLUMN_PATCHES: tuple[str, ...] = (
 )
 
 
-def _apply_postgres_column_patches(pg_conn: Any) -> None:
+# Older market-app images call ensure_schema() without unified-data / KPI tables.
+_POSTGRES_TABLE_PATCHES: tuple[str, ...] = (
+    """
+    CREATE TABLE IF NOT EXISTS kpi_observations (
+        entity_type TEXT NOT NULL,
+        entity_id TEXT NOT NULL,
+        metric_id TEXT NOT NULL,
+        definition_version INTEGER NOT NULL,
+        as_of_date TEXT NOT NULL,
+        period_end TEXT,
+        period_type TEXT NOT NULL DEFAULT 'ttm',
+        calculation_mode TEXT NOT NULL DEFAULT 'latest_restated',
+        formula_hash TEXT NOT NULL,
+        value_text TEXT,
+        value_num DOUBLE PRECISION,
+        unit TEXT,
+        status TEXT NOT NULL,
+        formula_label TEXT,
+        substituted_formula TEXT,
+        dependency_json TEXT,
+        provenance_json TEXT,
+        mapping_confidence DOUBLE PRECISION,
+        calculation_confidence DOUBLE PRECISION,
+        freshness_status TEXT,
+        calculation_run_id TEXT NOT NULL,
+        data_version TEXT,
+        computed_at TEXT NOT NULL,
+        PRIMARY KEY (
+            entity_type, entity_id, metric_id, definition_version,
+            as_of_date, period_end, period_type, calculation_mode, formula_hash
+        )
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_kpi_obs_entity ON kpi_observations(entity_type, entity_id, as_of_date)",
+    "CREATE INDEX IF NOT EXISTS idx_kpi_obs_metric ON kpi_observations(metric_id, as_of_date)",
+    """
+    CREATE TABLE IF NOT EXISTS canonical_params (
+        entity_type TEXT NOT NULL,
+        entity_id TEXT NOT NULL,
+        param_key TEXT NOT NULL,
+        granularity TEXT NOT NULL DEFAULT 'daily',
+        effective_at TEXT NOT NULL,
+        available_at TEXT NOT NULL,
+        value_num DOUBLE PRECISION,
+        value_text TEXT,
+        value_json TEXT,
+        source_id TEXT NOT NULL,
+        lineage_json TEXT,
+        quality_flags TEXT,
+        materialized_at TEXT NOT NULL,
+        PRIMARY KEY (entity_type, entity_id, param_key, granularity, effective_at, available_at)
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_canonical_params_lookup
+        ON canonical_params(entity_type, entity_id, param_key, effective_at DESC)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_canonical_params_as_of
+        ON canonical_params(entity_type, entity_id, param_key, available_at)
+    """,
+)
+
+
+def _apply_postgres_schema_patches(pg_conn: Any) -> None:
     with pg_conn.cursor() as cur:
         for stmt in _POSTGRES_COLUMN_PATCHES:
             cur.execute(stmt)
+        for stmt in _POSTGRES_TABLE_PATCHES:
+            cur.execute(stmt.strip())
 
 
 def _connect_postgres(adapter: PostgresStoreAdapter) -> Any:
@@ -234,7 +300,7 @@ def migrate(sqlite_path: Path, *, dsn: str | None = None) -> dict[str, int]:
     counts: dict[str, int] = {}
     try:
         adapter.ensure_schema(pg_conn)
-        _apply_postgres_column_patches(pg_conn)
+        _apply_postgres_schema_patches(pg_conn)
         counts.update(migrate_db_file(sqlite_path, pg_conn, kind="market"))
         counts["_sequences_reset"] = _reset_owned_sequences(pg_conn)
         pg_conn.commit()
@@ -257,7 +323,7 @@ def migrate_all(
     totals: dict[str, int] = {}
     try:
         adapter.ensure_schema(pg_conn)
-        _apply_postgres_column_patches(pg_conn)
+        _apply_postgres_schema_patches(pg_conn)
         for db in manifest.get("databases") or []:
             path = Path(str(db["path"]))
             kind = str(db.get("kind") or "market")
