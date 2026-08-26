@@ -684,7 +684,39 @@ def start_bundle_upload_session(
         return None, {"ok": False, "error": "invalid_body", "detail": "chunk_size out of range"}
 
     chunk_count = (total + size - 1) // size
-    _clear_chunk_upload_state(data_dir, migration_id)
+
+    existing = _load_upload_session(data_dir, migration_id)
+    if existing is not None:
+        existing_digest = str(existing.get("sha256") or "").strip().lower()
+        existing_total = int(existing.get("total_bytes") or 0)
+        existing_size = int(existing.get("chunk_size") or size)
+        if existing_digest == digest and existing_total == total:
+            if existing_size != size:
+                return None, {
+                    "ok": False,
+                    "error": "chunk_size_mismatch",
+                    "detail": "resume requires the same chunk_size as the prior session",
+                }
+            received = sorted({int(x) for x in (existing.get("received") or [])})
+            chunks_dir = _chunks_dir(data_dir, migration_id)
+            chunks_dir.mkdir(parents=True, exist_ok=True)
+            store.update_migration(conn, migration_id, bundle_state="uploading")
+            return (
+                {
+                    "ok": True,
+                    "migration_id": migration_id,
+                    "sha256": digest,
+                    "total_bytes": total,
+                    "chunk_size": size,
+                    "chunk_count": chunk_count,
+                    "bundle_state": "uploading",
+                    "resumed": True,
+                    "received": received,
+                },
+                None,
+            )
+        _clear_chunk_upload_state(data_dir, migration_id)
+
     chunks_dir = _chunks_dir(data_dir, migration_id)
     chunks_dir.mkdir(parents=True, exist_ok=True)
 
