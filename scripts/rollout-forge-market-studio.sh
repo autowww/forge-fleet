@@ -265,6 +265,27 @@ ensure_vendor_lcdl() {
   log "WARN: forge-lcdl vendor missing — market-app image may fail at runtime"
 }
 
+reconcile_postgres_password() {
+  local pass="${POSTGRES_PASSWORD:-forge_market_dev}"
+  [[ -n "$pass" ]] || return 0
+  cd "$MARKET_STUDIO_ROOT"
+  local -a files=(-f compose.yaml)
+  if [[ -n "$COMPOSE_FILES" ]]; then
+    IFS=',' read -ra overlays <<<"$COMPOSE_FILES"
+    for ov in "${overlays[@]}"; do
+      ov="${ov#"${ov%%[![:space:]]*}"}"
+      ov="${ov%"${ov##*[![:space:]]}"}"
+      [[ -n "$ov" ]] || continue
+      files+=(-f "$ov")
+    done
+  fi
+  log "reconcile postgres role password with compose .env"
+  compose "${files[@]}" exec -T postgres \
+    psql -U "${POSTGRES_USER:-forge_market}" -d postgres \
+    -c "ALTER USER ${POSTGRES_USER:-forge_market} PASSWORD '${pass}';" \
+    2>/dev/null || log "WARN: postgres password reconcile skipped (role may already match)"
+}
+
 deploy_compose_stack() {
   cd "$MARKET_STUDIO_ROOT"
   if [[ -f "${FORGE_MARKET_ROOT}/studio-server/studio_server.py" ]]; then
@@ -289,6 +310,7 @@ deploy_compose_stack() {
   compose "${files[@]}" "${build_cmd[@]}"
   log "starting forge-market-studio stack"
   compose "${files[@]}" up -d
+  reconcile_postgres_password
 }
 
 register_fleet_service() {
