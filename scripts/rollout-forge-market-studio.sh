@@ -127,6 +127,13 @@ EOF
     echo "FORGE_MARKET_DOCKERFILE=${FORGE_MARKET_DOCKERFILE}" >>.env
   fi
   _persist_compose_env_key FORGE_MARKET_SEC_CONTACT "${FORGE_MARKET_SEC_CONTACT:-}"
+  if docker volume inspect forge_market_studio_pgdata &>/dev/null; then
+    if grep -q '^POSTGRES_PASSWORD=change-me' .env 2>/dev/null; then
+      log "repair compose .env postgres credentials for existing pgdata volume"
+      sed -i 's|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=forge_market_dev|' .env
+      sed -i 's|^FORGE_MARKET_DATABASE_URL=.*|FORGE_MARKET_DATABASE_URL=postgresql://forge_market:forge_market_dev@postgres:5432/forge_market|' .env
+    fi
+  fi
 }
 
 _ensure_git_fallback_clone() {
@@ -313,6 +320,21 @@ smoke() {
     fi
     sleep 2
   done
+  log "market-app logs (last 80 lines):"
+  (
+    cd "$MARKET_STUDIO_ROOT"
+    local -a files=(-f compose.yaml)
+    if [[ -n "$COMPOSE_FILES" ]]; then
+      IFS=',' read -ra overlays <<<"$COMPOSE_FILES"
+      for ov in "${overlays[@]}"; do
+        ov="${ov#"${ov%%[![:space:]]*}"}"
+        ov="${ov%"${ov##*[![:space:]]}"}"
+        [[ -n "$ov" ]] || continue
+        files+=(-f "$ov")
+      done
+    fi
+    compose "${files[@]}" logs --no-color --tail=80 market-app 2>&1 | tail -80
+  ) || true
   die "health check failed for $url"
 }
 
