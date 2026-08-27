@@ -1,11 +1,24 @@
 #!/usr/bin/env bash
-# Upload a forge-market git archive overlay to Granite Fleet (private repo fallback).
+# Upload a minimal forge-market overlay (expansion routes + deps only).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FM_ROOT="${FORGE_MARKET_ROOT:-$ROOT/../forge-market}"
 REF="${FORGE_MARKET_GIT_REF:-feature/fm-semiconductor-pdca}"
 DEST="${FORGE_MARKET_DEPLOY_ROOT:-/home/administrator/forge-market}"
+
+PATHS=(
+  studio-server/studio_server.py
+  studio-server/pipeline_api.py
+  studio-server/remote_api_proxy.py
+  studio-server/requirements.txt
+  src/forge_market/granite_client.py
+  src/forge_market/granite_llm_queue.py
+  src/forge_market/analysis/narrative_enrich/enrich_cycle.py
+  src/forge_market/analysis/narrative_enrich/extractor_expansion
+  src/forge_market/analysis/narrative_enrich/observation_quality/judge.py
+  tools/run_extractor_expansion.py
+)
 
 if [[ -f "$ROOT/../secrets/forge-fleet-secrets.env" ]]; then
   set -a
@@ -32,11 +45,11 @@ TOK="${FORGE_FLEET_BEARER_TOKEN:-${FLEET_BEARER_TOKEN:-}}"
   exit 1
 }
 
-TMP="$(mktemp /tmp/fm-overlay.XXXXXX.tgz)"
+TMP="$(mktemp /tmp/fm-overlay-min.XXXXXX.tgz)"
 trap 'rm -f "$TMP"' EXIT
-git -C "$FM_ROOT" archive --format=tar.gz -o "$TMP" "$REF"
+git -C "$FM_ROOT" archive --format=tar.gz -o "$TMP" "$REF" "${PATHS[@]}"
 
-echo "uploading $(du -h "$TMP" | awk '{print $1}') overlay ref=$REF dest=$DEST"
+echo "uploading minimal overlay $(du -h "$TMP" | awk '{print $1}') ref=$REF dest=$DEST"
 curl -fsS -X PUT \
   -H "Authorization: Bearer ${TOK}" \
   -H "Content-Type: application/gzip" \
@@ -48,5 +61,5 @@ echo "schedule docker rebuild rollout"
 curl -fsS -X POST "${BASE}/v1/admin/forge-market-studio-rollout" \
   -H "Authorization: Bearer ${TOK}" \
   -H "Content-Type: application/json" \
-  -d "{\"sync\": false, \"forge_market_root\": \"${DEST}\", \"forge_market_docker_build_no_cache\": \"0\"}" \
+  -d "{\"sync\": false, \"forge_market_root\": \"${DEST}\", \"forge_market_studio_root\": \"/home/administrator/.local/share/forge-fleet/deploy/forge-market-studio\", \"forge_market_docker_build_no_cache\": \"1\"}" \
   | python3 -m json.tool

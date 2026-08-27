@@ -65,7 +65,20 @@ ensure_env_file() {
   ENV_FILE="$CFG_DIR/forge-fleet.env"
   GRANITE_MARKET_ENV="$CFG_DIR/forge-market-granite.env"
   if [[ ! -f .env ]]; then
-    if [[ -f .env.example ]]; then
+    if docker volume inspect forge_market_studio_pgdata &>/dev/null; then
+      log "existing pgdata volume — seeding .env with stable compose defaults (skip .env.example change-me)"
+      cat >.env <<EOF
+FORGE_MARKET_ROOT=${FORGE_MARKET_ROOT}
+POSTGRES_USER=forge_market
+POSTGRES_PASSWORD=forge_market_dev
+POSTGRES_DB=forge_market
+FORGE_MARKET_DATABASE_URL=postgresql://forge_market:forge_market_dev@postgres:5432/forge_market
+FORGE_MARKET_STUDIO_HOST_PORT=19792
+FORGE_MARKET_POSTGRES_HOST_PORT=15432
+FORGE_MARKET_API_ONLY=1
+INCLUDE_STUDIO_UI=0
+EOF
+    elif [[ -f .env.example ]]; then
       cp .env.example .env
       log "created .env from .env.example — review secrets before production"
     else
@@ -239,6 +252,9 @@ ensure_vendor_lcdl() {
 
 deploy_compose_stack() {
   cd "$MARKET_STUDIO_ROOT"
+  if [[ -f "${FORGE_MARKET_ROOT}/studio-server/studio_server.py" ]]; then
+    date -u +"%Y-%m-%dT%H:%M:%SZ" >"${FORGE_MARKET_ROOT}/.forge-deploy-stamp"
+  fi
   local -a files=(-f compose.yaml)
   if [[ -n "$COMPOSE_FILES" ]]; then
     IFS=',' read -ra overlays <<<"$COMPOSE_FILES"
