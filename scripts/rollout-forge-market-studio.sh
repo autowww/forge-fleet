@@ -342,8 +342,9 @@ smoke() {
 main() {
   command -v docker >/dev/null || die "docker missing"
   command -v curl >/dev/null || die "curl missing"
-  ensure_paths
   ensure_env_file
+  ensure_paths
+  ensure_vendor_lcdl
   sync_forge_market_checkout
   deploy_compose_stack
   register_fleet_service
