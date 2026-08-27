@@ -98,15 +98,54 @@ EOF
   fi
 }
 
-sync_forge_market_checkout() {
-  if [[ -d "${FORGE_MARKET_ROOT}/.git" ]]; then
-    log "git pull --ff-only in ${FORGE_MARKET_ROOT}"
-    if ! git -C "${FORGE_MARKET_ROOT}" pull --ff-only; then
-      log "WARN: forge-market git pull failed — using tree as-is"
-    fi
-  else
-    log "forge-market root is not a git checkout — using tree as-is"
+_sync_git_tree() {
+  local root="$1"
+  local git_ref="${FORGE_MARKET_GIT_REF:-}"
+  if [[ -n "$git_ref" ]]; then
+    log "git fetch/checkout ${git_ref} in ${root}"
+    git -C "$root" fetch --prune origin "$git_ref" || return 1
+    git -C "$root" checkout -B forge-market-rollout "FETCH_HEAD" || return 1
+    return 0
   fi
+  log "git pull --ff-only in ${root}"
+  git -C "$root" pull --ff-only
+}
+
+sync_forge_market_checkout() {
+  local fallback="${FORGE_MARKET_GIT_FALLBACK_ROOT:-}"
+  if [[ -d "${FORGE_MARKET_ROOT}/.git" ]]; then
+    if ! _sync_git_tree "${FORGE_MARKET_ROOT}"; then
+      log "WARN: forge-market git sync failed — using tree as-is"
+    fi
+    return 0
+  fi
+  if [[ -z "$fallback" ]]; then
+    for candidate in \
+      "/home/administrator/Code/forge-market" \
+      "$HOME/Code/forge-market" \
+      "$FLEET_ROOT/../forge-market"; do
+      if [[ -d "$candidate/.git" ]]; then
+        fallback="$candidate"
+        break
+      fi
+    done
+  fi
+  if [[ -n "$fallback" && -d "$fallback/.git" ]]; then
+    log "forge-market root is not git — syncing ${FORGE_MARKET_ROOT} from ${fallback}"
+    if ! _sync_git_tree "$fallback"; then
+      log "WARN: fallback git sync failed — rsync may be stale"
+    fi
+    mkdir -p "${FORGE_MARKET_ROOT}"
+    rsync -a --delete \
+      --exclude .git/ \
+      --exclude data/ \
+      --exclude .venv/ \
+      --exclude studio-ui/node_modules/ \
+      --exclude desktop/node_modules/ \
+      "${fallback}/" "${FORGE_MARKET_ROOT}/"
+    return 0
+  fi
+  log "forge-market root is not a git checkout — using tree as-is"
 }
 
 deploy_compose_stack() {
@@ -123,7 +162,11 @@ deploy_compose_stack() {
     done
   fi
   log "building market-app image (context $FORGE_MARKET_ROOT)"
-  compose "${files[@]}" build market-app
+  local -a build_cmd=(build market-app)
+  if [[ "${FORGE_MARKET_DOCKER_BUILD_NO_CACHE:-}" == "1" ]]; then
+    build_cmd=(build --no-cache market-app)
+  fi
+  compose "${files[@]}" "${build_cmd[@]}"
   log "starting forge-market-studio stack"
   compose "${files[@]}" up -d
 }
@@ -158,7 +201,14 @@ smoke() {
   local port="${FORGE_MARKET_STUDIO_HOST_PORT:-19792}"
   local url="http://127.0.0.1:${port}/health"
   log "smoke: GET $url"
-  curl -fsS "$url" | grep -q forge-market-studio || die "health check failed for $url"
+  local attempt
+  for attempt in 1 2 3 4 5 6 7 8 9 10; do
+    if curl -fsS "$url" 2>/dev/null | grep -q forge-market-studio; then
+      return 0
+    fi
+    sleep 2
+  done
+  die "health check failed for $url"
 }
 
 main() {

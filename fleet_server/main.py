@@ -1192,6 +1192,9 @@ class FleetHandler(BaseHTTPRequestHandler):
                     "forge_market_compose_files",
                     "forge_market_studio_host_port",
                     "forge_market_dockerfile",
+                    "forge_market_git_ref",
+                    "forge_market_git_fallback_root",
+                    "forge_market_docker_build_no_cache",
                 )
                 if body.get(k) is not None
             }
