@@ -161,12 +161,9 @@ _rsync_forge_market_tree() {
 
 sync_forge_market_checkout() {
   local fallback="${FORGE_MARKET_GIT_FALLBACK_ROOT:-}"
-  if [[ -d "${FORGE_MARKET_ROOT}/.git" ]]; then
-    if ! _sync_git_tree "${FORGE_MARKET_ROOT}"; then
-      log "WARN: forge-market git sync failed — using tree as-is"
-    fi
-    return 0
-  fi
+  local git_ref="${FORGE_MARKET_GIT_REF:-}"
+  local sync_src=""
+
   if [[ -z "$fallback" ]]; then
     for candidate in \
       "/home/administrator/Code/forge-market" \
@@ -178,21 +175,43 @@ sync_forge_market_checkout() {
       fi
     done
   fi
-  if [[ -z "$fallback" || ! -d "$fallback/.git" ]]; then
-    if [[ -n "${FORGE_MARKET_GIT_REF:-}" ]]; then
-      fallback="${fallback:-/home/administrator/Code/forge-market}"
-      _ensure_git_fallback_clone "$fallback" || log "WARN: could not clone git fallback at ${fallback}"
+
+  if [[ -n "$git_ref" ]]; then
+    fallback="${fallback:-/home/administrator/Code/forge-market}"
+    _ensure_git_fallback_clone "$fallback" || log "WARN: could not clone git fallback at ${fallback}"
+    if [[ -d "$fallback/.git" ]]; then
+      if ! _sync_git_tree "$fallback"; then
+        log "WARN: fallback git sync failed — rsync may be stale"
+      fi
+      sync_src="$fallback"
     fi
+  elif [[ -d "${FORGE_MARKET_ROOT}/.git" ]]; then
+    log "syncing git checkout at ${FORGE_MARKET_ROOT}"
+    if ! _sync_git_tree "${FORGE_MARKET_ROOT}"; then
+      log "WARN: forge-market git sync failed — using tree as-is"
+    fi
+    return 0
   fi
-  if [[ -n "$fallback" && -d "$fallback/.git" ]]; then
-    log "forge-market root is not git — syncing ${FORGE_MARKET_ROOT} from ${fallback}"
+
+  if [[ -z "$sync_src" && -n "$fallback" && -d "$fallback/.git" ]]; then
+    log "syncing fallback git checkout at ${fallback}"
     if ! _sync_git_tree "$fallback"; then
       log "WARN: fallback git sync failed — rsync may be stale"
     fi
+    sync_src="$fallback"
+  fi
+
+  if [[ -n "$sync_src" ]]; then
+    if [[ "$(readlink -f "$sync_src" 2>/dev/null || printf '%s' "$sync_src")" == "$(readlink -f "${FORGE_MARKET_ROOT}" 2>/dev/null || printf '%s' "${FORGE_MARKET_ROOT}")" ]]; then
+      log "forge-market deploy root matches git source ${sync_src}"
+      return 0
+    fi
+    log "overlay ${FORGE_MARKET_ROOT} from git source ${sync_src}"
     mkdir -p "${FORGE_MARKET_ROOT}"
-    _rsync_forge_market_tree "$fallback" "${FORGE_MARKET_ROOT}"
+    _rsync_forge_market_tree "$sync_src" "${FORGE_MARKET_ROOT}"
     return 0
   fi
+
   log "forge-market root is not a git checkout — using tree as-is"
 }
 
