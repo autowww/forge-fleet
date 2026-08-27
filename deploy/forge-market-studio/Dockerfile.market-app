@@ -23,7 +23,7 @@ COPY vendor/forge-lcdl/src /vendor/forge-lcdl/src
 
 ENV FORGE_MARKET_STUDIO_PORT=9792
 ENV FORGE_MARKET_API_ONLY=1
-ENV PYTHONPATH=/app/src:/vendor/forge-lcdl/src
+ENV PYTHONPATH=/app/src:/app/studio-server:/vendor/forge-lcdl/src
 EXPOSE 9792
 
 HEALTHCHECK --interval=15s --timeout=5s --retries=5 --start-period=45s \
