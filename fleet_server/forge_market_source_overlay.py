@@ -67,7 +67,7 @@ def apply_source_overlay(
                 "--exclude",
                 ".git/",
                 "--exclude",
-                "data/",
+                "/data/",
                 "--exclude",
                 ".venv/",
                 f"{src}/",

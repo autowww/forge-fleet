@@ -8,10 +8,8 @@ REF="${FORGE_MARKET_GIT_REF:-feature/fm-semiconductor-pdca}"
 DEST="${FORGE_MARKET_DEPLOY_ROOT:-/home/administrator/forge-market}"
 
 PATHS=(
-  studio-server/studio_server.py
-  studio-server/pipeline_api.py
-  studio-server/remote_api_proxy.py
-  studio-server/requirements.txt
+  studio-server/
+  src/forge_market/operator/
   src/forge_market/granite_client.py
   src/forge_market/granite_llm_queue.py
   src/forge_market/analysis/narrative_enrich/enrich_cycle.py

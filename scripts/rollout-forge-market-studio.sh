@@ -18,6 +18,7 @@ resolve_forge_market_root() {
   fi
   local candidate
   for candidate in \
+    "/home/administrator/forge-market" \
     "$FLEET_ROOT/../forge-market" \
     "$HOME/forge-market" \
     "$HOME/Code/forge-market"; do
@@ -172,7 +173,7 @@ _rsync_forge_market_tree() {
   fi
   rsync "${rsync_args[@]}" \
     --exclude .git/ \
-    --exclude data/ \
+    --exclude /data/ \
     --exclude .venv/ \
     --exclude studio-ui/node_modules/ \
     --exclude desktop/node_modules/ \
