@@ -44,6 +44,8 @@ _FORWARD_REQ_HEADERS = {
 }
 _MAX_PROXY_BODY = 64 * 1024 * 1024
 _PROXY_TIMEOUT_S = 60.0
+_PIPELINE_LONG_PREFIXES = ("/api/pipeline/",)
+_DEFAULT_PIPELINE_PROXY_TIMEOUT_S = 600.0
 _DEFAULT_CORS_ORIGINS = (
     "http://127.0.0.1:5179",
     "http://localhost:5179",
@@ -354,6 +356,37 @@ def _inject_html_prefix(body: bytes, content_type: str, prefix: str) -> bytes:
     return snippet + body
 
 
+def _proxy_timeout_s(record: dict[str, Any], rest_path: str, method: str) -> float:
+    """Per-gateway timeout; pipeline POST/PUT/PATCH gets a longer budget for OQ/extract jobs."""
+    for key in ("proxy_timeout_sec", "proxy_timeout_s"):
+        raw = str(record.get(key) or "").strip()
+        if raw:
+            try:
+                return max(5.0, min(float(raw), 3600.0))
+            except ValueError:
+                break
+    env_raw = str(os.environ.get("FLEET_APP_GATEWAY_PROXY_TIMEOUT_SEC") or "").strip()
+    if env_raw:
+        try:
+            return max(5.0, min(float(env_raw), 3600.0))
+        except ValueError:
+            pass
+    rest = "/" + str(rest_path or "").lstrip("/")
+    if str(method).upper() in {"POST", "PUT", "PATCH"} and any(
+        rest.startswith(prefix) for prefix in _PIPELINE_LONG_PREFIXES
+    ):
+        long_raw = str(
+            record.get("pipeline_proxy_timeout_sec")
+            or os.environ.get("FLEET_MARKET_STUDIO_PIPELINE_PROXY_TIMEOUT_SEC")
+            or _DEFAULT_PIPELINE_PROXY_TIMEOUT_S
+        ).strip()
+        try:
+            return max(_PROXY_TIMEOUT_S, min(float(long_raw), 3600.0))
+        except ValueError:
+            return _DEFAULT_PIPELINE_PROXY_TIMEOUT_S
+    return _PROXY_TIMEOUT_S
+
+
 def proxy(
     record: dict[str, Any],
     *,
@@ -377,8 +410,9 @@ def proxy(
     if bearer and record.get("inject_bearer", True):
         headers["Authorization"] = f"Bearer {bearer}"
     req = Request(target, data=body if body else None, method=str(method).upper(), headers=headers)
+    timeout_s = _proxy_timeout_s(record, rest_path, method)
     try:
-        with urlopen(req, timeout=_PROXY_TIMEOUT_S) as resp:
+        with urlopen(req, timeout=timeout_s) as resp:
             payload = resp.read(_MAX_PROXY_BODY)
             status = int(getattr(resp, "status", 200) or 200)
             raw_headers = dict(resp.headers.items()) if resp.headers else {}

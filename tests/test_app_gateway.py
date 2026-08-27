@@ -118,6 +118,14 @@ def test_proxy_injects_app_bearer(tmp_path) -> None:
         httpd.server_close()
 
 
+def test_proxy_timeout_pipeline_post_is_longer() -> None:
+    rec = {"service_id": "market-studio", "upstream": "http://127.0.0.1:19792"}
+    short = app_gateway._proxy_timeout_s(rec, "health", "GET")
+    long = app_gateway._proxy_timeout_s(rec, "api/pipeline/extractor-expansion/run", "POST")
+    assert short == 60.0
+    assert long >= 600.0
+
+
 def test_deploy_argv_force_recreate(tmp_path) -> None:
     (tmp_path / "compose.yaml").write_text("name: example\n", encoding="utf-8")
     argv = migration_jobs.build_argv_for_step(
