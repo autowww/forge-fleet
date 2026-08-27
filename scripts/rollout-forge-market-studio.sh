@@ -116,6 +116,18 @@ EOF
   _persist_compose_env_key FORGE_MARKET_SEC_CONTACT "${FORGE_MARKET_SEC_CONTACT:-}"
 }
 
+_ensure_git_fallback_clone() {
+  local fallback="$1"
+  local git_remote="${FORGE_MARKET_GIT_REMOTE:-https://github.com/autowww/forge-market.git}"
+  [[ -n "$fallback" ]] || return 1
+  if [[ -d "$fallback/.git" ]]; then
+    return 0
+  fi
+  log "cloning forge-market into ${fallback} from ${git_remote}"
+  mkdir -p "$(dirname "$fallback")"
+  git clone --origin origin "$git_remote" "$fallback" || return 1
+}
+
 _sync_git_tree() {
   local root="$1"
   local git_ref="${FORGE_MARKET_GIT_REF:-}"
@@ -127,6 +139,24 @@ _sync_git_tree() {
   fi
   log "git pull --ff-only in ${root}"
   git -C "$root" pull --ff-only
+}
+
+_rsync_forge_market_tree() {
+  local src="$1"
+  local dst="$2"
+  local -a rsync_args=(-a)
+  if [[ "${FORGE_MARKET_RSYNC_DELETE:-}" == "1" ]]; then
+    rsync_args+=(--delete)
+  else
+    log "rsync overlay (no --delete) — host-only paths under ${dst} are preserved"
+  fi
+  rsync "${rsync_args[@]}" \
+    --exclude .git/ \
+    --exclude data/ \
+    --exclude .venv/ \
+    --exclude studio-ui/node_modules/ \
+    --exclude desktop/node_modules/ \
+    "${src}/" "${dst}/"
 }
 
 sync_forge_market_checkout() {
@@ -148,19 +178,19 @@ sync_forge_market_checkout() {
       fi
     done
   fi
+  if [[ -z "$fallback" || ! -d "$fallback/.git" ]]; then
+    if [[ -n "${FORGE_MARKET_GIT_REF:-}" ]]; then
+      fallback="${fallback:-/home/administrator/Code/forge-market}"
+      _ensure_git_fallback_clone "$fallback" || log "WARN: could not clone git fallback at ${fallback}"
+    fi
+  fi
   if [[ -n "$fallback" && -d "$fallback/.git" ]]; then
     log "forge-market root is not git — syncing ${FORGE_MARKET_ROOT} from ${fallback}"
     if ! _sync_git_tree "$fallback"; then
       log "WARN: fallback git sync failed — rsync may be stale"
     fi
     mkdir -p "${FORGE_MARKET_ROOT}"
-    rsync -a --delete \
-      --exclude .git/ \
-      --exclude data/ \
-      --exclude .venv/ \
-      --exclude studio-ui/node_modules/ \
-      --exclude desktop/node_modules/ \
-      "${fallback}/" "${FORGE_MARKET_ROOT}/"
+    _rsync_forge_market_tree "$fallback" "${FORGE_MARKET_ROOT}"
     return 0
   fi
   log "forge-market root is not a git checkout — using tree as-is"
