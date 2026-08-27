@@ -32,6 +32,8 @@ FORGE_FLEET_BEARER_TOKEN=
 FORGE_MARKET_SCHED_WATCHLIST=semiconductors
 FORGE_MARKET_SCHED_MOCK=0
 FORGE_MARKET_SCHED_IBKR=0
+# SEC fair-access contact — also consumed by market-studio rollout compose
+FORGE_MARKET_SEC_CONTACT=
 EOF
   echo "Created $ENV_FILE — set FORGE_FLEET_BEARER_TOKEN before enabling timer"
 fi

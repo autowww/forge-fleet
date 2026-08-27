@@ -47,10 +47,23 @@ ensure_paths() {
   log "using forge-market root $FORGE_MARKET_ROOT"
 }
 
+_persist_compose_env_key() {
+  local key="$1"
+  local val="${2:-}"
+  [[ -n "$val" ]] || return 0
+  if grep -q "^${key}=" .env 2>/dev/null; then
+    sed -i "s|^${key}=.*|${key}=${val}|" .env
+  else
+    echo "${key}=${val}" >>.env
+  fi
+  export "${key}=${val}"
+}
+
 ensure_env_file() {
   cd "$MARKET_STUDIO_ROOT"
   CFG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/forge-fleet"
   ENV_FILE="$CFG_DIR/forge-fleet.env"
+  GRANITE_MARKET_ENV="$CFG_DIR/forge-market-granite.env"
   if [[ ! -f .env ]]; then
     if [[ -f .env.example ]]; then
       cp .env.example .env
@@ -70,6 +83,10 @@ EOF
   if [[ -f "$ENV_FILE" ]]; then
     # shellcheck disable=SC1090
     set -a && source "$ENV_FILE" && set +a
+  fi
+  if [[ -f "$GRANITE_MARKET_ENV" ]]; then
+    # shellcheck disable=SC1090
+    set -a && source "$GRANITE_MARKET_ENV" && set +a
   fi
   _root_override="${FORGE_MARKET_ROOT:-}"
   _dockerfile_override="${FORGE_MARKET_DOCKERFILE:-}"
@@ -96,6 +113,7 @@ EOF
   else
     echo "FORGE_MARKET_DOCKERFILE=${FORGE_MARKET_DOCKERFILE}" >>.env
   fi
+  _persist_compose_env_key FORGE_MARKET_SEC_CONTACT "${FORGE_MARKET_SEC_CONTACT:-}"
 }
 
 _sync_git_tree() {
