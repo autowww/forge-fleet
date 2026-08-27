@@ -135,6 +135,13 @@ EOF
       sed -i 's|^FORGE_MARKET_DATABASE_URL=.*|FORGE_MARKET_DATABASE_URL=postgresql://forge_market:forge_market_dev@postgres:5432/forge_market|' .env
     fi
   fi
+  if [[ -f "/home/administrator/forge-market/studio-server/studio_server.py" ]]; then
+    FORGE_MARKET_ROOT="/home/administrator/forge-market"
+    export FORGE_MARKET_ROOT
+    if grep -q '^FORGE_MARKET_ROOT=' .env 2>/dev/null; then
+      sed -i "s|^FORGE_MARKET_ROOT=.*|FORGE_MARKET_ROOT=${FORGE_MARKET_ROOT}|" .env
+    fi
+  fi
 }
 
 _ensure_git_fallback_clone() {
