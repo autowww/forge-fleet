@@ -26,6 +26,7 @@ from fleet_server import (
     forge_llm_rollout,
     forge_llm_service,
     forge_market_studio_rollout,
+    forge_market_source_overlay,
     host_stats,
     managed_compose_service,
     runner,
@@ -1501,6 +1502,21 @@ class FleetHandler(BaseHTTPRequestHandler):
             return
         path = urlparse(self.path).path
         data_dir = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+        if path == "/v1/admin/forge-market-source-overlay":
+            raw = self._read_binary_body(64 * 1024 * 1024)
+            if len(raw) == 0:
+                self._send(
+                    400,
+                    {"ok": False, "error": "invalid_body", "detail": "empty gzip tarball body"},
+                )
+                return
+            q = parse_qs(urlparse(self.path).query)
+            dest_raw = (q.get("dest_root") or [""])[0].strip()
+            dest_root = Path(dest_raw).expanduser() if dest_raw else None
+            out = forge_market_source_overlay.apply_source_overlay(raw, dest_root=dest_root)
+            code = 200 if out.get("ok") else 400
+            self._send(code, out)
+            return
         m_mig_bundle = re.match(r"^/v1/migrations/([^/]+)/data-bundle$", path)
         if m_mig_bundle:
             mid = m_mig_bundle.group(1)
