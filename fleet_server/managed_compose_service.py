@@ -146,6 +146,28 @@ def _summarize_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def compose_logs_tail(
+    root: Path, rel_files: list[str], service: str, *, tail: int = 48
+) -> tuple[str, str | None]:
+    """Tail ``docker compose logs`` for one service."""
+    cmd = compose_argv(root, rel_files) + ["logs", "--tail", str(max(8, tail)), service]
+    try:
+        r = subprocess.run(
+            cmd,
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            timeout=45,
+            env=os.environ.copy(),
+        )
+    except (OSError, subprocess.TimeoutExpired) as ex:
+        return "", str(ex)[:2000]
+    out = (r.stdout or r.stderr or "").strip()
+    if not out and r.returncode != 0:
+        return "", (r.stderr or r.stdout or "compose_logs_failed")[:2000]
+    return out[-8000:], None
+
+
 def status_for_record(record: dict[str, Any]) -> dict[str, Any]:
     root = _compose_root_from_record(record)
     raw_cf = record.get("compose_files")
@@ -165,6 +187,18 @@ def status_for_record(record: dict[str, Any]) -> dict[str, Any]:
     market_pub = market_app_host_port_from_compose_ps(rows)
     if market_pub:
         out["market_app_publish"] = market_pub
+    restarting = any(
+        isinstance(row, dict)
+        and "market-app" in str(row.get("Name") or row.get("Service") or "").lower()
+        and str(row.get("State") or "").lower() == "restarting"
+        for row in rows
+    )
+    if restarting:
+        logs, log_err = compose_logs_tail(root, rel, "market-app", tail=40)
+        if logs:
+            out["market_app_logs_tail"] = logs
+        if log_err:
+            out["market_app_logs_error"] = log_err
     return out
 
 

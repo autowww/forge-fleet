@@ -53,7 +53,7 @@ log "3/5 schedule market-studio compose rollout (async — docker build may take
 export REMEDIATE_STUDIO_ROOT REMEDIATE_MARKET_ROOT REMEDIATE_DOCKERFILE
 export FORGE_MARKET_GIT_REF="${FORGE_MARKET_GIT_REF:-feature/fm-semiconductor-pdca}"
 export FORGE_MARKET_GIT_FALLBACK_ROOT="${FORGE_MARKET_GIT_FALLBACK_ROOT:-/home/administrator/Code/forge-market}"
-export FORGE_MARKET_DOCKER_BUILD_NO_CACHE="${FORGE_MARKET_DOCKER_BUILD_NO_CACHE:-1}"
+export FORGE_MARKET_DOCKER_BUILD_NO_CACHE="${FORGE_MARKET_DOCKER_BUILD_NO_CACHE:-0}"
 ROLL_BODY="$(python3 - <<'PY'
 import json, os
 print(json.dumps({

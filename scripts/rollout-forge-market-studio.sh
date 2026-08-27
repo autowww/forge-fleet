@@ -160,6 +160,7 @@ _rsync_forge_market_tree() {
 }
 
 sync_forge_market_checkout() {
+  ensure_vendor_lcdl
   local fallback="${FORGE_MARKET_GIT_FALLBACK_ROOT:-}"
   local git_ref="${FORGE_MARKET_GIT_REF:-}"
   local sync_src=""
@@ -213,6 +214,27 @@ sync_forge_market_checkout() {
   fi
 
   log "forge-market root is not a git checkout — using tree as-is"
+}
+
+ensure_vendor_lcdl() {
+  local vend="${FORGE_MARKET_ROOT}/vendor/forge-lcdl/src/forge_lcdl"
+  if [[ -f "${vend}/__init__.py" ]]; then
+    return 0
+  fi
+  local candidate
+  for candidate in \
+    "${FORGE_MARKET_ROOT}/../forge-lcdl/src" \
+    "/home/administrator/Code/forge-lcdl/src" \
+    "$HOME/Code/forge-lcdl/src" \
+    "$FLEET_ROOT/../forge-lcdl/src"; do
+    if [[ -f "${candidate}/forge_lcdl/__init__.py" ]]; then
+      log "staging vendor forge-lcdl from ${candidate}"
+      mkdir -p "${FORGE_MARKET_ROOT}/vendor/forge-lcdl"
+      rsync -a "${candidate}/" "${FORGE_MARKET_ROOT}/vendor/forge-lcdl/src/"
+      return 0
+    fi
+  done
+  log "WARN: forge-lcdl vendor missing — market-app image may fail at runtime"
 }
 
 deploy_compose_stack() {
