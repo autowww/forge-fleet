@@ -546,10 +546,32 @@ smoke() {
   die "health check failed for $url"
 }
 
+ensure_external_volumes() {
+  cd "$MARKET_STUDIO_ROOT"
+  # shellcheck disable=SC1091
+  [[ -f .env ]] && set -a && source .env && set +a
+  local pgdata appdata
+  pgdata="${FORGE_MARKET_PGDATA_VOLUME:-$(_default_pgdata_volume)}"
+  if [[ "$FORGE_MARKET_ENV" == "dev" ]]; then
+    appdata="${FORGE_MARKET_APPDATA_VOLUME:-forge_market_studio_dev_data}"
+  else
+    appdata="${FORGE_MARKET_APPDATA_VOLUME:-forge_market_studio_data}"
+  fi
+  for vol in "$pgdata" "$appdata"; do
+    if docker volume inspect "$vol" &>/dev/null; then
+      log "volume exists: $vol"
+    else
+      log "creating volume: $vol"
+      docker volume create "$vol" >/dev/null
+    fi
+  done
+}
+
 main() {
   command -v docker >/dev/null || die "docker missing"
   command -v curl >/dev/null || die "curl missing"
   ensure_env_file
+  ensure_external_volumes
   ensure_paths
   ensure_vendor_lcdl
   sync_forge_market_checkout
@@ -558,7 +580,7 @@ main() {
   smoke
   log "rollout complete (env=${FORGE_MARKET_ENV} market studio loopback :${FORGE_MARKET_STUDIO_HOST_PORT:-$(_default_studio_host_port)})"
   if [[ "$FORGE_MARKET_ENV" == "dev" ]]; then
-    log "register DEV gateway: scripts/register-market-studio-dev-gateway.sh"
+    bash "$FLEET_ROOT/scripts/register-market-studio-dev-gateway.sh" || log "DEV gateway registration skipped"
   else
     log "optional Granite host edge: forge-market/scripts/granite/install-granite-edge-plane.sh"
     log "optional Granite scheduler: forge-fleet/scripts/install-granite-market-scheduler.sh"
