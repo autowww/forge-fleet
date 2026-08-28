@@ -151,6 +151,11 @@ _ensure_git_fallback_clone() {
   if [[ -d "$fallback/.git" ]]; then
     return 0
   fi
+  if [[ -e "$fallback" ]]; then
+    local backup="${fallback}.stale-$(date -u +%Y%m%dT%H%M%SZ)"
+    log "replacing non-git forge-market path ${fallback} (backup ${backup})"
+    mv "$fallback" "$backup" || return 1
+  fi
   log "cloning forge-market into ${fallback} from ${git_remote}"
   mkdir -p "$(dirname "$fallback")"
   git clone --origin origin "$git_remote" "$fallback" || return 1
