@@ -153,12 +153,17 @@ def save_gateway(data_dir: Path, record: dict[str, Any]) -> dict[str, Any]:
     root = gateways_dir(data_dir)
     root.mkdir(parents=True, exist_ok=True)
     path = _gateway_path(data_dir, sid)
+    env_name = str(record.get("app_bearer_env") or "").strip()
+    upstream_bearer = str(record.get("upstream_bearer") or "").strip()
+    compose_root_raw = str(record.get("compose_root") or "").strip()
+    if not upstream_bearer and env_name and compose_root_raw:
+        upstream_bearer = read_dotenv_value(Path(compose_root_raw).expanduser() / ".env", env_name)
     payload = {
         "service_id": sid,
         "upstream": upstream,
         "inject_bearer": bool(record.get("inject_bearer", True)),
-        "upstream_bearer": str(record.get("upstream_bearer") or "").strip(),
-        "app_bearer_env": str(record.get("app_bearer_env") or "").strip(),
+        "upstream_bearer": upstream_bearer,
+        "app_bearer_env": env_name,
         "host_ui": bool(record.get("host_ui")),
         "updated_at": datetime.now(UTC).replace(microsecond=0).isoformat(),
         "via": "fleet_api",

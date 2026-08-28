@@ -203,6 +203,94 @@ class FleetHandler(BaseHTTPRequestHandler):
     def _data_dir(self) -> Path:
         return Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
 
+    def _handle_environments(self, method: str) -> bool:
+        """Environment provisioning API (/v1/environments*)."""
+        from fleet_server import environments
+
+        parsed = urlparse(self.path)
+        path = parsed.path
+        if not path.startswith("/v1/environments"):
+            return False
+        data_dir = self._data_dir()
+        repo_root = self._repo_root()
+        q = parse_qs(parsed.query)
+
+        if method == "GET":
+            if path == "/v1/environments/provision-log":
+                self._send(200, environments.provision_log())
+                return True
+            if path == "/v1/environments/templates":
+                app_q = (q.get("app") or [None])[0]
+                from fleet_server import env_templates
+
+                self._send(
+                    200,
+                    {"ok": True, "templates": env_templates.list_templates(app_id=app_q)},
+                )
+                return True
+            if path == "/v1/environments":
+                app_q = (q.get("app") or [None])[0]
+                self._send(200, environments.list_environments(data_dir, app_id=app_q, repo_root=repo_root))
+                return True
+            m = re.match(r"^/v1/environments/([^/]+)$", path)
+            if m:
+                out = environments.get_environment(data_dir, m.group(1))
+                self._send(200 if out.get("ok") else 404, out)
+                return True
+            return False
+
+        if method == "POST":
+            body = self._read_json()
+            if path == "/v1/environments":
+                ports_raw = body.get("ports")
+                ports = ports_raw if isinstance(ports_raw, dict) else None
+                out = environments.schedule_provision(
+                    data_dir,
+                    repo_root,
+                    app_id=str(body.get("app") or body.get("app_id") or ""),
+                    env_id=str(body.get("env_id") or body.get("env") or ""),
+                    template_id=str(body.get("template_id") or ""),
+                    seed=str(body.get("seed") or "clean"),
+                    replicate_from=str(body.get("replicate_from") or body.get("from") or "") or None,
+                    ports=ports,
+                )
+                code = 200 if out.get("ok") else 400
+                self._send(code, out)
+                return True
+            m_rep = re.match(r"^/v1/environments/([^/]+)/replicate$", path)
+            if m_rep:
+                out = environments.replicate_environment(
+                    data_dir,
+                    m_rep.group(1),
+                    from_id=str(body.get("from") or body.get("replicate_from") or ""),
+                    stop_source=bool(body.get("stop_source", True)),
+                    restart_source=bool(body.get("restart_source", True)),
+                )
+                code = 200 if out.get("ok") else 400
+                self._send(code, out)
+                return True
+            m_start = re.match(r"^/v1/environments/([^/]+)/start$", path)
+            if m_start:
+                out = environments.start_environment(data_dir, m_start.group(1))
+                self._send(200 if out.get("ok") else 400, out)
+                return True
+            m_stop = re.match(r"^/v1/environments/([^/]+)/stop$", path)
+            if m_stop:
+                out = environments.stop_environment(data_dir, m_stop.group(1))
+                self._send(200 if out.get("ok") else 400, out)
+                return True
+            return False
+
+        if method == "DELETE":
+            m = re.match(r"^/v1/environments/([^/]+)$", path)
+            if m:
+                purge = (q.get("purge_volumes") or ["0"])[0].strip().lower() in ("1", "true", "yes")
+                out = environments.delete_environment(data_dir, m.group(1), purge_volumes=purge)
+                code = 200 if out.get("ok") else 409 if out.get("error") == "environment_running" else 404
+                self._send(code, out)
+                return True
+        return False
+
     def _handle_app_gateway(self, method: str) -> bool:
         """True when the request was an app-gateway call and a response was sent."""
         parsed = urlparse(self.path)
@@ -526,6 +614,17 @@ class FleetHandler(BaseHTTPRequestHandler):
             return
         if path == "/v1/admin/forge-market-studio-rollout-log":
             self._send(200, forge_market_studio_rollout.read_rollout_log())
+            return
+        if path.startswith("/v1/admin/app-deployments/"):
+            from fleet_server import app_deployments
+
+            sid = path[len("/v1/admin/app-deployments/") :].strip("/")
+            data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            out = app_deployments.get_app_deployment(data_dir_p, sid)
+            code = 200 if out.get("ok") else 404
+            self._send(code, out)
+            return
+        if self._handle_environments("GET"):
             return
         if path == "/v1/admin/snapshot":
             conn = store.connect(self.server.db_path)
@@ -1005,6 +1104,8 @@ class FleetHandler(BaseHTTPRequestHandler):
         if not self._auth_ok():
             self._send_unauthorized()
             return
+        if self._handle_environments("POST"):
+            return
         if path == "/v1/cooldown-events":
             raw_d = body.get("duration_s")
             try:
@@ -1199,6 +1300,10 @@ class FleetHandler(BaseHTTPRequestHandler):
                     "forge_market_sec_contact",
                     "forge_market_run_schema_migrate",
                     "run_schema_migrate",
+                    "forge_market_skip_build",
+                    "forge_market_app_image",
+                    "forge_market_env",
+                    "forge_market_git_sha",
                 )
                 if body.get(k) is not None
             }
@@ -1783,6 +1888,8 @@ class FleetHandler(BaseHTTPRequestHandler):
         if self._handle_app_gateway("DELETE"):
             return
         path = urlparse(self.path).path
+        if self._handle_environments("DELETE"):
+            return
         data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
         container_layout.ensure_layout(data_dir_p)
         m_ct = re.match(r"^/v1/container-types/([^/]+)$", path)

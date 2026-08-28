@@ -1,0 +1,32 @@
+# Granite host overlay — DEV stack (loopback ports 19793 / 15433).
+# No IBKR Flex vars; no Granite scheduler coupling.
+volumes:
+  appdata:
+    name: ${FORGE_MARKET_APPDATA_VOLUME:-forge_market_studio_dev_data}
+    external: true
+
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:${FORGE_MARKET_POSTGRES_HOST_PORT:-15433}:5432"
+
+  market-app:
+    ports:
+      - "127.0.0.1:${FORGE_MARKET_STUDIO_HOST_PORT:-19793}:9792"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      FORGE_MARKET_BIND_HOST: "0.0.0.0"
+      FORGE_MARKET_CONTAINER: "1"
+      FORGE_MARKET_GRANITE_EDGE: "1"
+      FORGE_MARKET_STUDIO_API_TOKEN: ${FORGE_MARKET_STUDIO_API_TOKEN:-}
+      FORGE_MARKET_STUDIO_ALLOW_ANON: ${FORGE_MARKET_STUDIO_ALLOW_ANON:-1}
+      FORGE_MARKET_API_ONLY: ${FORGE_MARKET_API_ONLY:-1}
+      FORGE_MARKET_ANALYSIS_ENABLED: ${FORGE_MARKET_ANALYSIS_ENABLED:-true}
+      FORGE_MARKET_SEC_CONTACT: ${FORGE_MARKET_SEC_CONTACT:-}
+      FORGE_MARKET_GIT_SHA: ${FORGE_MARKET_GIT_SHA:-}
+      FORGE_MARKET_CDP_URL: ${FORGE_MARKET_CDP_URL:-http://host.docker.internal:9222}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_TIMEOUT_SEC: ${LLM_TIMEOUT_SEC:-300}

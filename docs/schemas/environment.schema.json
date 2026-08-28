@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forgesdlc.com/schemas/fleet-environment.json",
+  "title": "FleetEnvironmentRecord",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "app_id",
+    "env_id",
+    "template_id",
+    "compose_root",
+    "container_service_id",
+    "gateway_slug",
+    "state"
+  ],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*--[a-z][a-z0-9_-]{0,63}$"
+    },
+    "app_id": { "type": "string" },
+    "env_id": { "type": "string" },
+    "template_id": { "type": "string" },
+    "compose_root": { "type": "string" },
+    "compose_files": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "container_service_id": { "type": "string" },
+    "gateway_slug": { "type": "string" },
+    "type_id": { "type": "string" },
+    "label": { "type": "string" },
+    "ports": {
+      "type": "object",
+      "additionalProperties": { "type": "integer", "minimum": 1, "maximum": 65535 }
+    },
+    "volumes": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "provisioning",
+        "seeding",
+        "migrating",
+        "registering",
+        "ready",
+        "failed",
+        "stopped"
+      ]
+    },
+    "state_message": { "type": "string" },
+    "seed_mode": { "type": "string", "enum": ["clean", "replicate", "adopted"] },
+    "replicate_from": { "type": "string" },
+    "adopted": { "type": "boolean" },
+    "provisioned_at": { "type": "string", "format": "date-time" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": true
+}

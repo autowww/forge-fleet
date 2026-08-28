@@ -65,8 +65,41 @@ def test_rollout_script_stops_market_app_before_migrate() -> None:
     assert "stopping market-app before postgres schema migrate" in text
 
 
+def test_rollout_script_supports_dev_env_and_digest_promotion() -> None:
+    script = Path(__file__).resolve().parents[1] / "scripts" / "rollout-forge-market-studio.sh"
+    text = script.read_text(encoding="utf-8")
+    assert "FORGE_MARKET_ENV" in text
+    assert "forge-market-studio-dev" in text
+    assert "FORGE_MARKET_SKIP_BUILD" in text
+    assert "FORGE_MARKET_APP_IMAGE" in text
+    assert "FORGE_MARKET_GIT_SHA" in text
+    assert "digest=" in text
+
+
+def test_rollout_env_keys_include_delivery_pipeline_vars() -> None:
+    assert "FORGE_MARKET_ENV" in fmsr._ROLLOUT_ENV_KEYS
+    assert "FORGE_MARKET_SKIP_BUILD" in fmsr._ROLLOUT_ENV_KEYS
+    assert "FORGE_MARKET_APP_IMAGE" in fmsr._ROLLOUT_ENV_KEYS
+    assert "FORGE_MARKET_GIT_SHA" in fmsr._ROLLOUT_ENV_KEYS
+
+
 def test_rollout_script_includes_schema_migrate() -> None:
     script = Path(__file__).resolve().parents[1] / "scripts" / "rollout-forge-market-studio.sh"
     text = script.read_text(encoding="utf-8")
     assert "run_postgres_schema_migrate" in text
     assert "forge_market.db.migrate upgrade" in text
+
+
+def test_dev_deploy_stack_files_exist() -> None:
+    root = Path(__file__).resolve().parents[1] / "deploy" / "forge-market-studio-dev"
+    assert (root / "compose.yaml").exists()
+    assert (root / "compose.granite.yaml").is_file()
+    assert (root / ".env.example").is_file()
+    granite = (root / "compose.granite.yaml").read_text(encoding="utf-8")
+    assert "19793" in granite
+    assert "15433" in granite
+    assert "FORGE_MARKET_GRANITE_EDGE" in granite
+    assert "IBKR_FLEX" not in granite
+    register = Path(__file__).resolve().parents[1] / "scripts" / "register-market-studio-dev-gateway.sh"
+    assert register.is_file()
+    assert "market-studio-dev" in register.read_text(encoding="utf-8")

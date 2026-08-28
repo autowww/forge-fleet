@@ -1,10 +1,10 @@
 # Forge Market Studio — base compose (no host ports; use compose.granite.yaml overlay).
-name: forge-market-studio
+name: ${FORGE_MARKET_COMPOSE_PROJECT:-forge-market-studio}
 
 services:
   postgres:
     image: postgres:16
-    container_name: forge-market-postgres
+    container_name: ${FORGE_MARKET_PG_CONTAINER:-forge-market-postgres}
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-forge_market}
@@ -33,8 +33,9 @@ services:
       dockerfile: ${FORGE_MARKET_DOCKERFILE:?FORGE_MARKET_DOCKERFILE required — see .env.example}
       args:
         INCLUDE_STUDIO_UI: ${INCLUDE_STUDIO_UI:-0}
-    image: forge-market-app:studio
-    container_name: forge-market-app
+        FORGE_MARKET_GIT_SHA: ${FORGE_MARKET_GIT_SHA:-}
+    image: ${FORGE_MARKET_APP_IMAGE:-forge-market-app:studio}
+    container_name: ${FORGE_MARKET_APP_CONTAINER:-forge-market-app}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -48,6 +49,7 @@ services:
       FORGE_MARKET_CONTAINER: ${FORGE_MARKET_CONTAINER:-1}
       FORGE_MARKET_API_ONLY: ${FORGE_MARKET_API_ONLY:-1}
       FORGE_MARKET_SEC_CONTACT: ${FORGE_MARKET_SEC_CONTACT:-}
+      FORGE_MARKET_GIT_SHA: ${FORGE_MARKET_GIT_SHA:-}
     volumes:
       - appdata:/app/data
     healthcheck:
@@ -59,6 +61,6 @@ services:
 
 volumes:
   pgdata:
-    name: forge_market_studio_pgdata
+    name: ${FORGE_MARKET_PGDATA_VOLUME:-forge_market_studio_pgdata}
   appdata:
-    name: forge_market_studio_data
+    name: ${FORGE_MARKET_APPDATA_VOLUME:-forge_market_studio_data}

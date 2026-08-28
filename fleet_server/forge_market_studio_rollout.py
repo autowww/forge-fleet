@@ -20,6 +20,10 @@ _ROLLOUT_ENV_KEYS = (
     "FORGE_MARKET_DOCKER_BUILD_NO_CACHE",
     "FORGE_MARKET_SEC_CONTACT",
     "FORGE_MARKET_RUN_SCHEMA_MIGRATE",
+    "FORGE_MARKET_ENV",
+    "FORGE_MARKET_SKIP_BUILD",
+    "FORGE_MARKET_APP_IMAGE",
+    "FORGE_MARKET_GIT_SHA",
 )
 
 
@@ -62,6 +66,10 @@ def _apply_rollout_overrides(env: dict[str, str], overrides: dict[str, Any]) -> 
         "forge_market_sec_contact": "FORGE_MARKET_SEC_CONTACT",
         "forge_market_run_schema_migrate": "FORGE_MARKET_RUN_SCHEMA_MIGRATE",
         "run_schema_migrate": "FORGE_MARKET_RUN_SCHEMA_MIGRATE",
+        "forge_market_env": "FORGE_MARKET_ENV",
+        "forge_market_skip_build": "FORGE_MARKET_SKIP_BUILD",
+        "forge_market_app_image": "FORGE_MARKET_APP_IMAGE",
+        "forge_market_git_sha": "FORGE_MARKET_GIT_SHA",
     }
     for src, dst in alias.items():
         val = str(overrides.get(src) or overrides.get(dst) or "").strip()
