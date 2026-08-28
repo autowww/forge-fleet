@@ -448,6 +448,7 @@ start_postgres_service() {
   log "starting postgres service"
   compose "${files[@]}" up -d postgres
   wait_postgres_ready
+  reconcile_postgres_password
 }
 
 run_postgres_schema_migrate() {

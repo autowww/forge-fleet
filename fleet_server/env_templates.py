@@ -82,6 +82,12 @@ _TEMPLATES: dict[str, dict[str, Any]] = {
         ],
         "dev_extra_keys": [
             {"key": "FORGE_MARKET_GIT_SHA", "kind": "literal", "value": ""},
+            {"key": "POSTGRES_PASSWORD", "kind": "literal", "value": "forge_market_dev"},
+            {
+                "key": "FORGE_MARKET_DATABASE_URL",
+                "kind": "literal",
+                "value": "postgresql://forge_market:forge_market_dev@postgres:5432/forge_market",
+            },
         ],
     },
 }
