@@ -59,6 +59,12 @@ def test_rollout_script_recovers_non_git_fallback() -> None:
     assert "replacing non-git forge-market path" in text
 
 
+def test_rollout_script_stops_market_app_before_migrate() -> None:
+    script = Path(__file__).resolve().parents[1] / "scripts" / "rollout-forge-market-studio.sh"
+    text = script.read_text(encoding="utf-8")
+    assert "stopping market-app before postgres schema migrate" in text
+
+
 def test_rollout_script_includes_schema_migrate() -> None:
     script = Path(__file__).resolve().parents[1] / "scripts" / "rollout-forge-market-studio.sh"
     text = script.read_text(encoding="utf-8")

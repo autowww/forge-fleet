@@ -346,6 +346,8 @@ run_postgres_schema_migrate() {
   cd "$MARKET_STUDIO_ROOT"
   local -a files
   compose_file_args files
+  log "stopping market-app before postgres schema migrate"
+  compose "${files[@]}" stop market-app 2>/dev/null || true
   log "running postgres schema migrate (forge_market.db.migrate upgrade)"
   compose "${files[@]}" run --rm --no-deps market-app python -m forge_market.db.migrate upgrade
 }
