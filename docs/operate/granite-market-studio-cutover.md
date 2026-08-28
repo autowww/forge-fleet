@@ -57,6 +57,10 @@ Operator HTTP surface (local studio-server only):
      -d '{"sync": true}'
    ```
 
+   Rollout syncs `forge-market`, rebuilds `market-app`, starts Postgres, runs **`python -m forge_market.db.migrate upgrade`** (schema deltas), then starts the API. Poll `GET /v1/admin/forge-market-studio-rollout-log` for progress. Optional body: `"run_schema_migrate": false` to skip schema step (not recommended).
+
+   Verify: `curl -fsS http://127.0.0.1:19792/health` should show matching `schema_version` and `schema_head`.
+
 2. **Run migrator recipe** `forge-market` in the Electron wizard — or equivalent curl sequence:
 
    ```bash

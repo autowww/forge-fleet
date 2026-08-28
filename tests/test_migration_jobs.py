@@ -38,7 +38,7 @@ def test_migrate_db_argv_uses_recipe_meta(tmp_path) -> None:
     assert "example_default" in argv
     assert "/migration/stub.sh" not in argv
     assert "alpine" not in argv
-    assert "forge-market" not in " ".join(argv)
+    assert "tools/migrate.py" in argv
     assert "migrate_sqlite_to_postgres.py" not in argv
 
 
@@ -72,6 +72,7 @@ def test_migrate_db_argv_overlays_bundled_migrate_tools(tmp_path) -> None:
     bundle = tmp_path / "bundle"
     tools = bundle / "tools"
     tools.mkdir(parents=True)
+    (tools / "granite_migrate_all.py").write_text("# stub\n", encoding="utf-8")
     (tools / "migrate_sqlite_to_postgres.py").write_text("# stub\n", encoding="utf-8")
     (tools / "inventory_sqlite_databases.py").write_text("# stub\n", encoding="utf-8")
     argv = migration_jobs.build_argv_for_step(
@@ -81,6 +82,7 @@ def test_migrate_db_argv_overlays_bundled_migrate_tools(tmp_path) -> None:
         bundle_extracted=bundle,
         meta=_RECIPE_META,
     )
+    assert any("granite_migrate_all.py:/app/tools/granite_migrate_all.py:ro" in a for a in argv)
     assert any("migrate_sqlite_to_postgres.py:/app/tools/migrate_sqlite_to_postgres.py:ro" in a for a in argv)
     assert any("inventory_sqlite_databases.py:/app/tools/inventory_sqlite_databases.py:ro" in a for a in argv)
 

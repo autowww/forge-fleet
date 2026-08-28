@@ -51,3 +51,10 @@ def test_run_rollout_sync_missing_script(tmp_path: Path) -> None:
         assert "rollout_script_missing" in str(ex)
     else:
         raise AssertionError("expected FileNotFoundError")
+
+
+def test_rollout_script_includes_schema_migrate() -> None:
+    script = Path(__file__).resolve().parents[1] / "scripts" / "rollout-forge-market-studio.sh"
+    text = script.read_text(encoding="utf-8")
+    assert "run_postgres_schema_migrate" in text
+    assert "forge_market.db.migrate upgrade" in text

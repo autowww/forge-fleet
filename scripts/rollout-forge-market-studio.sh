@@ -269,16 +269,8 @@ reconcile_postgres_password() {
   local pass="${POSTGRES_PASSWORD:-forge_market_dev}"
   [[ -n "$pass" ]] || return 0
   cd "$MARKET_STUDIO_ROOT"
-  local -a files=(-f compose.yaml)
-  if [[ -n "$COMPOSE_FILES" ]]; then
-    IFS=',' read -ra overlays <<<"$COMPOSE_FILES"
-    for ov in "${overlays[@]}"; do
-      ov="${ov#"${ov%%[![:space:]]*}"}"
-      ov="${ov%"${ov##*[![:space:]]}"}"
-      [[ -n "$ov" ]] || continue
-      files+=(-f "$ov")
-    done
-  fi
+  local -a files
+  compose_file_args files
   log "reconcile postgres role password with compose .env"
   compose "${files[@]}" exec -T postgres \
     psql -U "${POSTGRES_USER:-forge_market}" -d postgres \
@@ -286,12 +278,9 @@ reconcile_postgres_password() {
     2>/dev/null || log "WARN: postgres password reconcile skipped (role may already match)"
 }
 
-deploy_compose_stack() {
-  cd "$MARKET_STUDIO_ROOT"
-  if [[ -f "${FORGE_MARKET_ROOT}/studio-server/studio_server.py" ]]; then
-    date -u +"%Y-%m-%dT%H:%M:%SZ" >"${FORGE_MARKET_ROOT}/.forge-deploy-stamp"
-  fi
-  local -a files=(-f compose.yaml)
+compose_file_args() {
+  local -n out=$1
+  out=(-f compose.yaml)
   if [[ -n "$COMPOSE_FILES" ]]; then
     IFS=',' read -ra overlays <<<"$COMPOSE_FILES"
     for ov in "${overlays[@]}"; do
@@ -299,18 +288,77 @@ deploy_compose_stack() {
       ov="${ov%"${ov##*[![:space:]]}"}"
       [[ -n "$ov" ]] || continue
       [[ -f "$ov" ]] || die "compose overlay missing: $ov"
-      files+=(-f "$ov")
+      out+=(-f "$ov")
     done
   fi
+}
+
+wait_postgres_ready() {
+  local -a files
+  compose_file_args files
+  log "waiting for postgres health"
+  local attempt
+  for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+    if compose "${files[@]}" exec -T postgres \
+      pg_isready -U "${POSTGRES_USER:-forge_market}" -d "${POSTGRES_DB:-forge_market}" \
+      2>/dev/null; then
+      return 0
+    fi
+    sleep 2
+  done
+  die "postgres not ready after rollout start"
+}
+
+build_market_app_image() {
+  cd "$MARKET_STUDIO_ROOT"
+  if [[ -f "${FORGE_MARKET_ROOT}/studio-server/studio_server.py" ]]; then
+    date -u +"%Y-%m-%dT%H:%M:%SZ" >"${FORGE_MARKET_ROOT}/.forge-deploy-stamp"
+  fi
+  local -a files
+  compose_file_args files
   log "building market-app image (context $FORGE_MARKET_ROOT)"
   local -a build_cmd=(build market-app)
   if [[ "${FORGE_MARKET_DOCKER_BUILD_NO_CACHE:-}" == "1" ]]; then
     build_cmd=(build --no-cache market-app)
   fi
   compose "${files[@]}" "${build_cmd[@]}"
+}
+
+start_postgres_service() {
+  cd "$MARKET_STUDIO_ROOT"
+  local -a files
+  compose_file_args files
+  log "starting postgres service"
+  compose "${files[@]}" up -d postgres
+  wait_postgres_ready
+}
+
+run_postgres_schema_migrate() {
+  if [[ "${FORGE_MARKET_RUN_SCHEMA_MIGRATE:-1}" != "1" ]]; then
+    log "skip postgres schema migrate (FORGE_MARKET_RUN_SCHEMA_MIGRATE=${FORGE_MARKET_RUN_SCHEMA_MIGRATE:-0})"
+    return 0
+  fi
+  cd "$MARKET_STUDIO_ROOT"
+  local -a files
+  compose_file_args files
+  log "running postgres schema migrate (forge_market.db.migrate upgrade)"
+  compose "${files[@]}" run --rm --no-deps market-app python -m forge_market.db.migrate upgrade
+}
+
+start_market_app_stack() {
+  cd "$MARKET_STUDIO_ROOT"
+  local -a files
+  compose_file_args files
   log "starting forge-market-studio stack"
   compose "${files[@]}" up -d
   reconcile_postgres_password
+}
+
+deploy_compose_stack() {
+  build_market_app_image
+  start_postgres_service
+  run_postgres_schema_migrate
+  start_market_app_stack
 }
 
 register_fleet_service() {
@@ -345,7 +393,20 @@ smoke() {
   log "smoke: GET $url"
   local attempt
   for attempt in 1 2 3 4 5 6 7 8 9 10; do
-    if curl -fsS "$url" 2>/dev/null | grep -q forge-market-studio; then
+    local body
+    body="$(curl -fsS "$url" 2>/dev/null || true)"
+    if echo "$body" | grep -q forge-market-studio; then
+      if command -v jq >/dev/null 2>&1; then
+        local sv sh
+        sv="$(echo "$body" | jq -r '.schema_version // empty')"
+        sh="$(echo "$body" | jq -r '.schema_head // empty')"
+        if [[ -n "$sv" && -n "$sh" ]]; then
+          log "smoke schema_version=$sv schema_head=$sh"
+          if [[ "$sv" != "$sh" ]]; then
+            die "schema version mismatch (applied=$sv head=$sh)"
+          fi
+        fi
+      fi
       return 0
     fi
     sleep 2
@@ -353,16 +414,8 @@ smoke() {
   log "market-app logs (last 80 lines):"
   (
     cd "$MARKET_STUDIO_ROOT"
-    local -a files=(-f compose.yaml)
-    if [[ -n "$COMPOSE_FILES" ]]; then
-      IFS=',' read -ra overlays <<<"$COMPOSE_FILES"
-      for ov in "${overlays[@]}"; do
-        ov="${ov#"${ov%%[![:space:]]*}"}"
-        ov="${ov%"${ov##*[![:space:]]}"}"
-        [[ -n "$ov" ]] || continue
-        files+=(-f "$ov")
-      done
-    fi
+    local -a files
+    compose_file_args files
     compose "${files[@]}" logs --no-color --tail=80 market-app 2>&1 | tail -80
   ) || true
   die "health check failed for $url"

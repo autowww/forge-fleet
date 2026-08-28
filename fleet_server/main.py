@@ -1197,6 +1197,8 @@ class FleetHandler(BaseHTTPRequestHandler):
                     "forge_market_git_fallback_root",
                     "forge_market_docker_build_no_cache",
                     "forge_market_sec_contact",
+                    "forge_market_run_schema_migrate",
+                    "run_schema_migrate",
                 )
                 if body.get(k) is not None
             }

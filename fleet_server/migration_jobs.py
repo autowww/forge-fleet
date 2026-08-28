@@ -185,7 +185,11 @@ def _build_migrate_db_argv(
     argv.extend(["-v", f"{bundle_extracted.resolve()}:/migration/bundle:ro"])
     if data_volume:
         argv.extend(["-v", f"{data_volume}:{data_mount}"])
-    for tool_name in ("migrate_sqlite_to_postgres.py", "inventory_sqlite_databases.py"):
+    for tool_name in (
+        "granite_migrate_all.py",
+        "migrate_sqlite_to_postgres.py",
+        "inventory_sqlite_databases.py",
+    ):
         bundled = _resolve_migrate_tool_path(bundle_extracted, tool_name)
         if bundled is not None:
             argv.extend(

@@ -13,6 +13,7 @@ RUN pip install --no-cache-dir -r /app/studio-server/requirements.txt "psycopg[b
 COPY . /app
 
 ARG INCLUDE_STUDIO_UI=0
+ARG FORGE_MARKET_SCHEMA_HEAD=4
 RUN if [ "$INCLUDE_STUDIO_UI" != "1" ]; then \
       rm -rf /app/studio-ui /app/studio-ui /app/desktop \
              /app/studio-server/static/studio /app/studio-server/static/studio; \
@@ -23,6 +24,7 @@ COPY vendor/forge-lcdl/src /vendor/forge-lcdl/src
 
 ENV FORGE_MARKET_STUDIO_PORT=9792
 ENV FORGE_MARKET_API_ONLY=1
+ENV FORGE_MARKET_SCHEMA_HEAD=${FORGE_MARKET_SCHEMA_HEAD}
 ENV PYTHONPATH=/app/src:/app/studio-server:/vendor/forge-lcdl/src
 EXPOSE 9792
 

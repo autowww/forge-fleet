@@ -19,6 +19,7 @@ _ROLLOUT_ENV_KEYS = (
     "FORGE_MARKET_GIT_FALLBACK_ROOT",
     "FORGE_MARKET_DOCKER_BUILD_NO_CACHE",
     "FORGE_MARKET_SEC_CONTACT",
+    "FORGE_MARKET_RUN_SCHEMA_MIGRATE",
 )
 
 
@@ -59,6 +60,8 @@ def _apply_rollout_overrides(env: dict[str, str], overrides: dict[str, Any]) -> 
         "forge_market_git_fallback_root": "FORGE_MARKET_GIT_FALLBACK_ROOT",
         "forge_market_docker_build_no_cache": "FORGE_MARKET_DOCKER_BUILD_NO_CACHE",
         "forge_market_sec_contact": "FORGE_MARKET_SEC_CONTACT",
+        "forge_market_run_schema_migrate": "FORGE_MARKET_RUN_SCHEMA_MIGRATE",
+        "run_schema_migrate": "FORGE_MARKET_RUN_SCHEMA_MIGRATE",
     }
     for src, dst in alias.items():
         val = str(overrides.get(src) or overrides.get(dst) or "").strip()
