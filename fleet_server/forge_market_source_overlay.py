@@ -26,6 +26,31 @@ def _default_dest_root() -> Path:
     return Path("/home/administrator/forge-market")
 
 
+def clear_hosted_data_plane_pref() -> None:
+    """Remove workstation remote pref from hosted API volumes (avoids gateway self-probe deadlock)."""
+    for vol in ("forge_market_studio_data", "forge_market_studio_dev_data"):
+        try:
+            subprocess.run(
+                [
+                    "docker",
+                    "run",
+                    "--rm",
+                    "-v",
+                    f"{vol}:/data",
+                    "alpine:3.20",
+                    "sh",
+                    "-c",
+                    "rm -f /data/operator/data-plane-pref.json",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+
+
 def apply_source_overlay(
     payload: bytes,
     *,
@@ -86,7 +111,8 @@ def apply_source_overlay(
                 "stderr": (rsync.stderr or "")[-2000:],
             }
 
-    marker = root / "studio-server" / "studio_server.py"
+        marker = root / "studio-server" / "studio_server.py"
+    clear_hosted_data_plane_pref()
     return {
         "ok": True,
         "dest_root": str(root),
