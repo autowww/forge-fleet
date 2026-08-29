@@ -2,6 +2,9 @@
 # appdata volume MUST be env-scoped (FORGE_MARKET_APPDATA_VOLUME) so operator
 # data-plane-pref.json is not shared across prod/dev/clean stacks.
 volumes:
+  pgdata:
+    name: ${FORGE_MARKET_PGDATA_VOLUME:-forge_market_studio_pgdata}
+    external: true
   appdata:
     name: ${FORGE_MARKET_APPDATA_VOLUME:-forge_market_studio_data}
     external: true
