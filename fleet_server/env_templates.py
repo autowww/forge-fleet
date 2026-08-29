@@ -53,6 +53,7 @@ _TEMPLATES: dict[str, dict[str, Any]] = {
         "default_ports": {
             "prod": {"app": 19792, "postgres": 15432},
             "dev": {"app": 19793, "postgres": 15433},
+            "clean": {"app": 19794, "postgres": 15434},
         },
         "gateway": {
             "slug_pattern": "market-studio{suffix}",
@@ -173,6 +174,7 @@ def render_env(
     env_id_l = str(env_id or "").strip().lower()
     is_prod = env_id_l in ("prod", "production")
     rewrites = {r["key"]: _rewrite_value(r, app_id=app_id, env_id=env_id, ports=ports) for r in template.get("env_rewrites", [])}
+    rewrites["FORGE_MARKET_ENV"] = env_id_l
     if not is_prod:
         for r in template.get("dev_extra_keys", []):
             rewrites[r["key"]] = _rewrite_value(r, app_id=app_id, env_id=env_id, ports=ports)
@@ -238,10 +240,6 @@ def default_ports_for_env(template: dict[str, Any], env_id: str) -> dict[str, in
     e = str(env_id or "").strip().lower()
     if e in defaults:
         return dict(defaults[e])
-    if "prod" in defaults:
-        base = dict(defaults["prod"])
-        # Offset dev-like envs by 1 on each port
-        return {k: v + 1 for k, v in base.items()}
     return {}
 
 

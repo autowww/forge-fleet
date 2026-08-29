@@ -30,7 +30,7 @@ services:
   market-app:
     build:
       context: ${FORGE_MARKET_ROOT:-../../../forge-market}
-      dockerfile: ${FORGE_MARKET_DOCKERFILE:?FORGE_MARKET_DOCKERFILE required — see .env.example}
+      dockerfile: ${FORGE_MARKET_DOCKERFILE:-Dockerfile}
       args:
         INCLUDE_STUDIO_UI: ${INCLUDE_STUDIO_UI:-0}
         FORGE_MARKET_GIT_SHA: ${FORGE_MARKET_GIT_SHA:-}

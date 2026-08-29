@@ -75,8 +75,15 @@ def test_register_rejects_new_tunnel_flag(tmp_path) -> None:
 
 
 class _Upstream(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+    setups = 0
+
     def log_message(self, fmt: str, *args) -> None:  # noqa: ARG002
         return
+
+    def setup(self) -> None:
+        super().setup()
+        type(self).setups += 1
 
     def do_GET(self) -> None:
         auth = self.headers.get("Authorization") or ""
@@ -89,6 +96,10 @@ class _Upstream(BaseHTTPRequestHandler):
 
 
 def test_proxy_injects_app_bearer(tmp_path) -> None:
+    from fleet_server.pooled_http import reset_http_pool
+
+    reset_http_pool()
+    _Upstream.setups = 0
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), _Upstream)
     port = httpd.server_address[1]
     thread = Thread(target=httpd.serve_forever, daemon=True)
@@ -113,7 +124,19 @@ def test_proxy_injects_app_bearer(tmp_path) -> None:
         assert data["auth"] == "Bearer app-secret"
         assert data["path"] == "/health"
         assert "json" in headers.get("Content-Type", "")
+        status2, _h2, payload2 = app_gateway.proxy(
+            rec,
+            method="GET",
+            rest_path="health",
+            query="",
+            req_headers={"Authorization": "Bearer fleet-token", "Accept": "application/json"},
+            body=b"",
+        )
+        assert status2 == 200
+        assert json.loads(payload2.decode())["ok"] is True
+        assert _Upstream.setups == 1
     finally:
+        reset_http_pool()
         httpd.shutdown()
         httpd.server_close()
 

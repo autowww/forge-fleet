@@ -12,17 +12,21 @@ FORGE_MARKET_SKIP_BUILD="${FORGE_MARKET_SKIP_BUILD:-0}"
 log() { printf 'rollout-forge-market-studio: %s\n' "$*"; }
 die() { log "ERROR: $*"; exit 1; }
 
-case "$FORGE_MARKET_ENV" in
-  dev)
-    MARKET_STUDIO_ROOT="${FORGE_MARKET_STUDIO_ROOT:-$FLEET_ROOT/deploy/forge-market-studio-dev}"
-    ;;
-  prod)
-    MARKET_STUDIO_ROOT="${FORGE_MARKET_STUDIO_ROOT:-$FLEET_ROOT/deploy/forge-market-studio}"
-    ;;
-  *)
-    die "FORGE_MARKET_ENV must be dev or prod (got: ${FORGE_MARKET_ENV})"
-    ;;
-esac
+FORGE_MARKET_ENV="${FORGE_MARKET_ENV:-prod}"
+
+_rollout_python() {
+  (cd "$FLEET_ROOT" && python3 -c "$1")
+}
+
+if [[ -z "${MARKET_STUDIO_ROOT:-}" ]]; then
+  MARKET_STUDIO_ROOT="$(_rollout_python "
+from pathlib import Path
+from fleet_server.market_studio_rollout_env import compose_root_for_env
+import os
+print(compose_root_for_env(Path('${FLEET_ROOT}'), os.environ.get('FORGE_MARKET_ENV','prod')))
+")"
+fi
+export MARKET_STUDIO_ROOT
 
 resolve_forge_market_root() {
   if [[ -n "${FORGE_MARKET_ROOT}" && -f "${FORGE_MARKET_ROOT}/studio-server/studio_server.py" ]]; then
@@ -74,27 +78,39 @@ _persist_compose_env_key() {
 }
 
 _default_pgdata_volume() {
-  if [[ "$FORGE_MARKET_ENV" == "dev" ]]; then
-    printf '%s' "forge_market_studio_dev_pgdata"
-  else
-    printf '%s' "forge_market_studio_pgdata"
-  fi
+  _rollout_python "
+from fleet_server.market_studio_rollout_env import volume_names
+import os
+pg, _ = volume_names(os.environ.get('FORGE_MARKET_ENV','prod'))
+print(pg)
+"
+}
+
+_default_appdata_volume() {
+  _rollout_python "
+from fleet_server.market_studio_rollout_env import volume_names
+import os
+_, app = volume_names(os.environ.get('FORGE_MARKET_ENV','prod'))
+print(app)
+"
 }
 
 _default_studio_host_port() {
-  if [[ "$FORGE_MARKET_ENV" == "dev" ]]; then
-    printf '%s' "19793"
-  else
-    printf '%s' "19792"
-  fi
+  _rollout_python "
+from fleet_server.market_studio_rollout_env import host_ports
+import os
+app, _ = host_ports(os.environ.get('FORGE_MARKET_ENV','prod'))
+print(app)
+"
 }
 
 _default_postgres_host_port() {
-  if [[ "$FORGE_MARKET_ENV" == "dev" ]]; then
-    printf '%s' "15433"
-  else
-    printf '%s' "15432"
-  fi
+  _rollout_python "
+from fleet_server.market_studio_rollout_env import host_ports
+import os
+_, pg = host_ports(os.environ.get('FORGE_MARKET_ENV','prod'))
+print(pg)
+"
 }
 
 _resolve_git_sha12() {
@@ -486,12 +502,15 @@ deploy_compose_stack() {
 register_fleet_service() {
   local fleet_port="${FLEET_LOCAL_PORT:-18766}"
   local fleet_token="${FLEET_BEARER_TOKEN:-}"
-  local service_id="market-studio"
-  local service_label="Granite Market Studio"
-  if [[ "$FORGE_MARKET_ENV" == "dev" ]]; then
-    service_id="market-studio-dev"
-    service_label="Granite Market Studio (DEV)"
-  fi
+  local service_id service_label
+  read -r service_id service_label < <(
+    _rollout_python "
+from fleet_server.market_studio_rollout_env import rollout_identity
+import os
+sid, label = rollout_identity(os.environ.get('FORGE_MARKET_ENV','prod'))
+print(sid, label)
+"
+  )
   if [[ -z "$fleet_token" && -f "$ENV_FILE" ]]; then
     # shellcheck disable=SC1090
     set -a && source "$ENV_FILE" && set +a
@@ -555,11 +574,7 @@ ensure_external_volumes() {
   [[ -f .env ]] && set -a && source .env && set +a
   local pgdata appdata
   pgdata="${FORGE_MARKET_PGDATA_VOLUME:-$(_default_pgdata_volume)}"
-  if [[ "$FORGE_MARKET_ENV" == "dev" ]]; then
-    appdata="${FORGE_MARKET_APPDATA_VOLUME:-forge_market_studio_dev_data}"
-  else
-    appdata="${FORGE_MARKET_APPDATA_VOLUME:-forge_market_studio_data}"
-  fi
+  appdata="${FORGE_MARKET_APPDATA_VOLUME:-$(_default_appdata_volume)}"
   for vol in "$pgdata" "$appdata"; do
     if docker volume inspect "$vol" &>/dev/null; then
       log "volume exists: $vol"
@@ -577,11 +592,7 @@ clear_hosted_data_plane_pref() {
   # shellcheck disable=SC1091
   [[ -f .env ]] && set -a && source .env && set +a
   local appdata
-  if [[ "$FORGE_MARKET_ENV" == "dev" ]]; then
-    appdata="${FORGE_MARKET_APPDATA_VOLUME:-forge_market_studio_dev_data}"
-  else
-    appdata="${FORGE_MARKET_APPDATA_VOLUME:-forge_market_studio_data}"
-  fi
+  appdata="${FORGE_MARKET_APPDATA_VOLUME:-$(_default_appdata_volume)}"
   if docker volume inspect "$appdata" &>/dev/null; then
     log "clearing stale operator/data-plane-pref.json from volume ${appdata}"
     docker run --rm -v "${appdata}:/data" alpine:3.20 \
@@ -603,10 +614,10 @@ main() {
   register_fleet_service
   smoke
   log "rollout complete (env=${FORGE_MARKET_ENV} market studio loopback :${FORGE_MARKET_STUDIO_HOST_PORT:-$(_default_studio_host_port)})"
-  if [[ "$FORGE_MARKET_ENV" == "dev" ]]; then
-    bash "$FLEET_ROOT/scripts/register-market-studio-dev-gateway.sh" || log "DEV gateway registration skipped"
-  else
-    bash "$FLEET_ROOT/scripts/register-market-studio-gateway.sh" || log "PROD gateway registration skipped"
+  export FORGE_MARKET_STUDIO_ROOT="$MARKET_STUDIO_ROOT"
+  export FORGE_MARKET_STUDIO_HOST_PORT="${FORGE_MARKET_STUDIO_HOST_PORT:-$(_default_studio_host_port)}"
+  bash "$FLEET_ROOT/scripts/register-market-studio-env-gateway.sh" || log "gateway registration skipped"
+  if [[ "$FORGE_MARKET_ENV" == "prod" ]]; then
     log "optional Granite host edge: forge-market/scripts/granite/install-granite-edge-plane.sh"
     log "optional Granite scheduler: forge-fleet/scripts/install-granite-market-scheduler.sh"
   fi

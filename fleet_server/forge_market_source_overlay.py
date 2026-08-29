@@ -26,9 +26,15 @@ def _default_dest_root() -> Path:
     return Path("/home/administrator/forge-market")
 
 
-def clear_hosted_data_plane_pref() -> None:
+def clear_hosted_data_plane_pref(extra_volumes: list[str] | None = None) -> None:
     """Remove workstation remote pref from hosted API volumes (avoids gateway self-probe deadlock)."""
-    for vol in ("forge_market_studio_data", "forge_market_studio_dev_data"):
+    from fleet_server.market_studio_rollout_env import known_appdata_volumes
+
+    volumes = list(known_appdata_volumes())
+    for vol in extra_volumes or []:
+        if vol and vol not in volumes:
+            volumes.append(vol)
+    for vol in volumes:
         try:
             subprocess.run(
                 [

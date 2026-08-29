@@ -1,0 +1,34 @@
+# Build context: forge-market repository root (see compose.yaml FORGE_MARKET_ROOT).
+FROM python:3.12-slim
+
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY studio-server/requirements.txt /app/studio-server/requirements.txt
+RUN pip install --no-cache-dir -r /app/studio-server/requirements.txt "psycopg[binary]>=3.1"
+
+COPY . /app
+
+ARG INCLUDE_STUDIO_UI=0
+ARG FORGE_MARKET_SCHEMA_HEAD=4
+RUN if [ "$INCLUDE_STUDIO_UI" != "1" ]; then \
+      rm -rf /app/studio-ui /app/studio-ui /app/desktop \
+             /app/studio-server/static/studio /app/studio-server/static/studio; \
+    fi
+
+# Optional vendored forge-lcdl for container images (Granite / Fleet builds without sibling checkout).
+COPY vendor/forge-lcdl/src /vendor/forge-lcdl/src
+
+ENV FORGE_MARKET_STUDIO_PORT=9792
+ENV FORGE_MARKET_API_ONLY=1
+ENV FORGE_MARKET_SCHEMA_HEAD=${FORGE_MARKET_SCHEMA_HEAD}
+ENV PYTHONPATH=/app/src:/app/studio-server:/vendor/forge-lcdl/src
+EXPOSE 9792
+
+HEALTHCHECK --interval=15s --timeout=5s --retries=5 --start-period=45s \
+  CMD curl -fsS http://127.0.0.1:9792/health >/dev/null || exit 1
+
+CMD ["python", "studio-server/studio_server.py"]

@@ -1,8 +1,9 @@
 # Granite host overlay — publish Market Studio and Postgres on loopback.
-# appdata is created by the generic Fleet seed step before compose up.
+# appdata volume MUST be env-scoped (FORGE_MARKET_APPDATA_VOLUME) so operator
+# data-plane-pref.json is not shared across prod/dev/clean stacks.
 volumes:
   appdata:
-    name: forge_market_studio_data
+    name: ${FORGE_MARKET_APPDATA_VOLUME:-forge_market_studio_data}
     external: true
 
 services:

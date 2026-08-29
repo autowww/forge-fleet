@@ -4,7 +4,8 @@ Recipes register a loopback upstream. Clients keep using the Fleet hostname and
 Fleet bearer; Fleet injects the app bearer when the upstream requires one.
 
 A new Cloudflare tunnel is not created. Public routing stays on the Fleet edge
-(``https://<fleet-host>/v1/app-gateways/<service_id>/…``).
+(``https://<fleet-host>/v1/app-gateways/<service_id>/…``). The proxy reuses
+HTTP/1.1 keep-alive connections to the loopback upstream.
 """
 
 from __future__ import annotations
@@ -17,9 +18,9 @@ import stat
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+
+from fleet_server.pooled_http import pooled_request
 
 _SERVICE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
@@ -414,22 +415,21 @@ def proxy(
     bearer = str(record.get("upstream_bearer") or "").strip()
     if bearer and record.get("inject_bearer", True):
         headers["Authorization"] = f"Bearer {bearer}"
-    req = Request(target, data=body if body else None, method=str(method).upper(), headers=headers)
     timeout_s = _proxy_timeout_s(record, rest_path, method)
     try:
-        with urlopen(req, timeout=timeout_s) as resp:
-            payload = resp.read(_MAX_PROXY_BODY)
-            status = int(getattr(resp, "status", 200) or 200)
-            raw_headers = dict(resp.headers.items()) if resp.headers else {}
-    except HTTPError as exc:
-        payload = exc.read(_MAX_PROXY_BODY) if exc.fp else b""
-        status = int(exc.code)
-        raw_headers = dict(exc.headers.items()) if exc.headers else {}
-    except URLError as exc:
+        status, raw_headers, payload = pooled_request(
+            str(method).upper(),
+            target,
+            headers=headers,
+            body=body if body else None,
+            timeout=timeout_s,
+        )
+        payload = payload[:_MAX_PROXY_BODY]
+    except (TimeoutError, OSError) as exc:
         err_headers = {"Content-Type": "application/json"}
         apply_cors(err_headers, req_headers)
         return 502, err_headers, json.dumps(
-            {"ok": False, "error": "upstream_unreachable", "detail": str(exc.reason)[:400]}
+            {"ok": False, "error": "upstream_unreachable", "detail": str(exc)[:400]}
         ).encode("utf-8")
     out_headers: dict[str, str] = {}
     for key, val in raw_headers.items():

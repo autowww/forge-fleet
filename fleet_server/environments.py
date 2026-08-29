@@ -23,7 +23,7 @@ _PROVISION_LOCKS: dict[str, threading.Lock] = {}
 _PROVISION_LOG: list[str] = []
 _PROVISION_LOG_LOCK = threading.Lock()
 
-# Known adopt targets relative to fleet repo root
+# Known adopt targets relative to fleet repo root (prod/dev dirs + market-studio-*)
 _ADOPT_TARGETS: list[dict[str, Any]] = [
     {
         "app_id": "forge-market-studio",
@@ -41,7 +41,44 @@ _ADOPT_TARGETS: list[dict[str, Any]] = [
         "gateway_slug": "market-studio-dev",
         "container_service_id": "market-studio-dev",
     },
+    {
+        "app_id": "forge-market-studio",
+        "env_id": "clean",
+        "template_id": "forge_market_studio",
+        "compose_rel": "deploy/market-studio-clean",
+        "gateway_slug": "market-studio-clean",
+        "container_service_id": "market-studio-clean",
+    },
 ]
+
+
+def discover_adopt_targets(repo_root: Path) -> list[dict[str, Any]]:
+    """Merge static targets with deploy/market-studio-* directories on disk."""
+    out = list(_ADOPT_TARGETS)
+    deploy = repo_root / "deploy"
+    known_rels = {t["compose_rel"] for t in out}
+    if deploy.is_dir():
+        for child in sorted(deploy.glob("market-studio-*")):
+            if not child.is_dir():
+                continue
+            rel = f"deploy/{child.name}"
+            if rel in known_rels:
+                continue
+            env_id = child.name.replace("market-studio-", "", 1)
+            tpl = env_templates.get_template("forge_market_studio")
+            ids = env_templates.resolve_ids(tpl, env_id) if tpl else {}
+            out.append(
+                {
+                    "app_id": "forge-market-studio",
+                    "env_id": env_id,
+                    "template_id": "forge_market_studio",
+                    "compose_rel": rel,
+                    "gateway_slug": ids.get("gateway_slug", f"market-studio-{env_id}"),
+                    "container_service_id": ids.get("container_service_id", f"market-studio-{env_id}"),
+                }
+            )
+            known_rels.add(rel)
+    return out
 
 
 def _utc_now() -> str:
@@ -176,7 +213,7 @@ def _read_dotenv_port(compose_root: Path, key: str) -> int | None:
 def adopt_existing(data_dir: Path, repo_root: Path) -> list[dict[str, Any]]:
     """Materialise records for known compose roots without modifying stacks."""
     adopted: list[dict[str, Any]] = []
-    for spec in _ADOPT_TARGETS:
+    for spec in discover_adopt_targets(repo_root):
         rid = make_record_id(spec["app_id"], spec["env_id"])
         if read_record(data_dir, rid):
             continue

@@ -45,3 +45,5 @@ curl -fsS "$FORGE_FLEET_BASE_URL/v1/admin/app-deployments/market-studio-dev" \
 ```
 
 See also [granite-market-studio-cutover.md](granite-market-studio-cutover.md).
+
+If Fleet shows `FORGE_MARKET_DOCKERFILE is missing`, the compose `.env` was copied from `.env.example` without a rollout. Run `POST /v1/admin/forge-market-studio-rollout` (prod and/or `forge_market_env: dev`). The script writes the absolute Dockerfile path and starts the stack. Compose also falls back to `forge-market/Dockerfile` when the variable is empty so `docker compose ps` still works.
