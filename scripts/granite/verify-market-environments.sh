@@ -27,8 +27,14 @@ sleep 90
 
 probe() {
   local slug="$1"
-  curl -fsS --max-time 10 "${BASE}/v1/app-gateways/${slug}/health" \
-    -H "Authorization: Bearer ${TOK}" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('status', d.get('ok')), d.get('environment',{}).get('id',''))"
+  local body
+  if ! body="$(curl -fsS --max-time 15 "${BASE}/v1/app-gateways/${slug}/health" \
+    -H "Authorization: Bearer ${TOK}" 2>/dev/null)"; then
+    log "${slug}: probe failed"
+    return 1
+  fi
+  printf '%s\n' "$body" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('status', d.get('ok')), d.get('environment',{}).get('id',''))" 2>/dev/null \
+    || log "${slug}: non-json health body"
 }
 
 log "PROD health"; probe market-studio || true
