@@ -193,7 +193,12 @@ def status_for_record(record: dict[str, Any]) -> dict[str, Any]:
         and str(row.get("State") or "").lower() == "restarting"
         for row in rows
     )
-    if restarting:
+    if restarting or any(
+        isinstance(row, dict)
+        and "market-app" in str(row.get("Name") or row.get("Service") or "").lower()
+        and str(row.get("Health") or "").lower() not in {"", "healthy"}
+        for row in rows
+    ):
         logs, log_err = compose_logs_tail(root, rel, "market-app", tail=40)
         if logs:
             out["market_app_logs_tail"] = logs

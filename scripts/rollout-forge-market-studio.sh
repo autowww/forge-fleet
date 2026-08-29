@@ -186,6 +186,8 @@ EOF
   export FORGE_MARKET_ROOT
   if [[ -n "$_dockerfile_override" ]]; then
     export FORGE_MARKET_DOCKERFILE="$_dockerfile_override"
+  elif [[ "$FORGE_MARKET_ENV" == "dev" ]]; then
+    export FORGE_MARKET_DOCKERFILE="$FLEET_ROOT/deploy/forge-market-studio-dev/Dockerfile.market-app"
   else
     export FORGE_MARKET_DOCKERFILE="$FLEET_ROOT/deploy/forge-market-studio/Dockerfile.market-app"
   fi
@@ -583,6 +585,7 @@ main() {
   if [[ "$FORGE_MARKET_ENV" == "dev" ]]; then
     bash "$FLEET_ROOT/scripts/register-market-studio-dev-gateway.sh" || log "DEV gateway registration skipped"
   else
+    bash "$FLEET_ROOT/scripts/register-market-studio-gateway.sh" || log "PROD gateway registration skipped"
     log "optional Granite host edge: forge-market/scripts/granite/install-granite-edge-plane.sh"
     log "optional Granite scheduler: forge-fleet/scripts/install-granite-market-scheduler.sh"
   fi

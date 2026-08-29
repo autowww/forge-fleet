@@ -324,6 +324,7 @@ class FleetHandler(BaseHTTPRequestHandler):
                         "inject_bearer": body.get("inject_bearer", True),
                         "upstream_bearer": str(body.get("upstream_bearer") or ""),
                         "app_bearer_env": str(body.get("app_bearer_env") or ""),
+                        "compose_root": str(body.get("compose_root") or ""),
                     },
                 )
             except ValueError as exc:
