@@ -286,6 +286,7 @@ _rsync_forge_market_tree() {
     --exclude .git/ \
     --exclude /data/ \
     --exclude .venv/ \
+    --exclude vendor/ \
     --exclude studio-ui/node_modules/ \
     --exclude desktop/node_modules/ \
     "${src}/" "${dst}/"
