@@ -9,6 +9,7 @@ DEST="${FORGE_MARKET_DEPLOY_ROOT:-/home/administrator/forge-market}"
 
 PATHS=(
   studio-server/
+  src/forge_market/studio/
   src/forge_market/operator/
   src/forge_market/granite_client.py
   src/forge_market/granite_llm_queue.py
