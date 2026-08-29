@@ -311,6 +311,7 @@ sync_forge_market_checkout() {
   fi
 
   if [[ -n "$git_ref" ]]; then
+    export FORGE_MARKET_RSYNC_DELETE="${FORGE_MARKET_RSYNC_DELETE:-1}"
     fallback="${fallback:-/home/administrator/Code/forge-market}"
     _ensure_git_fallback_clone "$fallback" || log "WARN: could not clone git fallback at ${fallback}"
     if [[ -d "$fallback/.git" ]]; then
