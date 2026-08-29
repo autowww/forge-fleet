@@ -570,6 +570,26 @@ ensure_external_volumes() {
   done
 }
 
+clear_hosted_data_plane_pref() {
+  # Hosted API containers must not keep a workstation remote pref that points at their
+  # own Fleet app gateway — bootstrap granite probes would deadlock loopback /health.
+  cd "$MARKET_STUDIO_ROOT"
+  # shellcheck disable=SC1091
+  [[ -f .env ]] && set -a && source .env && set +a
+  local appdata
+  if [[ "$FORGE_MARKET_ENV" == "dev" ]]; then
+    appdata="${FORGE_MARKET_APPDATA_VOLUME:-forge_market_studio_dev_data}"
+  else
+    appdata="${FORGE_MARKET_APPDATA_VOLUME:-forge_market_studio_data}"
+  fi
+  if docker volume inspect "$appdata" &>/dev/null; then
+    log "clearing stale operator/data-plane-pref.json from volume ${appdata}"
+    docker run --rm -v "${appdata}:/data" alpine:3.20 \
+      sh -c 'rm -f /data/operator/data-plane-pref.json' >/dev/null 2>&1 \
+      || log "WARN: could not clear data-plane-pref from ${appdata}"
+  fi
+}
+
 main() {
   command -v docker >/dev/null || die "docker missing"
   command -v curl >/dev/null || die "curl missing"
@@ -578,6 +598,7 @@ main() {
   ensure_paths
   ensure_vendor_lcdl
   sync_forge_market_checkout
+  clear_hosted_data_plane_pref
   deploy_compose_stack
   register_fleet_service
   smoke
