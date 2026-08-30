@@ -30,9 +30,26 @@ class InferenceQueue:
         async with self._lock:
             return len(self._waiting) + self._active
 
+    def _reap_expired(self, *, max_age_sec: float) -> int:
+        """Drop tickets whose waiter can no longer be waiting. Caller holds the lock.
+
+        Defence in depth: a queue that can only ever fill wedges the gateway
+        permanently, so an abandoned ticket must expire rather than hold a slot
+        until the process restarts.
+        """
+        if not self._waiting:
+            return 0
+        cutoff = time.time() - max_age_sec
+        keep = deque(t for t in self._waiting if t.enqueued_at >= cutoff)
+        reaped = len(self._waiting) - len(keep)
+        if reaped:
+            self._waiting = keep
+        return reaped
+
     async def acquire(self, ticket_id: str, *, hold: bool, timeout_sec: float) -> dict[str, Any]:
         ticket = QueueTicket(ticket_id=ticket_id)
         async with self._lock:
+            self._reap_expired(max_age_sec=max(timeout_sec, 1.0) * 2)
             if len(self._waiting) >= MAX_QUEUE_DEPTH:
                 return {
                     "ok": False,
@@ -43,23 +60,31 @@ class InferenceQueue:
             if self._active < self._max_concurrent:
                 self._active += 1
                 return {"ok": True, "queue_wait_ms": 0}
-            ticket.position = len(self._waiting) + 1
+            # A bounced caller stops waiting the moment it receives its 503, so it
+            # must never occupy a queue slot — enqueue only when the caller holds.
+            position = len(self._waiting) + 1
+            if not hold:
+                return {
+                    "ok": False,
+                    "reason": "busy",
+                    "queue_position": position,
+                    "retry_after_sec": min(60, max(5, position * 10)),
+                }
+            ticket.position = position
             self._waiting.append(ticket)
-        if not hold:
-            return {
-                "ok": False,
-                "reason": "busy",
-                "queue_position": ticket.position,
-                "retry_after_sec": min(60, max(5, ticket.position * 10)),
-            }
         try:
             await asyncio.wait_for(ticket.event.wait(), timeout=timeout_sec)
         except asyncio.TimeoutError:
+            handed_off = False
             async with self._lock:
                 try:
                     self._waiting.remove(ticket)
                 except ValueError:
-                    pass
+                    # release() already popped this ticket and handed it the active
+                    # slot; give that slot back instead of stranding it.
+                    handed_off = ticket.event.is_set()
+            if handed_off:
+                await self.release()
             return {
                 "ok": False,
                 "reason": "queue_timeout",
