@@ -118,8 +118,8 @@ print(pg)
 # /health report a commit that is not the one running, which is the signal
 # operators use to decide whether a rollout actually took effect.
 _resolve_git_sha12() {
-  local sha=""
-  if [[ -d "${FORGE_MARKET_ROOT}/.git" ]]; then
+  local sha="${FORGE_MARKET_SYNCED_GIT_SHA:-}"
+  if [[ -z "$sha" && -d "${FORGE_MARKET_ROOT}/.git" ]]; then
     sha="$(git -C "${FORGE_MARKET_ROOT}" rev-parse --short=12 HEAD 2>/dev/null || true)"
   fi
   if [[ -z "$sha" ]]; then
@@ -323,6 +323,24 @@ _rsync_forge_market_tree() {
     "${src}/" "${dst}/"
 }
 
+# Sync a checkout and record the sha that will actually be deployed. The tree is
+# rsync'd into FORGE_MARKET_ROOT with .git excluded, so that root's own .git
+# keeps pointing at whatever it was before and cannot be trusted for the sha.
+_sync_git_tree_or_die() {
+  local root="$1"
+  local label="$2"
+  if _sync_git_tree "$root"; then
+    FORGE_MARKET_SYNCED_GIT_SHA="$(git -C "$root" rev-parse --short=12 HEAD 2>/dev/null || true)"
+    export FORGE_MARKET_SYNCED_GIT_SHA
+    return 0
+  fi
+  if [[ "${FORGE_MARKET_ALLOW_STALE_TREE:-0}" == "1" ]]; then
+    log "WARN: ${label} git sync failed — using tree as-is (FORGE_MARKET_ALLOW_STALE_TREE=1)"
+    return 0
+  fi
+  die "${label} git sync failed in ${root} — refusing to build a stale tree (set FORGE_MARKET_ALLOW_STALE_TREE=1 to override)"
+}
+
 sync_forge_market_checkout() {
   ensure_vendor_lcdl
   local fallback="${FORGE_MARKET_GIT_FALLBACK_ROOT:-}"
@@ -346,28 +364,18 @@ sync_forge_market_checkout() {
     fallback="${fallback:-/home/administrator/Code/forge-market}"
     _ensure_git_fallback_clone "$fallback" || log "WARN: could not clone git fallback at ${fallback}"
     if [[ -d "$fallback/.git" ]]; then
-      if ! _sync_git_tree "$fallback"; then
-        log "WARN: fallback git sync failed — rsync may be stale"
-      fi
+      _sync_git_tree_or_die "$fallback" "forge-market fallback"
       sync_src="$fallback"
     fi
   elif [[ -d "${FORGE_MARKET_ROOT}/.git" ]]; then
     log "syncing git checkout at ${FORGE_MARKET_ROOT}"
-    if ! _sync_git_tree "${FORGE_MARKET_ROOT}"; then
-      if [[ "${FORGE_MARKET_ALLOW_STALE_TREE:-0}" == "1" ]]; then
-        log "WARN: forge-market git sync failed — using tree as-is (FORGE_MARKET_ALLOW_STALE_TREE=1)"
-      else
-        die "forge-market git sync failed in ${FORGE_MARKET_ROOT} — refusing to build a stale tree (set FORGE_MARKET_ALLOW_STALE_TREE=1 to override)"
-      fi
-    fi
+    _sync_git_tree_or_die "${FORGE_MARKET_ROOT}" "forge-market"
     return 0
   fi
 
   if [[ -z "$sync_src" && -n "$fallback" && -d "$fallback/.git" ]]; then
     log "syncing fallback git checkout at ${fallback}"
-    if ! _sync_git_tree "$fallback"; then
-      log "WARN: fallback git sync failed — rsync may be stale"
-    fi
+    _sync_git_tree_or_die "$fallback" "forge-market fallback"
     sync_src="$fallback"
   fi
 

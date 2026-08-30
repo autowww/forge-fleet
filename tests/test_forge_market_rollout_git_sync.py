@@ -180,6 +180,28 @@ def test_git_sha_falls_back_to_env_without_a_checkout(tmp_path: Path) -> None:
     assert _call_resolve_sha(plain, FORGE_MARKET_GIT_SHA="72d48fe44af7") == "72d48fe44af7"
 
 
+def test_git_sha_prefers_the_synced_source_over_the_rsync_target(tmp_path: Path) -> None:
+    """The deploy root is an rsync target whose .git is excluded from the sync.
+
+    Regression: with FORGE_MARKET_GIT_REF set, the branch is checked out in the
+    fallback clone and rsync'd into FORGE_MARKET_ROOT with .git excluded, so the
+    root's own .git still pointed at the previous commit and /health advertised
+    a commit that was not the one running.
+    """
+    origin = _make_origin(tmp_path)
+    stale_root = tmp_path / "deploy-root"
+    subprocess.run(
+        ["git", "clone", str(origin), str(stale_root)], check=True, capture_output=True, text=True
+    )
+    assert _call_resolve_sha(stale_root, FORGE_MARKET_SYNCED_GIT_SHA="abc123def456") == "abc123def456"
+
+
+def test_stale_tree_guard_covers_the_fallback_path_too() -> None:
+    body = SCRIPT.read_text(encoding="utf-8")
+    assert 'log "WARN: fallback git sync failed — rsync may be stale"' not in body
+    assert body.count("_sync_git_tree_or_die") >= 4
+
+
 def test_rollout_refuses_stale_tree_by_default() -> None:
     body = SCRIPT.read_text(encoding="utf-8")
     assert "refusing to build a stale tree" in body
