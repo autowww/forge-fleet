@@ -37,8 +37,26 @@ probe() {
     || log "${slug}: non-json health body"
 }
 
+probe_write() {
+  local slug="$1"
+  local code
+  code="$(curl -sS -o /tmp/fm-probe-write.json -w "%{http_code}" --max-time 60 \
+    -X POST "${BASE}/v1/app-gateways/${slug}/api/prices/sync" \
+    -H "Authorization: Bearer ${TOK}" \
+    -H "Content-Type: application/json" \
+    -d '{"tickers":["NVDA"],"source":"orchestrated","interval":"1h","lookback_bars":5,"mock":true}' 2>/dev/null || echo "000")"
+  log "${slug} POST /api/prices/sync → HTTP ${code}"
+  if [[ -f /tmp/fm-probe-write.json ]]; then
+    head -c 200 /tmp/fm-probe-write.json | tr '\n' ' '
+    echo
+  fi
+}
+
 log "PROD health"; probe market-studio || true
+log "PROD write (mock harvest)"; probe_write market-studio || true
 log "DEV health"; probe market-studio-dev || true
+log "DEV write (mock harvest)"; probe_write market-studio-dev || true
 log "CLEAN health (if provisioned)"; probe market-studio-clean || true
+log "CLEAN write (if provisioned)"; probe_write market-studio-clean || true
 
 log "done — inspect failures above; provision clean via POST /v1/environments if missing"
