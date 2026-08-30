@@ -113,12 +113,17 @@ print(pg)
 "
 }
 
+# The HEAD of the build context wins over any inherited or previously persisted
+# FORGE_MARKET_GIT_SHA. A stale value here mislabels the image and makes
+# /health report a commit that is not the one running, which is the signal
+# operators use to decide whether a rollout actually took effect.
 _resolve_git_sha12() {
   local sha=""
-  if [[ -n "${FORGE_MARKET_GIT_SHA:-}" ]]; then
-    sha="${FORGE_MARKET_GIT_SHA}"
-  elif [[ -d "${FORGE_MARKET_ROOT}/.git" ]]; then
+  if [[ -d "${FORGE_MARKET_ROOT}/.git" ]]; then
     sha="$(git -C "${FORGE_MARKET_ROOT}" rev-parse --short=12 HEAD 2>/dev/null || true)"
+  fi
+  if [[ -z "$sha" ]]; then
+    sha="${FORGE_MARKET_GIT_SHA:-}"
   fi
   printf '%.12s' "$sha"
 }

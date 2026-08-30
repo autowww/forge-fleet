@@ -143,6 +143,43 @@ def test_explicit_git_ref_still_wins(detached_clone) -> None:
     assert "new_symbol" in (clone / "app.py").read_text(encoding="utf-8")
 
 
+def _call_resolve_sha(repo: Path, **env: str) -> str:
+    body = SCRIPT.read_text(encoding="utf-8")
+    harness = "\n".join(
+        [
+            "set -uo pipefail",
+            f'FORGE_MARKET_ROOT="{repo}"',
+            _extract_function(body, "_resolve_git_sha12"),
+            "_resolve_git_sha12",
+        ]
+    )
+    proc = subprocess.run(
+        ["bash", "-c", harness],
+        capture_output=True,
+        text=True,
+        env={"PATH": "/usr/bin:/bin:/usr/local/bin", "HOME": str(repo), **env},
+    )
+    assert proc.returncode == 0, proc.stderr
+    return proc.stdout.strip()
+
+
+def test_git_sha_reflects_the_build_context_not_a_stale_env_value(tmp_path: Path) -> None:
+    """A stale sha mislabels the image and makes /health report the wrong commit.
+
+    Regression: the persisted FORGE_MARKET_GIT_SHA won over the real HEAD, so
+    after deploying a new branch, /health still advertised the old commit.
+    """
+    origin = _make_origin(tmp_path)
+    head = _git(origin, "rev-parse", "--short=12", "HEAD")
+    assert _call_resolve_sha(origin, FORGE_MARKET_GIT_SHA="72d48fe44af7") == head
+
+
+def test_git_sha_falls_back_to_env_without_a_checkout(tmp_path: Path) -> None:
+    plain = tmp_path / "no-git"
+    plain.mkdir()
+    assert _call_resolve_sha(plain, FORGE_MARKET_GIT_SHA="72d48fe44af7") == "72d48fe44af7"
+
+
 def test_rollout_refuses_stale_tree_by_default() -> None:
     body = SCRIPT.read_text(encoding="utf-8")
     assert "refusing to build a stale tree" in body

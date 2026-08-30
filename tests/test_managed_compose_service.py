@@ -57,6 +57,19 @@ def test_status_for_record(tmp_path: Path) -> None:
     assert st["ps_ok"] is True
 
 
+def test_status_for_record_missing_compose_root_is_not_fatal() -> None:
+    rec = {
+        "id": "market-studio-clean",
+        "compose_root": "/no/such/compose/root",
+        "compose_files": ["compose.granite.yaml"],
+    }
+    st = mcs.status_for_record(rec)
+    assert st["ok"] is False
+    assert st["ps_ok"] is False
+    assert st["services_running"] == 0
+    assert "compose_root_not_a_directory" in str(st.get("last_error") or "")
+
+
 def test_start_for_record_mock(tmp_path: Path) -> None:
     (tmp_path / "compose.yaml").write_text("x", encoding="utf-8")
     rec = {"id": "t1", "compose_root": str(tmp_path), "compose_files": []}

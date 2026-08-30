@@ -498,7 +498,16 @@ def orchestration_metrics_snapshot(data_dir: Path, conn: sqlite3.Connection) -> 
         tid = str(rec.get("type_id") or "").strip()
         if not tid:
             continue
-        st = managed_compose_service.status_for_record(rec)
+        try:
+            st = managed_compose_service.status_for_record(rec)
+        except (ValueError, FileNotFoundError, OSError, TypeError) as ex:
+            st = {
+                "ok": False,
+                "ps_ok": False,
+                "last_error": str(ex)[:800],
+                "services_running": 0,
+                "services_total": 0,
+            }
         sr = st.get("services_running")
         stt = st.get("services_total")
         try:

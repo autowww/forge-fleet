@@ -169,10 +169,23 @@ def compose_logs_tail(
 
 
 def status_for_record(record: dict[str, Any]) -> dict[str, Any]:
-    root = _compose_root_from_record(record)
-    raw_cf = record.get("compose_files")
-    extras = [str(x) for x in raw_cf] if isinstance(raw_cf, list) else []
-    rel = resolve_compose_files(root, extras)
+    try:
+        root = _compose_root_from_record(record)
+        raw_cf = record.get("compose_files")
+        extras = [str(x) for x in raw_cf] if isinstance(raw_cf, list) else []
+        rel = resolve_compose_files(root, extras)
+    except (ValueError, FileNotFoundError, OSError) as ex:
+        return {
+            "ok": False,
+            "service_id": record.get("id"),
+            "compose_root": str(record.get("compose_root") or "") or None,
+            "compose_files": [],
+            "ps_ok": False,
+            "last_error": str(ex)[:800],
+            "services_total": 0,
+            "services_running": 0,
+            "services": [],
+        }
     rows, err = compose_ps(root, rel)
     summary = _summarize_rows(rows)
     out = {
