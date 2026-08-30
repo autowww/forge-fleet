@@ -260,9 +260,35 @@ _ensure_git_fallback_clone() {
   git clone --origin origin "$git_remote" "$fallback" || return 1
 }
 
+# An origin branch whose tip is exactly HEAD. Adopting it is safe because the
+# tree does not change; it only makes the checkout trackable again. Guessing
+# origin/HEAD instead would silently roll production back to a divergent branch.
+_remote_branch_at_head() {
+  local root="$1"
+  git -C "$root" for-each-ref --format='%(refname)' --points-at HEAD refs/remotes/origin \
+    2>/dev/null | grep -v '^refs/remotes/origin/HEAD$' | head -n 1 | sed 's#^refs/remotes/origin/##'
+}
+
+# `git pull` cannot infer a ref on a detached HEAD or a branch with no
+# upstream, so it fails and the rollout would otherwise build the stale tree.
+_git_pull_can_infer_ref() {
+  local root="$1"
+  git -C "$root" symbolic-ref -q HEAD >/dev/null 2>&1 || return 1
+  git -C "$root" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' >/dev/null 2>&1 || return 1
+}
+
 _sync_git_tree() {
   local root="$1"
   local git_ref="${FORGE_MARKET_GIT_REF:-}"
+  if [[ -z "$git_ref" ]] && ! _git_pull_can_infer_ref "$root"; then
+    git_ref="$(_remote_branch_at_head "$root")"
+    if [[ -z "$git_ref" ]]; then
+      log "ERROR: ${root} is detached (or on a branch with no upstream) at $(git -C "$root" rev-parse --short HEAD 2>/dev/null) and no origin branch points at it"
+      log "ERROR: set FORGE_MARKET_GIT_REF to the branch to deploy — refusing to guess a ref or build the stale tree"
+      return 1
+    fi
+    log "detached HEAD in ${root} — origin/${git_ref} points at HEAD, adopting it"
+  fi
   if [[ -n "$git_ref" ]]; then
     log "git fetch/checkout ${git_ref} in ${root}"
     git -C "$root" fetch --prune origin "$git_ref" || return 1
@@ -323,7 +349,11 @@ sync_forge_market_checkout() {
   elif [[ -d "${FORGE_MARKET_ROOT}/.git" ]]; then
     log "syncing git checkout at ${FORGE_MARKET_ROOT}"
     if ! _sync_git_tree "${FORGE_MARKET_ROOT}"; then
-      log "WARN: forge-market git sync failed — using tree as-is"
+      if [[ "${FORGE_MARKET_ALLOW_STALE_TREE:-0}" == "1" ]]; then
+        log "WARN: forge-market git sync failed — using tree as-is (FORGE_MARKET_ALLOW_STALE_TREE=1)"
+      else
+        die "forge-market git sync failed in ${FORGE_MARKET_ROOT} — refusing to build a stale tree (set FORGE_MARKET_ALLOW_STALE_TREE=1 to override)"
+      fi
     fi
     return 0
   fi
