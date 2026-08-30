@@ -44,7 +44,7 @@ probe_write() {
     -X POST "${BASE}/v1/app-gateways/${slug}/api/prices/sync" \
     -H "Authorization: Bearer ${TOK}" \
     -H "Content-Type: application/json" \
-    -d '{"tickers":["NVDA"],"source":"orchestrated","interval":"1h","lookback_bars":5,"mock":true}' 2>/dev/null || echo "000")"
+    -d '{"tickers":["NVDA"],"source":"orchestrated","interval":"1h","lookback_bars":5,"mock":true,"prepare_cdp":false}' 2>/dev/null || echo "000")"
   log "${slug} POST /api/prices/sync → HTTP ${code}"
   if [[ -f /tmp/fm-probe-write.json ]]; then
     head -c 200 /tmp/fm-probe-write.json | tr '\n' ' '
