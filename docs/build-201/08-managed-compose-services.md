@@ -66,6 +66,37 @@ Body ``{"sync": true}`` runs synchronously; default schedules background rollout
 
 Market Studio rollout **does not use SSH** — it builds from a local ``forge-market`` checkout, starts compose, registers the managed service, and curls ``/health``.
 
+### Use rollout, not start, after a gateway code change
+
+The gateway image bakes ``apps/forge-gateway`` in at build time and ``compose.yaml`` mounts no source volume. ``POST /v1/container-services/<id>/start`` runs ``docker compose up -d`` **without** ``--build``, so it recreates the container from the existing ``forge-gateway:control-plane`` image and silently keeps the old code. After changing gateway source, use ``POST /v1/admin/forge-llm-control-plane-rollout``, which runs ``compose build forge-gateway`` before ``up -d``.
+
+## LLM request queue (bounce vs hold)
+
+``control_plane/queue_manager.py`` serialises inference behind one concurrent slot. ``DEFAULT_WAIT_BY_MODE`` in ``control_plane/modes.py`` decides how a caller waits when that slot is taken:
+
+| Wait mode | Modes | Behaviour when the slot is busy |
+|-----------|-------|--------------------------------|
+| ``bounce`` | ``interactive``, ``struct_json``, ``reason_short``, ``embed`` | Immediate ``503`` with ``reason: busy`` and ``Retry-After``; the caller does **not** join the queue |
+| ``hold`` | ``task_code``, ``long_ctx``, ``codegen_loop`` | Joins the queue and waits up to ``FORGE_LLM_HOLD_TIMEOUT_SEC`` (default 300s) |
+
+Queue depth is capped by ``FORGE_LLM_MAX_QUEUE_DEPTH`` (default **64**). Only ``hold`` callers occupy a slot — a bounced caller stops waiting the moment it receives its ``503``, so enqueuing one would leak its slot forever.
+
+### Diagnosing a wedged queue
+
+A saturated queue and a wedged queue look identical from the client (``503`` / ``queue_busy`` / ``code: queue_full``). Tell them apart by whether ``queue_position`` **moves**:
+
+- **Real load** — ``queue_position`` fluctuates between calls.
+- **Wedged** — ``queue_position`` is pinned at exactly ``FORGE_LLM_MAX_QUEUE_DEPTH`` across repeated calls and never drains, because every slot is held by a ticket whose waiter is gone.
+
+Confirm against the gateway rather than the client: ``GET /v1/active`` reports ``queue_depth``, and ``0`` there while clients still see ``queue_full`` means the queue is fine and the problem is elsewhere. Recover with ``POST /v1/admin/forge-llm-control-plane-rollout`` — queue state is in-process, so a restart clears it.
+
+Two accounting rules keep the queue from wedging, both covered by ``apps/forge-gateway/tests/test_queue_manager.py``:
+
+1. A ``bounce`` caller is never enqueued.
+2. When ``release()`` hands the active slot to a ticket whose waiter has already timed out, the timed-out caller returns that slot instead of stranding it.
+
+Tickets older than twice the hold timeout are reaped on the next ``acquire``, so a missed path degrades to a self-healing delay rather than an outage that needs a restart.
+
 Future migration jobs may use template ``build_market_image`` (see ``forge-migrator`` recipe) to build on Granite without manual SSH.
 
 ## Example — register Market Studio manually
