@@ -38,6 +38,7 @@ Feature docs (details beyond this table): [CONTAINER-TEMPLATES.md](../build-201/
 | POST | `/v1/migrations/{id}/steps/{step_id}/run` | bearer | Run one step; `register_edge_route` completes in-process as an app gateway. |
 | POST | `/v1/migrations/{id}/cancel` | bearer | Cancel pending steps and linked jobs. |
 | GET | `/v1/admin/snapshot` | bearer | Jobs, integrations, host, **`jobs_recent`** paging (`jobs_limit`, `jobs_offset`), thermal advisory, self-update meta. |
+| GET | `/v1/environments/telemetry` | bearer | Per-environment Postgres **`docker stats`** rows for ready envs (same shape as **`meta.integrations.environment_telemetry`** in snapshot). |
 | GET | `/v1/cooldown-summary` | bearer | Query **`period=`** required (same values as **`/v1/telemetry`**). |
 | GET | `/v1/telemetry` | bearer | Query **`period=`** required; optional **`limit`** (default large). |
 | GET | `/v1/container-templates/status` | bearer | Build cache JSON + in-progress flag. |
@@ -86,7 +87,35 @@ Feature doc: [Fleet Apps API](04-fleet-apps-api.md).
 
 - **`GET /v1/health`** — CPU % from **`/proc/stat`**; memory from **`/proc/meminfo`**; **energy_ledger_kwh** cumulative on this DB (RAPL + GPU draw × time). See prior handbook text in git history for extended field lists if needed.
 - **`GET /v1/telemetry`** — Periods and aliases match **[EXAMPLES.md](../build-201/05-examples-and-recipes.md)**; retention/prune via **`FLEET_TELEMETRY_RETENTION_DAYS`**, sample interval **`FLEET_TELEMETRY_INTERVAL_S`**.
-- **`GET /v1/admin/snapshot`** — Integrations include **`forge_console_url`**, **`suggested_forge_llm_compose_root`**, **`container_layout`**, **`orchestration`**, Forge LLM service rows, **`cooldown_summary`** presets, **`self_update`**.
+- **`GET /v1/admin/snapshot`** — Integrations include **`forge_console_url`**, **`suggested_forge_llm_compose_root`**, **`container_layout`**, **`orchestration`**, Forge LLM service rows, **`cooldown_summary`** presets, **`self_update`**, and **`environment_telemetry`** (Postgres container CPU/mem per ready environment).
+
+### Environment telemetry {#environment-telemetry}
+
+**`GET /v1/environments/telemetry`** and **`meta.integrations.environment_telemetry`** on **`GET /v1/admin/snapshot`** return one row per **ready** environment record:
+
+| Field | Meaning |
+|-------|---------|
+| `id` | Fleet environment id (e.g. `forge-market-studio--dev`) |
+| `env_id` | Short env label |
+| `state` | Environment state (`ready`, …) |
+| `containers_total` / `containers_running` | Compose container counts |
+| `postgres` | `{ container, cpu_pct, mem_pct, mem_usage_bytes, mem_limit_bytes, … }` from **`docker stats --no-stream`** |
+
+Rows are cached ~8s server-side. Dock collectors merge these with **`GET /v1/environments`** (or Lenses **`/api/environments`**) for the **Environments** strip group.
+
+### Forge LLM `llm_rack` (admin snapshot)
+
+Each **`forge_llm_services[]`** entry may include **`llm_rack`** with gateway control-plane fields plus:
+
+| Field | Meaning |
+|-------|---------|
+| `queue_depth` | In-flight / queued gateway requests |
+| `requests_since_fleet_start` | Rollup since Fleet process start |
+| `prompt_tokens_since_fleet_start` / `completion_tokens_since_fleet_start` | Token rollups since Fleet start |
+| `tokens_per_sec` | Derived completion-token rate between Fleet sampler ticks |
+| `active_model` / `active_mode` | Current gateway session |
+
+Gateway **`control_plane`** is fetched with **`since_epoch`** aligned to Fleet start when available.
 
 ## Authentication
 

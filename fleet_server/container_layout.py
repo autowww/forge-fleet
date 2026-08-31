@@ -536,12 +536,19 @@ def orchestration_metrics_snapshot(data_dir: Path, conn: sqlite3.Connection) -> 
     }
 
 
-def services_status_snapshot(data_dir: Path) -> list[dict[str, Any]]:
+def services_status_snapshot(
+    data_dir: Path,
+    *,
+    fleet_started_epoch: float | None = None,
+) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for rec in list_service_records(data_dir):
         if str(rec.get("type_id")) != "forge_llm":
             continue
-        st = forge_llm_service.status_for_record(rec)
+        st = forge_llm_service.status_for_record(
+            rec,
+            fleet_started_epoch=fleet_started_epoch,
+        )
         entry: dict[str, Any] = {
                 "id": rec.get("id"),
                 "label": rec.get("label"),
@@ -556,16 +563,12 @@ def services_status_snapshot(data_dir: Path) -> list[dict[str, Any]]:
             }
         cp = st.get("control_plane")
         if isinstance(cp, dict):
-            rollup = cp.get("rollup") if isinstance(cp.get("rollup"), dict) else {}
-            active = cp.get("active") if isinstance(cp.get("active"), dict) else {}
-            entry["llm_rack"] = {
-                "active_model": active.get("active_model"),
-                "active_mode": active.get("active_mode"),
-                "queue_depth": cp.get("queue_depth"),
-                "requests_1h": rollup.get("requests"),
-                "avg_total_ms_1h": rollup.get("avg_total_ms"),
-                "swaps_1h": rollup.get("swaps"),
-            }
+            rollup_1h = cp.get("rollup_1h") if isinstance(cp.get("rollup_1h"), dict) else None
+            entry["llm_rack"] = forge_llm_service.build_llm_rack(
+                cp,
+                service_id=str(rec.get("id") or "forge_llm"),
+                rollup_1h=rollup_1h,
+            )
         out.append(entry)
     return out
 

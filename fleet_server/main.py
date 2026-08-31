@@ -228,6 +228,20 @@ class FleetHandler(BaseHTTPRequestHandler):
                     {"ok": True, "templates": env_templates.list_templates(app_id=app_q)},
                 )
                 return True
+            if path == "/v1/environments/telemetry":
+                from fleet_server import environment_stats
+
+                rows = environment_stats.environment_telemetry_snapshot(data_dir)
+                self._send(
+                    200,
+                    {
+                        "ok": True,
+                        "telemetry": rows,
+                        "postgres": environment_stats.granite_postgres_flat(rows),
+                        "count": len(rows),
+                    },
+                )
+                return True
             if path == "/v1/environments":
                 app_q = (q.get("app") or [None])[0]
                 self._send(200, environments.list_environments(data_dir, app_id=app_q, repo_root=repo_root))
@@ -666,10 +680,21 @@ class FleetHandler(BaseHTTPRequestHandler):
                     "suggested_forge_llm_compose_root": llm_root_hint or None,
                     "container_layout": container_layout.layout_paths_payload(data_dir),
                     "container_types_version": types_doc.get("version"),
-                    "forge_llm_services": container_layout.services_status_snapshot(data_dir),
+                    "forge_llm_services": container_layout.services_status_snapshot(
+                        data_dir,
+                        fleet_started_epoch=fleet_epoch,
+                    ),
                 }
                 orch_snap = container_layout.orchestration_metrics_snapshot(data_dir, conn)
                 integrations["orchestration"] = orch_snap
+                try:
+                    from fleet_server import environment_stats
+
+                    integrations["environment_telemetry"] = environment_stats.environment_telemetry_snapshot(
+                        data_dir
+                    )
+                except (OSError, RuntimeError, TypeError, ValueError, subprocess.SubprocessError):
+                    integrations["environment_telemetry"] = []
                 host_snap = host_stats.snapshot()
                 host_snap["thermal_llm_advisory"] = thermal_llm_policy.build(host_snap)
                 body: dict[str, Any] = {
