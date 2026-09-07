@@ -27,8 +27,10 @@ from fleet_server import (
     forge_llm_service,
     forge_market_studio_rollout,
     forge_market_source_overlay,
+    host_processes,
     host_stats,
     managed_compose_service,
+    remote_peers,
     runner,
     self_update,
     store,
@@ -393,6 +395,79 @@ class FleetHandler(BaseHTTPRequestHandler):
         got = (m.group(1) if m else "").strip()
         return got == exp.strip()
 
+    def _send_proxy_body(self, code: int, body: bytes, content_type: str) -> None:
+        self._send_raw(code, body, content_type or "application/json")
+
+    def _handle_remote_peers_get(self, path: str) -> bool:
+        data_dir = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+        if path == "/v1/remote-peers":
+            self._send(200, remote_peers.list_peers(data_dir))
+            return True
+        m_snap = re.match(r"^/v1/remote-peers/([^/]+)/snapshot$", path)
+        if m_snap:
+            peer_id = m_snap.group(1)
+            query = urlparse(self.path).query
+            code, body, ctype = remote_peers.proxy_get(
+                data_dir, peer_id, "/v1/admin/snapshot", query=query
+            )
+            self._send_proxy_body(code, body, ctype)
+            return True
+        m_proc = re.match(r"^/v1/remote-peers/([^/]+)/processes$", path)
+        if m_proc:
+            peer_id = m_proc.group(1)
+            query = urlparse(self.path).query
+            code, body, ctype = remote_peers.proxy_get(
+                data_dir, peer_id, "/v1/host/processes", query=query
+            )
+            self._send_proxy_body(code, body, ctype)
+            return True
+        m_tel = re.match(r"^/v1/remote-peers/([^/]+)/telemetry$", path)
+        if m_tel:
+            peer_id = m_tel.group(1)
+            query = urlparse(self.path).query
+            code, body, ctype = remote_peers.proxy_get(
+                data_dir, peer_id, "/v1/telemetry", query=query
+            )
+            self._send_proxy_body(code, body, ctype)
+            return True
+        m_job = re.match(r"^/v1/remote-peers/([^/]+)/jobs/([^/]+)$", path)
+        if m_job:
+            peer_id = m_job.group(1)
+            job_id = m_job.group(2)
+            code, body, ctype = remote_peers.proxy_get(
+                data_dir, peer_id, f"/v1/jobs/{job_id}"
+            )
+            self._send_proxy_body(code, body, ctype)
+            return True
+        m_ctypes = re.match(r"^/v1/remote-peers/([^/]+)/container-types$", path)
+        if m_ctypes:
+            peer_id = m_ctypes.group(1)
+            query = urlparse(self.path).query
+            code, body, ctype = remote_peers.proxy_get(
+                data_dir, peer_id, "/v1/container-types", query=query
+            )
+            self._send_proxy_body(code, body, ctype)
+            return True
+        m_ctmpl = re.match(r"^/v1/remote-peers/([^/]+)/container-templates$", path)
+        if m_ctmpl:
+            peer_id = m_ctmpl.group(1)
+            query = urlparse(self.path).query
+            code, body, ctype = remote_peers.proxy_get(
+                data_dir, peer_id, "/v1/container-templates", query=query
+            )
+            self._send_proxy_body(code, body, ctype)
+            return True
+        m_about = re.match(r"^/v1/remote-peers/([^/]+)/fleet-apps/([^/]+)/about$", path)
+        if m_about:
+            peer_id = m_about.group(1)
+            app_id = m_about.group(2)
+            code, body, ctype = remote_peers.proxy_get(
+                data_dir, peer_id, f"/v1/fleet-apps/{app_id}/about"
+            )
+            self._send_proxy_body(code, body, ctype)
+            return True
+        return False
+
     def _send(self, code: int, body: dict[str, Any]) -> None:
         data = _json_bytes(body)
         self.send_response(code)
@@ -623,6 +698,18 @@ class FleetHandler(BaseHTTPRequestHandler):
                     },
                 },
             )
+            return
+        if path == "/v1/host/processes":
+            q = parse_qs(urlparse(self.path).query)
+            lim_raw = (q.get("limit") or ["50"])[0].strip()
+            sort_raw = (q.get("sort") or ["cpu"])[0].strip()
+            try:
+                lim = int(lim_raw)
+            except (TypeError, ValueError):
+                lim = 50
+            self._send(200, host_processes.snapshot(limit=lim, sort=sort_raw))
+            return
+        if self._handle_remote_peers_get(path):
             return
         if path == "/v1/admin/forge-llm-rollout-log":
             self._send(200, forge_llm_rollout.read_rollout_log())
@@ -1330,6 +1417,7 @@ class FleetHandler(BaseHTTPRequestHandler):
                     "forge_market_app_image",
                     "forge_market_env",
                     "forge_market_git_sha",
+                    "forge_market_purge_symbols",
                 )
                 if body.get(k) is not None
             }
@@ -1625,6 +1713,13 @@ class FleetHandler(BaseHTTPRequestHandler):
                 conn.close()
             self._send(200, {"ok": True, "cancelled": ok})
             return
+        m_probe = re.match(r"^/v1/remote-peers/([^/]+)/probe$", path)
+        if m_probe:
+            data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            out = remote_peers.probe_peer(data_dir_p, m_probe.group(1))
+            code = 200 if out.get("ok") else (404 if out.get("error") == "not_found" else 502)
+            self._send(code, out)
+            return
         self._send(404, {"ok": False, "error": "not_found"})
 
     def do_PUT(self) -> None:
@@ -1635,6 +1730,22 @@ class FleetHandler(BaseHTTPRequestHandler):
             return
         path = urlparse(self.path).path
         data_dir = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+        m_peer_put = re.match(r"^/v1/remote-peers/([^/]+)$", path)
+        if m_peer_put:
+            body = self._read_json()
+            out = remote_peers.upsert_peer(
+                data_dir,
+                m_peer_put.group(1),
+                label=str(body.get("label") or ""),
+                base_url=str(body.get("base_url") or ""),
+                bearer_token=str(body.get("bearer_token") or ""),
+            )
+            if not out.get("ok"):
+                code = 400 if out.get("error") != "not_found" else 404
+                self._send(code, out)
+                return
+            self._send(200, out)
+            return
         if path == "/v1/admin/forge-market-source-overlay":
             raw = self._read_binary_body(64 * 1024 * 1024)
             if len(raw) == 0:
@@ -1918,6 +2029,12 @@ class FleetHandler(BaseHTTPRequestHandler):
             return
         data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
         container_layout.ensure_layout(data_dir_p)
+        m_peer_del = re.match(r"^/v1/remote-peers/([^/]+)$", path)
+        if m_peer_del:
+            out = remote_peers.delete_peer(data_dir_p, m_peer_del.group(1))
+            code = 200 if out.get("ok") else 404
+            self._send(code, out)
+            return
         m_ct = re.match(r"^/v1/container-types/([^/]+)$", path)
         if m_ct:
             conn = store.connect(self.server.db_path)
