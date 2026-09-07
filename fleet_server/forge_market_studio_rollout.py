@@ -24,6 +24,7 @@ _ROLLOUT_ENV_KEYS = (
     "FORGE_MARKET_SKIP_BUILD",
     "FORGE_MARKET_APP_IMAGE",
     "FORGE_MARKET_GIT_SHA",
+    "FORGE_MARKET_PURGE_SYMBOLS",
 )
 
 
@@ -70,9 +71,27 @@ def _apply_rollout_overrides(env: dict[str, str], overrides: dict[str, Any]) -> 
         "forge_market_skip_build": "FORGE_MARKET_SKIP_BUILD",
         "forge_market_app_image": "FORGE_MARKET_APP_IMAGE",
         "forge_market_git_sha": "FORGE_MARKET_GIT_SHA",
+        "forge_market_purge_symbols": "FORGE_MARKET_PURGE_SYMBOLS",
     }
     for src, dst in alias.items():
-        val = str(overrides.get(src) or overrides.get(dst) or "").strip()
+        raw = overrides.get(src)
+        if raw is None:
+            raw = overrides.get(dst)
+        if raw is None:
+            continue
+        if dst == "FORGE_MARKET_RUN_SCHEMA_MIGRATE":
+            if isinstance(raw, bool):
+                env[dst] = "1" if raw else "0"
+            else:
+                val = str(raw).strip()
+                if val.lower() in ("1", "true", "yes", "on"):
+                    env[dst] = "1"
+                elif val.lower() in ("0", "false", "no", "off"):
+                    env[dst] = "0"
+                elif val:
+                    env[dst] = val
+            continue
+        val = str(raw).strip()
         if val:
             env[dst] = val
 

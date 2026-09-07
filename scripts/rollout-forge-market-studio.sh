@@ -514,8 +514,16 @@ start_postgres_service() {
   reconcile_postgres_password
 }
 
+_schema_migrate_enabled() {
+  local raw="${FORGE_MARKET_RUN_SCHEMA_MIGRATE:-1}"
+  case "$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]')" in
+    1 | true | yes | on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 run_postgres_schema_migrate() {
-  if [[ "${FORGE_MARKET_RUN_SCHEMA_MIGRATE:-1}" != "1" ]]; then
+  if ! _schema_migrate_enabled; then
     log "skip postgres schema migrate (FORGE_MARKET_RUN_SCHEMA_MIGRATE=${FORGE_MARKET_RUN_SCHEMA_MIGRATE:-0})"
     return 0
   fi
@@ -666,6 +674,24 @@ main() {
     log "optional Granite host edge: forge-market/scripts/granite/install-granite-edge-plane.sh"
     log "optional Granite scheduler: forge-fleet/scripts/install-granite-market-scheduler.sh"
   fi
+  _purge_watchlist_symbols_if_requested
+}
+
+_purge_watchlist_symbols_if_requested() {
+  local symbols="${FORGE_MARKET_PURGE_SYMBOLS:-}"
+  [[ -z "$symbols" ]] && return 0
+  local script="${FORGE_MARKET_ROOT}/tools/purge_watchlist_symbols.py"
+  [[ -f "$script" ]] || {
+    log "WARN: FORGE_MARKET_PURGE_SYMBOLS set but ${script} missing — skip db purge"
+    return 0
+  }
+  cd "$MARKET_STUDIO_ROOT"
+  local -a files
+  compose_file_args files
+  log "purging stale watchlist symbols from postgres: ${symbols}"
+  compose "${files[@]}" run --rm -T --no-deps market-app \
+    python tools/purge_watchlist_symbols.py --db-only ${symbols} \
+    || log "WARN: postgres symbol purge failed (see compose output)"
 }
 
 main "$@"
