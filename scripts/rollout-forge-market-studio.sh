@@ -598,9 +598,14 @@ start_market_app_stack() {
   local -a files
   compose_file_args files
   local pg_container="${FORGE_MARKET_PG_CONTAINER:-forge-market-postgres}"
+  local app_container="${FORGE_MARKET_APP_CONTAINER:-forge-market-app}"
+  if docker inspect "$app_container" &>/dev/null; then
+    log "removing existing market-app container ${app_container} for image refresh"
+    docker rm -f "$app_container" 2>/dev/null || true
+  fi
   if docker inspect "$pg_container" &>/dev/null; then
     log "starting market-app (reuse existing postgres ${pg_container})"
-    compose "${files[@]}" up -d --force-recreate --no-deps market-app
+    compose "${files[@]}" up -d --no-deps market-app
   else
     log "starting forge-market-studio stack"
     compose "${files[@]}" up -d
