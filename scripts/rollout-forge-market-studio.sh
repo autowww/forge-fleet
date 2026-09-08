@@ -553,12 +553,19 @@ _resolve_migrate_image() {
   die "market-app image missing for schema migrate: ${image}"
 }
 
+_postgres_docker_network() {
+  local pg_container="${FORGE_MARKET_PG_CONTAINER:-forge-market-postgres}"
+  local network
+  network="$(docker inspect "$pg_container" --format '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}}{{end}}' 2>/dev/null || true)"
+  [[ -n "$network" ]] || die "postgres container ${pg_container} has no docker network"
+  printf '%s' "$network"
+}
+
 _migrate_database_url_for_run() {
-  # Route migrate through the postgres container network namespace (127.0.0.1:5432).
   local pg_user="${POSTGRES_USER:-forge_market}"
   local pg_pass="${POSTGRES_PASSWORD:-forge_market_dev}"
   local pg_db="${POSTGRES_DB:-forge_market}"
-  printf 'postgresql://%s:%s@127.0.0.1:5432/%s' "$pg_user" "$pg_pass" "$pg_db"
+  printf 'postgresql://%s:%s@postgres:5432/%s' "$pg_user" "$pg_pass" "$pg_db"
 }
 
 run_postgres_schema_migrate() {
@@ -569,14 +576,17 @@ run_postgres_schema_migrate() {
   cd "$MARKET_STUDIO_ROOT"
   local -a files
   compose_file_args files
-  local pg_container="${FORGE_MARKET_PG_CONTAINER:-forge-market-postgres}"
+  local app_container="${FORGE_MARKET_APP_CONTAINER:-forge-market-app}"
   log "stopping market-app before postgres schema migrate"
+  docker stop "$app_container" 2>/dev/null || true
   compose "${files[@]}" stop market-app 2>/dev/null || true
-  local migrate_image migrate_db_url
+  local migrate_image migrate_db_url pg_network
   migrate_image="$(_resolve_migrate_image)"
   migrate_db_url="$(_migrate_database_url_for_run)"
-  log "running postgres schema migrate (${migrate_image} via postgres container network)"
-  docker run --rm --network "container:${pg_container}" \
+  pg_network="$(_postgres_docker_network)"
+  log "running postgres schema migrate (${migrate_image} on network ${pg_network})"
+  docker run --rm --network "$pg_network" \
+    -e "PYTHONUNBUFFERED=1" \
     -e "FORGE_MARKET_DATABASE_URL=${migrate_db_url}" \
     "$migrate_image" \
     python -m forge_market.db.migrate upgrade
