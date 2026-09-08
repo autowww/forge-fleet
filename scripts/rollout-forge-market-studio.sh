@@ -562,10 +562,11 @@ _postgres_docker_network() {
 }
 
 _migrate_database_url_for_run() {
+  local pg_container="${FORGE_MARKET_PG_CONTAINER:-forge-market-postgres}"
   local pg_user="${POSTGRES_USER:-forge_market}"
   local pg_pass="${POSTGRES_PASSWORD:-forge_market_dev}"
   local pg_db="${POSTGRES_DB:-forge_market}"
-  printf 'postgresql://%s:%s@postgres:5432/%s' "$pg_user" "$pg_pass" "$pg_db"
+  printf 'postgresql://%s:%s@%s:5432/%s' "$pg_user" "$pg_pass" "$pg_container" "$pg_db"
 }
 
 run_postgres_schema_migrate() {
@@ -596,8 +597,14 @@ start_market_app_stack() {
   cd "$MARKET_STUDIO_ROOT"
   local -a files
   compose_file_args files
-  log "starting forge-market-studio stack"
-  compose "${files[@]}" up -d
+  local pg_container="${FORGE_MARKET_PG_CONTAINER:-forge-market-postgres}"
+  if docker inspect "$pg_container" &>/dev/null; then
+    log "starting market-app (reuse existing postgres ${pg_container})"
+    compose "${files[@]}" up -d --force-recreate --no-deps market-app
+  else
+    log "starting forge-market-studio stack"
+    compose "${files[@]}" up -d
+  fi
   reconcile_postgres_password
 }
 
