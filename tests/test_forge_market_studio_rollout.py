@@ -63,6 +63,7 @@ def test_rollout_script_starts_market_app_without_recreating_postgres() -> None:
     script = Path(__file__).resolve().parents[1] / "scripts" / "rollout-forge-market-studio.sh"
     text = script.read_text(encoding="utf-8")
     assert "reuse existing postgres" in text
+    assert "connecting ${app_container} to postgres network" in text
     assert "releasing studio host port" in text
     assert "removing existing market-app container" in text
     assert "--no-deps market-app" in text

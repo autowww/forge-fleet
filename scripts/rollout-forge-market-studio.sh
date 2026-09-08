@@ -593,6 +593,21 @@ run_postgres_schema_migrate() {
     python -m forge_market.db.migrate upgrade
 }
 
+_ensure_app_on_postgres_network() {
+  local pg_container="${FORGE_MARKET_PG_CONTAINER:-forge-market-postgres}"
+  local app_container="${FORGE_MARKET_APP_CONTAINER:-forge-market-app}"
+  local pg_network networks
+  pg_network="$(_postgres_docker_network)"
+  if ! docker inspect "$app_container" &>/dev/null; then
+    return 0
+  fi
+  networks="$(docker inspect "$app_container" --format '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}' 2>/dev/null || true)"
+  if [[ "$networks" != *"$pg_network"* ]]; then
+    log "connecting ${app_container} to postgres network ${pg_network}"
+    docker network connect "$pg_network" "$app_container" 2>/dev/null || true
+  fi
+}
+
 _free_studio_host_port() {
   local studio_port="${FORGE_MARKET_STUDIO_HOST_PORT:-$(_default_studio_host_port)}"
   local cid ports
@@ -623,6 +638,7 @@ start_market_app_stack() {
     log "starting forge-market-studio stack"
     compose "${files[@]}" up -d
   fi
+  _ensure_app_on_postgres_network
   reconcile_postgres_password
 }
 
