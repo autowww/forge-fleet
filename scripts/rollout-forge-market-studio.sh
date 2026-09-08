@@ -445,11 +445,18 @@ compose_file_args() {
 wait_postgres_ready() {
   local -a files
   compose_file_args files
+  local pg_container="${FORGE_MARKET_PG_CONTAINER:-forge-market-postgres}"
+  local pg_user="${POSTGRES_USER:-forge_market}"
+  local pg_db="${POSTGRES_DB:-forge_market}"
   log "waiting for postgres health"
   local attempt
   for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
-    if compose "${files[@]}" exec -T postgres \
-      pg_isready -U "${POSTGRES_USER:-forge_market}" -d "${POSTGRES_DB:-forge_market}" \
+    if docker inspect "$pg_container" &>/dev/null; then
+      if docker exec "$pg_container" pg_isready -U "$pg_user" -d "$pg_db" 2>/dev/null; then
+        return 0
+      fi
+    elif compose "${files[@]}" exec -T postgres \
+      pg_isready -U "$pg_user" -d "$pg_db" \
       2>/dev/null; then
       return 0
     fi
