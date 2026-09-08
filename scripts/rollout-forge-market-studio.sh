@@ -593,12 +593,25 @@ run_postgres_schema_migrate() {
     python -m forge_market.db.migrate upgrade
 }
 
+_free_studio_host_port() {
+  local studio_port="${FORGE_MARKET_STUDIO_HOST_PORT:-$(_default_studio_host_port)}"
+  local cid ports
+  for cid in $(docker ps -aq); do
+    ports="$(docker port "$cid" 2>/dev/null || true)"
+    if [[ "$ports" == *"127.0.0.1:${studio_port}"* ]] || [[ "$ports" == *"0.0.0.0:${studio_port}"* ]]; then
+      log "releasing studio host port ${studio_port} from container ${cid}"
+      docker rm -f "$cid" 2>/dev/null || true
+    fi
+  done
+}
+
 start_market_app_stack() {
   cd "$MARKET_STUDIO_ROOT"
   local -a files
   compose_file_args files
   local pg_container="${FORGE_MARKET_PG_CONTAINER:-forge-market-postgres}"
   local app_container="${FORGE_MARKET_APP_CONTAINER:-forge-market-app}"
+  _free_studio_host_port
   if docker inspect "$app_container" &>/dev/null; then
     log "removing existing market-app container ${app_container} for image refresh"
     docker rm -f "$app_container" 2>/dev/null || true
