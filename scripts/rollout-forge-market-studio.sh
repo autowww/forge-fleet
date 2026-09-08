@@ -538,12 +538,12 @@ _schema_migrate_enabled() {
 _migrate_database_url_for_run() {
   # compose run --no-deps does not join the postgres service network when the
   # container was started outside compose (docker start on a pre-existing name).
-  # Granite overlay always publishes postgres on loopback — route migrate there.
+  # Granite overlay publishes postgres on loopback — use host networking for migrate.
   local pg_port="${FORGE_MARKET_POSTGRES_HOST_PORT:-$(_default_postgres_host_port)}"
   local pg_user="${POSTGRES_USER:-forge_market}"
   local pg_pass="${POSTGRES_PASSWORD:-forge_market_dev}"
   local pg_db="${POSTGRES_DB:-forge_market}"
-  printf 'postgresql://%s:%s@host.docker.internal:%s/%s' "$pg_user" "$pg_pass" "$pg_port" "$pg_db"
+  printf 'postgresql://%s:%s@127.0.0.1:%s/%s' "$pg_user" "$pg_pass" "$pg_port" "$pg_db"
 }
 
 run_postgres_schema_migrate() {
@@ -558,9 +558,8 @@ run_postgres_schema_migrate() {
   migrate_db_url="$(_migrate_database_url_for_run)"
   log "stopping market-app before postgres schema migrate"
   compose "${files[@]}" stop market-app 2>/dev/null || true
-  log "running postgres schema migrate (forge_market.db.migrate upgrade via host.docker.internal)"
-  compose "${files[@]}" run --rm --no-deps \
-    --add-host=host.docker.internal:host-gateway \
+  log "running postgres schema migrate (forge_market.db.migrate upgrade via loopback host port)"
+  compose "${files[@]}" run --rm --no-deps --network host \
     -e "FORGE_MARKET_DATABASE_URL=${migrate_db_url}" \
     market-app python -m forge_market.db.migrate upgrade
 }
