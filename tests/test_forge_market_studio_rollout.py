@@ -64,8 +64,9 @@ def test_rollout_script_stops_market_app_before_migrate() -> None:
     text = script.read_text(encoding="utf-8")
     assert "stopping market-app before postgres schema migrate" in text
     assert "127.0.0.1" in text
-    assert "--network host" in text
+    assert "docker run --rm --network host" in text
     assert "_migrate_database_url_for_run" in text
+    assert "_resolve_migrate_image" in text
 
 
 def test_rollout_script_supports_dev_env_and_digest_promotion() -> None:

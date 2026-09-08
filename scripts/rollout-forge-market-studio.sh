@@ -535,6 +535,24 @@ _schema_migrate_enabled() {
   esac
 }
 
+_resolve_migrate_image() {
+  local image="${FORGE_MARKET_APP_IMAGE:-forge-market-app:studio}"
+  local git_sha12
+  git_sha12="$(_resolve_git_sha12)"
+  if [[ -n "$git_sha12" ]]; then
+    local sha_tag="forge-market-app:${git_sha12}"
+    if docker image inspect "$sha_tag" &>/dev/null; then
+      printf '%s' "$sha_tag"
+      return 0
+    fi
+  fi
+  if docker image inspect "$image" &>/dev/null; then
+    printf '%s' "$image"
+    return 0
+  fi
+  die "market-app image missing for schema migrate: ${image}"
+}
+
 _migrate_database_url_for_run() {
   # compose run --no-deps does not join the postgres service network when the
   # container was started outside compose (docker start on a pre-existing name).
@@ -554,14 +572,16 @@ run_postgres_schema_migrate() {
   cd "$MARKET_STUDIO_ROOT"
   local -a files
   compose_file_args files
-  local migrate_db_url
-  migrate_db_url="$(_migrate_database_url_for_run)"
   log "stopping market-app before postgres schema migrate"
   compose "${files[@]}" stop market-app 2>/dev/null || true
-  log "running postgres schema migrate (forge_market.db.migrate upgrade via loopback host port)"
-  compose "${files[@]}" run --rm --no-deps --network host \
+  local migrate_image migrate_db_url
+  migrate_image="$(_resolve_migrate_image)"
+  migrate_db_url="$(_migrate_database_url_for_run)"
+  log "running postgres schema migrate (${migrate_image} via loopback host port)"
+  docker run --rm --network host \
     -e "FORGE_MARKET_DATABASE_URL=${migrate_db_url}" \
-    market-app python -m forge_market.db.migrate upgrade
+    "$migrate_image" \
+    python -m forge_market.db.migrate upgrade
 }
 
 start_market_app_stack() {
