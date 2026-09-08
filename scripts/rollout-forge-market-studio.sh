@@ -554,14 +554,11 @@ _resolve_migrate_image() {
 }
 
 _migrate_database_url_for_run() {
-  # compose run --no-deps does not join the postgres service network when the
-  # container was started outside compose (docker start on a pre-existing name).
-  # Granite overlay publishes postgres on loopback — use host networking for migrate.
-  local pg_port="${FORGE_MARKET_POSTGRES_HOST_PORT:-$(_default_postgres_host_port)}"
+  # Route migrate through the postgres container network namespace (127.0.0.1:5432).
   local pg_user="${POSTGRES_USER:-forge_market}"
   local pg_pass="${POSTGRES_PASSWORD:-forge_market_dev}"
   local pg_db="${POSTGRES_DB:-forge_market}"
-  printf 'postgresql://%s:%s@127.0.0.1:%s/%s' "$pg_user" "$pg_pass" "$pg_port" "$pg_db"
+  printf 'postgresql://%s:%s@127.0.0.1:5432/%s' "$pg_user" "$pg_pass" "$pg_db"
 }
 
 run_postgres_schema_migrate() {
@@ -572,13 +569,14 @@ run_postgres_schema_migrate() {
   cd "$MARKET_STUDIO_ROOT"
   local -a files
   compose_file_args files
+  local pg_container="${FORGE_MARKET_PG_CONTAINER:-forge-market-postgres}"
   log "stopping market-app before postgres schema migrate"
   compose "${files[@]}" stop market-app 2>/dev/null || true
   local migrate_image migrate_db_url
   migrate_image="$(_resolve_migrate_image)"
   migrate_db_url="$(_migrate_database_url_for_run)"
-  log "running postgres schema migrate (${migrate_image} via loopback host port)"
-  docker run --rm --network host \
+  log "running postgres schema migrate (${migrate_image} via postgres container network)"
+  docker run --rm --network "container:${pg_container}" \
     -e "FORGE_MARKET_DATABASE_URL=${migrate_db_url}" \
     "$migrate_image" \
     python -m forge_market.db.migrate upgrade
