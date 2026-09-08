@@ -508,8 +508,14 @@ start_postgres_service() {
   cd "$MARKET_STUDIO_ROOT"
   local -a files
   compose_file_args files
-  log "starting postgres service"
-  compose "${files[@]}" up -d postgres
+  local pg_container="${FORGE_MARKET_PG_CONTAINER:-forge-market-postgres}"
+  if docker inspect "$pg_container" &>/dev/null; then
+    log "postgres container ${pg_container} already exists — starting if stopped"
+    docker start "$pg_container" 2>/dev/null || true
+  else
+    log "starting postgres service"
+    compose "${files[@]}" up -d postgres
+  fi
   wait_postgres_ready
   reconcile_postgres_password
 }
