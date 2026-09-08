@@ -63,6 +63,8 @@ def test_rollout_script_stops_market_app_before_migrate() -> None:
     script = Path(__file__).resolve().parents[1] / "scripts" / "rollout-forge-market-studio.sh"
     text = script.read_text(encoding="utf-8")
     assert "stopping market-app before postgres schema migrate" in text
+    assert "host.docker.internal" in text
+    assert "_migrate_database_url_for_run" in text
 
 
 def test_rollout_script_supports_dev_env_and_digest_promotion() -> None:
