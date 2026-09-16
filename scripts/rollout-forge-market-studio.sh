@@ -708,13 +708,19 @@ smoke() {
     body="$(curl -fsS "$url" 2>/dev/null || true)"
     if echo "$body" | grep -q forge-market-studio; then
       if command -v jq >/dev/null 2>&1; then
-        local sv sh
+        local sv sh ch
         sv="$(echo "$body" | jq -r '.schema_version // empty')"
         sh="$(echo "$body" | jq -r '.schema_online_head // .schema_head // empty')"
+        ch="$(echo "$body" | jq -r '.schema_head // empty')"
         if [[ -n "$sv" && -n "$sh" ]]; then
-          log "smoke schema_version=$sv schema_online_head=$sh"
-          if [[ "$sv" != "$sh" ]]; then
-            die "schema version mismatch (applied=$sv online_head=$sh)"
+          log "smoke schema_version=$sv schema_online_head=$sh schema_head=${ch:-?}"
+          # Env-gated migrations (operator-confirmed) put the applied version
+          # above the online head, up to the contract head — that is healthy.
+          if (( sv < sh )); then
+            die "schema version behind online head (applied=$sv online_head=$sh)"
+          fi
+          if [[ -n "$ch" ]] && (( sv > ch )); then
+            die "schema version beyond contract head (applied=$sv head=$ch)"
           fi
         fi
       fi
