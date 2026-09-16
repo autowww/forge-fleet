@@ -696,11 +696,11 @@ smoke() {
       if command -v jq >/dev/null 2>&1; then
         local sv sh
         sv="$(echo "$body" | jq -r '.schema_version // empty')"
-        sh="$(echo "$body" | jq -r '.schema_head // empty')"
+        sh="$(echo "$body" | jq -r '.schema_online_head // .schema_head // empty')"
         if [[ -n "$sv" && -n "$sh" ]]; then
-          log "smoke schema_version=$sv schema_head=$sh"
+          log "smoke schema_version=$sv schema_online_head=$sh"
           if [[ "$sv" != "$sh" ]]; then
-            die "schema version mismatch (applied=$sv head=$sh)"
+            die "schema version mismatch (applied=$sv online_head=$sh)"
           fi
         fi
       fi
