@@ -205,8 +205,12 @@ class FleetHandler(BaseHTTPRequestHandler):
     def _data_dir(self) -> Path:
         return Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
 
-    def _handle_environments(self, method: str) -> bool:
-        """Environment provisioning API (/v1/environments*)."""
+    def _handle_environments(self, method: str, body: dict | None = None) -> bool:
+        """Environment provisioning API (/v1/environments*).
+
+        ``body`` must be passed by ``do_POST`` (which already consumed the
+        request body); reading the body twice blocks forever on the socket.
+        """
         from fleet_server import environments
 
         parsed = urlparse(self.path)
@@ -256,7 +260,8 @@ class FleetHandler(BaseHTTPRequestHandler):
             return False
 
         if method == "POST":
-            body = self._read_json()
+            if body is None:
+                body = self._read_json()
             if path == "/v1/environments":
                 ports_raw = body.get("ports")
                 ports = ports_raw if isinstance(ports_raw, dict) else None
@@ -1217,7 +1222,7 @@ class FleetHandler(BaseHTTPRequestHandler):
         if not self._auth_ok():
             self._send_unauthorized()
             return
-        if self._handle_environments("POST"):
+        if self._handle_environments("POST", body=body):
             return
         if path == "/v1/cooldown-events":
             raw_d = body.get("duration_s")
@@ -1418,6 +1423,9 @@ class FleetHandler(BaseHTTPRequestHandler):
                     "forge_market_env",
                     "forge_market_git_sha",
                     "forge_market_purge_symbols",
+                    "forge_market_confirm_coverage_v2_drop",
+                    "forge_market_confirm_bars_v2_drop",
+                    "forge_market_confirm_obs_dictionary",
                 )
                 if body.get(k) is not None
             }

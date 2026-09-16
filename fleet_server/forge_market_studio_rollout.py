@@ -25,6 +25,9 @@ _ROLLOUT_ENV_KEYS = (
     "FORGE_MARKET_APP_IMAGE",
     "FORGE_MARKET_GIT_SHA",
     "FORGE_MARKET_PURGE_SYMBOLS",
+    "FORGE_MARKET_CONFIRM_COVERAGE_V2_DROP",
+    "FORGE_MARKET_CONFIRM_BARS_V2_DROP",
+    "FORGE_MARKET_CONFIRM_OBS_DICTIONARY",
 )
 
 
@@ -72,6 +75,9 @@ def _apply_rollout_overrides(env: dict[str, str], overrides: dict[str, Any]) -> 
         "forge_market_app_image": "FORGE_MARKET_APP_IMAGE",
         "forge_market_git_sha": "FORGE_MARKET_GIT_SHA",
         "forge_market_purge_symbols": "FORGE_MARKET_PURGE_SYMBOLS",
+        "forge_market_confirm_coverage_v2_drop": "FORGE_MARKET_CONFIRM_COVERAGE_V2_DROP",
+        "forge_market_confirm_bars_v2_drop": "FORGE_MARKET_CONFIRM_BARS_V2_DROP",
+        "forge_market_confirm_obs_dictionary": "FORGE_MARKET_CONFIRM_OBS_DICTIONARY",
     }
     for src, dst in alias.items():
         raw = overrides.get(src)

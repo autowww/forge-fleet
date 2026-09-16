@@ -585,10 +585,24 @@ run_postgres_schema_migrate() {
   migrate_image="$(_resolve_migrate_image)"
   migrate_db_url="$(_migrate_database_url_for_run)"
   pg_network="$(_postgres_docker_network)"
+  # Env-gated migrations (m036/m038/m041) only apply when the operator passes
+  # the confirm var through the rollout request; never persisted to compose .env.
+  local -a confirm_env=()
+  local confirm_key
+  for confirm_key in \
+    FORGE_MARKET_CONFIRM_COVERAGE_V2_DROP \
+    FORGE_MARKET_CONFIRM_BARS_V2_DROP \
+    FORGE_MARKET_CONFIRM_OBS_DICTIONARY; do
+    if [[ -n "${!confirm_key:-}" ]]; then
+      log "gated migrate confirm: ${confirm_key}=${!confirm_key}"
+      confirm_env+=(-e "${confirm_key}=${!confirm_key}")
+    fi
+  done
   log "running postgres schema migrate (${migrate_image} on network ${pg_network})"
   docker run --rm --network "$pg_network" \
     -e "PYTHONUNBUFFERED=1" \
     -e "FORGE_MARKET_DATABASE_URL=${migrate_db_url}" \
+    ${confirm_env[@]+"${confirm_env[@]}"} \
     "$migrate_image" \
     python -m forge_market.db.migrate upgrade
 }
