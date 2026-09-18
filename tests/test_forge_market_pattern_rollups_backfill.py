@@ -26,7 +26,7 @@ def test_schedule_backfill_conflict_when_slot_held(tmp_path: Path, monkeypatch) 
     scripts.mkdir()
     script = scripts / "backfill-forge-market-pattern-rollups.sh"
     script.write_text("#!/bin/bash\nexit 0\n", encoding="utf-8")
-    rollout_slot.try_acquire("market-studio", "busy", environment="prod", holder_kind="legacy")
+    rollout_slot.try_acquire("market-studio-pattern-rollups", "busy", environment="prod", holder_kind="legacy")
     out = fmprb.schedule_backfill(tmp_path, overrides={"forge_market_env": "prod"})
     assert out["ok"] is False
     assert out["error"] == "rollout_in_progress"

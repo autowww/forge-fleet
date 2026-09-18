@@ -72,6 +72,11 @@ def _service_id(env: dict[str, str]) -> str:
     return fmsr._rollout_service_id(env)
 
 
+def _backfill_slot_id(env: dict[str, str]) -> str:
+    """Separate slot from studio rollout so long backfills do not block deploys."""
+    return f"{_service_id(env)}-pattern-rollups"
+
+
 def backfill_log_path(*, env: dict[str, str] | None = None) -> Path:
     env = env or _backfill_env()
     raw = str(env.get("FLEET_FORGE_MARKET_PATTERN_ROLLUPS_BACKFILL_LOG", "") or "").strip()
@@ -116,10 +121,11 @@ def schedule_backfill(repo_root: Path, *, overrides: dict[str, Any] | None = Non
     env = _backfill_env(overrides)
     log_path = backfill_log_path(env=env)
     service_id = _service_id(env)
+    slot_id = _backfill_slot_id(env)
     env_id = rollout_slot.normalize_env_id(env.get("FORGE_MARKET_ENV", "prod"))
     holder = rollout_slot.new_legacy_holder()
     acquired = rollout_slot.try_acquire(
-        service_id,
+        slot_id,
         holder,
         environment=env_id,
         holder_kind="legacy",
@@ -161,7 +167,7 @@ def schedule_backfill(repo_root: Path, *, overrides: dict[str, Any] | None = Non
                 with log_path.open("a", encoding="utf-8") as fh:
                     fh.write(f"backfill script exited with code {rc}\n")
         finally:
-            rollout_slot.release(service_id, holder)
+            rollout_slot.release(slot_id, holder)
 
     threading.Thread(target=_run, daemon=True).start()
     return {
@@ -189,10 +195,11 @@ def run_backfill_sync(
     env = _backfill_env(overrides)
     log_path = backfill_log_path(env=env)
     service_id = _service_id(env)
+    slot_id = _backfill_slot_id(env)
     env_id = rollout_slot.normalize_env_id(env.get("FORGE_MARKET_ENV", "prod"))
     holder = rollout_slot.new_legacy_holder()
     acquired = rollout_slot.try_acquire(
-        service_id,
+        slot_id,
         holder,
         environment=env_id,
         holder_kind="legacy",
@@ -229,4 +236,4 @@ def run_backfill_sync(
             "stderr": (r.stderr or "")[-8000:],
         }
     finally:
-        rollout_slot.release(service_id, holder)
+        rollout_slot.release(slot_id, holder)

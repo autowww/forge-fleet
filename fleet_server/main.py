@@ -1538,6 +1538,13 @@ class FleetHandler(BaseHTTPRequestHandler):
                 code = 502
             self._send(code, out)
             return
+        if path == "/v1/admin/forge-market-rollout-slot/release":
+            from fleet_server import rollout_slot
+
+            service_id = str(body.get("service_id") or "market-studio").strip()
+            rollout_slot.release(service_id, "")
+            self._send(200, {"ok": True, "service_id": service_id, "released": True})
+            return
         if path == "/v1/admin/forge-market-pattern-rollups-backfill":
             sync = str(body.get("sync") or "").strip().lower() in ("1", "true", "yes")
             overrides = {
