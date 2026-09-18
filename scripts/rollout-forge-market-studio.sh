@@ -354,6 +354,11 @@ _rsync_forge_market_tree() {
 _sync_git_tree_or_die() {
   local root="$1"
   local label="$2"
+  if [[ "${FORGE_MARKET_GIT_HARD_RESET:-0}" == "1" ]]; then
+    log "hard reset ${root} before git sync (FORGE_MARKET_GIT_HARD_RESET=1)"
+    git -C "$root" reset --hard
+    git -C "$root" clean -fd
+  fi
   if _sync_git_tree "$root"; then
     FORGE_MARKET_SYNCED_GIT_SHA="$(git -C "$root" rev-parse --short=12 HEAD 2>/dev/null || true)"
     export FORGE_MARKET_SYNCED_GIT_SHA

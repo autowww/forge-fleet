@@ -37,6 +37,7 @@ _ROLLOUT_ENV_KEYS = (
     "FORGE_MARKET_JOB_PAUSE_TIMEOUT_SEC",
     "FORGE_MARKET_JOB_DRAIN_TIMEOUT_SEC",
     "FORGE_MARKET_SKIP_GIT_SYNC",
+    "FORGE_MARKET_GIT_HARD_RESET",
 )
 
 
@@ -92,6 +93,7 @@ def _apply_rollout_overrides(env: dict[str, str], overrides: dict[str, Any]) -> 
         "forge_market_job_pause_timeout_sec": "FORGE_MARKET_JOB_PAUSE_TIMEOUT_SEC",
         "forge_market_job_drain_timeout_sec": "FORGE_MARKET_JOB_DRAIN_TIMEOUT_SEC",
         "forge_market_skip_git_sync": "FORGE_MARKET_SKIP_GIT_SYNC",
+        "forge_market_git_hard_reset": "FORGE_MARKET_GIT_HARD_RESET",
     }
     for src, dst in alias.items():
         raw = overrides.get(src)
@@ -115,6 +117,7 @@ def _apply_rollout_overrides(env: dict[str, str], overrides: dict[str, Any]) -> 
             "FORGE_MARKET_PAUSE_SCHEDULER",
             "FORGE_MARKET_SKIP_BUILD",
             "FORGE_MARKET_SKIP_GIT_SYNC",
+            "FORGE_MARKET_GIT_HARD_RESET",
         }:
             if isinstance(raw, bool):
                 env[dst] = "1" if raw else "0"

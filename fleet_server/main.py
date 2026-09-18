@@ -1518,6 +1518,7 @@ class FleetHandler(BaseHTTPRequestHandler):
                     "forge_market_job_pause_timeout_sec",
                     "forge_market_job_drain_timeout_sec",
                     "forge_market_skip_git_sync",
+                    "forge_market_git_hard_reset",
                 )
                 if body.get(k) is not None
             }
