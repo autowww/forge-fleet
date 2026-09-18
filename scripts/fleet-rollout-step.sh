@@ -23,14 +23,17 @@ _fleet_log_tail() {
 }
 
 _fleet_write_status() {
-  python3 - "$(_fleet_status_file)" <<'PY'
+  local payload="$1"
+  FLEET_ROLLOUT_STATUS_JSON="$payload" python3 - "$(_fleet_status_file)" <<'PY'
 import json
+import os
 import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
 path.parent.mkdir(parents=True, exist_ok=True)
-path.write_text(json.dumps(json.loads(sys.stdin.read()), indent=2), encoding="utf-8")
+data = json.loads(os.environ["FLEET_ROLLOUT_STATUS_JSON"])
+path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 PY
 }
 
@@ -40,7 +43,7 @@ fleet_rollout_begin() {
   mkdir -p "${_FLEET_STATUS_DIR}"
   local now
   now="$(_fleet_iso_now)"
-  printf '%s' "{
+  _fleet_write_status "{
   \"service_id\": \"${_FLEET_SERVICE_ID}\",
   \"maintenance\": true,
   \"failed\": false,
@@ -51,7 +54,7 @@ fleet_rollout_begin() {
   \"steps_done\": [],
   \"error\": \"\",
   \"log_tail\": \"\"
-}" | _fleet_write_status
+}"
   _CURRENT_STEP="init"
 }
 
