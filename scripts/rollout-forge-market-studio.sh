@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Local Fleet rollout: build/start Market Studio compose stack and register managed service.
 # No SSH — operators trigger via POST /v1/admin/forge-market-studio-rollout.
-set -euo pipefail
+set -eEuo pipefail
 
 FLEET_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=scripts/fleet-rollout-step.sh
+source "${FLEET_ROOT}/scripts/fleet-rollout-step.sh"
 FORGE_MARKET_ENV="${FORGE_MARKET_ENV:-prod}"
 FORGE_MARKET_ROOT="${FORGE_MARKET_ROOT:-}"
 COMPOSE_FILES="${FORGE_MARKET_COMPOSE_FILES:-compose.granite.yaml}"
@@ -11,6 +13,29 @@ FORGE_MARKET_SKIP_BUILD="${FORGE_MARKET_SKIP_BUILD:-0}"
 
 log() { printf 'rollout-forge-market-studio: %s\n' "$*"; }
 die() { log "ERROR: $*"; exit 1; }
+
+_resolve_rollout_service_id() {
+  _rollout_python "
+from fleet_server.market_studio_rollout_env import rollout_identity
+import os
+sid, _ = rollout_identity(os.environ.get('FORGE_MARKET_ENV','prod'))
+print(sid)
+"
+}
+
+_init_rollout_status() {
+  _FLEET_SERVICE_ID="$(_resolve_rollout_service_id)"
+  _LOG_PATH="${FLEET_FORGE_MARKET_STUDIO_ROLLOUT_LOG:-$HOME/.local/state/forge-fleet/rollout-logs/${_FLEET_SERVICE_ID}.log}"
+  mkdir -p "$(dirname "$_LOG_PATH")"
+  fleet_rollout_begin "${_FLEET_SERVICE_ID}" "${_LOG_PATH}"
+}
+
+_on_rollout_error() {
+  local _exit=$?
+  fleet_rollout_failed "${_CURRENT_STEP:-unknown}" \
+    "Rollout failed at '${_CURRENT_STEP:-unknown}' (exit ${_exit})"
+  exit "${_exit}"
+}
 
 FORGE_MARKET_ENV="${FORGE_MARKET_ENV:-prod}"
 
@@ -342,6 +367,11 @@ _sync_git_tree_or_die() {
 }
 
 sync_forge_market_checkout() {
+  if [[ "${FORGE_MARKET_SKIP_GIT_SYNC:-0}" == "1" ]]; then
+    log "skip git sync (FORGE_MARKET_SKIP_GIT_SYNC=1)"
+    ensure_vendor_lcdl
+    return 0
+  fi
   ensure_vendor_lcdl
   local fallback="${FORGE_MARKET_GIT_FALLBACK_ROOT:-}"
   local git_ref="${FORGE_MARKET_GIT_REF:-}"
@@ -499,6 +529,12 @@ build_market_app_image() {
   if [[ -n "${FORGE_MARKET_GIT_SHA:-}" ]]; then
     build_cmd+=(--build-arg "FORGE_MARKET_GIT_SHA=${FORGE_MARKET_GIT_SHA}")
   fi
+  local reqs_hash
+  reqs_hash="$(_requirements_fingerprint)"
+  if [[ -n "$reqs_hash" ]]; then
+    export FORGE_MARKET_REQS_HASH="$reqs_hash"
+    build_cmd+=(--build-arg "FORGE_MARKET_REQS_HASH=${reqs_hash}")
+  fi
   compose "${files[@]}" "${build_cmd[@]}"
   local built_image="${FORGE_MARKET_APP_IMAGE:-forge-market-app:studio}"
   if [[ -n "$git_sha12" ]]; then
@@ -528,11 +564,198 @@ start_postgres_service() {
 }
 
 _schema_migrate_enabled() {
-  local raw="${FORGE_MARKET_RUN_SCHEMA_MIGRATE:-1}"
+  local raw="${FORGE_MARKET_RUN_SCHEMA_MIGRATE:-auto}"
   case "$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]')" in
-    1 | true | yes | on) return 0 ;;
+    0 | false | no | off) return 1 ;;
+    1 | true | yes | on | auto) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+_requirements_fingerprint() {
+  local reqs="${FORGE_MARKET_ROOT}/studio-server/requirements.txt"
+  if [[ ! -f "$reqs" ]]; then
+    return 0
+  fi
+  md5sum "$reqs" | awk '{print $1}'
+}
+
+check_needs_image_rebuild() {
+  if [[ "${FORGE_MARKET_SKIP_BUILD:-0}" == "1" ]]; then
+    log "image rebuild skipped (FORGE_MARKET_SKIP_BUILD=1)"
+    return 1
+  fi
+  local container="${FORGE_MARKET_APP_CONTAINER:-forge-market-app}"
+  local current_hash target_hash
+  current_hash="$(docker inspect "$container" \
+    --format='{{index .Config.Labels "forge.market.reqs_hash"}}' 2>/dev/null || true)"
+  target_hash="$(_requirements_fingerprint)"
+  if [[ -n "$current_hash" && -n "$target_hash" && "$current_hash" == "$target_hash" ]]; then
+    log "reqs fingerprint unchanged (${target_hash}) — source-only deploy"
+    return 1
+  fi
+  log "reqs fingerprint changed (${current_hash:-none} → ${target_hash:-unknown}) — image rebuild required"
+  return 0
+}
+
+_studio_health_port() {
+  printf '%s' "${FORGE_MARKET_STUDIO_HOST_PORT:-$(_default_studio_host_port)}"
+}
+
+precheck_schema_pending() {
+  local raw="${FORGE_MARKET_RUN_SCHEMA_MIGRATE:-auto}"
+  case "$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]')" in
+    auto) ;;
+    *) return 0 ;;
+  esac
+  local port pending
+  port="$(_studio_health_port)"
+  pending="$(curl -fsS "http://127.0.0.1:${port}/health" 2>/dev/null \
+    | python3 -c 'import sys,json; d=json.load(sys.stdin); print(len(d.get("schema_online_pending") or []))' \
+    2>/dev/null || echo "-1")"
+  if [[ "$pending" == "0" ]]; then
+    log "schema pre-check: nothing pending — skipping stop+migrate"
+    export FORGE_MARKET_RUN_SCHEMA_MIGRATE=0
+  elif [[ "$pending" == "-1" ]]; then
+    log "schema pre-check: health unavailable — leaving migrate decision unchanged"
+  else
+    log "schema pre-check: ${pending} migration(s) pending"
+    export FORGE_MARKET_RUN_SCHEMA_MIGRATE=1
+  fi
+}
+
+pause_scheduler() {
+  [[ "${FORGE_MARKET_PAUSE_SCHEDULER:-0}" == "1" ]] || return 0
+  systemctl --user stop forge-market-granite-scheduler.timer 2>/dev/null || true
+  log "granite scheduler paused"
+}
+
+resume_scheduler() {
+  [[ "${FORGE_MARKET_PAUSE_SCHEDULER:-0}" == "1" ]] || return 0
+  systemctl --user start forge-market-granite-scheduler.timer 2>/dev/null || true
+  log "granite scheduler resumed"
+}
+
+_resolve_job_drain_mode() {
+  local mode="${FORGE_MARKET_JOB_DRAIN_MODE:-auto}"
+  case "$(printf '%s' "$mode" | tr '[:upper:]' '[:lower:]')" in
+    off | pause | cancel) printf '%s' "$mode" ;;
+    auto) printf '%s' "pause" ;;
+    *) printf '%s' "off" ;;
+  esac
+}
+
+pause_all_harvest_jobs() {
+  local port timeout job_ids paused=0 elapsed=0
+  port="$(_studio_health_port)"
+  timeout="${FORGE_MARKET_JOB_PAUSE_TIMEOUT_SEC:-60}"
+  job_ids="$(curl -fsS "http://127.0.0.1:${port}/api/prices/jobs?status=running" 2>/dev/null \
+    | python3 -c 'import sys,json; print("\n".join(str(j["job_id"]) for j in json.load(sys.stdin).get("jobs",[])))' \
+    2>/dev/null || true)"
+  if [[ -z "$job_ids" ]]; then
+    log "no active harvest jobs"
+    return 0
+  fi
+  while IFS= read -r jid; do
+    [[ -n "$jid" ]] || continue
+    curl -fsS -X POST "http://127.0.0.1:${port}/api/prices/jobs/${jid}/pause" 2>/dev/null || true
+    log "pause requested: job ${jid}"
+    paused=1
+  done <<<"$job_ids"
+  [[ "$paused" == "1" ]] || return 0
+  while (( elapsed < timeout )); do
+    local still_running
+    still_running="$(curl -fsS "http://127.0.0.1:${port}/api/prices/jobs?status=running" 2>/dev/null \
+      | python3 -c 'import sys,json; print(len(json.load(sys.stdin).get("jobs",[])))' \
+      2>/dev/null || echo 0)"
+    if [[ "$still_running" == "0" ]]; then
+      log "all harvest jobs paused (SQL committed)"
+      return 0
+    fi
+    log "waiting for ${still_running} harvest job(s) to reach safe checkpoint... (${elapsed}s)"
+    sleep 2
+    elapsed=$((elapsed + 2))
+  done
+  log "WARN: pause timeout after ${timeout}s — jobs may be mid-batch"
+}
+
+cancel_harvest_subprocesses() {
+  local port job_ids
+  port="$(_studio_health_port)"
+  job_ids="$(curl -fsS "http://127.0.0.1:${port}/api/prices/jobs?status=paused" 2>/dev/null \
+    | python3 -c 'import sys,json; print("\n".join(str(j["job_id"]) for j in json.load(sys.stdin).get("jobs",[])))' \
+    2>/dev/null || true)"
+  while IFS= read -r jid; do
+    [[ -n "$jid" ]] || continue
+    curl -fsS -X POST "http://127.0.0.1:${port}/api/prices/jobs/${jid}/cancel" 2>/dev/null || true
+    log "cancelled harvest subprocess: job ${jid}"
+  done <<<"$job_ids"
+}
+
+resume_paused_harvest_jobs() {
+  local port timeout elapsed job_ids
+  port="$(_studio_health_port)"
+  timeout=30
+  elapsed=0
+  while (( elapsed < timeout )); do
+    curl -fsS "http://127.0.0.1:${port}/health" 2>/dev/null | grep -q forge-market-studio && break
+    sleep 2
+    elapsed=$((elapsed + 2))
+  done
+  job_ids="$(curl -fsS "http://127.0.0.1:${port}/api/prices/jobs?status=paused" 2>/dev/null \
+    | python3 -c 'import sys,json; print("\n".join(str(j["job_id"]) for j in json.load(sys.stdin).get("jobs",[])))' \
+    2>/dev/null || true)"
+  while IFS= read -r jid; do
+    [[ -n "$jid" ]] || continue
+    curl -fsS -X POST "http://127.0.0.1:${port}/api/prices/jobs/${jid}/resume" 2>/dev/null || true
+    log "resumed harvest job ${jid}"
+  done <<<"$job_ids"
+}
+
+drain_enrichment_jobs() {
+  local port timeout elapsed running
+  port="$(_studio_health_port)"
+  timeout="${FORGE_MARKET_JOB_DRAIN_TIMEOUT_SEC:-30}"
+  elapsed=0
+  while (( elapsed < timeout )); do
+    running="$(curl -fsS "http://127.0.0.1:${port}/api/pipeline/telemetry" 2>/dev/null \
+      | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("jobs",{}).get("market_bars_running",0))' \
+      2>/dev/null || echo 0)"
+    if [[ "$running" == "0" ]]; then
+      return 0
+    fi
+    log "waiting for enrichment: ${running} running (${elapsed}s / ${timeout}s)"
+    sleep 3
+    elapsed=$((elapsed + 3))
+  done
+  log "WARN: enrichment drain timeout — will be recovered as failed on next start"
+}
+
+_apply_job_drain_guards() {
+  local mode
+  mode="$(_resolve_job_drain_mode)"
+  if [[ "$mode" == "off" ]]; then
+    log "job drain mode off — skipping harvest/enrichment guards"
+    return 0
+  fi
+  fleet_rollout_step "pause_jobs" "Pausing harvest jobs"
+  pause_all_harvest_jobs
+  if [[ "$mode" == "cancel" ]]; then
+    cancel_harvest_subprocesses
+  fi
+  fleet_rollout_step "drain_enrichment" "Draining enrichment jobs"
+  drain_enrichment_jobs
+}
+
+source_deploy() {
+  local container="${FORGE_MARKET_APP_CONTAINER:-forge-market-app}"
+  [[ -f "${FORGE_MARKET_ROOT}/studio-server/studio_server.py" ]] || die "forge-market root missing for source deploy"
+  log "source-only deploy: copying src/ and studio-server/ into ${container}"
+  docker cp "${FORGE_MARKET_ROOT}/src/." "${container}:/app/src/"
+  docker cp "${FORGE_MARKET_ROOT}/studio-server/." "${container}:/app/studio-server/"
+  log "restarting market-app process"
+  docker restart "$container"
+  _ensure_app_on_postgres_network
 }
 
 _resolve_migrate_image() {
@@ -570,17 +793,20 @@ _migrate_database_url_for_run() {
 }
 
 run_postgres_schema_migrate() {
+  local stop_app="${1:-1}"
   if ! _schema_migrate_enabled; then
-    log "skip postgres schema migrate (FORGE_MARKET_RUN_SCHEMA_MIGRATE=${FORGE_MARKET_RUN_SCHEMA_MIGRATE:-0})"
+    log "skip postgres schema migrate (FORGE_MARKET_RUN_SCHEMA_MIGRATE=${FORGE_MARKET_RUN_SCHEMA_MIGRATE:-auto})"
     return 0
   fi
   cd "$MARKET_STUDIO_ROOT"
   local -a files
   compose_file_args files
   local app_container="${FORGE_MARKET_APP_CONTAINER:-forge-market-app}"
-  log "stopping market-app before postgres schema migrate"
-  docker stop "$app_container" 2>/dev/null || true
-  compose "${files[@]}" stop market-app 2>/dev/null || true
+  if [[ "$stop_app" == "1" ]]; then
+    log "stopping market-app before postgres schema migrate"
+    docker stop "$app_container" 2>/dev/null || true
+    compose "${files[@]}" stop market-app 2>/dev/null || true
+  fi
   local migrate_image migrate_db_url pg_network
   migrate_image="$(_resolve_migrate_image)"
   migrate_db_url="$(_migrate_database_url_for_run)"
@@ -657,10 +883,31 @@ start_market_app_stack() {
 }
 
 deploy_compose_stack() {
-  build_market_app_image
+  local drain_mode image_rebuild=0
+  drain_mode="$(_resolve_job_drain_mode)"
+  _apply_job_drain_guards
   start_postgres_service
-  run_postgres_schema_migrate
-  start_market_app_stack
+  precheck_schema_pending
+  pause_scheduler
+  if check_needs_image_rebuild; then
+    image_rebuild=1
+    fleet_rollout_step "build" "Building market-app image"
+    build_market_app_image
+    fleet_rollout_step "migrate" "Running schema migrations"
+    run_postgres_schema_migrate 1
+    fleet_rollout_step "restart" "Restarting market-app"
+    start_market_app_stack
+  else
+    fleet_rollout_step "migrate" "Running schema migrations"
+    run_postgres_schema_migrate 0
+    fleet_rollout_step "source_copy" "Copying source into running container"
+    source_deploy
+  fi
+  resume_scheduler
+  if [[ "$drain_mode" == "pause" ]]; then
+    fleet_rollout_step "resume_jobs" "Resuming harvest jobs"
+    resume_paused_harvest_jobs
+  fi
 }
 
 register_fleet_service() {
@@ -772,17 +1019,24 @@ clear_hosted_data_plane_pref() {
 }
 
 main() {
+  trap '_on_rollout_error' ERR
+  _init_rollout_status
+  fleet_rollout_step "prepare" "Preparing rollout environment"
   command -v docker >/dev/null || die "docker missing"
   command -v curl >/dev/null || die "curl missing"
   ensure_env_file
   ensure_external_volumes
   ensure_paths
   ensure_vendor_lcdl
+  fleet_rollout_step "sync" "Syncing forge-market checkout"
   sync_forge_market_checkout
   clear_hosted_data_plane_pref
   deploy_compose_stack
+  fleet_rollout_step "register" "Registering Fleet service"
   register_fleet_service
+  fleet_rollout_step "health_check" "Waiting for health"
   smoke
+  fleet_rollout_step "finalize" "Finalizing rollout"
   log "rollout complete (env=${FORGE_MARKET_ENV} market studio loopback :${FORGE_MARKET_STUDIO_HOST_PORT:-$(_default_studio_host_port)})"
   export FORGE_MARKET_STUDIO_ROOT="$MARKET_STUDIO_ROOT"
   export FORGE_MARKET_STUDIO_HOST_PORT="${FORGE_MARKET_STUDIO_HOST_PORT:-$(_default_studio_host_port)}"
@@ -792,6 +1046,7 @@ main() {
     log "optional Granite scheduler: forge-fleet/scripts/install-granite-market-scheduler.sh"
   fi
   _purge_watchlist_symbols_if_requested
+  fleet_rollout_done
 }
 
 _purge_watchlist_symbols_if_requested() {

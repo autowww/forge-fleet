@@ -99,20 +99,40 @@
       <h1 class="h3 fleet-admin-title mb-1">Forge Fleet — status</h1>
       <p class="text-body-secondary small mb-1 d-flex flex-wrap align-items-center gap-2">
         <span id="fleet-version-line" class="fleet-mono" aria-live="polite">Loading version…</span>
-        <span id="fleet-git-remote-row" class="small fleet-mono" aria-live="polite"></span>
-        <span id="fleet-self-update-status" class="fleet-mono small" aria-live="polite"></span>
+        <span id="fleet-git-remote-row" class="small fleet-mono fleet-local-only" aria-live="polite"></span>
+        <span id="fleet-self-update-status" class="fleet-mono small fleet-local-only" aria-live="polite"></span>
       </p>
       <p class="text-body-secondary small mb-1 d-none" id="fleet-forge-console-wrap">
         <a id="fleet-forge-console" href="#" target="_blank" rel="noopener">Open Forge LLM console</a>
         <span class="text-body-secondary"> (set <code class="fleet-mono">FLEET_FORGE_CONSOLE_URL</code> on Fleet)</span>
       </p>
       <pre
-        class="fleet-mono small text-body-secondary mb-2 p-2 rounded border bg-body-secondary d-none"
+        class="fleet-mono small text-body-secondary mb-2 p-2 rounded border bg-body-secondary d-none fleet-local-only"
         id="fleet-self-update-log"
         style="max-height: 14rem; overflow: auto; white-space: pre-wrap"
       ></pre>
       <div class="alert alert-danger py-2 px-3 mb-2 small d-none" id="err" role="alert"></div>
     </header>
+
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-2" id="fleet-scope-bar">
+      <label class="small text-body-secondary mb-0" for="fleet-scope-select">Fleet scope</label>
+      <select id="fleet-scope-select" class="form-select form-select-sm w-auto" aria-label="Fleet scope">
+        <option value="">Local</option>
+      </select>
+      <button
+        type="button"
+        class="btn btn-sm btn-outline-secondary"
+        id="fleet-manage-peers-btn"
+        data-bs-toggle="offcanvas"
+        data-bs-target="#fleet-remote-peers-offcanvas"
+        aria-controls="fleet-remote-peers-offcanvas"
+      >
+        Manage peers…
+      </button>
+    </div>
+    <div class="alert alert-info py-2 px-3 mb-3 small d-none" id="fleet-scope-remote-banner" role="status">
+      <span id="fleet-scope-remote-banner-text">Viewing remote peer (read-only).</span>
+    </div>
 
     <ul class="nav nav-tabs mb-3 flex-nowrap overflow-auto fleet-admin-tablist" id="fleet-admin-tablist" role="tablist">
       <li class="nav-item" role="presentation">
@@ -219,7 +239,7 @@
                 <span class="d-flex flex-wrap align-items-center gap-2">
                   <label class="small text-body-secondary mb-0 d-flex align-items-center gap-1"
                     ><input type="checkbox" id="fleet-chart-linear-y" class="form-check-input" /> Linear 0–100% Y</label>
-                  <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-refresh-metrics-btn" title="Fetch host metrics now">Refresh metrics</button>
+                  <button type="button" class="btn btn-sm btn-outline-secondary fleet-local-only" id="fleet-refresh-metrics-btn" title="Fetch host metrics now">Refresh metrics</button>
                 </span>
               </div>
               <div
@@ -254,7 +274,7 @@
           <p class="text-body-secondary mb-2 fleet-mono small" id="fleet-config-paths"></p>
           <div id="fleet-managed-services-rows" class="mb-2"></div>
           <p class="fleet-mono small text-body-secondary mb-1" id="fleet-svc-action-msg" aria-live="polite"></p>
-          <details class="mt-1">
+          <details class="mt-1 fleet-local-only">
             <summary class="text-body">Add <strong>Forge LLM</strong> compose stack</summary>
             <form id="fleet-add-service-form" class="mt-2 small">
               <div class="mb-2">
@@ -299,7 +319,7 @@
       >
         <div class="d-none border border-secondary-subtle rounded p-2 mb-2 small" id="fleet-container-types-wrap">
           <div class="fw-semibold mb-1">Container types (<code class="fleet-mono">etc/containers/types.json</code>)</div>
-          <div class="d-flex flex-wrap gap-2 mb-2">
+          <div class="d-flex flex-wrap gap-2 mb-2 fleet-local-only">
             <button type="button" class="btn btn-sm btn-outline-primary" id="fleet-type-add-btn">Add type</button>
             <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-types-reload-btn" title="Reload from disk">Reload</button>
           </div>
@@ -312,14 +332,14 @@
           <div class="border border-secondary-subtle rounded p-2 mt-3 fleet-orch-nested" id="fleet-requirement-templates-inner">
             <div class="fw-semibold mb-1 small">Requirement templates (<code class="fleet-mono">requirement_templates.json</code>)</div>
             <p class="text-body-secondary small mb-2">Declare Dockerfile or pinned images per slug; types reference <code class="fleet-mono">requirements[]</code>. By default pulls and Dockerfile builds may use the network; set <code class="fleet-mono">FLEET_TEMPLATE_BUILD_NETWORK=0</code> to enforce offline builds.</p>
-            <div class="d-flex flex-wrap gap-2 mb-2">
+            <div class="d-flex flex-wrap gap-2 mb-2 fleet-local-only">
               <button type="button" class="btn btn-sm btn-outline-primary" id="fleet-req-template-add-btn">Add template</button>
               <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-req-templates-reload-btn">Reload</button>
               <button type="button" class="btn btn-sm btn-outline-warning" id="fleet-req-templates-save-btn">Save templates</button>
             </div>
             <div id="fleet-requirement-templates-editor-msg" class="fleet-mono small text-body-secondary mb-1" aria-live="polite"></div>
             <div id="fleet-requirement-templates-table"></div>
-            <details class="mt-2">
+            <details class="mt-2 fleet-local-only">
               <summary class="text-body small">Build requirement bundle</summary>
               <div class="mt-2 small">
                 <label class="form-label small mb-0" for="fleet-build-req-ids">Comma-separated requirement slugs</label>
@@ -343,6 +363,30 @@
           <div class="card-body">
             <h2 class="h6 text-uppercase text-body-secondary mb-3">Jobs by status</h2>
             <div id="by-status" class="fleet-stat-grid text-body-secondary">Loading job counts…</div>
+          </div>
+        </section>
+
+        <section class="card mb-3 border-secondary-subtle shadow-sm">
+          <div class="card-body">
+            <h2 class="h6 text-uppercase text-body-secondary mb-1">Host processes</h2>
+            <p class="small text-body-secondary mb-3">Top processes on this host (like <code class="fleet-mono">top</code>), refreshed with each snapshot.</p>
+            <div class="table-responsive">
+              <table class="table table-sm table-hover align-middle mb-0 fleet-process-table">
+                <thead class="table-light">
+                  <tr>
+                    <th scope="col">PID</th>
+                    <th scope="col">Name</th>
+                    <th scope="col" class="text-end">CPU%</th>
+                    <th scope="col" class="text-end">MEM%</th>
+                    <th scope="col" class="text-end">RSS</th>
+                    <th scope="col">Command</th>
+                  </tr>
+                </thead>
+                <tbody id="fleet-host-processes-rows">
+                  <tr><td colspan="6" class="text-body-secondary">Loading processes…</td></tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </section>
 
@@ -391,7 +435,7 @@
             <div id="fleet-apps-installed" class="small text-body-secondary">Loading…</div>
           </div>
         </section>
-        <section class="card mb-3 border-secondary-subtle shadow-sm">
+        <section class="card mb-3 border-secondary-subtle shadow-sm fleet-local-only">
           <div class="card-body">
             <h2 class="h6 text-uppercase text-body-secondary mb-3">Catalog</h2>
             <p class="small text-body-secondary">Packages from <code class="fleet-mono">fleet.forgesdlc.com</code>.</p>
@@ -402,6 +446,54 @@
       <div id="fleet-dynamic-app-panes" class="d-contents"></div>
     </div>
   </main>
+
+  <div
+    class="offcanvas offcanvas-end"
+    tabindex="-1"
+    id="fleet-remote-peers-offcanvas"
+    aria-labelledby="fleet-remote-peers-offcanvas-label"
+  >
+    <div class="offcanvas-header border-bottom border-secondary-subtle">
+      <h2 class="offcanvas-title h5 mb-0" id="fleet-remote-peers-offcanvas-label">Remote Fleet peers</h2>
+      <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+    </div>
+    <div class="offcanvas-body">
+      <p class="small text-body-secondary mb-3">
+        Store remote host URL and bearer in <code class="fleet-mono">FLEET_DATA_DIR/etc/remote-peers.json</code>.
+        The local Fleet server proxies admin APIs so your browser never calls the remote host directly.
+      </p>
+      <div class="row g-2 mb-3">
+        <div class="col-12">
+          <label class="form-label small mb-0" for="fleet-remote-peer-id">Peer id</label>
+          <input id="fleet-remote-peer-id" class="form-control form-control-sm fleet-mono" placeholder="granite" />
+        </div>
+        <div class="col-12">
+          <label class="form-label small mb-0" for="fleet-remote-peer-label">Label</label>
+          <input id="fleet-remote-peer-label" class="form-control form-control-sm" placeholder="Granite" />
+        </div>
+        <div class="col-12">
+          <label class="form-label small mb-0" for="fleet-remote-peer-base">Base URL</label>
+          <input id="fleet-remote-peer-base" class="form-control form-control-sm fleet-mono" placeholder="https://granite.forgedc.net" />
+        </div>
+        <div class="col-12">
+          <label class="form-label small mb-0" for="fleet-remote-peer-bearer">Bearer token</label>
+          <input id="fleet-remote-peer-bearer" class="form-control form-control-sm fleet-mono" type="password" autocomplete="off" placeholder="FORGE_FLEET_BEARER_TOKEN" />
+        </div>
+      </div>
+      <div class="d-flex flex-wrap gap-2 mb-3">
+        <button type="button" class="btn btn-sm btn-primary" id="fleet-remote-peer-save">Save peer</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-remote-peer-test">Test health</button>
+        <button type="button" class="btn btn-sm btn-outline-danger" id="fleet-remote-peer-delete">Delete peer</button>
+      </div>
+      <div id="fleet-remote-peer-msg" class="small text-body-secondary mb-3" aria-live="polite"></div>
+      <div class="table-responsive">
+        <table class="table table-sm table-bordered mb-0">
+          <thead><tr><th>Id</th><th>Label</th><th>Base URL</th><th>Bearer</th><th></th></tr></thead>
+          <tbody id="fleet-remote-peers-rows"><tr><td colspan="5" class="text-body-secondary">Loading peers…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
 
   <div
     class="offcanvas offcanvas-end fleet-app-about-offcanvas"
@@ -779,6 +871,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
   (function () {
     "use strict";
     var LS = "forgeFleetAdminToken";
+    var LS_REMOTE_PEER = "forgeFleetActiveRemotePeer";
     var LS_LOAD_SCALE = "forgeFleetLoadScaleMax";
     var LS_LOAD_PEAK = "forgeFleetLoadPeakPct";
     var LS_CHART_LINEAR_Y = "forgeFleetChartLinearY";
@@ -2741,8 +2834,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       chartBuf = [];
       orchBuf = [];
       try {
-        var res = await fetch("/v1/telemetry?period=last_1_hour&limit=100000", {
-          headers: authHeaders(),
+        var res = await fleetScopedFetch("/v1/telemetry?period=last_1_hour&limit=100000", {
           cache: "no-store",
         });
         if (!res.ok) {
@@ -3092,9 +3184,9 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       try {
         var docs = await Promise.all(
           periods.map(function (p) {
-            return fetch(
+            return fleetScopedFetch(
               "/v1/telemetry?period=" + encodeURIComponent(p[0]) + "&format=buckets",
-              { headers: authHeaders(), cache: "no-store" }
+              { cache: "no-store" }
             ).then(function (r) {
               return r.json();
             });
@@ -3150,8 +3242,9 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
     function refreshChartYHint() {
       var el = document.getElementById("fleet-chart-y-hint");
       if (!el) return;
-      var base =
-        "Older left · recent right · SQLite history + live snapshot tail each refresh · ";
+      var base = isFleetScopeRemote()
+        ? "Older left · recent right · proxied remote telemetry + live snapshot tail · "
+        : "Older left · recent right · SQLite history + live snapshot tail each refresh · ";
       el.textContent =
         base + (chartLinearYEnabled() ? "Y linear 0–100%" : "Y scale 0–1–10–50–100");
     }
@@ -3894,7 +3987,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         bootstrap.Modal.getOrCreateInstance(el).show();
       }
       try {
-        var res = await fetch("/v1/jobs/" + encodeURIComponent(jobId), { headers: authHeaders(), cache: "no-store" });
+        var res = await fleetScopedFetch("/v1/jobs/" + encodeURIComponent(jobId), { cache: "no-store" });
         var j = {};
         try {
           j = await res.json();
@@ -3921,6 +4014,228 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       var h = { Accept: "application/json" };
       if (t) h.Authorization = "Bearer " + t;
       return h;
+    }
+
+    function fleetApi(path, opts) {
+      opts = opts || {};
+      var headers = authHeaders();
+      if (opts.headers) {
+        Object.keys(opts.headers).forEach(function (k) {
+          headers[k] = opts.headers[k];
+        });
+      }
+      return fetch(path, {
+        method: opts.method || "GET",
+        headers: headers,
+        body: opts.body != null ? opts.body : undefined,
+        cache: "no-store",
+      });
+    }
+
+    function fleetRemoteApi(peerId, path, opts) {
+      var base = "/v1/remote-peers/" + encodeURIComponent(peerId) + path;
+      return fleetApi(base, opts);
+    }
+
+    function getFleetScope() {
+      var peerId = (localStorage.getItem(LS_REMOTE_PEER) || "").trim();
+      return peerId ? { mode: "remote", peerId: peerId } : { mode: "local" };
+    }
+
+    function isFleetScopeRemote() {
+      return getFleetScope().mode === "remote";
+    }
+
+    function fleetScopedFetch(path, opts) {
+      var scope = getFleetScope();
+      if (scope.mode === "local") return fleetApi(path, opts);
+      var peerId = scope.peerId;
+      if (path.indexOf("/v1/admin/snapshot") === 0) {
+        return fleetRemoteApi(peerId, "/snapshot" + path.slice("/v1/admin/snapshot".length), opts);
+      }
+      if (path.indexOf("/v1/host/processes") === 0) {
+        return fleetRemoteApi(peerId, "/processes" + path.slice("/v1/host/processes".length), opts);
+      }
+      if (path.indexOf("/v1/telemetry") === 0) {
+        return fleetRemoteApi(peerId, "/telemetry" + path.slice("/v1/telemetry".length), opts);
+      }
+      var jobM = path.match(/^\/v1\/jobs\/([^/?]+)/);
+      if (jobM) return fleetRemoteApi(peerId, "/jobs/" + encodeURIComponent(jobM[1]), opts);
+      if (path.indexOf("/v1/container-types") === 0) {
+        return fleetRemoteApi(peerId, "/container-types" + path.slice("/v1/container-types".length), opts);
+      }
+      if (path.indexOf("/v1/container-templates") === 0) {
+        return fleetRemoteApi(peerId, "/container-templates" + path.slice("/v1/container-templates".length), opts);
+      }
+      var aboutM = path.match(/^\/v1\/fleet-apps\/([^/]+)\/about/);
+      if (aboutM) {
+        return fleetRemoteApi(peerId, "/fleet-apps/" + encodeURIComponent(aboutM[1]) + "/about", opts);
+      }
+      return fleetApi(path, opts);
+    }
+
+    function applyFleetScopeChrome() {
+      var scope = getFleetScope();
+      document.body.classList.toggle("fleet-scope-remote", scope.mode === "remote");
+      var banner = document.getElementById("fleet-scope-remote-banner");
+      var bannerText = document.getElementById("fleet-scope-remote-banner-text");
+      if (banner) banner.classList.toggle("d-none", scope.mode !== "remote");
+      if (bannerText && scope.mode === "remote") {
+        var sel = document.getElementById("fleet-scope-select");
+        var label =
+          sel && sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].textContent : scope.peerId;
+        bannerText.textContent =
+          "Viewing " + label + " (read-only) — credentials stored server-side.";
+      }
+      var title = document.querySelector(".fleet-admin-title");
+      if (title) {
+        title.textContent =
+          scope.mode === "remote" ? "Forge Fleet — remote status" : "Forge Fleet — status";
+      }
+    }
+
+    function setFleetScope(peerId) {
+      var pid = String(peerId || "").trim();
+      try {
+        if (pid) localStorage.setItem(LS_REMOTE_PEER, pid);
+        else localStorage.removeItem(LS_REMOTE_PEER);
+      } catch (_e) {
+        /* ignore */
+      }
+      var sel = document.getElementById("fleet-scope-select");
+      if (sel) sel.value = pid;
+      fleetJobsOffset = 0;
+      chartBuf = [];
+      orchBuf = [];
+      chartHostIdentity = null;
+      __fleetTypesLoaded = false;
+      applyFleetScopeChrome();
+      loadSnapshot().then(function () {
+        scheduleNext();
+      });
+    }
+
+    function populateFleetScopeSelect(peers) {
+      var sel = document.getElementById("fleet-scope-select");
+      if (!sel) return;
+      var active = (localStorage.getItem(LS_REMOTE_PEER) || "").trim();
+      sel.innerHTML =
+        '<option value="">Local</option>' +
+        (peers || [])
+          .map(function (p) {
+            return (
+              '<option value="' +
+              esc(p.id) +
+              '"' +
+              (p.id === active ? " selected" : "") +
+              ">" +
+              esc(p.label || p.id) +
+              "</option>"
+            );
+          })
+          .join("");
+      applyFleetScopeChrome();
+    }
+
+    function formatRssKb(kb) {
+      if (kb == null || isNaN(Number(kb))) return "—";
+      var n = Number(kb);
+      if (n >= 1024 * 1024) return (n / (1024 * 1024)).toFixed(1) + " GiB";
+      if (n >= 1024) return (n / 1024).toFixed(1) + " MiB";
+      return n + " KiB";
+    }
+
+    function renderProcessTableRows(processes) {
+      if (!processes || !processes.length) {
+        return "<tr><td colspan=\"6\" class=\"text-body-secondary\">No processes reported.</td></tr>";
+      }
+      return processes
+        .map(function (p) {
+          return (
+            "<tr><td class=\"fleet-mono small\">" +
+            esc(p.pid) +
+            "</td><td class=\"small\">" +
+            esc(p.name || "—") +
+            "</td><td class=\"text-end fleet-mono small\">" +
+            esc(p.cpu_pct != null ? String(p.cpu_pct) : "—") +
+            "</td><td class=\"text-end fleet-mono small\">" +
+            esc(p.mem_pct != null ? String(p.mem_pct) : "—") +
+            "</td><td class=\"text-end fleet-mono small\">" +
+            esc(formatRssKb(p.rss_kb)) +
+            "</td><td class=\"fleet-mono small text-body-secondary\" title=\"" +
+            esc(p.cmd || "") +
+            "\">" +
+            esc(String(p.cmd || "").slice(0, 120)) +
+            "</td></tr>"
+          );
+        })
+        .join("");
+    }
+
+    async function loadHostProcesses() {
+      var tbody = document.getElementById("fleet-host-processes-rows");
+      if (!tbody) return;
+      try {
+        var res = await fleetScopedFetch("/v1/host/processes?limit=50&sort=cpu");
+        if (!res.ok) return;
+        var data = await res.json();
+        tbody.innerHTML = renderProcessTableRows(data.processes || []);
+      } catch (_e) {
+        /* ignore transient poll errors */
+      }
+    }
+
+    async function refreshRemotePeersTable() {
+      var tbody = document.getElementById("fleet-remote-peers-rows");
+      if (!tbody) return;
+      try {
+        var res = await fleetApi("/v1/remote-peers");
+        if (!res.ok) {
+          tbody.innerHTML = "<tr><td colspan=\"5\" class=\"text-danger\">HTTP " + res.status + "</td></tr>";
+          return;
+        }
+        var data = await res.json();
+        var peers = data.peers || [];
+        tbody.innerHTML = peers.length
+          ? peers
+              .map(function (p) {
+                return (
+                  "<tr><td class=\"fleet-mono small\">" +
+                  esc(p.id) +
+                  "</td><td>" +
+                  esc(p.label || "") +
+                  "</td><td class=\"fleet-mono small\">" +
+                  esc(p.base_url || "") +
+                  "</td><td>" +
+                  (p.bearer_configured ? "yes" : "no") +
+                  '</td><td class="text-nowrap"><button type="button" class="btn btn-sm btn-outline-secondary me-1 fleet-remote-use-peer" data-peer-id="' +
+                  esc(p.id) +
+                  '">View</button><button type="button" class="btn btn-sm btn-outline-primary fleet-remote-edit-peer" data-peer-id="' +
+                  esc(p.id) +
+                  '" data-peer-label="' +
+                  esc(p.label || "") +
+                  '" data-peer-base="' +
+                  esc(p.base_url || "") +
+                  '">Edit</button></td></tr>'
+                );
+              })
+              .join("")
+          : "<tr><td colspan=\"5\" class=\"text-body-secondary\">No peers configured.</td></tr>";
+        populateFleetScopeSelect(peers);
+      } catch (e) {
+        tbody.innerHTML = "<tr><td colspan=\"5\" class=\"text-danger\">" + esc(String(e)) + "</td></tr>";
+      }
+    }
+
+    function fillRemotePeerForm(peer) {
+      var idEl = document.getElementById("fleet-remote-peer-id");
+      var labelEl = document.getElementById("fleet-remote-peer-label");
+      var baseEl = document.getElementById("fleet-remote-peer-base");
+      var bearerEl = document.getElementById("fleet-remote-peer-bearer");
+      if (idEl) idEl.value = peer && peer.id ? String(peer.id) : "";
+      if (labelEl) labelEl.value = peer && peer.label ? String(peer.label) : "";
+      if (baseEl) baseEl.value = peer && peer.base_url ? String(peer.base_url) : "";
+      if (bearerEl) bearerEl.value = "";
     }
 
     var __fleetAppMounts = {};
@@ -3991,9 +4306,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         __fleetAppAboutCanvas = new bootstrap.Offcanvas(panel);
       }
       __fleetAppAboutCanvas.show();
-      fetch("/v1/fleet-apps/" + encodeURIComponent(appId) + "/about", {
-        headers: authHeaders(),
-      })
+      fleetScopedFetch("/v1/fleet-apps/" + encodeURIComponent(appId) + "/about")
         .then(function (r) {
           return r.json();
         })
@@ -4145,6 +4458,11 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       installed = installed || [];
       var el = document.getElementById("fleet-apps-catalog");
       if (!el) return;
+      if (isFleetScopeRemote()) {
+        el.innerHTML =
+          "<span class=\"text-body-secondary\">Catalog installs are available on the local Fleet scope only.</span>";
+        return;
+      }
       if (__fleetCatalogApps.length) {
         fleetAppsRenderCatalog(installed);
         return;
@@ -4278,7 +4596,8 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       errEl.classList.remove("d-none");
     }
 
-    function renderManagedServices(integ) {
+    function renderManagedServices(integ, readOnly) {
+      readOnly = !!readOnly || isFleetScopeRemote();
       var wrap = document.getElementById("fleet-managed-services-wrap");
       var pathsEl = document.getElementById("fleet-config-paths");
       var rowsEl = document.getElementById("fleet-managed-services-rows");
@@ -4306,7 +4625,9 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       }
       var head =
         "<div class=\"table-responsive\"><table class=\"table table-sm table-bordered mb-0 fleet-mono\"><thead><tr>" +
-        "<th>id</th><th>label</th><th>compose</th><th>status</th><th></th></tr></thead><tbody>";
+        "<th>id</th><th>label</th><th>compose</th><th>status</th>" +
+        (readOnly ? "" : "<th></th>") +
+        "</tr></thead><tbody>";
       var body = svcs
         .map(function (s) {
           var st = (s.services_running != null ? s.services_running : "—") + " / " + (s.services_total != null ? s.services_total : "—") + " running";
@@ -4338,11 +4659,15 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
             esc(cf) +
             "</div></td><td>" +
             esc(st) +
-            "</td><td class=\"text-nowrap\"><button type=\"button\" class=\"btn btn-sm btn-outline-success me-1 fleet-svc-start\" data-svc-id=\"" +
-            esc(sid) +
-            "\">Start</button><button type=\"button\" class=\"btn btn-sm btn-outline-warning fleet-svc-stop\" data-svc-id=\"" +
-            esc(sid) +
-            "\">Stop</button></td></tr>"
+            "</td>" +
+            (readOnly
+              ? ""
+              : "<td class=\"text-nowrap\"><button type=\"button\" class=\"btn btn-sm btn-outline-success me-1 fleet-svc-start\" data-svc-id=\"" +
+                esc(sid) +
+                "\">Start</button><button type=\"button\" class=\"btn btn-sm btn-outline-warning fleet-svc-stop\" data-svc-id=\"" +
+                esc(sid) +
+                "\">Stop</button></td>") +
+            "</tr>"
           );
         })
         .join("");
@@ -4355,7 +4680,8 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
     var __fleetTypeEditMode = "add";
     var __fleetReqEditIdx = -1;
 
-    function renderFleetReqTemplatesTable(doc) {
+    function renderFleetReqTemplatesTable(doc, readOnly) {
+      readOnly = !!readOnly || isFleetScopeRemote();
       if (!doc || !doc.ok) return;
       __fleetReqTemplatesDoc = doc;
       var tbl = document.getElementById("fleet-requirement-templates-table");
@@ -4363,7 +4689,9 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       var templates = Array.isArray(doc.templates) ? doc.templates : [];
       var head =
         '<div class="table-responsive"><table class="table table-sm table-bordered mb-0 fleet-mono"><thead><tr>' +
-        "<th>id</th><th>kind</th><th>ref</th><th>title</th><th class=\"text-end\">actions</th></tr></thead><tbody>";
+        "<th>id</th><th>kind</th><th>ref</th><th>title</th>" +
+        (readOnly ? "" : '<th class="text-end">actions</th>') +
+        "</tr></thead><tbody>";
       var body = templates
         .map(function (row, idx) {
           var rid = esc(String((row && row.id) || ""));
@@ -4379,24 +4707,28 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
             (String((row && row.ref) || "").length > 72 ? "…" : "") +
             "</td><td class=\"small\">" +
             esc(String((row && row.title) || "")) +
-            "</td><td class=\"text-end text-nowrap\"><button type=\"button\" class=\"btn btn-sm btn-outline-primary fleet-req-edit\" data-req-idx=\"" +
-            idx +
-            "\">Edit</button> <button type=\"button\" class=\"btn btn-sm btn-outline-danger fleet-req-del\" data-req-idx=\"" +
-            idx +
-            "\">Remove</button></td></tr>"
+            "</td>" +
+            (readOnly
+              ? ""
+              : '<td class="text-end text-nowrap"><button type="button" class="btn btn-sm btn-outline-primary fleet-req-edit" data-req-idx="' +
+                idx +
+                '">Edit</button> <button type="button" class="btn btn-sm btn-outline-danger fleet-req-del" data-req-idx="' +
+                idx +
+                '">Remove</button></td>') +
+            "</tr>"
           );
         })
         .join("");
       tbl.innerHTML =
         head +
         body +
-        (templates.length ? "" : '<tr><td colspan="5" class="text-body-secondary">No templates yet.</td></tr>') +
+        (templates.length ? "" : '<tr><td colspan="' + (readOnly ? "4" : "5") + '" class="text-body-secondary">No templates yet.</td></tr>') +
         "</tbody></table></div>";
     }
 
     async function loadRequirementTemplatesOnce(force) {
       try {
-        var res = await fetch("/v1/container-templates", { headers: authHeaders(), cache: "no-store" });
+        var res = await fleetScopedFetch("/v1/container-templates", { cache: "no-store" });
         if (!res.ok) return;
         var doc = await res.json();
         renderFleetReqTemplatesTable(doc);
@@ -4527,8 +4859,9 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
 
     async function loadContainerTypesOnce(force) {
       if (__fleetTypesLoaded && !force) return;
+      var readOnly = isFleetScopeRemote();
       try {
-        var res = await fetch("/v1/container-types", { headers: authHeaders(), cache: "no-store" });
+        var res = await fleetScopedFetch("/v1/container-types", { cache: "no-store" });
         if (!res.ok) return;
         var doc = await res.json();
         if (!doc.ok || !Array.isArray(doc.types)) return;
@@ -4545,7 +4878,9 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         }
         var head =
           '<div class="table-responsive"><table class="table table-sm table-bordered mb-0 fleet-mono"><thead><tr>' +
-          "<th>id</th><th>category</th><th>container_class</th><th>requirements</th><th>telemetry</th><th class=\"text-end\">actions</th></tr></thead><tbody>";
+          "<th>id</th><th>category</th><th>container_class</th><th>requirements</th><th>telemetry</th>" +
+          (readOnly ? "" : '<th class="text-end">actions</th>') +
+          "</tr></thead><tbody>";
         var body = mat
           .map(function (t) {
             var tid = String((t && t.id) || "");
@@ -4577,20 +4912,24 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
               esc(reqs) +
               "</td><td class=\"small\"><span data-fleet-type-tel>—</span><div class=\"text-body-secondary\">" +
               esc(caps) +
-              "</div></td><td class=\"text-nowrap text-end\"><button type=\"button\" class=\"btn btn-sm btn-outline-primary me-1 fleet-type-edit\" data-type-id=\"" +
-              esc(tid) +
-              "\">Edit</button><button type=\"button\" class=\"btn btn-sm btn-outline-danger fleet-type-del\" data-type-id=\"" +
-              esc(tid) +
-              "\"" +
-              (tid === "empty" ? " disabled" : "") +
-              ">Delete</button></td></tr>"
+              "</div></td>" +
+              (readOnly
+                ? ""
+                : "<td class=\"text-nowrap text-end\"><button type=\"button\" class=\"btn btn-sm btn-outline-primary me-1 fleet-type-edit\" data-type-id=\"" +
+                  esc(tid) +
+                  "\">Edit</button><button type=\"button\" class=\"btn btn-sm btn-outline-danger fleet-type-del\" data-type-id=\"" +
+                  esc(tid) +
+                  "\"" +
+                  (tid === "empty" ? " disabled" : "") +
+                  ">Delete</button></td>") +
+              "</tr>"
             );
           })
           .join("");
         tbl.innerHTML =
           head +
           body +
-          (mat.length ? "" : '<tr><td colspan="6" class="text-body-secondary">No types.</td></tr>') +
+          (mat.length ? "" : '<tr><td colspan="' + (readOnly ? "5" : "6") + '" class="text-body-secondary">No types.</td></tr>') +
           "</tbody></table></div>";
         refreshContainerTypesTelemetry(__fleetLastOrchestration);
         await loadRequirementTemplatesOnce(force);
@@ -4720,6 +5059,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
     }
 
     async function checkRemoteAgainstGitHub() {
+      if (isFleetScopeRemote()) return;
       var row = document.getElementById("fleet-git-remote-row");
       if (!row) return;
       var localRaw = (__fleetLocalGitSha || "").trim();
@@ -4850,7 +5190,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
           encodeURIComponent(String(fleetJobsPageSize)) +
           "&jobs_offset=" +
           encodeURIComponent(String(fleetJobsOffset));
-        res = await fetch(snapPath, { headers: authHeaders(), cache: "no-store" });
+        res = await fleetScopedFetch(snapPath, { cache: "no-store" });
       } catch (e) {
         setErr("Network: " + e);
         return false;
@@ -4884,22 +5224,28 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
           sha;
       }
       __fleetLocalGitSha = ver.git_sha ? String(ver.git_sha).trim() : "";
-      (function () {
-        var gr = document.getElementById("fleet-git-remote-row");
-        if (gr) {
-          gr.setAttribute("data-fleet-git-sha-state", __fleetLocalGitSha ? "present" : "missing");
+      if (!isFleetScopeRemote()) {
+        (function () {
+          var gr = document.getElementById("fleet-git-remote-row");
+          if (gr) {
+            gr.setAttribute("data-fleet-git-sha-state", __fleetLocalGitSha ? "present" : "missing");
+          }
+        })();
+        __fleetSelfUpdateConfigured = !!(meta.self_update && meta.self_update.configured);
+        if (!__fleetRemoteGitTimerStarted) {
+          __fleetRemoteGitTimerStarted = true;
+          setTimeout(function () {
+            checkRemoteAgainstGitHub();
+          }, 1200);
+          setInterval(function () {
+            checkRemoteAgainstGitHub();
+          }, REMOTE_GIT_POLL_MS);
         }
-      })();
-      __fleetSelfUpdateConfigured = !!(meta.self_update && meta.self_update.configured);
-      if (!__fleetRemoteGitTimerStarted) {
-        __fleetRemoteGitTimerStarted = true;
-        setTimeout(function () {
-          checkRemoteAgainstGitHub();
-        }, 1200);
-        setInterval(function () {
-          checkRemoteAgainstGitHub();
-        }, REMOTE_GIT_POLL_MS);
+        applySelfUpdateMeta(meta.self_update || {});
+      } else {
+        __fleetSelfUpdateConfigured = false;
       }
+
       var wrap = document.getElementById("fleet-forge-console-wrap");
       var link = document.getElementById("fleet-forge-console");
       var integ = meta.integrations || {};
@@ -4911,7 +5257,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         wrap.classList.add("d-none");
       }
 
-      if (!window.__fleetApplyRootHintOnce) {
+      if (!isFleetScopeRemote() && !window.__fleetApplyRootHintOnce) {
         window.__fleetApplyRootHintOnce = true;
         var rootIn = document.getElementById("fleet-new-svc-root");
         var hint = integ.suggested_forge_llm_compose_root;
@@ -4919,8 +5265,6 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
           rootIn.value = String(hint);
         }
       }
-
-      applySelfUpdateMeta(meta.self_update || {});
 
       renderManagedServices(integ);
       loadContainerTypesOnce();
@@ -5003,6 +5347,8 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         : "<tr><td colspan=\"5\" class=\"text-body-secondary\">No jobs recorded.</td></tr>";
 
       renderFleetJobsPager(data, rows);
+
+      loadHostProcesses();
 
       return true;
     }
@@ -5449,6 +5795,86 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       });
     }
 
+    var fleetScopeSelect = document.getElementById("fleet-scope-select");
+    if (fleetScopeSelect) {
+      fleetScopeSelect.addEventListener("change", function () {
+        setFleetScope(fleetScopeSelect.value || "");
+      });
+    }
+
+    var fleetRemoteSave = document.getElementById("fleet-remote-peer-save");
+    if (fleetRemoteSave) {
+      fleetRemoteSave.addEventListener("click", function () {
+        var id = (document.getElementById("fleet-remote-peer-id") || {}).value || "";
+        var label = (document.getElementById("fleet-remote-peer-label") || {}).value || "";
+        var base = (document.getElementById("fleet-remote-peer-base") || {}).value || "";
+        var bearer = (document.getElementById("fleet-remote-peer-bearer") || {}).value || "";
+        var msg = document.getElementById("fleet-remote-peer-msg");
+        fleetApi("/v1/remote-peers/" + encodeURIComponent(id.trim()), {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ label: label, base_url: base, bearer_token: bearer }),
+        })
+          .then(function (res) { return res.json().then(function (j) { return { res: res, j: j }; }); })
+          .then(function (out) {
+            if (msg) msg.textContent = out.res.ok ? "Saved peer " + id : JSON.stringify(out.j);
+            return refreshRemotePeersTable();
+          })
+          .catch(function (e) {
+            if (msg) msg.textContent = String(e);
+          });
+      });
+    }
+
+    var fleetRemoteTest = document.getElementById("fleet-remote-peer-test");
+    if (fleetRemoteTest) {
+      fleetRemoteTest.addEventListener("click", function () {
+        var id = (document.getElementById("fleet-remote-peer-id") || {}).value || (getFleetScope().peerId || "");
+        var msg = document.getElementById("fleet-remote-peer-msg");
+        fleetApi("/v1/remote-peers/" + encodeURIComponent(id) + "/probe", { method: "POST" })
+          .then(function (res) { return res.json(); })
+          .then(function (j) {
+            if (msg) msg.textContent = j.ok ? "Health OK for " + id : JSON.stringify(j);
+          });
+      });
+    }
+
+    var fleetRemoteDelete = document.getElementById("fleet-remote-peer-delete");
+    if (fleetRemoteDelete) {
+      fleetRemoteDelete.addEventListener("click", function () {
+        var id = (document.getElementById("fleet-remote-peer-id") || {}).value || (getFleetScope().peerId || "");
+        var msg = document.getElementById("fleet-remote-peer-msg");
+        var activePeer = getFleetScope().peerId || "";
+        fleetApi("/v1/remote-peers/" + encodeURIComponent(id), { method: "DELETE" })
+          .then(function () { return refreshRemotePeersTable(); })
+          .then(function () {
+            if (msg) msg.textContent = "Deleted " + id;
+            if (activePeer && activePeer === id) setFleetScope("");
+          });
+      });
+    }
+
+    document.addEventListener("click", function (ev) {
+      var btn = ev.target && ev.target.closest ? ev.target.closest(".fleet-remote-use-peer") : null;
+      if (btn) {
+        var pid = btn.getAttribute("data-peer-id") || "";
+        setFleetScope(pid);
+        var panel = document.getElementById("fleet-remote-peers-offcanvas");
+        if (panel && window.bootstrap && bootstrap.Offcanvas) {
+          var inst = bootstrap.Offcanvas.getInstance(panel);
+          if (inst) inst.hide();
+        }
+        return;
+      }
+      var editBtn = ev.target && ev.target.closest ? ev.target.closest(".fleet-remote-edit-peer") : null;
+      if (!editBtn) return;
+      fillRemotePeerForm({
+        id: editBtn.getAttribute("data-peer-id") || "",
+        label: editBtn.getAttribute("data-peer-label") || "",
+        base_url: editBtn.getAttribute("data-peer-base") || "",
+      });
+    });
+
     var fleetSysCopy = document.getElementById("fleet-system-update-copy");
     if (fleetSysCopy) {
       fleetSysCopy.addEventListener("click", function () {
@@ -5482,7 +5908,10 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
     }
 
     setInterval(tick, 500);
-    loadSnapshot().then(function () { scheduleNext(); });
+    refreshRemotePeersTable().then(function () {
+      applyFleetScopeChrome();
+      loadSnapshot().then(function () { scheduleNext(); });
+    });
   })();
   </script>
 </body>

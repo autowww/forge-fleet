@@ -25,12 +25,16 @@ from fleet_server import (
     fleet_apps,
     forge_llm_rollout,
     forge_llm_service,
+    forge_market_pattern_rollups_backfill,
     forge_market_studio_rollout,
     forge_market_source_overlay,
     host_processes,
     host_stats,
+    infra_flow_submit,
+    infra_flows,
     managed_compose_service,
     remote_peers,
+    rollout_status,
     runner,
     self_update,
     store,
@@ -252,6 +256,15 @@ class FleetHandler(BaseHTTPRequestHandler):
                 app_q = (q.get("app") or [None])[0]
                 self._send(200, environments.list_environments(data_dir, app_id=app_q, repo_root=repo_root))
                 return True
+            m_ver = re.match(r"^/v1/environments/([^/]+)/versions$", path)
+            if m_ver:
+                conn = store.connect(self.server.db_path)
+                try:
+                    rows = store.list_environment_versions(conn, m_ver.group(1))
+                finally:
+                    conn.close()
+                self._send(200, {"ok": True, "environment_id": m_ver.group(1), "versions": rows})
+                return True
             m = re.match(r"^/v1/environments/([^/]+)$", path)
             if m:
                 out = environments.get_environment(data_dir, m.group(1))
@@ -300,6 +313,27 @@ class FleetHandler(BaseHTTPRequestHandler):
                 out = environments.stop_environment(data_dir, m_stop.group(1))
                 self._send(200 if out.get("ok") else 400, out)
                 return True
+            m_rb = re.match(r"^/v1/environments/([^/]+)/rollback$", path)
+            if m_rb:
+                from fleet_server import rollout_slot
+
+                record_id = m_rb.group(1)
+                flow_env = rollout_slot.normalize_env_id(record_id)
+                target_version = str(body.get("target_version") or "").strip()
+                out = infra_flow_submit.submit_infra_flow(
+                    data_dir,
+                    self.server.db_path,
+                    {
+                        "flow_id": "market-studio-rollback",
+                        "inputs": {
+                            "environment": flow_env,
+                            "target_version": target_version,
+                        },
+                    },
+                )
+                code = 201 if out.get("ok") else (409 if out.get("error") == "rollout_in_progress" else 400)
+                self._send(code, out)
+                return True
             return False
 
         if method == "DELETE":
@@ -308,6 +342,44 @@ class FleetHandler(BaseHTTPRequestHandler):
                 purge = (q.get("purge_volumes") or ["0"])[0].strip().lower() in ("1", "true", "yes")
                 out = environments.delete_environment(data_dir, m.group(1), purge_volumes=purge)
                 code = 200 if out.get("ok") else 409 if out.get("error") == "environment_running" else 404
+                self._send(code, out)
+                return True
+        return False
+
+    def _handle_flows(self, method: str, body: dict | None = None) -> bool:
+        parsed = urlparse(self.path)
+        path = parsed.path
+        if not path.startswith("/v1/flows"):
+            return False
+        if method == "GET":
+            if path == "/v1/flows":
+                self._send(200, {"ok": True, "flows": infra_flows.list_infra_flows()})
+                return True
+            m = re.match(r"^/v1/flows/([^/]+)$", path)
+            if m:
+                try:
+                    doc = infra_flows.load_infra_flow(m.group(1))
+                except (KeyError, FileNotFoundError, ValueError) as exc:
+                    self._send(404, {"ok": False, "error": "not_found", "detail": str(exc)[:400]})
+                    return True
+                self._send(200, {"ok": True, "flow_id": m.group(1), "flow": doc})
+                return True
+            return False
+        if method == "POST":
+            if body is None:
+                body = self._read_json()
+            if path == "/v1/flows/submit":
+                out = infra_flow_submit.submit_infra_flow(
+                    self._data_dir(),
+                    self.server.db_path,
+                    body if isinstance(body, dict) else {},
+                )
+                if out.get("ok"):
+                    code = 201
+                elif out.get("error") == "rollout_in_progress":
+                    code = 409
+                else:
+                    code = 400
                 self._send(code, out)
                 return True
         return False
@@ -722,6 +794,17 @@ class FleetHandler(BaseHTTPRequestHandler):
         if path == "/v1/admin/forge-market-studio-rollout-log":
             self._send(200, forge_market_studio_rollout.read_rollout_log())
             return
+        if path == "/v1/admin/forge-market-pattern-rollups-backfill-log":
+            self._send(200, forge_market_pattern_rollups_backfill.read_backfill_log())
+            return
+        m_rollout_status = re.match(r"^/v1/managed-services/([^/]+)/maintenance-status$", path)
+        if m_rollout_status:
+            self._send(200, rollout_status.read_rollout_status(m_rollout_status.group(1)))
+            return
+        m_rollout_log = re.match(r"^/v1/managed-services/([^/]+)/rollout-log$", path)
+        if m_rollout_log:
+            self._send(200, rollout_status.read_rollout_log(m_rollout_log.group(1)))
+            return
         if path.startswith("/v1/admin/app-deployments/"):
             from fleet_server import app_deployments
 
@@ -732,6 +815,8 @@ class FleetHandler(BaseHTTPRequestHandler):
             self._send(code, out)
             return
         if self._handle_environments("GET"):
+            return
+        if self._handle_flows("GET"):
             return
         if path == "/v1/admin/snapshot":
             conn = store.connect(self.server.db_path)
@@ -1224,6 +1309,8 @@ class FleetHandler(BaseHTTPRequestHandler):
             return
         if self._handle_environments("POST", body=body):
             return
+        if self._handle_flows("POST", body=body):
+            return
         if path == "/v1/cooldown-events":
             raw_d = body.get("duration_s")
             try:
@@ -1426,6 +1513,11 @@ class FleetHandler(BaseHTTPRequestHandler):
                     "forge_market_confirm_coverage_v2_drop",
                     "forge_market_confirm_bars_v2_drop",
                     "forge_market_confirm_obs_dictionary",
+                    "forge_market_job_drain_mode",
+                    "forge_market_pause_scheduler",
+                    "forge_market_job_pause_timeout_sec",
+                    "forge_market_job_drain_timeout_sec",
+                    "forge_market_skip_git_sync",
                 )
                 if body.get(k) is not None
             }
@@ -1437,7 +1529,50 @@ class FleetHandler(BaseHTTPRequestHandler):
             except FileNotFoundError as ex:
                 self._send(400, {"ok": False, "error": "rollout_script_missing", "detail": str(ex)[:400]})
                 return
-            code = 200 if out.get("ok") else 502
+            if out.get("error") == "rollout_in_progress":
+                code = 409
+            elif out.get("ok"):
+                code = 200
+            else:
+                code = 502
+            self._send(code, out)
+            return
+        if path == "/v1/admin/forge-market-pattern-rollups-backfill":
+            sync = str(body.get("sync") or "").strip().lower() in ("1", "true", "yes")
+            overrides = {
+                k: body.get(k)
+                for k in (
+                    "forge_market_env",
+                    "forge_market_root",
+                    "forge_market_compose_files",
+                    "tickers",
+                    "intervals",
+                    "limit",
+                    "checkpoint",
+                    "dry_run",
+                )
+                if body.get(k) is not None
+            }
+            try:
+                if sync:
+                    out = forge_market_pattern_rollups_backfill.run_backfill_sync(
+                        self._repo_root(),
+                        overrides=overrides or None,
+                    )
+                else:
+                    out = forge_market_pattern_rollups_backfill.schedule_backfill(
+                        self._repo_root(),
+                        overrides=overrides or None,
+                    )
+            except FileNotFoundError as ex:
+                self._send(400, {"ok": False, "error": "backfill_script_missing", "detail": str(ex)[:400]})
+                return
+            if out.get("error") == "rollout_in_progress":
+                code = 409
+            elif out.get("ok"):
+                code = 200
+            else:
+                code = 502
             self._send(code, out)
             return
         data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
@@ -2069,6 +2204,10 @@ class FleetHandler(BaseHTTPRequestHandler):
                 self._send(code, {"ok": False, "error": str(ex)[:800]})
                 return
             self._send(200, {"ok": True, "id": mfa_del.group(1)})
+            return
+        m_rollout_clear = re.match(r"^/v1/managed-services/([^/]+)/maintenance-status$", path)
+        if m_rollout_clear:
+            self._send(200, rollout_status.clear_rollout_status(m_rollout_clear.group(1)))
             return
         m = re.match(r"^/v1/container-services/([^/]+)$", path)
         if not m:

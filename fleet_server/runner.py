@@ -235,6 +235,9 @@ def run_job(db_path: Path, job_id: str) -> None:
             store.update_job(conn, job_id, status="failed", stderr="empty argv", exit_code=1)
         finally:
             conn.close()
+        from fleet_server import rollout_slot
+
+        rollout_slot.release_for_job(db_path, job_id)
         if cleanup_workspace:
             workspace_bundle.cleanup_job_workspace(data_dir, job_id)
         return
@@ -257,6 +260,9 @@ def run_job(db_path: Path, job_id: str) -> None:
                 )
             finally:
                 conn.close()
+            from fleet_server import rollout_slot
+
+            rollout_slot.release_for_job(db_path, job_id)
             workspace_bundle.cleanup_job_workspace(data_dir, job_id)
             return
         prof = workspace_bundle.profile_for_meta(meta)
@@ -281,6 +287,9 @@ def run_job(db_path: Path, job_id: str) -> None:
             )
         finally:
             conn.close()
+        from fleet_server import rollout_slot
+
+        rollout_slot.release_for_job(db_path, job_id)
         if cleanup_workspace:
             workspace_bundle.cleanup_job_workspace(data_dir, job_id)
         return
@@ -303,6 +312,9 @@ def run_job(db_path: Path, job_id: str) -> None:
             store.update_job(conn, job_id, status="failed", stderr=str(ex)[:8000], exit_code=1)
         finally:
             conn.close()
+        from fleet_server import rollout_slot
+
+        rollout_slot.release_for_job(db_path, job_id)
         if cleanup_workspace:
             workspace_bundle.cleanup_job_workspace(data_dir, job_id)
         return
@@ -331,8 +343,10 @@ def run_job(db_path: Path, job_id: str) -> None:
         job_row = store.get_job(conn, job_id)
         if job_row is not None:
             from fleet_server import migrations as fleet_migrations
+            from fleet_server import rollout_slot
 
             fleet_migrations.sync_step_from_job(conn, job_row, data_dir=data_dir)
+            rollout_slot.release_for_job(db_path, job_id)
     finally:
         conn.close()
     if cleanup_workspace:

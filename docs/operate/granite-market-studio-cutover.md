@@ -61,6 +61,65 @@ Operator HTTP surface (local studio-server only):
 
    Verify: `curl -fsS http://127.0.0.1:19792/health` should show matching `schema_version` and `schema_head`.
 
+   **Two-tier deploy (source vs image rebuild):** the rollout script compares the running `market-app` image label `forge.market.reqs_hash` to the md5 of `studio-server/requirements.txt`. When unchanged, it uses a **source-only** path (`docker cp` + `docker restart`, ~20–30s). When `requirements.txt` changed, it runs a full `docker compose build`.
+
+   **Job drain modes** (POST body → env):
+
+   | `forge_market_job_drain_mode` | Behavior |
+   |---|---|
+   | `off` | Skip harvest/enrichment guards |
+   | `pause` (default for `auto`) | Pause harvest, wait for SQL checkpoint, restart, resume same subprocess |
+   | `cancel` | Pause, cancel harvest subprocesses, restart — operator starts new harvest when runner code changed |
+
+   **Schema migrate default:** `run_schema_migrate: "auto"` reads `schema_online_pending` from `/health` before stopping `market-app`. When nothing is pending, migrate is skipped.
+
+   **Monitor rollout progress and failures:**
+
+   ```bash
+   curl -sS "${FORGE_FLEET_BASE_URL}/v1/managed-services/market-studio/maintenance-status" \
+     -H "Authorization: Bearer ${FORGE_FLEET_BEARER_TOKEN}"
+
+   curl -sS "${FORGE_FLEET_BASE_URL}/v1/managed-services/market-studio/rollout-log" \
+     -H "Authorization: Bearer ${FORGE_FLEET_BEARER_TOKEN}"
+   ```
+
+   Workstation Forge Market Studio polls the same status via `GET /api/maintenance/status` and shows a maintenance overlay during Granite deploys.
+
+   **Typical PATCH deploy (Python source only, harvest unchanged):**
+
+   ```bash
+   curl -sS -X POST "${FORGE_FLEET_BASE_URL}/v1/admin/forge-market-studio-rollout" \
+     -H "Authorization: Bearer ${FORGE_FLEET_BEARER_TOKEN}" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "forge_market_env": "prod",
+       "run_schema_migrate": "auto",
+       "forge_market_job_drain_mode": "pause",
+       "forge_market_pause_scheduler": true
+     }'
+   ```
+
+   **Pattern cell rollups backfill (after migration `m043_pattern_cell_rollups`):** rollout creates empty rollup tables; reconcile them via Fleet (no SSH):
+
+   ```bash
+   # Full corpus — background (checkpoint persisted in appdata volume)
+   curl -sS -X POST "${FORGE_FLEET_BASE_URL}/v1/admin/forge-market-pattern-rollups-backfill" \
+     -H "Authorization: Bearer ${FORGE_FLEET_BEARER_TOKEN}" \
+     -H "Content-Type: application/json" \
+     -d '{"forge_market_env":"prod"}'
+
+   # Scoped smoke (sync, dry-run)
+   curl -sS -X POST "${FORGE_FLEET_BASE_URL}/v1/admin/forge-market-pattern-rollups-backfill" \
+     -H "Authorization: Bearer ${FORGE_FLEET_BEARER_TOKEN}" \
+     -H "Content-Type: application/json" \
+     -d '{"tickers":"NVDA,AAPL","limit":10,"dry_run":true,"sync":true}'
+
+   curl -sS "${FORGE_FLEET_BASE_URL}/v1/admin/forge-market-pattern-rollups-backfill-log" \
+     -H "Authorization: Bearer ${FORGE_FLEET_BEARER_TOKEN}"
+   ```
+
+   Ongoing scope refresh remains **Market Studio** `POST /api/candle-memory/scope/rollups/jobs` (Patterns **Update rollups** button). Fleet backfill is for bootstrap or operator-triggered full reconcile.
+
 2. **Run migrator recipe** `forge-market` in the Electron wizard — or equivalent curl sequence:
 
    ```bash

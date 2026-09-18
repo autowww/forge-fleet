@@ -57,6 +57,27 @@ def _ensure_energy_ledger(conn: sqlite3.Connection) -> None:
         )
 
 
+def _ensure_environment_versions_table(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS environment_versions (
+            id TEXT PRIMARY KEY,
+            environment_id TEXT NOT NULL,
+            created_at REAL NOT NULL,
+            image_digest TEXT,
+            schema_head TEXT,
+            git_ref TEXT,
+            job_id TEXT,
+            backup_job_id TEXT,
+            status TEXT NOT NULL DEFAULT 'active'
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_environment_versions_env ON environment_versions (environment_id, created_at DESC)"
+    )
+
+
 def _ensure_cooldown_table(conn: sqlite3.Connection) -> None:
     """LLM thermal guard (and similar) report wall-clock delay intervals here."""
     conn.execute(
@@ -176,6 +197,8 @@ def _run_fleet_schema_migrations(conn: sqlite3.Connection, from_v: int, to_v: in
             _ensure_migration_tables(conn)
         elif next_v == 8:
             telemetry_rollup.ensure_rollup_tables(conn)
+        elif next_v == 9:
+            _ensure_environment_versions_table(conn)
         else:
             raise RuntimeError(f"fleet_schema migration missing for {v} -> {next_v}")
         v = next_v
@@ -198,8 +221,16 @@ def get_fleet_version_row(conn: sqlite3.Connection) -> dict[str, Any]:
     }
 
 
-def insert_job(conn: sqlite3.Connection, *, kind: str, argv: list[str], session_id: str, meta: dict[str, Any]) -> str:
-    jid = uuid.uuid4().hex
+def insert_job(
+    conn: sqlite3.Connection,
+    *,
+    kind: str,
+    argv: list[str],
+    session_id: str,
+    meta: dict[str, Any],
+    job_id: str | None = None,
+) -> str:
+    jid = str(job_id or "").strip() or uuid.uuid4().hex
     now = time.time()
     with _lock:
         conn.execute(
@@ -340,6 +371,12 @@ def merge_worker_progress(conn: sqlite3.Connection, jid: str, body: dict[str, An
             pass
     if body.get("phase_label") is not None:
         cur["phase_label"] = str(body["phase_label"])[:200]
+    if body.get("phase") is not None:
+        cur["phase"] = str(body["phase"])[:120]
+    if body.get("status") is not None:
+        cur["status"] = str(body["status"])[:80]
+    if isinstance(body.get("phases"), list):
+        cur["phases"] = body["phases"][:50]
     if body.get("message") is not None:
         cur["message"] = str(body["message"])[:8000]
     cur["updated"] = time.time()
@@ -433,6 +470,31 @@ def count_jobs(conn: sqlite3.Connection) -> int:
     if row is None:
         return 0
     return int(row["n"] or 0)
+
+
+def find_active_rollout_job(conn: sqlite3.Connection, service_id: str) -> str | None:
+    """Return job id for queued/running infra rollout on ``service_id``, if any."""
+    sid = str(service_id or "").strip()
+    if not sid:
+        return None
+    cur = conn.execute(
+        """
+        SELECT id, meta_json FROM jobs
+        WHERE status IN ('queued', 'running')
+        ORDER BY updated DESC
+        LIMIT 200
+        """
+    )
+    for row in cur.fetchall():
+        try:
+            meta = json.loads(row["meta_json"] or "{}")
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(meta, dict):
+            continue
+        if str(meta.get("rollout_service_id") or "") == sid:
+            return str(row["id"] or "")
+    return None
 
 
 def list_jobs_summary(conn: sqlite3.Connection, *, limit: int = 10, offset: int = 0) -> list[dict[str, Any]]:
@@ -1060,3 +1122,53 @@ def update_step(
 
 def cancel_migration(conn: sqlite3.Connection, migration_id: str) -> bool:
     return update_migration(conn, migration_id, status="cancelled")
+
+
+def insert_environment_version(
+    conn: sqlite3.Connection,
+    *,
+    environment_id: str,
+    image_digest: str = "",
+    schema_head: str = "",
+    git_ref: str = "",
+    job_id: str = "",
+    backup_job_id: str = "",
+    status: str = "active",
+) -> str:
+    vid = uuid.uuid4().hex
+    now = time.time()
+    env_id = str(environment_id or "").strip()
+    with _lock:
+        conn.execute(
+            "UPDATE environment_versions SET status = 'superseded' WHERE environment_id = ? AND status = 'active'",
+            (env_id,),
+        )
+        conn.execute(
+            """
+            INSERT INTO environment_versions
+                (id, environment_id, created_at, image_digest, schema_head, git_ref, job_id, backup_job_id, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (vid, env_id, now, image_digest, schema_head, git_ref, job_id, backup_job_id, status),
+        )
+        conn.commit()
+    return vid
+
+
+def list_environment_versions(conn: sqlite3.Connection, environment_id: str) -> list[dict[str, Any]]:
+    cur = conn.execute(
+        """
+        SELECT * FROM environment_versions
+        WHERE environment_id = ?
+        ORDER BY created_at DESC
+        LIMIT 100
+        """,
+        (str(environment_id or "").strip(),),
+    )
+    return [dict(r) for r in cur.fetchall()]
+
+
+def get_environment_version(conn: sqlite3.Connection, version_id: str) -> dict[str, Any] | None:
+    cur = conn.execute("SELECT * FROM environment_versions WHERE id = ?", (str(version_id or "").strip(),))
+    row = cur.fetchone()
+    return dict(row) if row is not None else None

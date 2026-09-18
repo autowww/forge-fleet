@@ -1,0 +1,182 @@
+{
+  "id": "market-studio-rollout",
+  "automationFlowVersion": 3,
+  "specVersion": "0.8",
+  "name": "Market Studio rollout",
+  "params": {
+    "environment": { "type": "string", "required": true },
+    "git_ref": { "type": "string" },
+    "skip_build": { "type": "boolean" },
+    "base_url": { "type": "string" },
+    "endpoints": { "type": "array" }
+  },
+  "start": "Backup",
+  "states": [
+    {
+      "name": "Backup",
+      "type": "operation",
+      "actions": [
+        {
+          "functionRef": {
+            "refName": "forgeLcdlRun",
+            "arguments": {
+              "task_id": "infra_pg_dump",
+              "version": "v1",
+              "input": {
+                "environment": "${ .inputs.environment }",
+                "label": "pre-rollout"
+              }
+            }
+          }
+        },
+        {
+          "functionRef": {
+            "refName": "forgeLcdlRun",
+            "arguments": {
+              "task_id": "infra_emit_progress",
+              "version": "v1",
+              "input": {
+                "phase": "backup",
+                "status": "succeeded"
+              }
+            }
+          }
+        }
+      ],
+      "transition": "MigratePlan"
+    },
+    {
+      "name": "MigratePlan",
+      "type": "operation",
+      "actions": [
+        {
+          "functionRef": {
+            "refName": "forgeLcdlRun",
+            "arguments": {
+              "task_id": "infra_migrate_plan",
+              "version": "v1",
+              "input": {
+                "environment": "${ .inputs.environment }"
+              }
+            }
+          }
+        }
+      ],
+      "transition": "ConfirmDestructive"
+    },
+    {
+      "name": "ConfirmDestructive",
+      "type": "operation",
+      "actions": [
+        {
+          "functionRef": {
+            "refName": "forgeLcdlRun",
+            "arguments": {
+              "task_id": "infra_confirm_gate",
+              "version": "v1",
+              "input": {
+                "type": "confirm_destructive",
+                "action": "${ .last_output.destructive_summary }",
+                "severity": "destructive",
+                "timeout_s": 900
+              }
+            }
+          }
+        }
+      ],
+      "transition": "Migrate"
+    },
+    {
+      "name": "Migrate",
+      "type": "operation",
+      "actions": [
+        {
+          "functionRef": {
+            "refName": "forgeLcdlRun",
+            "arguments": {
+              "task_id": "infra_migrate_run",
+              "version": "v1",
+              "input": {
+                "environment": "${ .inputs.environment }"
+              }
+            }
+          }
+        },
+        {
+          "functionRef": {
+            "refName": "forgeLcdlRun",
+            "arguments": {
+              "task_id": "infra_emit_progress",
+              "version": "v1",
+              "input": {
+                "phase": "migrate",
+                "status": "succeeded"
+              }
+            }
+          }
+        }
+      ],
+      "transition": "Deploy"
+    },
+    {
+      "name": "Deploy",
+      "type": "operation",
+      "actions": [
+        {
+          "functionRef": {
+            "refName": "forgeLcdlRun",
+            "arguments": {
+              "task_id": "infra_compose_deploy",
+              "version": "v1",
+              "input": {
+                "environment": "${ .inputs.environment }"
+              }
+            }
+          }
+        }
+      ],
+      "transition": "Smoke"
+    },
+    {
+      "name": "Smoke",
+      "type": "operation",
+      "actions": [
+        {
+          "functionRef": {
+            "refName": "forgeLcdlRun",
+            "arguments": {
+              "task_id": "infra_smoke_test",
+              "version": "v1",
+              "input": {
+                "base_url": "${ .inputs.base_url }",
+                "endpoints": "${ .inputs.endpoints }"
+              }
+            }
+          }
+        }
+      ],
+      "transition": "Audit"
+    },
+    {
+      "name": "Audit",
+      "type": "operation",
+      "actions": [
+        {
+          "functionRef": {
+            "refName": "forgeLcdlRun",
+            "arguments": {
+              "task_id": "infra_audit",
+              "version": "v1",
+              "input": {
+                "environment": "${ .inputs.environment }",
+                "base_url": "${ .inputs.base_url }",
+                "endpoints": "${ .inputs.endpoints }"
+              }
+            }
+          }
+        }
+      ],
+      "end": true
+    }
+  ]
+}

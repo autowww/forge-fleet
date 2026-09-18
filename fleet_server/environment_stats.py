@@ -139,6 +139,7 @@ def environment_telemetry_row(data_dir: Path, record: dict[str, Any]) -> dict[st
     rid = str(record.get("id") or "")
     state = str(record.get("state") or "unknown")
     st = _record_compose_status(record)
+    services = st.get("services") if isinstance(st.get("services"), list) else []
     root = Path(str(record.get("compose_root") or ""))
     rel = list(record.get("compose_files") or [])
     rows, _err = mcs.compose_ps(root, mcs.resolve_compose_files(root, rel)) if root.is_dir() else ([], None)
@@ -159,8 +160,13 @@ def environment_telemetry_row(data_dir: Path, record: dict[str, Any]) -> dict[st
         "state": state,
         "containers_total": int(st.get("services_total") or 0),
         "containers_running": int(st.get("services_running") or 0),
+        "services": services,
+        "compose_ok": bool(st.get("ps_ok")),
+        "compose_error": st.get("last_error"),
         "ports": dict(record.get("ports") or {}),
         "gateway_slug": record.get("gateway_slug"),
+        "template_id": record.get("template_id"),
+        "label": record.get("label"),
         "postgres": postgres_stats,
     }
     return row

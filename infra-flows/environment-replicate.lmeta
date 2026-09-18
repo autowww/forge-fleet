@@ -1,0 +1,55 @@
+{
+  "id": "environment-replicate",
+  "automationFlowVersion": 3,
+  "specVersion": "0.8",
+  "name": "Environment replicate",
+  "params": {
+    "source_environment": { "type": "string", "required": true },
+    "target_environment": { "type": "string", "required": true }
+  },
+  "start": "Confirm",
+  "states": [
+    {
+      "name": "Confirm",
+      "type": "operation",
+      "actions": [
+        {
+          "functionRef": {
+            "refName": "forgeLcdlRun",
+            "arguments": {
+              "task_id": "infra_confirm_gate",
+              "version": "v1",
+              "input": {
+                "type": "confirm_destructive",
+                "action": "replicate ${ .inputs.source_environment } -> ${ .inputs.target_environment }",
+                "severity": "destructive",
+                "timeout_s": 900
+              }
+            }
+          }
+        }
+      ],
+      "transition": "EmitProgress"
+    },
+    {
+      "name": "EmitProgress",
+      "type": "operation",
+      "actions": [
+        {
+          "functionRef": {
+            "refName": "forgeConsumerHook",
+            "arguments": {
+              "hook": "progress_report",
+              "payload": {
+                "phase": "replicate",
+                "status": "delegated",
+                "detail": "Use Fleet POST /v1/environments/{id}/replicate after operator approval"
+              }
+            }
+          }
+        }
+      ],
+      "end": true
+    }
+  ]
+}

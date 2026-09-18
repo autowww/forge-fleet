@@ -276,7 +276,12 @@ def get_environment(data_dir: Path, record_id: str) -> dict[str, Any]:
     rec = read_record(data_dir, record_id)
     if not rec:
         return {"ok": False, "error": "not_found", "id": record_id}
-    return {"ok": True, "environment": public_record(data_dir, rec)}
+    env = public_record(data_dir, rec)
+    try:
+        env["compose_status"] = mcs.status_for_record(rec)
+    except (ValueError, FileNotFoundError, OSError, TypeError) as ex:
+        env["compose_status"] = {"ok": False, "last_error": str(ex)[:400], "services": []}
+    return {"ok": True, "environment": env}
 
 
 def list_environments(data_dir: Path, *, app_id: str | None = None, repo_root: Path | None = None) -> dict[str, Any]:

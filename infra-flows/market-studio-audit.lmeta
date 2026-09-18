@@ -1,0 +1,35 @@
+{
+  "id": "market-studio-audit",
+  "automationFlowVersion": 3,
+  "specVersion": "0.8",
+  "name": "Market Studio audit",
+  "params": {
+    "environment": { "type": "string", "required": true },
+    "base_url": { "type": "string" },
+    "endpoints": { "type": "array" }
+  },
+  "start": "Audit",
+  "states": [
+    {
+      "name": "Audit",
+      "type": "operation",
+      "actions": [
+        {
+          "functionRef": {
+            "refName": "forgeLcdlRun",
+            "arguments": {
+              "task_id": "infra_audit",
+              "version": "v1",
+              "input": {
+                "environment": "${ .inputs.environment }",
+                "base_url": "${ .inputs.base_url }",
+                "endpoints": "${ .inputs.endpoints }"
+              }
+            }
+          }
+        }
+      ],
+      "end": true
+    }
+  ]
+}

@@ -25,6 +25,15 @@ def test_admin_no_fleet_app_tab_quote_regression() -> None:
     assert "REMOTE_GIT_POLL_MS" in html
 
 
+def test_admin_remote_scope_ui() -> None:
+    html = ADMIN.read_text(encoding="utf-8")
+    assert 'id="fleet-scope-select"' in html
+    assert 'id="fleet-remote-peers-offcanvas"' in html
+    assert "fleetScopedFetch" in html
+    assert "fleet-tab-remote" not in html
+    assert "loadRemoteDashboard" not in html
+
+
 def test_smoke_script_exists() -> None:
     smoke = Path(__file__).resolve().parents[1] / "scripts" / "smoke-admin-ui.mjs"
     assert smoke.is_file()

@@ -8,6 +8,7 @@ Hard rule for **ff-granite-hosting-pdca**: Granite SSH is **only** for upgrading
 |--------|--------------|
 | Upgrade Fleet code | `POST /v1/admin/git-self-update` (preferred) or SSH **only** to run documented Fleet install/update (`git pull`, `./update-user.sh` / `install-update.sh`) when API returns `system_install_requires_root` |
 | Deploy Market Studio stack | `POST /v1/container-services`, `POST …/start`, `POST /v1/admin/forge-market-studio-rollout` |
+| Bootstrap pattern cell rollups (Postgres) | `POST /v1/admin/forge-market-pattern-rollups-backfill` after m043 migrate (or scope jobs via Market Studio API) |
 | Transfer Market data | `PUT /v1/migrations/{id}/data-bundle` + migration jobs |
 | Build app image on Granite | Fleet job (`docker build`) or `POST /v1/container-templates/build` + image pull |
 | Register HTTPS route | Fleet migration step `register_edge_route` (app gateway on the existing Fleet API hostname; no new Cloudflare tunnel) |

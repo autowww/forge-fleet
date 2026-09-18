@@ -17,6 +17,21 @@ def test_rollout_script_path(tmp_path: Path) -> None:
     assert fmsr._rollout_script(tmp_path) == script
 
 
+def test_schedule_rollout_conflict_when_slot_held(tmp_path: Path, monkeypatch) -> None:
+    from fleet_server import rollout_slot
+
+    slots = tmp_path / "slots"
+    monkeypatch.setattr(rollout_slot, "SLOTS_DIR", slots)
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    script = scripts / "rollout-forge-market-studio.sh"
+    script.write_text("#!/bin/bash\nexit 0\n", encoding="utf-8")
+    rollout_slot.try_acquire("market-studio", "busy", environment="prod", holder_kind="legacy")
+    out = fmsr.schedule_rollout(tmp_path, overrides={"forge_market_env": "prod"})
+    assert out["ok"] is False
+    assert out["error"] == "rollout_in_progress"
+
+
 def test_schedule_rollout_starts_thread(tmp_path: Path) -> None:
     scripts = tmp_path / "scripts"
     scripts.mkdir()

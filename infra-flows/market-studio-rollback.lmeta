@@ -1,0 +1,76 @@
+{
+  "id": "market-studio-rollback",
+  "automationFlowVersion": 3,
+  "specVersion": "0.8",
+  "name": "Market Studio rollback",
+  "params": {
+    "environment": { "type": "string", "required": true },
+    "target_version": { "type": "string" },
+    "tier": { "type": "string" }
+  },
+  "start": "ConfirmRollback",
+  "states": [
+    {
+      "name": "ConfirmRollback",
+      "type": "operation",
+      "actions": [
+        {
+          "functionRef": {
+            "refName": "forgeLcdlRun",
+            "arguments": {
+              "task_id": "infra_confirm_gate",
+              "version": "v1",
+              "input": {
+                "type": "rollback_prompt",
+                "action": "rollback to ${ .inputs.target_version }",
+                "severity": "rollback",
+                "options": ["rollback", "abort"],
+                "timeout_s": 600
+              }
+            }
+          }
+        }
+      ],
+      "transition": "Restart"
+    },
+    {
+      "name": "Restart",
+      "type": "operation",
+      "actions": [
+        {
+          "functionRef": {
+            "refName": "forgeLcdlRun",
+            "arguments": {
+              "task_id": "infra_compose_restart",
+              "version": "v1",
+              "input": {
+                "environment": "${ .inputs.environment }",
+                "service": "market-app"
+              }
+            }
+          }
+        }
+      ],
+      "transition": "Audit"
+    },
+    {
+      "name": "Audit",
+      "type": "operation",
+      "actions": [
+        {
+          "functionRef": {
+            "refName": "forgeLcdlRun",
+            "arguments": {
+              "task_id": "infra_audit",
+              "version": "v1",
+              "input": {
+                "environment": "${ .inputs.environment }"
+              }
+            }
+          }
+        }
+      ],
+      "end": true
+    }
+  ]
+}

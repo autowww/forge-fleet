@@ -37,6 +37,18 @@ Feature docs (details beyond this table): [CONTAINER-TEMPLATES.md](../build-201/
 | PUT | `/v1/migrations/{id}/data-bundle` | bearer | Upload gzip tarball (or chunked session — see migration API). |
 | POST | `/v1/migrations/{id}/steps/{step_id}/run` | bearer | Run one step; `register_edge_route` completes in-process as an app gateway. |
 | POST | `/v1/migrations/{id}/cancel` | bearer | Cancel pending steps and linked jobs. |
+| GET | `/v1/host/processes` | bearer | Top host processes (`limit`, `sort=cpu|mem|pid`); Linux `/proc` sampler. |
+| GET | `/v1/remote-peers` | bearer | List configured remote Fleet peers (no secrets). |
+| PUT | `/v1/remote-peers/{id}` | bearer | Create/update peer (`label`, `base_url`, `bearer_token`). |
+| DELETE | `/v1/remote-peers/{id}` | bearer | Remove peer from `etc/remote-peers.json`. |
+| POST | `/v1/remote-peers/{id}/probe` | bearer | `GET {peer}/v1/health` smoke test. |
+| GET | `/v1/remote-peers/{id}/snapshot` | bearer | Proxy to peer `GET /v1/admin/snapshot`. |
+| GET | `/v1/remote-peers/{id}/processes` | bearer | Proxy to peer `GET /v1/host/processes`. |
+| GET | `/v1/remote-peers/{id}/telemetry` | bearer | Proxy to peer `GET /v1/telemetry`. |
+| GET | `/v1/remote-peers/{id}/jobs/{jobId}` | bearer | Proxy to peer `GET /v1/jobs/{jobId}` (read-only job details). |
+| GET | `/v1/remote-peers/{id}/container-types` | bearer | Proxy to peer `GET /v1/container-types`. |
+| GET | `/v1/remote-peers/{id}/container-templates` | bearer | Proxy to peer `GET /v1/container-templates`. |
+| GET | `/v1/remote-peers/{id}/fleet-apps/{appId}/about` | bearer | Proxy to peer `GET /v1/fleet-apps/{appId}/about`. |
 | GET | `/v1/admin/snapshot` | bearer | Jobs, integrations, host, **`jobs_recent`** paging (`jobs_limit`, `jobs_offset`), thermal advisory, self-update meta. |
 | GET | `/v1/environments/telemetry` | bearer | Per-environment Postgres **`docker stats`** rows for ready envs (same shape as **`meta.integrations.environment_telemetry`** in snapshot). |
 | GET | `/v1/cooldown-summary` | bearer | Query **`period=`** required (same values as **`/v1/telemetry`**). |

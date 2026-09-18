@@ -1,0 +1,33 @@
+{
+  "id": "market-studio-backup",
+  "automationFlowVersion": 3,
+  "specVersion": "0.8",
+  "name": "Market Studio backup",
+  "params": {
+    "environment": { "type": "string", "required": true },
+    "label": { "type": "string" }
+  },
+  "start": "Backup",
+  "states": [
+    {
+      "name": "Backup",
+      "type": "operation",
+      "actions": [
+        {
+          "functionRef": {
+            "refName": "forgeLcdlRun",
+            "arguments": {
+              "task_id": "infra_pg_dump",
+              "version": "v1",
+              "input": {
+                "environment": "${ .inputs.environment }",
+                "label": "${ .inputs.label }"
+              }
+            }
+          }
+        }
+      ],
+      "end": true
+    }
+  ]
+}

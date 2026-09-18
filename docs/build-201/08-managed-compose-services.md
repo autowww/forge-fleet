@@ -60,7 +60,10 @@ Each ``etc/services/<id>.json`` file:
 | Stack | Admin route | Host script |
 |-------|-------------|-------------|
 | Forge LLM gateway | ``POST /v1/admin/forge-llm-control-plane-rollout`` | ``scripts/rollout-forge-llm-control-plane.sh`` |
-| Market Studio | ``POST /v1/admin/forge-market-studio-rollout`` | ``scripts/rollout-forge-market-studio.sh`` |
+| Market Studio | ``POST /v1/admin/forge-market-studio-rollout`` (409 when same env busy) | ``scripts/rollout-forge-market-studio.sh`` |
+| Pattern cell rollups backfill | ``POST /v1/admin/forge-market-pattern-rollups-backfill`` (409 when same env busy) | ``scripts/backfill-forge-market-pattern-rollups.sh`` |
+
+Infra flows via ``POST /v1/flows/submit`` (e.g. ``market-studio-rollout``) use the same per-``service_id`` slot; parallel rollouts across **different** envs (prod vs dev) are allowed.
 
 Body ``{"sync": true}`` runs synchronously; default schedules background rollout and returns ``log_path``.
 
