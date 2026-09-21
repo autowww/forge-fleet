@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# land-fleet — operator CLI for mesh join and user-unit setup (forge-fleet-user package).
+set -euo pipefail
+
+FLEET_LIB="${FLEET_LIB:-/usr/lib/forge-fleet}"
+FLEET_USER_PORT="${FLEET_USER_PORT:-18766}"
+FLEET_USER_DATA="${FLEET_USER_DATA:-${HOME}/.local/state/forge-fleet}"
+ENV_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/forge-fleet"
+UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  land-fleet setup-user          Install user systemd unit (after apt install forge-fleet-user)
+  land-fleet join --coordinator URL --enroll-token TOKEN [--label NAME]
+                                 Register Granite coordinator as remote peer (manual Phase 1)
+  land-fleet health              curl local Fleet /v1/health
+
+Environment:
+  FLEET_BEARER_TOKEN             Bearer for local Fleet API (or set in forge-fleet.env)
+EOF
+}
+
+die() { echo "land-fleet: $*" >&2; exit 1; }
+
+setup_user() {
+  command -v systemctl >/dev/null || die "systemctl required"
+  [[ -d "$FLEET_LIB/fleet_server" ]] || die "missing $FLEET_LIB/fleet_server (is forge-fleet-user installed?)"
+
+  mkdir -p "$ENV_DIR" "$UNIT_DIR" "$FLEET_USER_DATA"
+  if [[ ! -f "$ENV_DIR/forge-fleet.env" ]] && [[ -f "$FLEET_LIB/systemd/environment.example" ]]; then
+    install -m0600 "$FLEET_LIB/systemd/environment.example" "$ENV_DIR/forge-fleet.env"
+    echo "land-fleet: created $ENV_DIR/forge-fleet.env"
+  fi
+
+  PY="${FLEET_PYTHON:-/usr/bin/python3}"
+  cat >"$UNIT_DIR/forge-fleet.service" <<EOF
+[Unit]
+Description=Forge Fleet (user) — Docker argv HTTP orchestrator
+After=network-online.target docker.service
+Wants=network-online.target docker.service
+
+[Service]
+Type=simple
+SyslogIdentifier=forge-fleet-user
+Environment=PYTHONUNBUFFERED=1
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+WorkingDirectory=$FLEET_LIB
+EnvironmentFile=-$ENV_DIR/forge-fleet.env
+ExecStart=$PY -m fleet_server --host 127.0.0.1 --port $FLEET_USER_PORT --data-dir $FLEET_USER_DATA
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+EOF
+
+  systemctl --user daemon-reload
+  systemctl --user enable --now forge-fleet.service
+  echo "land-fleet: enabled forge-fleet.service (user) on 127.0.0.1:$FLEET_USER_PORT"
+  echo "land-fleet: for headless boot run once: loginctl enable-linger \$USER"
+}
+
+join_mesh() {
+  local coordinator="" token="" label=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --coordinator) coordinator="${2:-}"; shift 2 ;;
+      --enroll-token) token="${2:-}"; shift 2 ;;
+      --label) label="${2:-}"; shift 2 ;;
+      *) die "unknown option: $1" ;;
+    esac
+  done
+  [[ -n "$coordinator" ]] || die "--coordinator required"
+  [[ -n "$token" ]] || die "--enroll-token required"
+  label="${label:-granite}"
+
+  local base="${FLEET_BASE_URL:-http://127.0.0.1:${FLEET_USER_PORT}}"
+  local auth=()
+  if [[ -n "${FLEET_BEARER_TOKEN:-}" ]]; then
+    auth=(-H "Authorization: Bearer ${FLEET_BEARER_TOKEN}")
+  fi
+
+  local body
+  body=$(python3 - <<PY
+import json
+print(json.dumps({
+    "label": "${label}",
+    "base_url": "${coordinator}".rstrip("/"),
+    "bearer_token": "${token}",
+}))
+PY
+)
+
+  curl -fsS -X PUT "${base}/v1/remote-peers/${label}" \
+    "${auth[@]}" \
+    -H "Content-Type: application/json" \
+    -d "$body"
+  echo ""
+  curl -fsS "${base}/v1/remote-peers/${label}/probe" "${auth[@]}"
+  echo ""
+}
+
+health() {
+  local base="${FLEET_BASE_URL:-http://127.0.0.1:${FLEET_USER_PORT}}"
+  curl -fsS "${base}/v1/health"
+  echo ""
+}
+
+cmd="${1:-}"
+shift || true
+case "$cmd" in
+  setup-user) setup_user ;;
+  join) join_mesh "$@" ;;
+  health) health ;;
+  -h|--help|help|"") usage ;;
+  *) die "unknown command: $cmd (try --help)" ;;
+esac

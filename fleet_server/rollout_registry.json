@@ -74,7 +74,10 @@
         "run_schema_migrate": "FORGE_MARKET_RUN_SCHEMA_MIGRATE",
         "skip_backup": "FORGE_MARKET_SKIP_BACKUP",
         "forge_market_skip_git_sync": "FORGE_MARKET_SKIP_GIT_SYNC",
-        "confirm_dictionary_drops": "FORGE_MARKET_CONFIRM_DICTIONARY_DROPS"
+        "confirm_attr_v3_drop": "FORGE_MARKET_CONFIRM_ATTR_V3_DROP",
+        "forge_market_confirm_attr_v3_drop": "FORGE_MARKET_CONFIRM_ATTR_V3_DROP",
+        "confirm_dictionary_drops": "FORGE_MARKET_CONFIRM_DICTIONARY_DROPS",
+        "forge_market_confirm_dictionary_drops": "FORGE_MARKET_CONFIRM_DICTIONARY_DROPS"
       },
       "confirm_gates": {
         "confirm_dictionary_drops": {

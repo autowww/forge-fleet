@@ -2,8 +2,8 @@
 # Dev gate (5a-bis): bounded market bar ingest smoke on market-studio-dev.
 set -euo pipefail
 
-PORT="${FORGE_MARKET_DEV_PORT:-19793}"
-BASE="http://127.0.0.1:${PORT}"
+# Thin-client studio on the operator machine (FORGE_MARKET_REMOTE_API → market-studio-dev).
+BASE="${FORGE_MARKET_DEV_GATE_URL:-http://127.0.0.1:${FORGE_MARKET_DEV_PORT:-9795}}"
 
 echo "POST mock harvest on dev studio (laptop-edge; bars upload to Granite after fetch)"
 job="$(curl -fsS -X POST "${BASE}/api/prices/sync" \
