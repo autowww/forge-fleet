@@ -1,4 +1,4 @@
-# One hostname for Fleet + Ollama (e.g. granite.forgedc.net)
+# One hostname for Fleet + Ollama (public edge)
 
 If a single public URL (HTTPS) must serve **both**:
 
@@ -7,14 +7,23 @@ If a single public URL (HTTPS) must serve **both**:
 
 then **every path must be routed by URL**, not by sending all traffic to Ollama alone.
 
+Use placeholders in runbooks — store live values in env or secrets files only:
+
+| Placeholder | Typical env |
+|-------------|-------------|
+| `<FLEET_PUBLIC_BASE_URL>` | `FORGE_FLEET_BASE_URL` |
+| `<FLEET_PUBLIC_HOSTNAME>` | `CADDY_SITE_ADDRESS` (hostname only) |
+| `<FLEET_BEARER_TOKEN>` | `FLEET_BEARER_TOKEN` / `FORGE_FLEET_BEARER_TOKEN` |
+| `<LLM_BEARER_TOKEN>` | `LLM_BEARER_TOKEN` |
+
 ## Symptom when misconfigured
 
-- `curl -sS -o /dev/null -w '%{http_code}\n' -H 'Authorization: Bearer <LLM_TOKEN>' https://example/v1/models` → **200**
-- `curl -sS -o /dev/null -w '%{http_code}\n' -H 'Authorization: Bearer <FLEET_TOKEN>' https://example/v1/health` → **401** with body `Unauthorized`
+- `curl -sS -o /dev/null -w '%{http_code}\n' -H 'Authorization: Bearer <LLM_BEARER_TOKEN>' https://<FLEET_PUBLIC_HOSTNAME>/v1/models` → **200**
+- `curl -sS -o /dev/null -w '%{http_code}\n' -H 'Authorization: Bearer <FLEET_BEARER_TOKEN>' https://<FLEET_PUBLIC_HOSTNAME>/v1/health` → **401** with body `Unauthorized`
 
 That pattern usually means **`/v1/health` is still hitting Ollama** (or another service that enforces the LLM gate only). Ollama does not implement Fleet’s health JSON; it rejects unknown bearer tokens on many paths.
 
-**Fingerprint (unified installer LLM gate):** if `curl -sSI -H 'Authorization: Bearer <fleet>' https://example/v1/health` shows `content-type: text/plain` and body length **12** (`Unauthorized`), the request reached the **Ollama `handle` with `LLM_BEARER_TOKEN` checks**, not Forge Fleet (Fleet API 401s are **`application/json`** with `{"ok":false,"error":"unauthorized"}`). Fix routing on the **origin** behind Cloudflare, not the token string in certificator alone.
+**Fingerprint (unified installer LLM gate):** if `curl -sSI -H 'Authorization: Bearer <FLEET_BEARER_TOKEN>' https://<FLEET_PUBLIC_HOSTNAME>/v1/health` shows `content-type: text/plain` and body length **12** (`Unauthorized`), the request reached the **Ollama `handle` with `LLM_BEARER_TOKEN` checks**, not Forge Fleet (Fleet API 401s are **`application/json`** with `{"ok":false,"error":"unauthorized"}`). Fix routing on the **origin** behind Cloudflare, not the token string in certificator alone.
 
 Cross-check: same host with the **LLM** bearer on `/v1/health` often returns **404** from Ollama; with the **Fleet** bearer, **401** `Unauthorized` plain text — same mis-route.
 
@@ -25,8 +34,8 @@ Cross-check: same host with the **LLM** bearer on `/v1/health` often returns **4
    ```bash
    cd /path/to/forge-fleet
    LAYOUT=user \
-   FLEET_BEARER_TOKEN='…same as fleet FLEET_BEARER_TOKEN…' \
-   LLM_BEARER_TOKEN='…DellPrecisionLLM or other LLM edge secret…' \
+   FLEET_BEARER_TOKEN='<FLEET_BEARER_TOKEN>' \
+   LLM_BEARER_TOKEN='<LLM_BEARER_TOKEN>' \
    bash ./scripts/install-caddy-fleet-ollama-unified.sh --non-interactive
    ```
 
@@ -35,24 +44,24 @@ Cross-check: same host with the **LLM** bearer on `/v1/health` often returns **4
    **Non-interactive** (env vars are applied exactly; no prompts):
 
    ```bash
-   CADDY_SITE_ADDRESS=granite.forgedc.net \
+   CADDY_SITE_ADDRESS=<FLEET_PUBLIC_HOSTNAME> \
    LAYOUT=user \
-   FLEET_BEARER_TOKEN='…' \
-   LLM_BEARER_TOKEN='…' \
+   FLEET_BEARER_TOKEN='<FLEET_BEARER_TOKEN>' \
+   LLM_BEARER_TOKEN='<LLM_BEARER_TOKEN>' \
    bash ./scripts/install-caddy-fleet-ollama-unified.sh --non-interactive
    ```
 
-   **Interactive:** after the port questions, answer the **“CADDY_SITE_ADDRESS (TLS hostname, or empty):”** prompt with `granite.forgedc.net`, or rely on a line already saved in **`~/.config/forge-fleet/forge-fleet.env`** (`CADDY_SITE_ADDRESS=…`). Passing `CADDY_SITE_ADDRESS=…` on the command line without `--non-interactive` also works if the value is still set when the prompt runs (defaults are pre-filled).
+   **Interactive:** after the port questions, answer the **“CADDY_SITE_ADDRESS (TLS hostname, or empty):”** prompt with `<FLEET_PUBLIC_HOSTNAME>`, or rely on a line already saved in **`~/.config/forge-fleet/forge-fleet.env`** (`CADDY_SITE_ADDRESS=…`). Passing `CADDY_SITE_ADDRESS=…` on the command line without `--non-interactive` also works if the value is still set when the prompt runs (defaults are pre-filled).
 
    For HTTPS on a non-standard port:
 
    ```bash
-   CADDY_SITE_ADDRESS='granite.forgedc.net:8443'
+   CADDY_SITE_ADDRESS='<FLEET_PUBLIC_HOSTNAME>:8443'
    ```
 
 3. If the public site is served by **stock** `caddy.service` and a different file (e.g. `/etc/caddy/Caddyfile`), **merge** the same routing into that file, or replace it with the output of this installer. A config that only `reverse_proxy`s to `127.0.0.1:11434` will never satisfy Fleet health checks.
 
-4. **Cloudflare Tunnel** to a local port (for example `http://127.0.0.1:18767`) only forwards bytes; **unified Caddy on that port** must still route `/v1/health` to Fleet before the LLM bearer gate. After changing the Caddyfile, run **`systemctl --user restart forge-fleet-caddy.service`**.
+4. **Cloudflare Tunnel** to a local port (for example `http://127.0.0.1:18767`) only forwards bytes; **unified Caddy on that port** must still route `/v1/health` to Fleet before the LLM bearer gate. After changing the Caddyfile, run **`systemctl --user restart forge-fleet-caddy.service`** (user layout) or restart the system Caddy unit. Point the tunnel **Public Hostname** at that loopback URL in the Cloudflare Zero Trust dashboard — Fleet does not create tunnels via API.
 
 5. **Bearer alignment:** the token inlined in the Caddyfile for Fleet `header_up Authorization` must match **`FLEET_BEARER_TOKEN`** on the **forge-fleet** process (`~/.config/forge-fleet/forge-fleet.env` or your unit). If they differ, `/v1/health` can return **401** with **`application/json`** from Fleet (certificator still reports it as a Fleet bearer problem).
 
@@ -66,26 +75,26 @@ Cross-check: same host with the **LLM** bearer on `/v1/health` often returns **4
 
 Disable admin hardening: `FLEET_CADDY_ADMIN_LOOPBACK_ONLY=0` and/or `FLEET_CADDY_ADMIN_API_CLIENT_BEARER=0` before re-running the unified installer.
 
-## Admin lock verification (public Granite)
+## Admin lock verification (public host)
 
 ```bash
-BASE=https://granite.forgedc.net
+BASE=<FLEET_PUBLIC_BASE_URL>
 curl -sS -o /dev/null -w 'admin HTML=%{http_code}\n' "$BASE/admin/"
 curl -sS -o /dev/null -w 'admin snapshot no auth=%{http_code}\n' "$BASE/v1/admin/snapshot"
 curl -sS -o /dev/null -w 'admin snapshot with bearer=%{http_code}\n' \
   -H "Authorization: Bearer $FORGE_FLEET_BEARER_TOKEN" "$BASE/v1/admin/snapshot"
 ```
 
-Expect **403** / **401** / **200** respectively after redeploy. View Granite from a laptop via local Fleet **`/admin/` → Remote** tab (`PUT /v1/remote-peers/granite` with base URL + bearer).
+Expect **403** / **401** / **200** respectively after deploy. View the remote host from a laptop via local Fleet **`/admin/` → Connect…** or **Remote scope** (`PUT /v1/remote-peers/<id>` with base URL + bearer).
 
 ## Quick verification (after deploy)
 
 Replace `BASE`, tokens, and paths to match your host.
 
 ```bash
-BASE=https://granite.forgedc.net
-curl -sS -o /dev/null -w 'LLM models=%{http_code}\n' -H "Authorization: Bearer DellPrecisionLLM" "$BASE/v1/models"
-curl -sS -o /dev/null -w 'Fleet health=%{http_code}\n' -H "Authorization: Bearer DellPrecisionFleet" "$BASE/v1/health"
+BASE=<FLEET_PUBLIC_BASE_URL>
+curl -sS -o /dev/null -w 'LLM models=%{http_code}\n' -H "Authorization: Bearer <LLM_BEARER_TOKEN>" "$BASE/v1/models"
+curl -sS -o /dev/null -w 'Fleet health=%{http_code}\n' -H "Authorization: Bearer <FLEET_BEARER_TOKEN>" "$BASE/v1/health"
 ```
 
 Expected when Caddy injects Fleet bearer upstream: Fleet health may return **200** even if the client sends no `Authorization` header, depending on your Fleet settings; if you require a client bearer at the edge, keep `FORGE_FLEET_BEARER_TOKEN` in certificators aligned with **`FLEET_BEARER_TOKEN`** on the Fleet host.
@@ -95,3 +104,4 @@ Expected when Caddy injects Fleet bearer upstream: Fleet health may return **200
 - `03-caddy-systemd.md` — user vs system layout, linger, logs.
 - `scripts/install-caddy-fleet-ollama-unified.sh` — generator and env vars (`CADDY_SITE_ADDRESS`, `LLM_BEARER_TOKEN`, …).
 - `scripts/update-fleet-unified-caddy.sh` — `git pull` then non-interactive unified install.
+- **[Learn 101 — Connect to remote Fleet](../learn-101/08-connect-remote-fleet.md)** — laptop operator path.

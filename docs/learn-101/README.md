@@ -24,5 +24,9 @@ Follow in order unless you already know Docker + Fleet:
 5. **[Quickstarts (verify)](05-quickstarts.md)** — scripted paths + **`curl`** bundles
 6. **[Your first Fleet job](06-first-fleet-job.md)** — **`POST /v1/jobs`** lifecycle lab
 7. **[Admin dashboard & Studio](07-admin-dashboard-and-studio.md)** — **`/admin/`** tour + **`LENSES_FLEET_*`**
+8. **[Connect to remote Fleet](08-connect-remote-fleet.md)** — Cloudflare URL + bearer, **Connect…** wizard, remote admin scope
+9. **[Operator apt install](09-operator-apt-install.md)** — **`packages.forgesdlc.com`** bootstrap (no git)
 
-**Before:** **[Start here](../start/01-start-here.md)** · **After:** **[Build 201](../build-201/README.md)** · **Ops help:** **[Troubleshooting](../operate-301/04-troubleshooting.md)** · **[Security](../operate-301/01-security.md)**
+**Dual-wiki:** edit these `.md` files; rebuild the handbook with `python3 generator/build-site.py` in **forge-fleet-website**. Use placeholders (`<FLEET_PUBLIC_BASE_URL>`, `<FLEET_BEARER_TOKEN>`) — not live secrets in source.
+
+**Before:** **[Start here](../start/01-start-here.md)** · **After:** **[Build 201](../build-201/README.md)** · **Ops help:** **[Troubleshooting](../operate-301/04-troubleshooting.md)** · **Security:** **[Security](../operate-301/01-security.md)**

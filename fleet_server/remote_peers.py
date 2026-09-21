@@ -88,14 +88,17 @@ def upsert_peer(
     base = _normalize_base(base_url)
     if not base.startswith("http://") and not base.startswith("https://"):
         return {"ok": False, "error": "invalid_base_url"}
-    token = (bearer_token or "").strip()
-    if not token:
-        return {"ok": False, "error": "bearer_token_required"}
-
     import time
 
     doc = _load_doc(data_dir)
     peers: list[dict[str, Any]] = list(doc.get("peers", []))
+    existing = next((p for p in peers if str(p.get("id") or "") == pid), None)
+    token = (bearer_token or "").strip()
+    if not token:
+        if existing and str(existing.get("bearer_token") or "").strip():
+            token = str(existing.get("bearer_token") or "").strip()
+        else:
+            return {"ok": False, "error": "bearer_token_required"}
     row = {
         "id": pid,
         "label": (label or pid).strip() or pid,

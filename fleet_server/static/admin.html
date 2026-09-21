@@ -121,6 +121,16 @@
       </select>
       <button
         type="button"
+        class="btn btn-sm btn-primary"
+        id="fleet-connect-wizard-btn"
+        data-bs-toggle="offcanvas"
+        data-bs-target="#fleet-connect-wizard-offcanvas"
+        aria-controls="fleet-connect-wizard-offcanvas"
+      >
+        Connect…
+      </button>
+      <button
+        type="button"
         class="btn btn-sm btn-outline-secondary"
         id="fleet-manage-peers-btn"
         data-bs-toggle="offcanvas"
@@ -465,21 +475,22 @@
       <div class="row g-2 mb-3">
         <div class="col-12">
           <label class="form-label small mb-0" for="fleet-remote-peer-id">Peer id</label>
-          <input id="fleet-remote-peer-id" class="form-control form-control-sm fleet-mono" placeholder="granite" />
+          <input id="fleet-remote-peer-id" class="form-control form-control-sm fleet-mono" placeholder="remote-worker" />
         </div>
         <div class="col-12">
           <label class="form-label small mb-0" for="fleet-remote-peer-label">Label</label>
-          <input id="fleet-remote-peer-label" class="form-control form-control-sm" placeholder="Granite" />
+          <input id="fleet-remote-peer-label" class="form-control form-control-sm" placeholder="Remote Fleet" />
         </div>
         <div class="col-12">
           <label class="form-label small mb-0" for="fleet-remote-peer-base">Base URL</label>
-          <input id="fleet-remote-peer-base" class="form-control form-control-sm fleet-mono" placeholder="https://granite.forgedc.net" />
+          <input id="fleet-remote-peer-base" class="form-control form-control-sm fleet-mono" placeholder="https://&lt;FLEET_PUBLIC_BASE_URL&gt;" />
         </div>
         <div class="col-12">
           <label class="form-label small mb-0" for="fleet-remote-peer-bearer">Bearer token</label>
-          <input id="fleet-remote-peer-bearer" class="form-control form-control-sm fleet-mono" type="password" autocomplete="off" placeholder="FORGE_FLEET_BEARER_TOKEN" />
+          <input id="fleet-remote-peer-bearer" class="form-control form-control-sm fleet-mono" type="password" autocomplete="off" placeholder="&lt;FLEET_BEARER_TOKEN&gt;" />
         </div>
       </div>
+      <p class="small text-body-secondary mb-3">Leave bearer empty when editing to keep the stored token.</p>
       <div class="d-flex flex-wrap gap-2 mb-3">
         <button type="button" class="btn btn-sm btn-primary" id="fleet-remote-peer-save">Save peer</button>
         <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-remote-peer-test">Test health</button>
@@ -492,6 +503,95 @@
           <tbody id="fleet-remote-peers-rows"><tr><td colspan="5" class="text-body-secondary">Loading peers…</td></tr></tbody>
         </table>
       </div>
+    </div>
+  </div>
+
+  <div
+    class="offcanvas offcanvas-end"
+    tabindex="-1"
+    id="fleet-connect-wizard-offcanvas"
+    aria-labelledby="fleet-connect-wizard-label"
+    style="width: min(44rem, 100vw)"
+  >
+    <div class="offcanvas-header border-bottom border-secondary-subtle">
+      <h2 class="offcanvas-title h5 mb-0" id="fleet-connect-wizard-label">Connect to remote Fleet</h2>
+      <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+    </div>
+    <div class="offcanvas-body">
+      <p class="small text-body-secondary">
+        Register another Fleet node (often behind Cloudflare) as a read-only admin peer.
+        Credentials stay in <code class="fleet-mono">remote-peers.json</code> on this host — the browser never calls the remote URL directly.
+      </p>
+      <ul class="nav nav-pills nav-fill mb-3 small" id="fleet-connect-wizard-steps" role="tablist">
+        <li class="nav-item" role="presentation">
+          <button class="nav-link active" type="button" data-fleet-wizard-step="1">1 Local</button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" type="button" data-fleet-wizard-step="2">2 Remote</button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" type="button" data-fleet-wizard-step="3">3 Test</button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" type="button" data-fleet-wizard-step="4">4 Edge</button>
+        </li>
+      </ul>
+      <div id="fleet-connect-wizard-panel-1">
+        <p class="small mb-2">Confirm local Fleet is healthy (cockpit on this machine).</p>
+        <button type="button" class="btn btn-sm btn-outline-primary mb-2" id="fleet-connect-wizard-local-check">Check local health</button>
+        <pre class="fleet-mono small p-2 rounded border bg-body-secondary mb-0" id="fleet-connect-wizard-local-out" style="max-height: 8rem; overflow: auto">Not checked yet.</pre>
+      </div>
+      <div id="fleet-connect-wizard-panel-2" class="d-none">
+        <div class="row g-2 mb-2">
+          <div class="col-md-6">
+            <label class="form-label small mb-0" for="fleet-connect-peer-id">Peer id</label>
+            <input id="fleet-connect-peer-id" class="form-control form-control-sm fleet-mono" placeholder="remote-worker" />
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small mb-0" for="fleet-connect-peer-label">Label</label>
+            <input id="fleet-connect-peer-label" class="form-control form-control-sm" placeholder="Remote Fleet" />
+          </div>
+          <div class="col-12">
+            <label class="form-label small mb-0" for="fleet-connect-peer-base">Remote base URL</label>
+            <input id="fleet-connect-peer-base" class="form-control form-control-sm fleet-mono" placeholder="https://&lt;FLEET_PUBLIC_BASE_URL&gt;" />
+          </div>
+          <div class="col-12">
+            <label class="form-label small mb-0" for="fleet-connect-peer-bearer">Remote bearer token</label>
+            <input id="fleet-connect-peer-bearer" class="form-control form-control-sm fleet-mono" type="password" autocomplete="off" placeholder="&lt;FLEET_BEARER_TOKEN&gt;" />
+          </div>
+        </div>
+        <p class="small text-body-secondary mb-0">Use the public HTTPS URL of the remote Fleet API (Cloudflare hostname). Do not paste secrets into docs — store in env or a secrets file.</p>
+      </div>
+      <div id="fleet-connect-wizard-panel-3" class="d-none">
+        <p class="small mb-2">Save the peer on this Fleet host, then probe <code class="fleet-mono">/v1/health</code> through the local proxy.</p>
+        <div class="d-flex flex-wrap gap-2 mb-2">
+          <button type="button" class="btn btn-sm btn-primary" id="fleet-connect-wizard-save">Save peer</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-connect-wizard-probe">Probe health</button>
+          <button type="button" class="btn btn-sm btn-outline-success" id="fleet-connect-wizard-view">View remote dashboard</button>
+        </div>
+        <pre class="fleet-mono small p-2 rounded border bg-body-secondary mb-0" id="fleet-connect-wizard-probe-out" style="max-height: 10rem; overflow: auto">Run probe after save.</pre>
+      </div>
+      <div id="fleet-connect-wizard-panel-4" class="d-none">
+        <p class="small text-body-secondary">
+          <strong>Publishing</strong> a Fleet host through Cloudflare is done on the <em>server</em> (root).
+          Fleet does not create tunnels automatically — point an existing tunnel at unified Caddy, then use step 2–3 on laptops.
+        </p>
+        <div class="mb-2">
+          <label class="form-label small mb-0" for="fleet-connect-edge-host">Public hostname</label>
+          <input id="fleet-connect-edge-host" class="form-control form-control-sm fleet-mono" placeholder="&lt;FLEET_PUBLIC_HOSTNAME&gt;" />
+        </div>
+        <div class="mb-2">
+          <label class="form-label small mb-0" for="fleet-connect-edge-caddy-port">Local Caddy listen port (tunnel origin)</label>
+          <input id="fleet-connect-edge-caddy-port" class="form-control form-control-sm fleet-mono" value="18767" />
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-secondary mb-2" id="fleet-connect-edge-refresh">Refresh instructions</button>
+        <pre class="fleet-mono small p-2 rounded border bg-body-secondary mb-0" id="fleet-connect-edge-instructions" style="max-height: 22rem; overflow: auto; white-space: pre-wrap"></pre>
+        <p class="small text-body-secondary mt-2 mb-0">
+          Handbook: <code class="fleet-mono">docs/learn-101/08-connect-remote-fleet.md</code> ·
+          <code class="fleet-mono">docs/build-201/04-caddy-unified-granite.md</code>
+        </p>
+      </div>
+      <div id="fleet-connect-wizard-msg" class="small text-body-secondary mt-3" aria-live="polite"></div>
     </div>
   </div>
 
@@ -5799,6 +5899,179 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
     if (fleetScopeSelect) {
       fleetScopeSelect.addEventListener("change", function () {
         setFleetScope(fleetScopeSelect.value || "");
+      });
+    }
+
+    function fleetConnectWizardShowStep(step) {
+      var n = parseInt(String(step || "1"), 10);
+      if (!n || n < 1) n = 1;
+      if (n > 4) n = 4;
+      for (var i = 1; i <= 4; i++) {
+        var panel = document.getElementById("fleet-connect-wizard-panel-" + i);
+        if (panel) panel.classList.toggle("d-none", i !== n);
+      }
+      var pills = document.querySelectorAll("#fleet-connect-wizard-steps [data-fleet-wizard-step]");
+      pills.forEach(function (btn) {
+        var s = parseInt(btn.getAttribute("data-fleet-wizard-step") || "0", 10);
+        btn.classList.toggle("active", s === n);
+      });
+      if (n === 4) fleetConnectWizardRenderEdgeInstructions();
+    }
+
+    function fleetConnectWizardRenderEdgeInstructions() {
+      var host = ((document.getElementById("fleet-connect-edge-host") || {}).value || "").trim();
+      var port = ((document.getElementById("fleet-connect-edge-caddy-port") || {}).value || "18767").trim();
+      if (!host) host = "<FLEET_PUBLIC_HOSTNAME>";
+      var base = host.indexOf("://") >= 0 ? host : "https://" + host;
+      var lines = [
+        "# Run on the Fleet SERVER (root). Replace placeholders before executing.",
+        "",
+        "# 1) Install cloudflared (Debian/Ubuntu)",
+        "curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | sudo tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null",
+        'echo "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared $(. /etc/os-release && echo $VERSION_CODENAME) main" | sudo tee /etc/apt/sources.list.d/cloudflared.list',
+        "sudo apt-get update && sudo apt-get install -y cloudflared",
+        "",
+        "# 2) Install tunnel service (token from Cloudflare Zero Trust dashboard)",
+        "sudo cloudflared service install <CLOUDFLARE_TUNNEL_TOKEN>",
+        "sudo systemctl enable --now cloudflared",
+        "",
+        "# 3) Route public hostname to local Caddy (Zero Trust → Public Hostname → http://127.0.0.1:" + port + ")",
+        "#    Unified Caddy must route /v1/health to Fleet before Ollama (see 04-caddy-unified-granite.md).",
+        "",
+        "# 4) Install unified Caddy + Fleet edge (on server, from forge-fleet checkout):",
+        "cd /path/to/forge-fleet",
+        "CADDY_SITE_ADDRESS=" + host.replace(/^https?:\/\//, "") + " \\",
+        "LAYOUT=system \\",
+        "FLEET_BEARER_TOKEN='<FLEET_BEARER_TOKEN>' \\",
+        "LLM_BEARER_TOKEN='<LLM_BEARER_TOKEN>' \\",
+        "bash ./scripts/install-caddy-fleet-ollama-unified.sh --non-interactive",
+        "",
+        "# 5) Verify public API (from any machine):",
+        "curl -fsS -H 'Authorization: Bearer <FLEET_BEARER_TOKEN>' " + base + "/v1/health",
+        "",
+        "# 6) On this laptop: use Connect wizard step 2–3 with base URL " + base,
+      ];
+      var out = document.getElementById("fleet-connect-edge-instructions");
+      if (out) out.textContent = lines.join("\n");
+    }
+
+    document.querySelectorAll("#fleet-connect-wizard-steps [data-fleet-wizard-step]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        fleetConnectWizardShowStep(btn.getAttribute("data-fleet-wizard-step"));
+      });
+    });
+
+    var fleetConnectLocalCheck = document.getElementById("fleet-connect-wizard-local-check");
+    if (fleetConnectLocalCheck) {
+      fleetConnectLocalCheck.addEventListener("click", function () {
+        var out = document.getElementById("fleet-connect-wizard-local-out");
+        fleetApi("/v1/health")
+          .then(function (res) { return res.text().then(function (t) { return { res: res, t: t }; }); })
+          .then(function (o) {
+            if (out) out.textContent = "HTTP " + o.res.status + "\n" + o.t;
+          })
+          .catch(function (e) {
+            if (out) out.textContent = String(e);
+          });
+      });
+    }
+
+    function fleetConnectWizardPeerPayload() {
+      return {
+        id: ((document.getElementById("fleet-connect-peer-id") || {}).value || "").trim(),
+        label: ((document.getElementById("fleet-connect-peer-label") || {}).value || "").trim(),
+        base: ((document.getElementById("fleet-connect-peer-base") || {}).value || "").trim(),
+        bearer: ((document.getElementById("fleet-connect-peer-bearer") || {}).value || "").trim(),
+      };
+    }
+
+    function fleetConnectWizardSyncManageForm() {
+      var p = fleetConnectWizardPeerPayload();
+      fillRemotePeerForm({ id: p.id, label: p.label, base_url: p.base });
+      var bearerEl = document.getElementById("fleet-remote-peer-bearer");
+      if (bearerEl && p.bearer) bearerEl.value = p.bearer;
+    }
+
+    var fleetConnectSave = document.getElementById("fleet-connect-wizard-save");
+    if (fleetConnectSave) {
+      fleetConnectSave.addEventListener("click", function () {
+        var p = fleetConnectWizardPeerPayload();
+        var msg = document.getElementById("fleet-connect-wizard-msg");
+        if (!p.id || !p.base || !p.bearer) {
+          if (msg) msg.textContent = "Peer id, base URL, and bearer are required.";
+          return;
+        }
+        fleetApi("/v1/remote-peers/" + encodeURIComponent(p.id), {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ label: p.label || p.id, base_url: p.base, bearer_token: p.bearer }),
+        })
+          .then(function (res) { return res.json().then(function (j) { return { res: res, j: j }; }); })
+          .then(function (out) {
+            if (msg) msg.textContent = out.res.ok ? "Saved peer " + p.id : JSON.stringify(out.j);
+            fleetConnectWizardSyncManageForm();
+            return refreshRemotePeersTable();
+          })
+          .catch(function (e) {
+            if (msg) msg.textContent = String(e);
+          });
+      });
+    }
+
+    var fleetConnectProbe = document.getElementById("fleet-connect-wizard-probe");
+    if (fleetConnectProbe) {
+      fleetConnectProbe.addEventListener("click", function () {
+        var p = fleetConnectWizardPeerPayload();
+        var out = document.getElementById("fleet-connect-wizard-probe-out");
+        var msg = document.getElementById("fleet-connect-wizard-msg");
+        if (!p.id) {
+          if (msg) msg.textContent = "Set peer id first.";
+          return;
+        }
+        fleetApi("/v1/remote-peers/" + encodeURIComponent(p.id) + "/probe", { method: "POST" })
+          .then(function (res) { return res.json(); })
+          .then(function (j) {
+            if (out) out.textContent = JSON.stringify(j, null, 2);
+            if (msg) msg.textContent = j.ok ? "Remote health OK." : "Probe failed — check URL, bearer, and Cloudflare/Caddy routing.";
+          })
+          .catch(function (e) {
+            if (out) out.textContent = String(e);
+          });
+      });
+    }
+
+    var fleetConnectView = document.getElementById("fleet-connect-wizard-view");
+    if (fleetConnectView) {
+      fleetConnectView.addEventListener("click", function () {
+        var p = fleetConnectWizardPeerPayload();
+        if (!p.id) return;
+        setFleetScope(p.id);
+        var panel = document.getElementById("fleet-connect-wizard-offcanvas");
+        if (panel && window.bootstrap && bootstrap.Offcanvas) {
+          var inst = bootstrap.Offcanvas.getInstance(panel);
+          if (inst) inst.hide();
+        }
+      });
+    }
+
+    var fleetConnectEdgeRefresh = document.getElementById("fleet-connect-edge-refresh");
+    if (fleetConnectEdgeRefresh) {
+      fleetConnectEdgeRefresh.addEventListener("click", fleetConnectWizardRenderEdgeInstructions);
+    }
+
+    var fleetConnectWizardPanel = document.getElementById("fleet-connect-wizard-offcanvas");
+    if (fleetConnectWizardPanel) {
+      fleetConnectWizardPanel.addEventListener("show.bs.offcanvas", function () {
+        fleetConnectWizardShowStep(1);
+        var baseIn = document.getElementById("fleet-connect-peer-base");
+        var hostIn = document.getElementById("fleet-connect-edge-host");
+        if (baseIn && hostIn && baseIn.value && !hostIn.value) {
+          try {
+            hostIn.value = new URL(baseIn.value).hostname;
+          } catch (_e) {
+            /* ignore */
+          }
+        }
       });
     }
 

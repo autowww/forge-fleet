@@ -96,11 +96,16 @@ sudo bash /tmp/forge-fleet-install.sh --system --with-docker
 ### Mesh join (after apt install — R11)
 
 ```bash
+export FORGE_FLEET_BASE_URL="https://<FLEET_PUBLIC_HOSTNAME>"
+export FORGE_FLEET_BEARER_TOKEN="<FLEET_BEARER_TOKEN>"
+
 land-fleet join \
-  --coordinator https://granite.forgedc.net \
-  --enroll-token "$FLEET_ENROLL_TOKEN" \
+  --coordinator "${FORGE_FLEET_BASE_URL}" \
+  --enroll-token "${FORGE_FLEET_BEARER_TOKEN}" \
   --label "$(hostname -s)"
 ```
+
+Or use **`/admin/` → Connect…** wizard (see `docs/learn-101/08-connect-remote-fleet.md`).
 
 ### Package layout (R07)
 

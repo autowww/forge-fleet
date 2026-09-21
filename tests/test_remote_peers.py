@@ -37,6 +37,29 @@ def test_upsert_list_delete_peer(tmp_path: Path) -> None:
     assert remote_peers.list_peers(data_dir)["peers"] == []
 
 
+def test_upsert_keeps_bearer_when_omitted(tmp_path: Path) -> None:
+    data_dir = tmp_path / "fleet"
+    remote_peers.upsert_peer(
+        data_dir,
+        "worker",
+        label="Worker",
+        base_url="https://worker.example",
+        bearer_token="first-token",
+    )
+    out = remote_peers.upsert_peer(
+        data_dir,
+        "worker",
+        label="Worker renamed",
+        base_url="https://worker.example",
+        bearer_token="",
+    )
+    assert out["ok"] is True
+    peer = remote_peers.get_peer(data_dir, "worker")
+    assert peer is not None
+    assert peer["bearer_token"] == "first-token"
+    assert peer["label"] == "Worker renamed"
+
+
 def test_proxy_get_unknown_peer(tmp_path: Path) -> None:
     code, body, _ctype = remote_peers.proxy_get(tmp_path, "missing", "/v1/health")
     assert code == 404

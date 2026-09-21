@@ -799,7 +799,7 @@ _migrate_database_url_for_run() {
 
 _record_backup_status() {
   local backup_path="${1:-}" backup_bytes="${2:-0}"
-  FLEET_SERVICE_ID="${_FLEET_SERVICE_ID:-market-studio}" \
+  (cd "$FLEET_ROOT" && FLEET_SERVICE_ID="${_FLEET_SERVICE_ID:-market-studio}" \
     FLEET_BACKUP_PATH="$backup_path" \
     FLEET_BACKUP_BYTES="$backup_bytes" \
     python3 - <<'PY'
@@ -819,6 +819,7 @@ rollout_status.patch_rollout_status(
     },
 )
 PY
+  )
 }
 
 run_pre_migrate_backup() {

@@ -6,6 +6,19 @@
 
 `/admin/` is a **read-only** operator view—CPU/RAM/load, recent jobs, container-type swimlanes, optional **Forge LLM** controls, **Update Fleet**, and **`git`** self-update when configured.
 
+## Connect to a remote Fleet
+
+Use **Connect…** (scope bar) for a four-step wizard:
+
+1. **Local** — health check on this Fleet host.
+2. **Remote** — peer id, public base URL (`<FLEET_PUBLIC_BASE_URL>`), bearer (`<FLEET_BEARER_TOKEN>`).
+3. **Test** — save peer, probe `/v1/health`, switch to read-only remote dashboard.
+4. **Edge** — copy-paste **root** instructions for `cloudflared` + unified Caddy on the server (Fleet does not create tunnels automatically).
+
+**Manage peers…** opens the advanced peer editor (same `PUT /v1/remote-peers/*` API). When editing, leave bearer empty to keep the stored token.
+
+Full operator path: **[Connect to remote Fleet](08-connect-remote-fleet.md)**.
+
 Forge Lenses (Studio): **Settings → Fleet** binds **`LENSES_FLEET_URL`** + **`LENSES_FLEET_TOKEN`**. **Docs Health** runs configurable **`session_step`** jobs via Fleet’s Docker host; **Test Fleet** calls **`POST /v1/admin/test-fleet`** from the **workspace server** (never directly from arbitrary browser origins).
 
 Forge **LCDL** (governed LLM tasks/operators) stays a **separate** concern—Fleet runs containers; **`forge-lcdl`** orchestrates deterministic LLM work. See **[Forge LCDL ↔ Fleet](../reference/04-forge-lcdl-relationship.md)**.
