@@ -21,7 +21,22 @@ fi
 
 docker exec "$PG_CONTAINER" pg_dump -U "$PG_USER" -Fc "$PG_DB" >"$DEST"
 
-if ! pg_restore --list "$DEST" >/dev/null 2>&1; then
+verify_backup_dump() {
+  local dump="$1"
+  if command -v pg_restore >/dev/null 2>&1 && pg_restore --list "$dump" >/dev/null 2>&1; then
+    return 0
+  fi
+  local remote="/tmp/fleet-rollout-backup-verify-$$.dump"
+  docker cp "$dump" "${PG_CONTAINER}:${remote}"
+  if docker exec "$PG_CONTAINER" pg_restore --list "$remote" >/dev/null 2>&1; then
+    docker exec "$PG_CONTAINER" rm -f "$remote"
+    return 0
+  fi
+  docker exec "$PG_CONTAINER" rm -f "$remote" 2>/dev/null || true
+  return 1
+}
+
+if ! verify_backup_dump "$DEST"; then
   echo "backup verification failed: pg_restore --list" >&2
   rm -f "$DEST"
   exit 1

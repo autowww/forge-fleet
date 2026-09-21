@@ -16,4 +16,4 @@ cp -a "${ROOT}/dist/apt-publish/fleet/ubuntu" "$DEST"
 
 echo "publish-fleet-apt.sh: staged ${DEST}"
 echo "publish-fleet-apt.sh: deploy with:"
-echo "  cd ${PKG_SITE} && firebase deploy --only hosting"
+echo "  cd ${PKG_SITE} && firebase deploy --only hosting:forge-packages --project fleet-2f1d3"
