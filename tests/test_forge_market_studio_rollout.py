@@ -32,7 +32,10 @@ def test_schedule_rollout_conflict_when_slot_held(tmp_path: Path, monkeypatch) -
     assert out["error"] == "rollout_in_progress"
 
 
-def test_schedule_rollout_starts_thread(tmp_path: Path) -> None:
+def test_schedule_rollout_starts_thread(tmp_path: Path, monkeypatch) -> None:
+    from fleet_server import rollout_slot
+
+    monkeypatch.setattr(rollout_slot, "SLOTS_DIR", tmp_path / "slots")
     scripts = tmp_path / "scripts"
     scripts.mkdir()
     script = scripts / "rollout-forge-market-studio.sh"
@@ -46,7 +49,10 @@ def test_schedule_rollout_starts_thread(tmp_path: Path) -> None:
     mock_run.assert_not_called()
 
 
-def test_run_rollout_sync_success(tmp_path: Path) -> None:
+def test_run_rollout_sync_success(tmp_path: Path, monkeypatch) -> None:
+    from fleet_server import rollout_slot
+
+    monkeypatch.setattr(rollout_slot, "SLOTS_DIR", tmp_path / "slots")
     scripts = tmp_path / "scripts"
     scripts.mkdir()
     script = scripts / "rollout-forge-market-studio.sh"

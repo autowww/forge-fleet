@@ -13,7 +13,7 @@ Forge Fleet is an **operator-controlled orchestrator**. It can run **arbitrary c
 | **Template image trust** | Supply-chain pull/build of malicious layers | Vet Dockerfiles; pin digests where possible (**[Templates](../build-201/02-container-templates.md)**) |
 | **Managed services exposure** | Long-lived compose stacks on same host | Network policy + firewall; least privilege |
 | **Logs / backups** | Secrets in tarball or DB dumps | Encrypt backups; redact **`Authorization`** headers in proxies |
-| **`/admin/` exposure** | Browser-accessible job metadata | Bind to loopback or protect with **Caddy** **basic_auth**/network ACLs |
+| **`/admin/` exposure** | Browser-accessible job metadata | Unified Caddy installer sets **loopback-only** `/admin*` (default `FLEET_CADDY_ADMIN_LOOPBACK_ONLY=1`); use **local Fleet Remote tab** or SSH tunnel for remote dashboards |
 
 **Trust boundary (prose):** callers on the **trusted** side of your API perimeter may cause **Fleet** to invoke **Docker** on **this host**. Anyone who can enqueue **`docker_argv`** jobs should be cleared to run arbitrary containers *subject to your Docker policy*—that is **not** a multi-tenant safe boundary by default.
 
@@ -48,7 +48,8 @@ fallback_ascii: |
 ## Authentication
 
 - **`FLEET_BEARER_TOKEN`** protects **`/v1/*`** JSON when the server listens beyond loopback (unless **no token** is configured — development only). **`FLEET_ENFORCE_BEARER`** forces bearer checks even on loopback.
-- **Admin HTML** (`/admin/`) is served **without** bearer by design; still only safe when network access to the bind address is trusted.
+- **Admin HTML** (`/admin/`) is served **without** bearer by design; on public hosts use unified Caddy **loopback-only** `/admin*` and view remote Fleet via the **Remote** tab on a trusted local Fleet instance.
+- **`/v1/admin/*`** on public hosts should use **client bearer** at the edge (installer default: no Caddy bearer injection on `/v1/admin/*`).
 - **Workspace-worker** endpoints use **`X-Workspace-Worker-Token`**, not the admin bearer.
 
 ## Reverse proxy and TLS

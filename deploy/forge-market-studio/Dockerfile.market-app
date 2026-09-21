@@ -8,7 +8,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY studio-server/requirements.txt /app/studio-server/requirements.txt
+ARG FORGE_MARKET_REQS_HASH=
 RUN pip install --no-cache-dir -r /app/studio-server/requirements.txt "psycopg[binary]>=3.1"
+LABEL forge.market.reqs_hash="${FORGE_MARKET_REQS_HASH}"
 
 COPY . /app
 

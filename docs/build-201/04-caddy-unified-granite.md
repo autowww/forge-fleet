@@ -60,7 +60,23 @@ Cross-check: same host with the **LLM** bearer on `/v1/health` often returns **4
 
 1. **`handle /v1/health*`**, **`handle /v1/version*`** → Fleet upstream (bearer injected when `FLEET_BEARER_TOKEN` is set in the installer).
 2. **Ollama paths** — `/v1/chat/completions*`, `/v1/completions*`, `/v1/models*`, `/v1/embeddings*`, `/api/*` — optional `LLM_BEARER_TOKEN` check at the edge; `Authorization` stripped before proxy to Ollama.
-3. **Everything else** → Fleet (same injection rules as step 1).
+3. **`handle /admin*`** (when `FLEET_CADDY_ADMIN_LOOPBACK_ONLY=1`, default) — **403** for non-loopback `remote_ip`; localhost/SSH tunnel only; bearer injected upstream.
+4. **`handle /v1/admin/*`** (when `FLEET_CADDY_ADMIN_API_CLIENT_BEARER=1`, default) — Fleet upstream **without** bearer injection; client must send `Authorization: Bearer`.
+5. **Catch-all** → Fleet (`/v1/jobs`, app-gateways, …) with bearer injection unchanged for workers and certificator.
+
+Disable admin hardening: `FLEET_CADDY_ADMIN_LOOPBACK_ONLY=0` and/or `FLEET_CADDY_ADMIN_API_CLIENT_BEARER=0` before re-running the unified installer.
+
+## Admin lock verification (public Granite)
+
+```bash
+BASE=https://granite.forgedc.net
+curl -sS -o /dev/null -w 'admin HTML=%{http_code}\n' "$BASE/admin/"
+curl -sS -o /dev/null -w 'admin snapshot no auth=%{http_code}\n' "$BASE/v1/admin/snapshot"
+curl -sS -o /dev/null -w 'admin snapshot with bearer=%{http_code}\n' \
+  -H "Authorization: Bearer $FORGE_FLEET_BEARER_TOKEN" "$BASE/v1/admin/snapshot"
+```
+
+Expect **403** / **401** / **200** respectively after redeploy. View Granite from a laptop via local Fleet **`/admin/` → Remote** tab (`PUT /v1/remote-peers/granite` with base URL + bearer).
 
 ## Quick verification (after deploy)
 

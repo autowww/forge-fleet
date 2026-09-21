@@ -35,3 +35,7 @@ Unknown env_ids must use `environments.allocate_ports()` — never `prod + 1` (c
 
 - `compose.granite.yaml` uses `${FORGE_MARKET_APPDATA_VOLUME}` for external appdata (env-scoped).
 - `clear_hosted_data_plane_pref` enumerates all known appdata volumes including clean.
+
+## Rollout concurrency
+
+Only one mutating rollout/rollback/replicate may run per **`container_service_id`** at a time (`market-studio`, `market-studio-dev`, `market-studio-clean`, …). Submit paths return **409** `rollout_in_progress` when the slot is held; use `GET /v1/managed-services/{service_id}/maintenance-status` to inspect the active rollout. Different environments on the same Fleet host are independent slots.

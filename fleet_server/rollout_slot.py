@@ -187,11 +187,18 @@ def resolve_rollout_target(flow_id: str, inputs: dict[str, Any]) -> RolloutTarge
     if not environment:
         return None
 
-    if fid.startswith("market-studio") or fid == "environment-replicate":
-        from fleet_server.market_studio_rollout_env import rollout_identity
+    from fleet_server import rollout_registry
 
-        service_id, _ = rollout_identity(environment)
-        return RolloutTarget(environment=environment, service_id=service_id)
+    mapped = rollout_registry.flow_service_id(fid)
+    if mapped:
+        if fid == "environment-replicate" or (mapped == "market-studio" and environment):
+            from fleet_server.market_studio_rollout_env import rollout_identity
+
+            service_id, _ = rollout_identity(environment)
+            return RolloutTarget(environment=environment, service_id=service_id)
+        spec = rollout_registry.get(mapped)
+        if spec and spec.slot_service_id:
+            return RolloutTarget(environment=environment, service_id=spec.slot_service_id)
 
     return None
 

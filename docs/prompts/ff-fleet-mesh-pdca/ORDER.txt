@@ -1,0 +1,41 @@
+# ff-fleet-mesh-pdca — leaf execution order (one commit per leaf)
+# Run gates: ./scripts/ff-fleet-mesh-pdca/check-phase-gate.sh <FMxx>
+# Executor: Composer 2.5 (standard variant)
+
+# G0 — Program scaffold
+FM00
+
+# G0 — Requirements and ADR (stubs; implement when starting wave)
+# FM01
+# FM02
+
+# G0b — Ubuntu apt distribution
+# FM05
+# FM06
+# FM07
+# FM08
+# FM09
+
+# Phase 1 — Scenario A (ephemeral batch placement)
+# FM10
+# FM11
+# FM12
+# FM13
+# FM14
+# FM15
+# FM16
+# FM17
+# FM18
+# FM19
+
+# Phase 2 — Resource operate (CPU/RAM/GPU/VRAM)
+# FM20–FM29
+
+# Phase 3 — Stateful services and data gravity
+# FM30–FM39
+
+# Phase 4 — Plan loop and placement UI
+# FM40–FM49
+
+# Phase 5 — Resilience, LB, live backup
+# FM50–FM59

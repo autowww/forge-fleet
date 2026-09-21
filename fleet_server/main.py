@@ -35,6 +35,8 @@ from fleet_server import (
     managed_compose_service,
     remote_peers,
     rollout_status,
+    service_rollout,
+    service_source_overlay,
     runner,
     self_update,
     store,
@@ -1476,6 +1478,27 @@ class FleetHandler(BaseHTTPRequestHandler):
             added = container_layout.sync_builtin_types(self._data_dir())
             self._send(200, {"ok": True, "added": added})
             return
+        m_svc_rollout = re.match(r"^/v1/managed-services/([^/]+)/rollout$", path)
+        if m_svc_rollout:
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+            service_id = m_svc_rollout.group(1)
+            try:
+                out = service_rollout.schedule_rollout(service_id, body)
+            except FileNotFoundError as ex:
+                self._send(400, {"ok": False, "error": "rollout_script_missing", "detail": str(ex)[:400]})
+                return
+            if out.get("error") == "rollout_in_progress":
+                code = 409
+            elif out.get("error") == "unknown_rollout_keys":
+                code = 400
+            elif out.get("ok"):
+                code = 200
+            else:
+                code = 502
+            self._send(code, out)
+            return
         if path == "/v1/admin/forge-llm-control-plane-rollout":
             sync = str(body.get("sync") or "").strip().lower() in ("1", "true", "yes")
             try:
@@ -1519,6 +1542,12 @@ class FleetHandler(BaseHTTPRequestHandler):
                     "forge_market_job_drain_timeout_sec",
                     "forge_market_skip_git_sync",
                     "forge_market_git_hard_reset",
+                    "skip_backup",
+                    "forge_market_skip_backup",
+                    "confirm_attr_v3_drop",
+                    "forge_market_confirm_attr_v3_drop",
+                    "confirm_dictionary_drops",
+                    "forge_market_confirm_dictionary_drops",
                 )
                 if body.get(k) is not None
             }
@@ -1897,6 +1926,28 @@ class FleetHandler(BaseHTTPRequestHandler):
                 return
             self._send(200, out)
             return
+        m_svc_overlay = re.match(r"^/v1/managed-services/([^/]+)/source-overlay$", path)
+        if m_svc_overlay:
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+            raw = self._read_binary_body(64 * 1024 * 1024)
+            if len(raw) == 0:
+                self._send(
+                    400,
+                    {"ok": False, "error": "invalid_body", "detail": "empty gzip tarball body"},
+                )
+                return
+            q = parse_qs(urlparse(self.path).query)
+            dest_raw = (q.get("dest_root") or [""])[0].strip()
+            dest_root = Path(dest_raw).expanduser() if dest_raw else None
+            sid = m_svc_overlay.group(1)
+            out = service_source_overlay.apply_source_overlay(sid, raw, dest_root=dest_root)
+            if out.get("ok") and sid in ("market-studio", "market-studio-dev"):
+                forge_market_source_overlay.clear_hosted_data_plane_pref()
+            code = 200 if out.get("ok") else 400
+            self._send(code, out)
+            return
         if path == "/v1/admin/forge-market-source-overlay":
             raw = self._read_binary_body(64 * 1024 * 1024)
             if len(raw) == 0:
@@ -1908,7 +1959,9 @@ class FleetHandler(BaseHTTPRequestHandler):
             q = parse_qs(urlparse(self.path).query)
             dest_raw = (q.get("dest_root") or [""])[0].strip()
             dest_root = Path(dest_raw).expanduser() if dest_raw else None
-            out = forge_market_source_overlay.apply_source_overlay(raw, dest_root=dest_root)
+            out = service_source_overlay.apply_source_overlay("market-studio", raw, dest_root=dest_root)
+            if out.get("ok"):
+                forge_market_source_overlay.clear_hosted_data_plane_pref()
             code = 200 if out.get("ok") else 400
             self._send(code, out)
             return
@@ -2212,6 +2265,14 @@ class FleetHandler(BaseHTTPRequestHandler):
                 self._send(code, {"ok": False, "error": str(ex)[:800]})
                 return
             self._send(200, {"ok": True, "id": mfa_del.group(1)})
+            return
+        m_rollout_slot = re.match(r"^/v1/managed-services/([^/]+)/rollout-slot$", path)
+        if m_rollout_slot:
+            from fleet_server import rollout_slot
+
+            sid = m_rollout_slot.group(1)
+            rollout_slot.release(sid, "")
+            self._send(200, {"ok": True, "service_id": sid, "released": True})
             return
         m_rollout_clear = re.match(r"^/v1/managed-services/([^/]+)/maintenance-status$", path)
         if m_rollout_clear:

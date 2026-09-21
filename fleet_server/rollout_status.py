@@ -13,6 +13,7 @@ LOG_DIR = Path.home() / ".local/state/forge-fleet" / "rollout-logs"
 STEP_ESTIMATE_DEFAULTS_SEC: dict[str, int] = {
     "init": 5,
     "prepare": 30,
+    "backup": 60,
     "sync": 60,
     "pause_jobs": 30,
     "drain_enrichment": 45,
@@ -48,6 +49,36 @@ def _idle_status(service_id: str) -> dict[str, Any]:
         "maintenance": False,
         "failed": False,
     }
+
+
+def _progress_pct(data: dict[str, Any]) -> int:
+    if not data.get("maintenance"):
+        return 0
+    total = len(STEP_ESTIMATE_DEFAULTS_SEC)
+    if total <= 0:
+        return 0
+    done = len({str(s) for s in (data.get("steps_done") or []) if str(s)})
+    current = str(data.get("current_step") or "")
+    if current and current not in {str(s) for s in (data.get("steps_done") or [])}:
+        done = min(total, done + 1)
+    return max(0, min(100, int(round(100 * done / total))))
+
+
+def _job_id_from_slot(service_id: str, data: dict[str, Any]) -> str | None:
+    existing = str(data.get("job_id") or "").strip()
+    if existing:
+        return existing
+    if not data.get("maintenance") and not data.get("failed"):
+        return None
+    from fleet_server import rollout_slot
+
+    slot = rollout_slot.read_slot(service_id)
+    if not slot.get("held"):
+        return None
+    if str(slot.get("holder_kind") or "job") != "job":
+        return None
+    holder = str(slot.get("holder") or "").strip()
+    return holder or None
 
 
 def _estimate_remaining_sec(data: dict[str, Any]) -> int:
@@ -97,7 +128,17 @@ def read_rollout_status(service_id: str) -> dict[str, Any]:
         "error": data.get("error") or "",
         "log_tail": data.get("log_tail") or "",
         "eta_sec": _estimate_remaining_sec(data),
+        "progress_pct": _progress_pct(data),
     }
+    if data.get("backup_path"):
+        out["backup_path"] = data.get("backup_path")
+    if data.get("backup_verified") is not None:
+        out["backup_verified"] = bool(data.get("backup_verified"))
+    if data.get("backup_bytes") is not None:
+        out["backup_bytes"] = data.get("backup_bytes")
+    job_id = _job_id_from_slot(sid, data)
+    if job_id:
+        out["job_id"] = job_id
     return out
 
 
@@ -128,6 +169,24 @@ def read_rollout_log(service_id: str, *, max_bytes: int = 16000) -> dict[str, An
         "exists": True,
         "log": data.decode("utf-8", errors="replace"),
     }
+
+
+def patch_rollout_status(service_id: str, fields: dict[str, Any]) -> None:
+    sid = str(service_id or "").strip()
+    if not sid or not fields:
+        return
+    path = _status_path(sid)
+    data: dict[str, Any] = {}
+    if path.is_file():
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                data = loaded
+        except (OSError, json.JSONDecodeError):
+            data = {}
+    data.update(fields)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
 def write_rollout_failure(

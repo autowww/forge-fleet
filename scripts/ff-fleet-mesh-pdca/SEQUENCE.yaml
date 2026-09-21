@@ -1,0 +1,58 @@
+# Forge Fleet Mesh PDCA — phase order
+
+phases:
+  FM00:
+    title: PDCA scaffold and gate harness
+    wave: MW-0
+    depends_on: []
+    requirement_ids: []
+  FM01:
+    title: Requirements ledger review
+    wave: MW-0
+    depends_on: [FM00]
+    requirement_ids: [R00, R01, R02, R03, R04, R05]
+  FM02:
+    title: Peer schema ADR
+    wave: MW-0
+    depends_on: [FM01]
+    requirement_ids: [R02]
+  FM05:
+    title: nfpm deb scaffold
+    wave: MW-0b
+    depends_on: [FM02]
+    requirement_ids: [R07, R06h]
+  FM06:
+    title: deb maintainer scripts and conffiles
+    wave: MW-0b
+    depends_on: [FM05]
+    requirement_ids: [R06c, R06d, R06g, R09a]
+  FM07:
+    title: forge-fleet-docker meta-package
+    wave: MW-0b
+    depends_on: [FM06]
+    requirement_ids: [R09]
+  FM08:
+    title: apt repo publish CI
+    wave: MW-0b
+    depends_on: [FM07]
+    requirement_ids: [R06, R06e, R08]
+  FM09:
+    title: install.sh and noble integration test
+    wave: MW-0b
+    depends_on: [FM08]
+    requirement_ids: [R10, R1a, R06f, R09b, NFR08]
+  FM10:
+    title: POST forward to worker peers
+    wave: MW-1
+    depends_on: [FM09]
+    requirement_ids: [R12]
+  FM19:
+    title: MW-1 Scenario A closeout
+    wave: MW-1
+    depends_on: [FM10]
+    requirement_ids: [R02, R03, R04, R05, R10, R11, R12, R13, R14, R15, R16, R17, R18, R19]
+  FM59:
+    title: Program closeout
+    wave: MW-5
+    depends_on: [FM19]
+    requirement_ids: [R50, R51, R52, R53, R54]

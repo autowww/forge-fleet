@@ -3,6 +3,8 @@
 set -euo pipefail
 
 FLEET_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=scripts/fleet-rollout-step.sh
+source "${FLEET_ROOT}/scripts/fleet-rollout-step.sh"
 FORGE_LLM_ROOT="${FORGE_LLM_ROOT:-$FLEET_ROOT/deploy/forge-llm-control-plane}"
 FORGE_LLM_GIT_URL="${FORGE_LLM_GIT_URL:-https://github.com/autowww/forge-llm.git}"
 FORGE_LLM_GIT_BRANCH="${FORGE_LLM_GIT_BRANCH:-main}"
@@ -148,6 +150,10 @@ smoke() {
 
 
 main() {
+  local log_path="${FLEET_LLM_ROLLOUT_LOG:-$HOME/.local/state/forge-fleet/rollout-logs/forge-llm-control-plane.log}"
+  mkdir -p "$(dirname "$log_path")"
+  fleet_rollout_begin "forge-llm-control-plane" "$log_path"
+  fleet_rollout_step "prepare" "Preparing LLM control plane rollout"
   command -v git >/dev/null || die "git missing"
   command -v docker >/dev/null || die "docker missing"
   command -v curl >/dev/null || die "curl missing"
@@ -156,8 +162,11 @@ main() {
   deploy_gateway_stack
   register_fleet_service
   retarget_caddy
+  fleet_rollout_step "health_check" "LLM gateway smoke"
   smoke
+  fleet_rollout_step "finalize" "Finalizing LLM rollout"
   log "rollout complete (gateway :$GATEWAY_HOST_PORT, Caddy LLM paths -> gateway)"
+  fleet_rollout_done
 }
 
 main "$@"

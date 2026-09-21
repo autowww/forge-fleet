@@ -34,6 +34,7 @@ services:
       args:
         INCLUDE_STUDIO_UI: ${INCLUDE_STUDIO_UI:-0}
         FORGE_MARKET_GIT_SHA: ${FORGE_MARKET_GIT_SHA:-}
+        FORGE_MARKET_REQS_HASH: ${FORGE_MARKET_REQS_HASH:-}
     image: ${FORGE_MARKET_APP_IMAGE:-forge-market-app:studio}
     container_name: ${FORGE_MARKET_APP_CONTAINER:-forge-market-app}
     restart: unless-stopped

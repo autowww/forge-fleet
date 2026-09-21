@@ -116,9 +116,17 @@ _emit_fleet_upstream() {
   fi
 }
 
+_emit_fleet_upstream_no_inject() {
+  # stdout: reverse_proxy without Authorization injection (client must send bearer)
+  local fh="$1" fp="$2"
+  printf '		reverse_proxy %s:%s\n' "$fh" "$fp"
+}
+
 write_unified_caddyfile() {
   local out="$1" public_port="$2" fleet_host="$3" fleet_port="$4" ollama_host="$5" ollama_port="$6" fleet_bearer="$7" llm_bearer="$8" site_address="${9:-}"
   local esc_f esc_l
+  local admin_loopback="${FLEET_CADDY_ADMIN_LOOPBACK_ONLY:-1}"
+  local admin_client_bearer="${FLEET_CADDY_ADMIN_API_CLIENT_BEARER:-1}"
   esc_f="$(escape_caddy_dq "$fleet_bearer")"
   esc_l="$(escape_caddy_dq "$llm_bearer")"
   {
@@ -172,7 +180,23 @@ write_unified_caddyfile() {
     fi
     printf '	}\n'
     printf '\n'
-    printf '	# Forge Fleet — remaining routes (/v1/jobs, /admin/, …)\n'
+    if [[ "$admin_loopback" == "1" ]]; then
+      printf '	# Admin dashboard HTML — loopback only (use SSH tunnel or local Fleet Remote tab)\n'
+      printf '	handle /admin* {\n'
+      printf '		@not_local_admin not remote_ip 127.0.0.1 ::1\n'
+      printf '		respond @not_local_admin "Forbidden" 403\n'
+      _emit_fleet_upstream "$fleet_host" "$fleet_port" "$esc_f" "$fleet_bearer"
+      printf '	}\n'
+      printf '\n'
+    fi
+    if [[ "$admin_client_bearer" == "1" ]]; then
+      printf '	# Fleet admin JSON API — client bearer required (no Caddy injection)\n'
+      printf '	handle /v1/admin/* {\n'
+      _emit_fleet_upstream_no_inject "$fleet_host" "$fleet_port"
+      printf '	}\n'
+      printf '\n'
+    fi
+    printf '	# Forge Fleet — remaining routes (/v1/jobs, app-gateways, …)\n'
     printf '	handle {\n'
     _emit_fleet_upstream "$fleet_host" "$fleet_port" "$esc_f" "$fleet_bearer"
     printf '	}\n'

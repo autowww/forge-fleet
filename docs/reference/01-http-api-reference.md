@@ -73,6 +73,12 @@ Feature docs (details beyond this table): [CONTAINER-TEMPLATES.md](../build-201/
 | DELETE | `/v1/container-services/{id}` | bearer | Delete; **409** if forge_llm still running. |
 | POST | `/v1/container-services/{id}/start` | bearer | **`docker compose up`** for **forge_llm** services. |
 | POST | `/v1/container-services/{id}/stop` | bearer | **`docker compose down`**. |
+| POST | `/v1/managed-services/{service_id}/rollout` | bearer | Generic rollout from [rollout_registry.json](../fleet_server/rollout_registry.json). Body: service overrides + `sync`. **409** when slot held. |
+| PUT | `/v1/managed-services/{service_id}/source-overlay` | bearer | Gzip tarball overlay; layout marker from registry. Optional `?dest_root=`. |
+| GET | `/v1/managed-services/{service_id}/maintenance-status` | bearer | Rollout maintenance JSON (`maintenance`, `current_step`, `eta_sec`, `progress_pct`, `job_id`, `backup_path`, `backup_verified`, …). |
+| GET | `/v1/managed-services/{service_id}/rollout-log` | bearer | Tail of rollout log file for the service. |
+| DELETE | `/v1/managed-services/{service_id}/rollout-slot` | bearer | Emergency release of rollout serialization slot. |
+| DELETE | `/v1/managed-services/{service_id}/maintenance-status` | bearer | Clear maintenance/failure status file after operator review. |
 | POST | `/v1/container-types` | bearer | Append one **`types[]` row**. |
 | PUT | `/v1/container-types` | bearer | Replace full **`types.json`**. |
 | PUT | `/v1/container-types/{id}` | bearer | Update one row by id. |
@@ -114,6 +120,23 @@ Feature doc: [Fleet Apps API](04-fleet-apps-api.md).
 | `postgres` | `{ container, cpu_pct, mem_pct, mem_usage_bytes, mem_limit_bytes, … }` from **`docker stats --no-stream`** |
 
 Rows are cached ~8s server-side. Dock collectors merge these with **`GET /v1/environments`** (or Lenses **`/api/environments`**) for the **Environments** strip group.
+
+### Rollout maintenance status {#rollout-maintenance-status}
+
+**`GET /v1/managed-services/{service_id}/maintenance-status`** (e.g. `market-studio`, `market-studio-dev`) returns rollout progress for Forge Studio Dock and Lenses deploy UI:
+
+| Field | Meaning |
+|-------|---------|
+| `maintenance` | `true` while rollout steps are running |
+| `failed` | `true` after a failed step until cleared |
+| `current_step` / `current_step_label` | Active pipeline step id and label |
+| `steps_done` | Completed step ids |
+| `eta_sec` | Rough remaining seconds from step estimates |
+| `progress_pct` | 0–100 from completed steps vs pipeline step list |
+| `job_id` | Active Fleet infra job when held in rollout slot (for deep links) |
+| `error` / `log_tail` | Failure detail when `failed` is true |
+
+Poll interval used by dock collector: ~5s idle, ~3s while any env reports `maintenance`.
 
 ### Forge LLM `llm_rack` (admin snapshot)
 

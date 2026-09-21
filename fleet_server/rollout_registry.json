@@ -1,0 +1,105 @@
+{
+  "services": {
+    "market-studio": {
+      "script": "scripts/rollout-forge-market-studio.sh",
+      "slot_service_id": "market-studio",
+      "default_env": "prod",
+      "supports_source_overlay": true,
+      "infra_flow_id": "market-studio-rollout",
+      "source_overlay": {
+        "dest_root": "/home/administrator/forge-market",
+        "layout_marker": "studio-server/studio_server.py"
+      },
+      "health_url": "http://127.0.0.1:19792/health",
+      "overrides": {
+        "forge_market_root": "FORGE_MARKET_ROOT",
+        "forge_market_studio_root": "FORGE_MARKET_STUDIO_ROOT",
+        "forge_market_compose_files": "FORGE_MARKET_COMPOSE_FILES",
+        "forge_market_studio_host_port": "FORGE_MARKET_STUDIO_HOST_PORT",
+        "forge_market_dockerfile": "FORGE_MARKET_DOCKERFILE",
+        "forge_market_git_ref": "FORGE_MARKET_GIT_REF",
+        "forge_market_git_fallback_root": "FORGE_MARKET_GIT_FALLBACK_ROOT",
+        "forge_market_docker_build_no_cache": "FORGE_MARKET_DOCKER_BUILD_NO_CACHE",
+        "forge_market_sec_contact": "FORGE_MARKET_SEC_CONTACT",
+        "forge_market_run_schema_migrate": "FORGE_MARKET_RUN_SCHEMA_MIGRATE",
+        "run_schema_migrate": "FORGE_MARKET_RUN_SCHEMA_MIGRATE",
+        "forge_market_env": "FORGE_MARKET_ENV",
+        "forge_market_skip_build": "FORGE_MARKET_SKIP_BUILD",
+        "forge_market_app_image": "FORGE_MARKET_APP_IMAGE",
+        "forge_market_git_sha": "FORGE_MARKET_GIT_SHA",
+        "forge_market_purge_symbols": "FORGE_MARKET_PURGE_SYMBOLS",
+        "forge_market_skip_git_sync": "FORGE_MARKET_SKIP_GIT_SYNC",
+        "forge_market_git_hard_reset": "FORGE_MARKET_GIT_HARD_RESET",
+        "forge_market_job_drain_mode": "FORGE_MARKET_JOB_DRAIN_MODE",
+        "forge_market_pause_scheduler": "FORGE_MARKET_PAUSE_SCHEDULER",
+        "forge_market_job_pause_timeout_sec": "FORGE_MARKET_JOB_PAUSE_TIMEOUT_SEC",
+        "forge_market_job_drain_timeout_sec": "FORGE_MARKET_JOB_DRAIN_TIMEOUT_SEC",
+        "skip_backup": "FORGE_MARKET_SKIP_BACKUP",
+        "forge_market_skip_backup": "FORGE_MARKET_SKIP_BACKUP",
+        "confirm_coverage_v2_drop": "FORGE_MARKET_CONFIRM_COVERAGE_V2_DROP",
+        "forge_market_confirm_coverage_v2_drop": "FORGE_MARKET_CONFIRM_COVERAGE_V2_DROP",
+        "confirm_bars_v2_drop": "FORGE_MARKET_CONFIRM_BARS_V2_DROP",
+        "forge_market_confirm_bars_v2_drop": "FORGE_MARKET_CONFIRM_BARS_V2_DROP",
+        "confirm_obs_dictionary": "FORGE_MARKET_CONFIRM_OBS_DICTIONARY",
+        "forge_market_confirm_obs_dictionary": "FORGE_MARKET_CONFIRM_OBS_DICTIONARY",
+        "confirm_attr_v3_drop": "FORGE_MARKET_CONFIRM_ATTR_V3_DROP",
+        "forge_market_confirm_attr_v3_drop": "FORGE_MARKET_CONFIRM_ATTR_V3_DROP",
+        "confirm_dictionary_drops": "FORGE_MARKET_CONFIRM_DICTIONARY_DROPS",
+        "forge_market_confirm_dictionary_drops": "FORGE_MARKET_CONFIRM_DICTIONARY_DROPS"
+      },
+      "confirm_gates": {
+        "confirm_dictionary_drops": {
+          "env": "FORGE_MARKET_CONFIRM_DICTIONARY_DROPS",
+          "parity_health_field": "dictionary_parity_ok"
+        }
+      },
+      "backup": {
+        "kind": "pg_dump_docker",
+        "container": "forge-market-postgres"
+      }
+    },
+    "market-studio-dev": {
+      "script": "scripts/rollout-forge-market-studio.sh",
+      "slot_service_id": "market-studio-dev",
+      "default_env": "dev",
+      "supports_source_overlay": true,
+      "infra_flow_id": "market-studio-rollout",
+      "source_overlay": {
+        "dest_root": "/home/administrator/forge-market",
+        "layout_marker": "studio-server/studio_server.py"
+      },
+      "health_url": "http://127.0.0.1:19793/health",
+      "overrides": {
+        "forge_market_env": "FORGE_MARKET_ENV",
+        "run_schema_migrate": "FORGE_MARKET_RUN_SCHEMA_MIGRATE",
+        "skip_backup": "FORGE_MARKET_SKIP_BACKUP",
+        "forge_market_skip_git_sync": "FORGE_MARKET_SKIP_GIT_SYNC",
+        "confirm_dictionary_drops": "FORGE_MARKET_CONFIRM_DICTIONARY_DROPS"
+      },
+      "confirm_gates": {
+        "confirm_dictionary_drops": {
+          "env": "FORGE_MARKET_CONFIRM_DICTIONARY_DROPS",
+          "parity_health_field": "dictionary_parity_ok"
+        }
+      },
+      "backup": {
+        "kind": "pg_dump_docker",
+        "container": "forge-market-postgres-dev"
+      }
+    },
+    "forge-llm-control-plane": {
+      "script": "scripts/rollout-forge-llm-control-plane.sh",
+      "slot_service_id": "forge-llm-control-plane",
+      "supports_source_overlay": false
+    },
+    "dummy-service": {
+      "script": "scripts/rollout-dummy-service.sh",
+      "slot_service_id": "dummy-service",
+      "supports_source_overlay": true,
+      "source_overlay": {
+        "dest_root": "/tmp/fleet-dummy-service",
+        "layout_marker": "marker.txt"
+      }
+    }
+  }
+}

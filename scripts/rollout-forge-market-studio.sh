@@ -797,6 +797,79 @@ _migrate_database_url_for_run() {
   printf 'postgresql://%s:%s@%s:5432/%s' "$pg_user" "$pg_pass" "$pg_container" "$pg_db"
 }
 
+_record_backup_status() {
+  local backup_path="${1:-}" backup_bytes="${2:-0}"
+  FLEET_SERVICE_ID="${_FLEET_SERVICE_ID:-market-studio}" \
+    FLEET_BACKUP_PATH="$backup_path" \
+    FLEET_BACKUP_BYTES="$backup_bytes" \
+    python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+from fleet_server import rollout_status
+
+sid = os.environ["FLEET_SERVICE_ID"]
+path = Path.home() / ".local/state/forge-fleet/rollout-status" / f"{sid}.json"
+rollout_status.patch_rollout_status(
+    sid,
+    {
+        "backup_path": os.environ.get("FLEET_BACKUP_PATH", ""),
+        "backup_bytes": int(os.environ.get("FLEET_BACKUP_BYTES", "0") or 0),
+        "backup_verified": True,
+    },
+)
+PY
+}
+
+run_pre_migrate_backup() {
+  if [[ "${FORGE_MARKET_SKIP_BACKUP:-0}" == "1" ]]; then
+    log "skip backup (FORGE_MARKET_SKIP_BACKUP=1)"
+    return 0
+  fi
+  if ! _schema_migrate_enabled; then
+    log "skip backup (schema migrate disabled)"
+    return 0
+  fi
+  fleet_rollout_step "backup" "Backing up Postgres"
+  local backup_dir ts backup_path bytes
+  backup_dir="${FLEET_ROLLOUT_BACKUP_DIR:-$HOME/.local/state/forge-fleet/backups/${_FLEET_SERVICE_ID:-market-studio}}"
+  ts="$(date -u +%Y%m%dT%H%M%SZ)"
+  backup_path="${backup_dir}/${ts}.dump"
+  if ! bash "${FLEET_ROOT}/scripts/fleet-rollout-backup.sh" "$backup_path"; then
+    fleet_rollout_failed "backup" "pg_dump backup failed"
+    exit 1
+  fi
+  bytes="$(wc -c <"$backup_path" | tr -d ' ')"
+  log "backup verified: ${backup_path} (${bytes} bytes)"
+  _record_backup_status "$backup_path" "$bytes"
+}
+
+check_migrate_gates() {
+  if ! _schema_migrate_enabled; then
+    return 0
+  fi
+  local migrate_image migrate_db_url pg_network plan_json
+  migrate_image="$(_resolve_migrate_image)"
+  migrate_db_url="$(_migrate_database_url_for_run)"
+  pg_network="$(_postgres_docker_network)"
+  plan_json="$(docker run --rm --network "$pg_network" \
+    -e "FORGE_MARKET_DATABASE_URL=${migrate_db_url}" \
+    "$migrate_image" \
+    python -m forge_market.db.migrate plan --json 2>/dev/null || echo '{}')"
+  log "migrate plan: $(printf '%s' "$plan_json" | tr '\n' ' ' | head -c 240)"
+  if [[ "${FORGE_MARKET_CONFIRM_DICTIONARY_DROPS:-}" == "1" ]]; then
+    local port parity_ok
+    port="$(_studio_health_port)"
+    parity_ok="$(curl -fsS "http://127.0.0.1:${port}/health" 2>/dev/null \
+      | python3 -c 'import sys,json; d=json.load(sys.stdin); print("true" if d.get("dictionary_parity_ok") else "false")' \
+      2>/dev/null || echo "false")"
+    if [[ "$parity_ok" != "true" ]]; then
+      die "m059 blocked: dictionary_parity_ok is not true on /health — run tools/dictionary_parity_report.py"
+    fi
+    log "dictionary parity gate: ok"
+  fi
+}
+
 run_postgres_schema_migrate() {
   local stop_app="${1:-1}"
   if ! _schema_migrate_enabled; then
@@ -823,7 +896,9 @@ run_postgres_schema_migrate() {
   for confirm_key in \
     FORGE_MARKET_CONFIRM_COVERAGE_V2_DROP \
     FORGE_MARKET_CONFIRM_BARS_V2_DROP \
-    FORGE_MARKET_CONFIRM_OBS_DICTIONARY; do
+    FORGE_MARKET_CONFIRM_OBS_DICTIONARY \
+    FORGE_MARKET_CONFIRM_ATTR_V3_DROP \
+    FORGE_MARKET_CONFIRM_DICTIONARY_DROPS; do
     if [[ -n "${!confirm_key:-}" ]]; then
       log "gated migrate confirm: ${confirm_key}=${!confirm_key}"
       confirm_env+=(-e "${confirm_key}=${!confirm_key}")
@@ -893,6 +968,8 @@ deploy_compose_stack() {
   _apply_job_drain_guards
   start_postgres_service
   precheck_schema_pending
+  run_pre_migrate_backup
+  check_migrate_gates
   pause_scheduler
   if check_needs_image_rebuild; then
     image_rebuild=1
