@@ -20,6 +20,7 @@ from urllib.parse import parse_qs, urlparse
 
 from fleet_server import (
     app_gateway,
+    capacity,
     container_layout,
     container_templates,
     fleet_apps,
@@ -32,7 +33,10 @@ from fleet_server import (
     host_stats,
     infra_flow_submit,
     infra_flows,
+    install_channel,
+    lifecycle,
     managed_compose_service,
+    operator_ui_settings,
     remote_peers,
     rollout_status,
     service_rollout,
@@ -44,6 +48,7 @@ from fleet_server import (
     telemetry_rollup,
     templates_catalog,
     thermal_llm_policy,
+    upgrade_service,
     versioning,
     workspace_bundle,
 )
@@ -452,14 +457,18 @@ class FleetHandler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length") or 0)
             if 0 < length <= app_gateway._MAX_PROXY_BODY:
                 body = self.rfile.read(length)
-        status, headers, payload = app_gateway.proxy(
-            rec,
-            method=method,
-            rest_path=rest or "",
-            query=parsed.query or "",
-            req_headers=self.headers,
-            body=body,
-        )
+        lifecycle.proxy_enter()
+        try:
+            status, headers, payload = app_gateway.proxy(
+                rec,
+                method=method,
+                rest_path=rest or "",
+                query=parsed.query or "",
+                req_headers=self.headers,
+                body=body,
+            )
+        finally:
+            lifecycle.proxy_exit()
         self._send_raw_with_headers(status, payload, headers)
         return True
 
@@ -543,6 +552,12 @@ class FleetHandler(BaseHTTPRequestHandler):
             code, body, ctype = remote_peers.proxy_get(
                 data_dir, peer_id, f"/v1/fleet-apps/{app_id}/about"
             )
+            self._send_proxy_body(code, body, ctype)
+            return True
+        m_cap = re.match(r"^/v1/remote-peers/([^/]+)/capacity$", path)
+        if m_cap:
+            peer_id = m_cap.group(1)
+            code, body, ctype = remote_peers.proxy_get(data_dir, peer_id, "/v1/capacity")
             self._send_proxy_body(code, body, ctype)
             return True
         return False
@@ -710,6 +725,10 @@ class FleetHandler(BaseHTTPRequestHandler):
                 return
             self._send(200, {"ok": True, "argv": argv_b, "cwd": str(bundle.get("cwd") or "")})
             return
+        if path == "/v1/operator/ui-settings":
+            data_dir = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            self._send(200, operator_ui_settings.get_settings(data_dir))
+            return
         if not self._auth_ok():
             self._send_unauthorized()
             return
@@ -731,6 +750,37 @@ class FleetHandler(BaseHTTPRequestHandler):
             return
         if path == "/v1/templates":
             self._send(200, templates_catalog.templates_payload())
+            return
+        if path == "/v1/lifecycle/stop-readiness":
+            data_dir_l = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            payload = lifecycle.stop_readiness_payload(Path(self.server.db_path), data_dir_l)
+            self._send(200, payload)
+            return
+        if path == "/v1/admin/upgrade/readiness":
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+            data_dir_l = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            from fleet_server import upgrade_coordinator
+
+            self._send(
+                200,
+                upgrade_coordinator.aggregate_readiness(Path(self.server.db_path), data_dir_l),
+            )
+            return
+        if path == "/v1/admin/upgrade/status":
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+            data_dir_l = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            self._send(200, upgrade_service.upgrade_status(data_dir_l))
+            return
+        if path == "/v1/admin/install-channel":
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+            data_dir_l = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            self._send(200, install_channel.install_channel_payload(data_dir_l))
             return
         if path == "/v1/health":
             token_set = bool(str(getattr(self.server, "expected_token", "") or "").strip())
@@ -755,28 +805,28 @@ class FleetHandler(BaseHTTPRequestHandler):
                     el = {}
             finally:
                 conn.close()
-            self._send(
-                200,
-                {
-                    "ok": True,
-                    "service": "forge-fleet",
-                    "auth_enforced": token_set and not skip,
-                    "version": {
-                        "package_semver": versioning.package_semver(),
-                        "db_schema_version": int(vrow["db_schema_version"]),
-                        "template_lib_version": versioning.FLEET_TEMPLATE_LIB_VERSION,
-                        "server_version": FleetHandler.server_version,
-                    },
-                    "host": {
-                        "cpu_usage_pct": cpu_pct,
-                        "memory_used_pct": mem_pct,
-                        "loadavg_1m": (snap.get("loadavg") or [None])[0]
-                        if isinstance(snap.get("loadavg"), list) and snap.get("loadavg")
-                        else None,
-                        "energy_ledger_kwh": el or None,
-                    },
+            health_body = {
+                "ok": True,
+                "service": "forge-fleet",
+                "auth_enforced": token_set and not skip,
+                "version": {
+                    "package_semver": versioning.package_semver(),
+                    "db_schema_version": int(vrow["db_schema_version"]),
+                    "template_lib_version": versioning.FLEET_TEMPLATE_LIB_VERSION,
+                    "server_version": FleetHandler.server_version,
                 },
-            )
+                "host": {
+                    "cpu_usage_pct": cpu_pct,
+                    "memory_used_pct": mem_pct,
+                    "loadavg_1m": (snap.get("loadavg") or [None])[0]
+                    if isinstance(snap.get("loadavg"), list) and snap.get("loadavg")
+                    else None,
+                    "energy_ledger_kwh": el or None,
+                },
+            }
+            health_body.update(lifecycle.health_extensions())
+            code = 200 if health_body.get("ready", True) else 503
+            self._send(code, health_body)
             return
         if path == "/v1/host/processes":
             q = parse_qs(urlparse(self.path).query)
@@ -787,6 +837,14 @@ class FleetHandler(BaseHTTPRequestHandler):
             except (TypeError, ValueError):
                 lim = 50
             self._send(200, host_processes.snapshot(limit=lim, sort=sort_raw))
+            return
+        if path == "/v1/capacity":
+            data_dir_c = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            self._send(200, capacity.capacity_payload(data_dir_c))
+            return
+        if path == "/v1/mesh/capacity":
+            data_dir_c = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            self._send(200, capacity.mesh_capacity(data_dir_c))
             return
         if self._handle_remote_peers_get(path):
             return
@@ -1375,6 +1433,9 @@ class FleetHandler(BaseHTTPRequestHandler):
             self._send(201, {"ok": True, **out})
             return
         if path == "/v1/jobs":
+            if lifecycle.is_draining():
+                self._send(503, {"ok": False, "error": "fleet_draining", "detail": "Upgrade in progress"})
+                return
             kind = str(body.get("kind") or "").strip()
             argv = body.get("argv")
             if kind != "docker_argv" or not isinstance(argv, list):
@@ -1454,6 +1515,65 @@ class FleetHandler(BaseHTTPRequestHandler):
             except Exception as ex:  # noqa: BLE001
                 self._send(500, {"ok": False, "error": "test_fleet_failed", "detail": str(ex)[:800]})
             return
+        if path == "/v1/lifecycle/prepare-stop":
+            out = lifecycle.prepare_stop(body)
+            self._send(200, out)
+            return
+        if path == "/v1/lifecycle/resume":
+            lifecycle.resume()
+            self._send(200, {"ok": True, "resumed": True})
+            return
+        if path == "/v1/admin/upgrade":
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+            data_dir_u = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            out = upgrade_service.run_upgrade(
+                self._repo_root(),
+                data_dir_u,
+                Path(self.server.db_path),
+                body,
+                schedule_restart_fn=self_update.schedule_post_git_and_restart,
+            )
+            code = 200
+            if not out.get("ok"):
+                code = 409 if out.get("error") == "upgrade_blocked" else 400
+            elif out.get("status") == "queued":
+                code = 202
+            self._send(code, out)
+            return
+        if path == "/v1/admin/package-upgrade":
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+            raw = dict(body or {})
+            raw.setdefault("mode", "upgrade")
+            raw["channel"] = install_channel.detect_install_channel(
+                Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            )
+            if raw["channel"] not in ("apt_user", "apt_system"):
+                self._send(
+                    400,
+                    {
+                        "ok": False,
+                        "error": "not_apt_channel",
+                        "install_channel": raw["channel"],
+                    },
+                )
+                return
+            data_dir_u = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            out = upgrade_service.run_upgrade(
+                self._repo_root(),
+                data_dir_u,
+                Path(self.server.db_path),
+                raw,
+                schedule_restart_fn=self_update.schedule_post_git_and_restart,
+            )
+            code = 202 if out.get("status") == "queued" else (409 if out.get("error") == "upgrade_blocked" else 400)
+            if out.get("ok") and out.get("status") != "queued":
+                code = 200
+            self._send(code, out)
+            return
         if path == "/v1/admin/git-self-update":
             stash_dirty = str(body.get("stash") or body.get("stash_dirty") or "").strip().lower() in {
                 "1",
@@ -1461,8 +1581,22 @@ class FleetHandler(BaseHTTPRequestHandler):
                 "yes",
                 "on",
             }
-            out = self_update.run_git_self_update(self._repo_root(), stash_dirty=stash_dirty)
+            data_dir_u = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            out = upgrade_service.run_upgrade(
+                self._repo_root(),
+                data_dir_u,
+                Path(self.server.db_path),
+                {
+                    **body,
+                    "mode": "update",
+                    "stash_dirty": stash_dirty,
+                    "channel": "git",
+                },
+                schedule_restart_fn=self_update.schedule_post_git_and_restart,
+            )
             code = 200 if out.get("ok") else 400
+            if out.get("error") == "upgrade_blocked":
+                code = 409
             self._send(code, out)
             return
         if path == "/v1/admin/migration-scratch-gc":
@@ -1548,6 +1682,7 @@ class FleetHandler(BaseHTTPRequestHandler):
                     "forge_market_confirm_attr_v3_drop",
                     "confirm_dictionary_drops",
                     "forge_market_confirm_dictionary_drops",
+                    "verify_suites",
                 )
                 if body.get(k) is not None
             }
@@ -1900,6 +2035,14 @@ class FleetHandler(BaseHTTPRequestHandler):
             code = 200 if out.get("ok") else (404 if out.get("error") == "not_found" else 502)
             self._send(code, out)
             return
+        if path == "/v1/operator/verify-public-health":
+            out = capacity.verify_public_health(
+                str(body.get("public_url") or body.get("url") or ""),
+                str(body.get("bearer_token") or ""),
+            )
+            code = 200 if out.get("ok") else 502
+            self._send(code, out)
+            return
         self._send(404, {"ok": False, "error": "not_found"})
 
     def do_PUT(self) -> None:
@@ -1910,6 +2053,11 @@ class FleetHandler(BaseHTTPRequestHandler):
             return
         path = urlparse(self.path).path
         data_dir = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+        if path == "/v1/operator/ui-settings":
+            body = self._read_json()
+            data_dir = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            self._send(200, operator_ui_settings.put_settings(data_dir, body))
+            return
         m_peer_put = re.match(r"^/v1/remote-peers/([^/]+)$", path)
         if m_peer_put:
             body = self._read_json()
@@ -2384,6 +2532,16 @@ def main() -> None:
     else:
         auth_note = "disabled (no FLEET_BEARER_TOKEN)"
     print(f"[fleet] http://{args.host}:{args.port}/  db={db_path} auth={auth_note}")
+    lifecycle.mark_startup_ready()
+
+    import signal
+
+    def _graceful_stop(signum: int, _frame: object) -> None:
+        lifecycle.set_draining(True)
+        lifecycle.wait_proxy_drain(lifecycle.stop_grace_sec())
+        threading.Thread(target=httpd.shutdown, name="fleet-graceful-shutdown", daemon=True).start()
+
+    signal.signal(signal.SIGTERM, _graceful_stop)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

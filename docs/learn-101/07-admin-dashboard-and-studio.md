@@ -8,12 +8,13 @@
 
 ## Connect to a remote Fleet
 
-Use **Connect…** (scope bar) for a four-step wizard:
+Use **Settings…** (scope bar) to configure connection and machine role:
 
-1. **Local** — health check on this Fleet host.
-2. **Remote** — peer id, public base URL (`<FLEET_PUBLIC_BASE_URL>`), bearer (`<FLEET_BEARER_TOKEN>`).
-3. **Test** — save peer, probe `/v1/health`, switch to read-only remote dashboard.
-4. **Edge** — copy-paste **root** instructions for `cloudflared` + unified Caddy on the server (Fleet does not create tunnels automatically).
+1. **Connection** — peer id, URL, bearer; **Save connection** (API only, no shell); probe and view remote dashboard.
+2. **Machine** — laptop vs public server; edge hostname and Caddy port when publishing.
+3. **Edge** (public server only) — Cloudflare tunnel + unified Caddy checklist; **Verify public health** via Fleet API.
+4. **Capacity** — mesh headroom table (`GET /v1/mesh/capacity`) for CPU, RAM, and GPU/VRAM planning estimates.
+5. **Commands** — generated recipes tagged **web UI** / **user** / **root**; copy shell blocks only when needed (Fleet never runs root commands from the browser).
 
 **Manage peers…** opens the advanced peer editor (same `PUT /v1/remote-peers/*` API). When editing, leave bearer empty to keep the stored token.
 

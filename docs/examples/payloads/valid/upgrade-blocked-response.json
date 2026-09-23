@@ -1,0 +1,19 @@
+{
+  "ok": false,
+  "error": "upgrade_blocked",
+  "upgrade_id": "550e8400-e29b-41d4-a716-446655440000",
+  "waiting_on": [
+    {
+      "service_id": "market-studio",
+      "stop_allowed": false,
+      "reason": "active_work",
+      "blockers": [
+        {
+          "kind": "harvest_job",
+          "id": "ph-42",
+          "detail": "running"
+        }
+      ]
+    }
+  ]
+}

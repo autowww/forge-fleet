@@ -136,6 +136,8 @@ def read_rollout_status(service_id: str) -> dict[str, Any]:
         out["backup_verified"] = bool(data.get("backup_verified"))
     if data.get("backup_bytes") is not None:
         out["backup_bytes"] = data.get("backup_bytes")
+    if isinstance(data.get("verify_results"), dict):
+        out["verify_results"] = data.get("verify_results")
     job_id = _job_id_from_slot(sid, data)
     if job_id:
         out["job_id"] = job_id

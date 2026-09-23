@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.forgesdlc.com/schemas/lifecycle-prepare-stop-request.schema.json",
+  "title": "Forge lifecycle POST prepare-stop request body",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "upgrade_id": { "type": "string" },
+    "deadline_utc": { "type": "string" },
+    "reason": { "type": "string" },
+    "mode": { "enum": ["update", "upgrade"] }
+  }
+}

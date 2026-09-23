@@ -102,6 +102,22 @@ _persist_compose_env_key() {
   export "${key}=${val}"
 }
 
+# Persist /health release labels from the synced tree (FORGE_MARKET_SYNCED_GIT_SHA wins).
+_persist_release_labels() {
+  cd "$MARKET_STUDIO_ROOT"
+  local git_sha12 backend_version
+  git_sha12="$(_resolve_git_sha12)"
+  if [[ -n "$git_sha12" ]]; then
+    export FORGE_MARKET_GIT_SHA="$git_sha12"
+    _persist_compose_env_key FORGE_MARKET_GIT_SHA "$git_sha12"
+  fi
+  backend_version="$(_resolve_backend_version || true)"
+  if [[ -n "$backend_version" ]]; then
+    export FORGE_MARKET_BACKEND_VERSION="$backend_version"
+    _persist_compose_env_key FORGE_MARKET_BACKEND_VERSION "$backend_version"
+  fi
+}
+
 _default_pgdata_volume() {
   _rollout_python "
 from fleet_server.market_studio_rollout_env import volume_names
@@ -151,6 +167,19 @@ _resolve_git_sha12() {
     sha="${FORGE_MARKET_GIT_SHA:-}"
   fi
   printf '%.12s' "$sha"
+}
+
+_resolve_backend_version() {
+  local toml="${FORGE_MARKET_ROOT}/studio-versions.toml"
+  [[ -f "$toml" ]] || return 0
+  python3 - "$toml" <<'PY'
+import sys
+import tomllib
+from pathlib import Path
+
+data = tomllib.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+print(str((data.get("backend") or {}).get("version") or "").strip())
+PY
 }
 
 ensure_env_file() {
@@ -250,12 +279,6 @@ EOF
   _persist_compose_env_key FORGE_MARKET_SEC_CONTACT "${FORGE_MARKET_SEC_CONTACT:-}"
   if [[ -n "${FORGE_MARKET_APP_IMAGE:-}" ]]; then
     _persist_compose_env_key FORGE_MARKET_APP_IMAGE "${FORGE_MARKET_APP_IMAGE}"
-  fi
-  local git_sha12
-  git_sha12="$(_resolve_git_sha12)"
-  if [[ -n "$git_sha12" ]]; then
-    export FORGE_MARKET_GIT_SHA="$git_sha12"
-    _persist_compose_env_key FORGE_MARKET_GIT_SHA "$git_sha12"
   fi
   if docker volume inspect "$pgdata_vol" &>/dev/null; then
     if grep -q '^POSTGRES_PASSWORD=change-me' .env 2>/dev/null; then
@@ -520,12 +543,9 @@ build_market_app_image() {
   fi
   local -a files
   compose_file_args files
+  _persist_release_labels
   local git_sha12
   git_sha12="$(_resolve_git_sha12)"
-  if [[ -n "$git_sha12" ]]; then
-    export FORGE_MARKET_GIT_SHA="$git_sha12"
-    _persist_compose_env_key FORGE_MARKET_GIT_SHA "$git_sha12"
-  fi
   log "building market-app image (context $FORGE_MARKET_ROOT git_sha=${git_sha12:-unknown})"
   local -a build_cmd=(build market-app)
   if [[ "${FORGE_MARKET_DOCKER_BUILD_NO_CACHE:-}" == "1" ]]; then
@@ -533,6 +553,9 @@ build_market_app_image() {
   fi
   if [[ -n "${FORGE_MARKET_GIT_SHA:-}" ]]; then
     build_cmd+=(--build-arg "FORGE_MARKET_GIT_SHA=${FORGE_MARKET_GIT_SHA}")
+  fi
+  if [[ -n "${FORGE_MARKET_BACKEND_VERSION:-}" ]]; then
+    build_cmd+=(--build-arg "FORGE_MARKET_BACKEND_VERSION=${FORGE_MARKET_BACKEND_VERSION}")
   fi
   local reqs_hash
   reqs_hash="$(_requirements_fingerprint)"
@@ -736,11 +759,41 @@ drain_enrichment_jobs() {
   log "WARN: enrichment drain timeout — will be recovered as failed on next start"
 }
 
+_lifecycle_prepare_studio() {
+  local port="${FORGE_MARKET_STUDIO_HOST_PORT:-19792}"
+  curl -fsS -X POST "http://127.0.0.1:${port}/api/lifecycle/prepare-stop" \
+    -H "Content-Type: application/json" \
+    -d '{"reason":"market_studio_rollout","mode":"upgrade"}' >/dev/null 2>&1 || true
+}
+
+_lifecycle_wait_studio() {
+  local port timeout elapsed
+  port="${FORGE_MARKET_STUDIO_HOST_PORT:-19792}"
+  timeout="${FORGE_MARKET_LIFECYCLE_WAIT_SEC:-45}"
+  elapsed=0
+  while (( elapsed < timeout )); do
+    local allowed
+    allowed="$(curl -fsS "http://127.0.0.1:${port}/api/lifecycle/stop-readiness" 2>/dev/null \
+      | python3 -c 'import sys,json; print("1" if json.load(sys.stdin).get("stop_allowed") else "0")' \
+      2>/dev/null || echo 0)"
+    if [[ "$allowed" == "1" ]]; then
+      log "lifecycle stop-readiness clear"
+      return 0
+    fi
+    log "waiting for studio lifecycle stop-readiness (${elapsed}s / ${timeout}s)"
+    sleep 3
+    elapsed=$((elapsed + 3))
+  done
+  log "WARN: lifecycle wait timeout — continuing rollout"
+}
+
 _apply_job_drain_guards() {
   local mode
   mode="$(_resolve_job_drain_mode)"
+  _lifecycle_prepare_studio
   if [[ "$mode" == "off" ]]; then
     log "job drain mode off — skipping harvest/enrichment guards"
+    _lifecycle_wait_studio
     return 0
   fi
   fleet_rollout_step "pause_jobs" "Pausing harvest jobs"
@@ -750,12 +803,19 @@ _apply_job_drain_guards() {
   fi
   fleet_rollout_step "drain_enrichment" "Draining enrichment jobs"
   drain_enrichment_jobs
+  _lifecycle_wait_studio
 }
 
 source_deploy() {
   local container="${FORGE_MARKET_APP_CONTAINER:-forge-market-app}"
   [[ -f "${FORGE_MARKET_ROOT}/studio-server/studio_server.py" ]] || die "forge-market root missing for source deploy"
-  log "source-only deploy: copying src/ and studio-server/ into ${container}"
+  cd "$MARKET_STUDIO_ROOT"
+  _persist_release_labels
+  local -a files
+  compose_file_args files
+  log "source-only deploy: recreating ${container} with synced release labels"
+  compose "${files[@]}" up -d --no-deps --force-recreate market-app
+  log "copying src/ and studio-server/ into ${container}"
   docker cp "${FORGE_MARKET_ROOT}/src/." "${container}:/app/src/"
   docker cp "${FORGE_MARKET_ROOT}/studio-server/." "${container}:/app/studio-server/"
   log "restarting market-app process"
@@ -967,6 +1027,7 @@ deploy_compose_stack() {
   local drain_mode image_rebuild=0
   drain_mode="$(_resolve_job_drain_mode)"
   _apply_job_drain_guards
+  _persist_release_labels
   start_postgres_service
   precheck_schema_pending
   run_pre_migrate_backup
@@ -1026,6 +1087,143 @@ print(sid, label)
     -H "Content-Type: application/json" \
     -d "{\"id\":\"${service_id}\",\"type_id\":\"forge_market_studio\",\"compose_root\":\"${MARKET_STUDIO_ROOT}\",\"compose_files\":${cf_json},\"label\":\"${service_label}\"}" \
     2>/dev/null || log "Fleet registration skipped (may already exist)"
+}
+
+_record_remote_verify_results() {
+  local passed="${1:-0}"
+  local checks_json="${2:-[]}"
+  (cd "$FLEET_ROOT" && FLEET_SERVICE_ID="${_FLEET_SERVICE_ID:-market-studio}" \
+    FLEET_VERIFY_PASSED="$passed" \
+    FLEET_VERIFY_CHECKS="$checks_json" \
+    python3 - <<'PY'
+import json
+import os
+from fleet_server import rollout_status
+
+sid = os.environ["FLEET_SERVICE_ID"]
+passed = os.environ.get("FLEET_VERIFY_PASSED", "0") == "1"
+checks_raw = os.environ.get("FLEET_VERIFY_CHECKS", "[]")
+try:
+    checks = json.loads(checks_raw)
+except json.JSONDecodeError:
+    checks = []
+rollout_status.patch_rollout_status(
+    sid,
+    {
+        "verify_results": {
+            "passed": passed,
+            "checks": checks if isinstance(checks, list) else [],
+        }
+    },
+)
+PY
+  )
+}
+
+_run_remote_verify_check() {
+  local check_id="$1"
+  local port="$2"
+  local started=$SECONDS
+  local ok=0
+  local detail=""
+  local label="$check_id"
+  case "$check_id" in
+    remote.health)
+      label="Health"
+      local body
+      body="$(curl -fsS "http://127.0.0.1:${port}/health" 2>/dev/null || true)"
+      if echo "$body" | grep -q forge-market-studio; then
+        ok=1
+        detail="forge-market-studio"
+      else
+        detail="health check failed"
+      fi
+      ;;
+    remote.schema)
+      label="Schema"
+      local body sv sh ch
+      body="$(curl -fsS "http://127.0.0.1:${port}/health" 2>/dev/null || true)"
+      if command -v jq >/dev/null 2>&1; then
+        sv="$(echo "$body" | jq -r '.schema_version // empty')"
+        sh="$(echo "$body" | jq -r '.schema_online_head // .schema_head // empty')"
+        ch="$(echo "$body" | jq -r '.schema_head // empty')"
+        if [[ -n "$sv" && -n "$sh" ]]; then
+          if (( sv >= sh )) && { [[ -z "$ch" ]] || (( sv <= ch )); }; then
+            ok=1
+            detail="applied=${sv} online_head=${sh}"
+          else
+            detail="applied=${sv} online_head=${sh} head=${ch:-?}"
+          fi
+        else
+          detail="schema fields missing"
+        fi
+      else
+        ok=1
+        detail="jq unavailable — schema not validated"
+      fi
+      ;;
+    remote.tickers|remote.watchlists)
+      label="${check_id#remote.}"
+      local path="/api/tickers"
+      [[ "$check_id" == "remote.watchlists" ]] && path="/api/watchlists"
+      if curl -fsS "http://127.0.0.1:${port}${path}" >/dev/null 2>&1; then
+        ok=1
+        detail="ok"
+      else
+        detail="HTTP failed"
+      fi
+      ;;
+    *)
+      detail="unknown check"
+      ;;
+  esac
+  local elapsed=$(( SECONDS - started ))
+  printf '{"id":"%s","label":"%s","ok":%s,"detail":"%s","duration_ms":%s,"side":"remote"}' \
+    "$check_id" "$label" "$([[ "$ok" == 1 ]] && echo true || echo false)" "$detail" "$((elapsed * 1000))"
+}
+
+run_remote_verify_suites() {
+  local raw="${FORGE_MARKET_VERIFY_SUITES:-}"
+  [[ -n "$raw" ]] || return 0
+  local port="${FORGE_MARKET_STUDIO_HOST_PORT:-$(_default_studio_host_port)}"
+  fleet_rollout_step "verify_production" "Running production checks"
+  local -a checks=()
+  local suite_ids
+  suite_ids="$(printf '%s' "$raw" | python3 -c 'import json,sys; raw=sys.stdin.read().strip();
+try:
+  data=json.loads(raw)
+except json.JSONDecodeError:
+  data=[x.strip() for x in raw.split(",") if x.strip()]
+if not isinstance(data,list): data=[]
+print("\n".join(data))' 2>/dev/null || true)"
+  local mapping=""
+  while IFS= read -r suite_id; do
+    [[ -n "$suite_id" ]] || continue
+    case "$suite_id" in
+      remote.health) checks+=("$(_run_remote_verify_check remote.health "$port")") ;;
+      remote.schema) checks+=("$(_run_remote_verify_check remote.schema "$port")") ;;
+      remote.gateway_smoke)
+        checks+=("$(_run_remote_verify_check remote.tickers "$port")")
+        checks+=("$(_run_remote_verify_check remote.watchlists "$port")")
+        ;;
+      remote.*) checks+=("$(_run_remote_verify_check "${suite_id}" "$port")") ;;
+    esac
+  done <<<"$suite_ids"
+  if ((${#checks[@]} == 0)); then
+    return 0
+  fi
+  local checks_json passed=1 row
+  checks_json="["
+  for row in "${checks[@]}"; do
+    [[ "$checks_json" == "[" ]] || checks_json+=","
+    checks_json+="$row"
+    echo "$row" | grep -q '"ok": false' && passed=0
+  done
+  checks_json+="]"
+  _record_remote_verify_results "$passed" "$checks_json"
+  if [[ "$passed" != "1" ]]; then
+    die "remote production checks failed"
+  fi
 }
 
 smoke() {
@@ -1119,6 +1317,7 @@ main() {
   register_fleet_service
   fleet_rollout_step "health_check" "Waiting for health"
   smoke
+  run_remote_verify_suites
   fleet_rollout_step "finalize" "Finalizing rollout"
   log "rollout complete (env=${FORGE_MARKET_ENV} market studio loopback :${FORGE_MARKET_STUDIO_HOST_PORT:-$(_default_studio_host_port)})"
   export FORGE_MARKET_STUDIO_ROOT="$MARKET_STUDIO_ROOT"

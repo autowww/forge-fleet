@@ -40,6 +40,23 @@ sudo bash /tmp/forge-fleet-install.sh --system --with-docker
 curl -fsS http://127.0.0.1:18765/v1/health
 ```
 
+## Cooperative upgrade (apt)
+
+After install, the deb postinst enables **`forge-fleet-apt-upgrade.timer`**. Routine bumps:
+
+1. Open **`/admin/`** → **Update Fleet**, or
+2. `POST /v1/admin/upgrade` with bearer, then **`land-fleet upgrade --wait`**.
+
+Fleet drains dependents first, writes an upgrade signal, and the root timer runs **`apt-get install`** within ~60s.
+
+Check timer: **`land-fleet timer-status`**.
+
+## Migrate from git
+
+Existing **git_user** / **git_system** installs: **[10-migrate-to-apt.md](10-migrate-to-apt.md)**.
+
+Use **`bash install.sh --user --migrate-from-git`** (or system equivalent) once, then **`land-fleet migrate-to-apt`**.
+
 ## Next step
 
 Connect to an existing remote Fleet: **[08-connect-remote-fleet.md](08-connect-remote-fleet.md)**.

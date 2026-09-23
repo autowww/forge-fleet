@@ -99,6 +99,7 @@
       <h1 class="h3 fleet-admin-title mb-1">Forge Fleet — status</h1>
       <p class="text-body-secondary small mb-1 d-flex flex-wrap align-items-center gap-2">
         <span id="fleet-version-line" class="fleet-mono" aria-live="polite">Loading version…</span>
+        <span id="fleet-install-channel" class="badge text-bg-secondary fleet-mono small fleet-local-only" title="Install channel"></span>
         <span id="fleet-git-remote-row" class="small fleet-mono fleet-local-only" aria-live="polite"></span>
         <span id="fleet-self-update-status" class="fleet-mono small fleet-local-only" aria-live="polite"></span>
       </p>
@@ -127,7 +128,7 @@
         data-bs-target="#fleet-connect-wizard-offcanvas"
         aria-controls="fleet-connect-wizard-offcanvas"
       >
-        Connect…
+        Settings…
       </button>
       <button
         type="button"
@@ -514,38 +515,37 @@
     style="width: min(44rem, 100vw)"
   >
     <div class="offcanvas-header border-bottom border-secondary-subtle">
-      <h2 class="offcanvas-title h5 mb-0" id="fleet-connect-wizard-label">Connect to remote Fleet</h2>
+      <h2 class="offcanvas-title h5 mb-0" id="fleet-connect-wizard-label">Fleet settings</h2>
       <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
     </div>
     <div class="offcanvas-body">
       <p class="small text-body-secondary">
-        Register another Fleet node (often behind Cloudflare) as a read-only admin peer.
-        Credentials stay in <code class="fleet-mono">remote-peers.json</code> on this host — the browser never calls the remote URL directly.
+        Configure connection and machine role here. Fleet saves non-secret fields on this host.
+        Bearer tokens go to <code class="fleet-mono">remote-peers.json</code> only when you save a connection.
+        Shell commands appear on the <strong>Commands</strong> tab — run <strong>root</strong> steps only on the public server.
       </p>
       <ul class="nav nav-pills nav-fill mb-3 small" id="fleet-connect-wizard-steps" role="tablist">
         <li class="nav-item" role="presentation">
-          <button class="nav-link active" type="button" data-fleet-wizard-step="1">1 Local</button>
+          <button class="nav-link active" type="button" data-fleet-settings-tab="connection">Connection</button>
         </li>
         <li class="nav-item" role="presentation">
-          <button class="nav-link" type="button" data-fleet-wizard-step="2">2 Remote</button>
+          <button class="nav-link" type="button" data-fleet-settings-tab="machine">Machine</button>
+        </li>
+        <li class="nav-item d-none" role="presentation" id="fleet-settings-tab-edge-wrap">
+          <button class="nav-link" type="button" data-fleet-settings-tab="edge">Edge</button>
         </li>
         <li class="nav-item" role="presentation">
-          <button class="nav-link" type="button" data-fleet-wizard-step="3">3 Test</button>
+          <button class="nav-link" type="button" data-fleet-settings-tab="capacity">Capacity</button>
         </li>
         <li class="nav-item" role="presentation">
-          <button class="nav-link" type="button" data-fleet-wizard-step="4">4 Edge</button>
+          <button class="nav-link" type="button" data-fleet-settings-tab="commands">Commands</button>
         </li>
       </ul>
-      <div id="fleet-connect-wizard-panel-1">
-        <p class="small mb-2">Confirm local Fleet is healthy (cockpit on this machine).</p>
-        <button type="button" class="btn btn-sm btn-outline-primary mb-2" id="fleet-connect-wizard-local-check">Check local health</button>
-        <pre class="fleet-mono small p-2 rounded border bg-body-secondary mb-0" id="fleet-connect-wizard-local-out" style="max-height: 8rem; overflow: auto">Not checked yet.</pre>
-      </div>
-      <div id="fleet-connect-wizard-panel-2" class="d-none">
+      <div id="fleet-settings-panel-connection">
         <div class="row g-2 mb-2">
           <div class="col-md-6">
             <label class="form-label small mb-0" for="fleet-connect-peer-id">Peer id</label>
-            <input id="fleet-connect-peer-id" class="form-control form-control-sm fleet-mono" placeholder="remote-worker" />
+            <input id="fleet-connect-peer-id" class="form-control form-control-sm fleet-mono" placeholder="remote" />
           </div>
           <div class="col-md-6">
             <label class="form-label small mb-0" for="fleet-connect-peer-label">Label</label>
@@ -560,38 +560,120 @@
             <input id="fleet-connect-peer-bearer" class="form-control form-control-sm fleet-mono" type="password" autocomplete="off" placeholder="&lt;FLEET_BEARER_TOKEN&gt;" />
           </div>
         </div>
-        <p class="small text-body-secondary mb-0">Use the public HTTPS URL of the remote Fleet API (Cloudflare hostname). Do not paste secrets into docs — store in env or a secrets file.</p>
-      </div>
-      <div id="fleet-connect-wizard-panel-3" class="d-none">
-        <p class="small mb-2">Save the peer on this Fleet host, then probe <code class="fleet-mono">/v1/health</code> through the local proxy.</p>
         <div class="d-flex flex-wrap gap-2 mb-2">
-          <button type="button" class="btn btn-sm btn-primary" id="fleet-connect-wizard-save">Save peer</button>
-          <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-connect-wizard-probe">Probe health</button>
-          <button type="button" class="btn btn-sm btn-outline-success" id="fleet-connect-wizard-view">View remote dashboard</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-connect-wizard-local-check">Check local health</button>
+          <button type="button" class="btn btn-sm btn-primary" id="fleet-settings-save-connection">Save connection</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-connect-wizard-probe">Probe remote</button>
+          <button type="button" class="btn btn-sm btn-outline-success" id="fleet-connect-wizard-view">View remote</button>
         </div>
-        <pre class="fleet-mono small p-2 rounded border bg-body-secondary mb-0" id="fleet-connect-wizard-probe-out" style="max-height: 10rem; overflow: auto">Run probe after save.</pre>
+        <pre class="fleet-mono small p-2 rounded border bg-body-secondary mb-0" id="fleet-connect-wizard-probe-out" style="max-height: 10rem; overflow: auto">Save connection, then probe.</pre>
       </div>
-      <div id="fleet-connect-wizard-panel-4" class="d-none">
+      <div id="fleet-settings-panel-machine" class="d-none">
+        <fieldset class="mb-3">
+          <legend class="form-label small mb-1">This machine</legend>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="fleet-settings-machine-role" id="fleet-settings-role-laptop" value="laptop" checked />
+            <label class="form-check-label small" for="fleet-settings-role-laptop">Laptop / cockpit (connect to remote Fleet only)</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="fleet-settings-machine-role" id="fleet-settings-role-server" value="server" />
+            <label class="form-check-label small" for="fleet-settings-role-server">Public server (publish through Cloudflare + Caddy)</label>
+          </div>
+        </fieldset>
+        <div id="fleet-settings-edge-fields" class="d-none">
+          <div class="mb-2">
+            <label class="form-label small mb-0" for="fleet-connect-edge-host">Public hostname</label>
+            <input id="fleet-connect-edge-host" class="form-control form-control-sm fleet-mono" placeholder="&lt;FLEET_PUBLIC_HOSTNAME&gt;" />
+          </div>
+          <div class="mb-2">
+            <label class="form-label small mb-0" for="fleet-connect-edge-caddy-port">Caddy listen port (tunnel origin)</label>
+            <input id="fleet-connect-edge-caddy-port" class="form-control form-control-sm fleet-mono" value="18767" />
+          </div>
+          <div class="mb-2">
+            <label class="form-label small mb-0" for="fleet-connect-edge-layout">Caddy layout</label>
+            <select id="fleet-connect-edge-layout" class="form-select form-select-sm">
+              <option value="system">system (root-managed)</option>
+              <option value="user">user (systemd --user)</option>
+            </select>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small mb-0" for="fleet-connect-edge-checkout">forge-fleet checkout path</label>
+            <input id="fleet-connect-edge-checkout" class="form-control form-control-sm fleet-mono" value="/opt/forge-fleet" />
+          </div>
+        </div>
+        <button type="button" class="btn btn-sm btn-primary" id="fleet-settings-save-machine">Save machine settings</button>
+      </div>
+      <div id="fleet-settings-panel-edge" class="d-none">
         <p class="small text-body-secondary">
-          <strong>Publishing</strong> a Fleet host through Cloudflare is done on the <em>server</em> (root).
-          Fleet does not create tunnels automatically — point an existing tunnel at unified Caddy, then use step 2–3 on laptops.
+          Cloudflare tunnel → unified Caddy → public Fleet health. Run <strong>root</strong> steps on this server only.
+          <a href="https://one.dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare Zero Trust</a>
         </p>
-        <div class="mb-2">
-          <label class="form-label small mb-0" for="fleet-connect-edge-host">Public hostname</label>
-          <input id="fleet-connect-edge-host" class="form-control form-control-sm fleet-mono" placeholder="&lt;FLEET_PUBLIC_HOSTNAME&gt;" />
+        <div id="fleet-settings-edge-recipes"></div>
+        <div class="d-flex flex-wrap gap-2 mt-2">
+          <button type="button" class="btn btn-sm btn-outline-primary" id="fleet-edge-verify-public">Verify public health</button>
         </div>
-        <div class="mb-2">
-          <label class="form-label small mb-0" for="fleet-connect-edge-caddy-port">Local Caddy listen port (tunnel origin)</label>
-          <input id="fleet-connect-edge-caddy-port" class="form-control form-control-sm fleet-mono" value="18767" />
-        </div>
-        <button type="button" class="btn btn-sm btn-outline-secondary mb-2" id="fleet-connect-edge-refresh">Refresh instructions</button>
-        <pre class="fleet-mono small p-2 rounded border bg-body-secondary mb-0" id="fleet-connect-edge-instructions" style="max-height: 22rem; overflow: auto; white-space: pre-wrap"></pre>
-        <p class="small text-body-secondary mt-2 mb-0">
-          Handbook: <code class="fleet-mono">docs/learn-101/08-connect-remote-fleet.md</code> ·
-          <code class="fleet-mono">docs/build-201/04-caddy-unified-granite.md</code>
+        <pre class="fleet-mono small p-2 rounded border bg-body-secondary mt-2 mb-0" id="fleet-edge-verify-out" style="max-height: 10rem; overflow: auto">Save machine settings, then verify.</pre>
+      </div>
+      <div id="fleet-settings-panel-capacity" class="d-none">
+        <p class="small text-body-secondary mb-2">
+          Planning estimates for CPU, RAM, and GPU/VRAM headroom. Job reservations are not enforced yet.
         </p>
+        <button type="button" class="btn btn-sm btn-outline-secondary mb-2" id="fleet-capacity-refresh">Refresh</button>
+        <div class="table-responsive">
+          <table class="table table-sm table-bordered mb-0">
+            <thead>
+              <tr>
+                <th>Node</th>
+                <th>CPU avail</th>
+                <th>RAM avail</th>
+                <th>GPU</th>
+                <th>VRAM avail</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="fleet-capacity-rows">
+              <tr><td colspan="6" class="text-body-secondary">Open this tab to load mesh capacity.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div id="fleet-settings-panel-commands" class="d-none">
+        <p class="small text-body-secondary">Generated from saved settings. Copy and run in a terminal — <span class="badge text-bg-danger">root</span> blocks need <code class="fleet-mono">sudo</code> on the server.</p>
+        <div id="fleet-settings-recipes"></div>
       </div>
       <div id="fleet-connect-wizard-msg" class="small text-body-secondary mt-3" aria-live="polite"></div>
+    </div>
+  </div>
+
+  <div
+    class="modal fade"
+    id="fleet-welcome-modal"
+    tabindex="-1"
+    aria-labelledby="fleet-welcome-modal-label"
+    aria-hidden="true"
+    data-bs-backdrop="static"
+  >
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header border-bottom border-secondary-subtle">
+          <h2 class="modal-title h5 mb-0" id="fleet-welcome-modal-label">Welcome to Forge Fleet</h2>
+        </div>
+        <div class="modal-body">
+          <p class="small mb-2">
+            This cockpit runs on your machine and connects to your Fleet mesh. Start with
+            <strong>Settings</strong> to save your remote URL and bearer token.
+          </p>
+          <ul class="small text-body-secondary mb-0">
+            <li><strong>Laptop</strong> — <strong>Connection</strong> tab, then <strong>Capacity</strong> to plan mesh headroom.</li>
+            <li><strong>Public server</strong> — <strong>Machine</strong> → <strong>Edge</strong> (Cloudflare + Caddy), then <strong>Capacity</strong>.</li>
+            <li>After <code class="fleet-mono">apt upgrade</code>, run <code class="fleet-mono">land-fleet bootstrap-deps</code> when prompted.</li>
+          </ul>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-sm btn-primary" id="fleet-welcome-open-settings">Open settings</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-welcome-dismiss">Continue to dashboard</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -5095,30 +5177,73 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       return false;
     }
 
-    async function doGitSelfUpdate() {
+    function formatUpgradeBlockers(waitingOn) {
+      if (!Array.isArray(waitingOn) || !waitingOn.length) return "";
+      return waitingOn
+        .map(function (w) {
+          var svc = esc(String(w.service_id || w.service || "?"));
+          var blockers = Array.isArray(w.blockers) ? w.blockers : [];
+          if (!blockers.length) {
+            return svc + ": " + esc(String(w.reason || "blocked"));
+          }
+          return (
+            svc +
+            ": " +
+            blockers
+              .map(function (b) {
+                return esc(String((b && b.kind) || "blocker")) + (b && b.id ? " (" + esc(String(b.id)) + ")" : "");
+              })
+              .join(", ")
+          );
+        })
+        .join("; ");
+    }
+
+    async function loadInstallChannelBadge() {
+      if (isFleetScopeRemote()) return;
+      var el = document.getElementById("fleet-install-channel");
+      if (!el) return;
+      try {
+        var res = await fetch("/v1/admin/install-channel", { headers: authHeaders(), cache: "no-store" });
+        var j = {};
+        try {
+          j = await res.json();
+        } catch (_e) {
+          j = {};
+        }
+        if (!res.ok || !j.ok) {
+          el.textContent = "";
+          return;
+        }
+        el.textContent = String(j.install_channel || "unknown");
+        var hint = j.recommended_command || "";
+        if (j.timer_active) hint = (hint ? hint + " · " : "") + "apt timer active";
+        el.title = hint || "Install channel";
+      } catch (_e2) {
+        el.textContent = "";
+      }
+    }
+
+    async function doCooperativeUpgrade(opts) {
+      opts = opts || {};
+      var force = !!opts.force;
       var st = document.getElementById("fleet-self-update-status");
       var logEl = document.getElementById("fleet-self-update-log");
-      if (!__fleetSelfUpdateConfigured) {
-        setErr(
-          "Git self-update is not configured. Set FLEET_GIT_ROOT to your forge-fleet checkout (with .git), or run this Fleet process from that clone."
-        );
-        return;
-      }
-      var su = __fleetSelfUpdateMeta || {};
-      if (String(su.install_profile || "user").toLowerCase() === "system") {
-        return;
-      }
       setErr("");
-      if (st) st.textContent = "Running git pull…";
+      if (st) st.textContent = force ? "Force upgrade (ignoring blockers after wait)…" : "Preparing cooperative upgrade…";
       if (logEl) {
         logEl.textContent = "";
         logEl.classList.add("d-none");
       }
       try {
-        var res = await fetch("/v1/admin/git-self-update", {
+        var res = await fetch("/v1/admin/upgrade", {
           method: "POST",
           headers: Object.assign({ "Content-Type": "application/json" }, authHeaders()),
-          body: "{}",
+          body: JSON.stringify({
+            mode: "upgrade",
+            max_wait_sec: 45,
+            on_timeout: force ? "force" : "abort",
+          }),
         });
         var j = {};
         try {
@@ -5131,8 +5256,39 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
           logEl.classList.remove("d-none");
         }
         if (!res.ok || !j.ok) {
-          if (st) st.textContent = "Failed (" + res.status + ").";
-          setErr(String(j.detail || j.error || "git-self-update failed"));
+          if (st) st.textContent = "Blocked (" + res.status + ").";
+          if (j.waiting_on && j.waiting_on.length) {
+            setErr("Upgrade blocked: " + formatUpgradeBlockers(j.waiting_on));
+          } else {
+            setErr(String(j.detail || j.error || "upgrade failed"));
+          }
+          return;
+        }
+        if (j.status === "queued") {
+          if (st) st.textContent = "Queued for root apt timer (~60s)…";
+          var deadline = Date.now() + 90000;
+          while (Date.now() < deadline) {
+            await new Promise(function (r) {
+              setTimeout(r, 3000);
+            });
+            var sr = await fetch("/v1/admin/upgrade/status", { headers: authHeaders(), cache: "no-store" });
+            var sj = {};
+            try {
+              sj = await sr.json();
+            } catch (_e2) {
+              sj = {};
+            }
+            if (sj.phase === "complete" || (sj.result && sj.result.ok)) {
+              if (st) st.textContent = "Upgrade complete — reloading…";
+              window.location.reload();
+              return;
+            }
+            if (sj.phase === "failed") {
+              setErr(String((sj.result && sj.result.error) || "apt upgrade failed"));
+              return;
+            }
+          }
+          setErr("Timed out waiting for apt timer — check systemctl status forge-fleet-apt-upgrade.timer");
           return;
         }
         if (st) st.textContent = j.note || "OK.";
@@ -5149,6 +5305,14 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         setErr(String(e));
         if (st) st.textContent = "";
       }
+    }
+
+    async function doGitSelfUpdate() {
+      return doCooperativeUpgrade();
+    }
+
+    async function doCooperativeUpgradeForce() {
+      return doCooperativeUpgrade({ force: true });
     }
 
     function gitShaPrefix7(s) {
@@ -5206,6 +5370,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
           row.innerHTML =
             '<span class="text-warning fw-semibold me-1">Update available</span>' +
             '<button type="button" class="btn btn-sm btn-warning" id="fleet-header-git-update-btn">Update Fleet</button>' +
+            '<button type="button" class="btn btn-sm btn-outline-danger ms-1" id="fleet-header-git-force-btn" title="Wait then force if dependents still block">Force</button>' +
             '<a class="btn btn-sm btn-outline-secondary ms-1" href="' +
             commitsHref +
             '" target="_blank" rel="noopener">GitHub</a>';
@@ -5342,6 +5507,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
           }, REMOTE_GIT_POLL_MS);
         }
         applySelfUpdateMeta(meta.self_update || {});
+        void loadInstallChannelBadge();
       } else {
         __fleetSelfUpdateConfigured = false;
       }
@@ -5638,6 +5804,10 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       } else if (t.id === "fleet-header-git-update-btn" || (t.closest && t.closest("#fleet-header-git-update-btn"))) {
         ev.preventDefault();
         doGitSelfUpdate();
+      } else if (t.id === "fleet-header-git-force-btn" || (t.closest && t.closest("#fleet-header-git-force-btn"))) {
+        ev.preventDefault();
+        if (!window.confirm("Force upgrade after cooperative wait if dependents still block?")) return;
+        doCooperativeUpgradeForce();
       } else if (t.classList && t.classList.contains("fleet-power-open-diag")) {
         ev.preventDefault();
         openFleetPowerDiagModal();
@@ -5902,85 +6072,339 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       });
     }
 
-    function fleetConnectWizardShowStep(step) {
-      var n = parseInt(String(step || "1"), 10);
-      if (!n || n < 1) n = 1;
-      if (n > 4) n = 4;
-      for (var i = 1; i <= 4; i++) {
-        var panel = document.getElementById("fleet-connect-wizard-panel-" + i);
-        if (panel) panel.classList.toggle("d-none", i !== n);
+    var __fleetUiRecipes = [];
+    var __fleetEdgeRecipes = [];
+
+    function fleetSettingsRunsAsBadge(runsAs) {
+      if (runsAs === "root") return '<span class="badge text-bg-danger me-1">root</span>';
+      if (runsAs === "user") return '<span class="badge text-bg-primary me-1">user</span>';
+      if (runsAs === "ui") return '<span class="badge text-bg-success me-1">web UI</span>';
+      return '<span class="badge text-bg-secondary me-1">' + esc(runsAs || "") + "</span>";
+    }
+
+    function fleetSettingsShowTab(tab) {
+      var name = tab || "connection";
+      ["connection", "machine", "edge", "capacity", "commands"].forEach(function (t) {
+        var panel = document.getElementById("fleet-settings-panel-" + t);
+        if (panel) panel.classList.toggle("d-none", t !== name);
+      });
+      document.querySelectorAll("#fleet-connect-wizard-steps [data-fleet-settings-tab]").forEach(function (btn) {
+        btn.classList.toggle("active", btn.getAttribute("data-fleet-settings-tab") === name);
+      });
+      if (name === "commands") fleetSettingsRenderRecipes(__fleetUiRecipes);
+      if (name === "edge") fleetSettingsRenderEdgeRecipes(__fleetEdgeRecipes);
+      if (name === "capacity") fleetCapacityLoad();
+    }
+
+    function fleetSettingsCollectPayload() {
+      var roleEl = document.querySelector('input[name="fleet-settings-machine-role"]:checked');
+      return {
+        machine_role: roleEl ? roleEl.value : "laptop",
+        connection: {
+          peer_id: ((document.getElementById("fleet-connect-peer-id") || {}).value || "").trim(),
+          peer_label: ((document.getElementById("fleet-connect-peer-label") || {}).value || "").trim(),
+          remote_base_url: ((document.getElementById("fleet-connect-peer-base") || {}).value || "").trim(),
+        },
+        edge: {
+          public_hostname: ((document.getElementById("fleet-connect-edge-host") || {}).value || "").trim(),
+          caddy_port: parseInt(((document.getElementById("fleet-connect-edge-caddy-port") || {}).value || "18767"), 10) || 18767,
+          layout: ((document.getElementById("fleet-connect-edge-layout") || {}).value || "system").trim(),
+          forge_fleet_checkout: ((document.getElementById("fleet-connect-edge-checkout") || {}).value || "/opt/forge-fleet").trim(),
+        },
+      };
+    }
+
+    function fleetSettingsApplyToForm(settings) {
+      if (!settings) return;
+      var conn = settings.connection || {};
+      var edge = settings.edge || {};
+      var idEl = document.getElementById("fleet-connect-peer-id");
+      var labelEl = document.getElementById("fleet-connect-peer-label");
+      var baseEl = document.getElementById("fleet-connect-peer-base");
+      if (idEl) idEl.value = conn.peer_id || "";
+      if (labelEl) labelEl.value = conn.peer_label || "";
+      if (baseEl) baseEl.value = conn.remote_base_url || "";
+      var hostEl = document.getElementById("fleet-connect-edge-host");
+      var portEl = document.getElementById("fleet-connect-edge-caddy-port");
+      var layoutEl = document.getElementById("fleet-connect-edge-layout");
+      var checkoutEl = document.getElementById("fleet-connect-edge-checkout");
+      if (hostEl) hostEl.value = edge.public_hostname || "";
+      if (portEl) portEl.value = String(edge.caddy_port != null ? edge.caddy_port : 18767);
+      if (layoutEl) layoutEl.value = edge.layout || "system";
+      if (checkoutEl) checkoutEl.value = edge.forge_fleet_checkout || "/opt/forge-fleet";
+      var role = settings.machine_role || "laptop";
+      var laptop = document.getElementById("fleet-settings-role-laptop");
+      var server = document.getElementById("fleet-settings-role-server");
+      if (laptop) laptop.checked = role !== "server";
+      if (server) server.checked = role === "server";
+      fleetSettingsToggleEdgeFields();
+    }
+
+    function fleetSettingsToggleEdgeFields() {
+      var server = document.getElementById("fleet-settings-role-server");
+      var wrap = document.getElementById("fleet-settings-edge-fields");
+      var edgeTab = document.getElementById("fleet-settings-tab-edge-wrap");
+      if (wrap && server) wrap.classList.toggle("d-none", !server.checked);
+      if (edgeTab && server) edgeTab.classList.toggle("d-none", !server.checked);
+    }
+
+    function fleetSettingsRenderEdgeRecipes(recipes) {
+      var root = document.getElementById("fleet-settings-edge-recipes");
+      if (!root) return;
+      var list = recipes || [];
+      if (!list.length) {
+        root.innerHTML =
+          '<p class="small text-body-secondary">Set <strong>Machine</strong> role to <em>Public server</em> and save to show Cloudflare + Caddy steps.</p>';
+        return;
       }
-      var pills = document.querySelectorAll("#fleet-connect-wizard-steps [data-fleet-wizard-step]");
-      pills.forEach(function (btn) {
-        var s = parseInt(btn.getAttribute("data-fleet-wizard-step") || "0", 10);
-        btn.classList.toggle("active", s === n);
-      });
-      if (n === 4) fleetConnectWizardRenderEdgeInstructions();
+      root.innerHTML = list
+        .map(function (recipe) {
+          var steps = (recipe.steps || [])
+            .map(function (step) {
+              var cmds = (step.commands || [])
+                .map(function (c) {
+                  return (
+                    '<pre class="fleet-mono small p-2 rounded border bg-body-secondary mb-1 fleet-settings-cmd">' +
+                    esc(c) +
+                    '</pre><button type="button" class="btn btn-sm btn-outline-secondary mb-2 fleet-settings-copy" data-copy="' +
+                    encodeURIComponent(c) +
+                    '">Copy</button>'
+                  );
+                })
+                .join("");
+              return (
+                '<div class="mb-2"><div class="fw-semibold small">' +
+                esc(step.label || step.id || "") +
+                "</div>" +
+                (step.detail ? '<p class="small text-body-secondary mb-1">' + esc(step.detail) + "</p>" : "") +
+                cmds +
+                "</div>"
+              );
+            })
+            .join("");
+          var doc = recipe.doc_url
+            ? ' <a href="' + esc(recipe.doc_url) + '" target="_blank" rel="noopener noreferrer">Dashboard</a>'
+            : "";
+          return (
+            '<section class="border rounded p-2 mb-3"><h3 class="h6 mb-1">' +
+            fleetSettingsRunsAsBadge(recipe.runs_as) +
+            esc(recipe.title || "") +
+            doc +
+            "</h3>" +
+            (recipe.summary ? '<p class="small text-body-secondary">' + esc(recipe.summary) + "</p>" : "") +
+            steps +
+            "</section>"
+          );
+        })
+        .join("");
     }
 
-    function fleetConnectWizardRenderEdgeInstructions() {
+    function fleetCapacityFormatGpu(gpus) {
+      if (!gpus || !gpus.length) return "—";
+      return gpus
+        .map(function (g) {
+          var v = g.vendor || "?";
+          var u = g.utilization_pct != null ? v + " " + g.utilization_pct + "%" : v;
+          return u;
+        })
+        .join("; ");
+    }
+
+    function fleetCapacityFormatVram(gpus) {
+      if (!gpus || !gpus.length) return "—";
+      var parts = [];
+      gpus.forEach(function (g) {
+        if (g.vram_available_mb != null) parts.push(String(g.vram_available_mb) + " MiB");
+        else if (g.note) parts.push("n/a");
+      });
+      return parts.length ? parts.join("; ") : "—";
+    }
+
+    function fleetCapacityLoad() {
+      var tbody = document.getElementById("fleet-capacity-rows");
+      if (!tbody) return;
+      tbody.innerHTML = '<tr><td colspan="6" class="text-body-secondary">Loading…</td></tr>';
+      fleetApi("/v1/mesh/capacity")
+        .then(function (res) { return res.json(); })
+        .then(function (j) {
+          var nodes = j.nodes || [];
+          if (!nodes.length) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-body-secondary">No capacity data.</td></tr>';
+            return;
+          }
+          tbody.innerHTML = nodes
+            .map(function (n) {
+              var cap = n.capacity || {};
+              var cpu = cap.cpu || {};
+              var mem = cap.memory || {};
+              var gpus = cap.gpu || [];
+              var name = n.label || n.node_id || n.peer_id || "—";
+              if (n.scope === "local") name = "Local (" + (n.node_id || "this host") + ")";
+              var status = n.ok ? "ok" : esc(n.error || "error");
+              return (
+                "<tr><td>" +
+                esc(name) +
+                "</td><td class=\"fleet-mono small\">" +
+                esc(cpu.available_cores != null ? String(cpu.available_cores) : "—") +
+                "</td><td class=\"fleet-mono small\">" +
+                esc(mem.available_mb != null ? String(mem.available_mb) + " MiB" : "—") +
+                "</td><td class=\"small\">" +
+                esc(fleetCapacityFormatGpu(gpus)) +
+                "</td><td class=\"fleet-mono small\">" +
+                esc(fleetCapacityFormatVram(gpus)) +
+                "</td><td class=\"small\">" +
+                status +
+                "</td></tr>"
+              );
+            })
+            .join("");
+        })
+        .catch(function (e) {
+          tbody.innerHTML =
+            '<tr><td colspan="6" class="text-danger">' + esc(String(e)) + "</td></tr>";
+        });
+    }
+
+    function fleetEdgePublicUrl() {
+      var base = ((document.getElementById("fleet-connect-peer-base") || {}).value || "").trim();
       var host = ((document.getElementById("fleet-connect-edge-host") || {}).value || "").trim();
-      var port = ((document.getElementById("fleet-connect-edge-caddy-port") || {}).value || "18767").trim();
-      if (!host) host = "<FLEET_PUBLIC_HOSTNAME>";
-      var base = host.indexOf("://") >= 0 ? host : "https://" + host;
-      var lines = [
-        "# Run on the Fleet SERVER (root). Replace placeholders before executing.",
-        "",
-        "# 1) Install cloudflared (Debian/Ubuntu)",
-        "curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | sudo tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null",
-        'echo "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared $(. /etc/os-release && echo $VERSION_CODENAME) main" | sudo tee /etc/apt/sources.list.d/cloudflared.list',
-        "sudo apt-get update && sudo apt-get install -y cloudflared",
-        "",
-        "# 2) Install tunnel service (token from Cloudflare Zero Trust dashboard)",
-        "sudo cloudflared service install <CLOUDFLARE_TUNNEL_TOKEN>",
-        "sudo systemctl enable --now cloudflared",
-        "",
-        "# 3) Route public hostname to local Caddy (Zero Trust → Public Hostname → http://127.0.0.1:" + port + ")",
-        "#    Unified Caddy must route /v1/health to Fleet before Ollama (see 04-caddy-unified-granite.md).",
-        "",
-        "# 4) Install unified Caddy + Fleet edge (on server, from forge-fleet checkout):",
-        "cd /path/to/forge-fleet",
-        "CADDY_SITE_ADDRESS=" + host.replace(/^https?:\/\//, "") + " \\",
-        "LAYOUT=system \\",
-        "FLEET_BEARER_TOKEN='<FLEET_BEARER_TOKEN>' \\",
-        "LLM_BEARER_TOKEN='<LLM_BEARER_TOKEN>' \\",
-        "bash ./scripts/install-caddy-fleet-ollama-unified.sh --non-interactive",
-        "",
-        "# 5) Verify public API (from any machine):",
-        "curl -fsS -H 'Authorization: Bearer <FLEET_BEARER_TOKEN>' " + base + "/v1/health",
-        "",
-        "# 6) On this laptop: use Connect wizard step 2–3 with base URL " + base,
-      ];
-      var out = document.getElementById("fleet-connect-edge-instructions");
-      if (out) out.textContent = lines.join("\n");
+      if (base) return base.replace(/\/$/, "");
+      if (!host) return "";
+      if (host.indexOf("http://") === 0 || host.indexOf("https://") === 0) return host.replace(/\/$/, "");
+      return "https://" + host.replace(/\/$/, "");
     }
 
-    document.querySelectorAll("#fleet-connect-wizard-steps [data-fleet-wizard-step]").forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        fleetConnectWizardShowStep(btn.getAttribute("data-fleet-wizard-step"));
-      });
-    });
+    function fleetSettingsRenderRecipes(recipes) {
+      var root = document.getElementById("fleet-settings-recipes");
+      if (!root) return;
+      var list = recipes || [];
+      if (!list.length) {
+        root.innerHTML = '<p class="small text-body-secondary">Save settings to generate commands.</p>';
+        return;
+      }
+      root.innerHTML = list
+        .map(function (recipe) {
+          var steps = (recipe.steps || [])
+            .map(function (step) {
+              var cmds = (step.commands || [])
+                .map(function (c) {
+                  return (
+                    '<pre class="fleet-mono small p-2 rounded border bg-body-secondary mb-1 fleet-settings-cmd">' +
+                    esc(c) +
+                    '</pre><button type="button" class="btn btn-sm btn-outline-secondary mb-2 fleet-settings-copy" data-copy="' +
+                    encodeURIComponent(c) +
+                    '">Copy</button>'
+                  );
+                })
+                .join("");
+              var detail = step.detail
+                ? '<p class="small text-body-secondary mb-1">' + esc(step.detail) + "</p>"
+                : "";
+              return (
+                '<div class="mb-2"><div class="small fw-semibold">' +
+                esc(step.label || "") +
+                "</div>" +
+                detail +
+                cmds +
+                "</div>"
+              );
+            })
+            .join("");
+          return (
+            '<section class="border rounded p-2 mb-3"><h3 class="h6 mb-1">' +
+            fleetSettingsRunsAsBadge(recipe.runs_as) +
+            esc(recipe.title || "") +
+            "</h3>" +
+            (recipe.summary ? '<p class="small text-body-secondary">' + esc(recipe.summary) + "</p>" : "") +
+            steps +
+            "</section>"
+          );
+        })
+        .join("");
+    }
 
-    var fleetConnectLocalCheck = document.getElementById("fleet-connect-wizard-local-check");
-    if (fleetConnectLocalCheck) {
-      fleetConnectLocalCheck.addEventListener("click", function () {
-        var out = document.getElementById("fleet-connect-wizard-local-out");
-        fleetApi("/v1/health")
-          .then(function (res) { return res.text().then(function (t) { return { res: res, t: t }; }); })
-          .then(function (o) {
-            if (out) out.textContent = "HTTP " + o.res.status + "\n" + o.t;
-          })
-          .catch(function (e) {
-            if (out) out.textContent = String(e);
-          });
-      });
+    function fleetMarkSetupCompleted() {
+      return fleetApi("/v1/operator/ui-settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ setup_completed: true }),
+      }).then(function (res) { return res.json(); });
+    }
+
+    function fleetOpenSettingsOffcanvas() {
+      var panel = document.getElementById("fleet-connect-wizard-offcanvas");
+      if (panel && window.bootstrap && bootstrap.Offcanvas) {
+        bootstrap.Offcanvas.getOrCreateInstance(panel).show();
+      }
+    }
+
+    var LS_WELCOME_SEEN = "fleet_welcome_seen_v1";
+
+    function fleetWelcomeAlreadySeen() {
+      try {
+        return localStorage.getItem(LS_WELCOME_SEEN) === "1";
+      } catch (_e) {
+        return false;
+      }
+    }
+
+    function fleetMarkWelcomeSeenLocal() {
+      try {
+        localStorage.setItem(LS_WELCOME_SEEN, "1");
+      } catch (_e) {
+        /* ignore */
+      }
+    }
+
+    function fleetMaybeShowWelcome(j) {
+      var settings = j && j.settings;
+      var completed = (settings && settings.setup_completed) || fleetWelcomeAlreadySeen();
+      if (completed) return;
+      var welcome = document.getElementById("fleet-welcome-modal");
+      if (welcome && window.bootstrap && bootstrap.Modal) {
+        bootstrap.Modal.getOrCreateInstance(welcome).show();
+      }
+    }
+
+    function fleetSettingsLoad() {
+      return fleetApi("/v1/operator/ui-settings")
+        .then(function (res) { return res.json(); })
+        .then(function (j) {
+          if (j && j.settings) fleetSettingsApplyToForm(j.settings);
+          __fleetUiRecipes = j.recipes || [];
+          __fleetEdgeRecipes = j.edge_recipes || [];
+          fleetSettingsRenderRecipes(__fleetUiRecipes);
+          fleetSettingsRenderEdgeRecipes(__fleetEdgeRecipes);
+          return j;
+        });
+    }
+
+    function fleetSettingsSaveUiSettings(msgEl) {
+      return fleetApi("/v1/operator/ui-settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(fleetSettingsCollectPayload()),
+      })
+        .then(function (res) { return res.json().then(function (j) { return { res: res, j: j }; }); })
+        .then(function (out) {
+          if (out.j && out.j.settings) fleetSettingsApplyToForm(out.j.settings);
+          __fleetUiRecipes = (out.j && out.j.recipes) || [];
+          __fleetEdgeRecipes = (out.j && out.j.edge_recipes) || [];
+          if (msgEl) {
+            msgEl.textContent = out.res.ok
+              ? "Settings saved on this Fleet host."
+              : JSON.stringify(out.j);
+          }
+          return out;
+        });
     }
 
     function fleetConnectWizardPeerPayload() {
+      var p = fleetSettingsCollectPayload().connection;
       return {
-        id: ((document.getElementById("fleet-connect-peer-id") || {}).value || "").trim(),
-        label: ((document.getElementById("fleet-connect-peer-label") || {}).value || "").trim(),
-        base: ((document.getElementById("fleet-connect-peer-base") || {}).value || "").trim(),
+        id: p.peer_id,
+        label: p.peer_label,
+        base: p.remote_base_url,
         bearer: ((document.getElementById("fleet-connect-peer-bearer") || {}).value || "").trim(),
       };
     }
@@ -5988,33 +6412,126 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
     function fleetConnectWizardSyncManageForm() {
       var p = fleetConnectWizardPeerPayload();
       fillRemotePeerForm({ id: p.id, label: p.label, base_url: p.base });
-      var bearerEl = document.getElementById("fleet-remote-peer-bearer");
-      if (bearerEl && p.bearer) bearerEl.value = p.bearer;
     }
 
-    var fleetConnectSave = document.getElementById("fleet-connect-wizard-save");
-    if (fleetConnectSave) {
-      fleetConnectSave.addEventListener("click", function () {
+    document.querySelectorAll("#fleet-connect-wizard-steps [data-fleet-settings-tab]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        fleetSettingsShowTab(btn.getAttribute("data-fleet-settings-tab"));
+      });
+    });
+
+    document.querySelectorAll('input[name="fleet-settings-machine-role"]').forEach(function (el) {
+      el.addEventListener("change", fleetSettingsToggleEdgeFields);
+    });
+
+    document.addEventListener("click", function (ev) {
+      var copyBtn = ev.target && ev.target.closest ? ev.target.closest(".fleet-settings-copy") : null;
+      if (!copyBtn) return;
+      var raw = copyBtn.getAttribute("data-copy") || "";
+      var text = "";
+      try {
+        text = decodeURIComponent(raw);
+      } catch (_e) {
+        text = raw;
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).catch(function () {});
+      }
+    });
+
+    var fleetConnectLocalCheck = document.getElementById("fleet-connect-wizard-local-check");
+    if (fleetConnectLocalCheck) {
+      fleetConnectLocalCheck.addEventListener("click", function () {
+        var out = document.getElementById("fleet-connect-wizard-probe-out");
+        var msg = document.getElementById("fleet-connect-wizard-msg");
+        fleetApi("/v1/health")
+          .then(function (res) { return res.text().then(function (t) { return { res: res, t: t }; }); })
+          .then(function (o) {
+            if (out) out.textContent = "Local HTTP " + o.res.status + "\n" + o.t;
+            if (msg) msg.textContent = o.res.ok ? "Local Fleet healthy." : "Local health check failed.";
+          })
+          .catch(function (e) {
+            if (out) out.textContent = String(e);
+          });
+      });
+    }
+
+    var fleetSettingsSaveConnection = document.getElementById("fleet-settings-save-connection");
+    if (fleetSettingsSaveConnection) {
+      fleetSettingsSaveConnection.addEventListener("click", function () {
         var p = fleetConnectWizardPeerPayload();
         var msg = document.getElementById("fleet-connect-wizard-msg");
-        if (!p.id || !p.base || !p.bearer) {
-          if (msg) msg.textContent = "Peer id, base URL, and bearer are required.";
+        if (!p.id || !p.base) {
+          if (msg) msg.textContent = "Peer id and remote base URL are required.";
           return;
         }
-        fleetApi("/v1/remote-peers/" + encodeURIComponent(p.id), {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ label: p.label || p.id, base_url: p.base, bearer_token: p.bearer }),
-        })
-          .then(function (res) { return res.json().then(function (j) { return { res: res, j: j }; }); })
-          .then(function (out) {
-            if (msg) msg.textContent = out.res.ok ? "Saved peer " + p.id : JSON.stringify(out.j);
-            fleetConnectWizardSyncManageForm();
-            return refreshRemotePeersTable();
+        fleetSettingsSaveUiSettings(null)
+          .then(function () {
+            if (!p.bearer) {
+              if (msg) msg.textContent = "Settings saved. Enter bearer to store remote peer credentials.";
+              return refreshRemotePeersTable();
+            }
+            return fleetApi("/v1/remote-peers/" + encodeURIComponent(p.id), {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ label: p.label || p.id, base_url: p.base, bearer_token: p.bearer }),
+            })
+              .then(function (res) { return res.json().then(function (j) { return { res: res, j: j }; }); })
+              .then(function (out) {
+                if (msg) {
+                  msg.textContent = out.res.ok
+                    ? "Connection saved (settings + peer bearer)."
+                    : JSON.stringify(out.j);
+                }
+                fleetConnectWizardSyncManageForm();
+                return refreshRemotePeersTable();
+              });
           })
           .catch(function (e) {
             if (msg) msg.textContent = String(e);
           });
+      });
+    }
+
+    var fleetSettingsSaveMachine = document.getElementById("fleet-settings-save-machine");
+    if (fleetSettingsSaveMachine) {
+      fleetSettingsSaveMachine.addEventListener("click", function () {
+        var msg = document.getElementById("fleet-connect-wizard-msg");
+        fleetSettingsSaveUiSettings(msg).then(function () {
+          fleetSettingsRenderEdgeRecipes(__fleetEdgeRecipes);
+        });
+      });
+    }
+
+    var fleetEdgeVerify = document.getElementById("fleet-edge-verify-public");
+    if (fleetEdgeVerify) {
+      fleetEdgeVerify.addEventListener("click", function () {
+        var out = document.getElementById("fleet-edge-verify-out");
+        var url = fleetEdgePublicUrl();
+        var bearer = ((document.getElementById("fleet-connect-peer-bearer") || {}).value || "").trim();
+        if (!url) {
+          if (out) out.textContent = "Set public hostname on Machine tab or remote base URL on Connection.";
+          return;
+        }
+        fleetApi("/v1/operator/verify-public-health", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ public_url: url, bearer_token: bearer }),
+        })
+          .then(function (res) { return res.json().then(function (j) { return { res: res, j: j }; }); })
+          .then(function (o) {
+            if (out) out.textContent = JSON.stringify(o.j, null, 2);
+          })
+          .catch(function (e) {
+            if (out) out.textContent = String(e);
+          });
+      });
+    }
+
+    var fleetCapacityRefresh = document.getElementById("fleet-capacity-refresh");
+    if (fleetCapacityRefresh) {
+      fleetCapacityRefresh.addEventListener("click", function () {
+        fleetCapacityLoad();
       });
     }
 
@@ -6032,7 +6549,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
           .then(function (res) { return res.json(); })
           .then(function (j) {
             if (out) out.textContent = JSON.stringify(j, null, 2);
-            if (msg) msg.textContent = j.ok ? "Remote health OK." : "Probe failed — check URL, bearer, and Cloudflare/Caddy routing.";
+            if (msg) msg.textContent = j.ok ? "Remote health OK." : "Probe failed — check URL, bearer, and edge routing.";
           })
           .catch(function (e) {
             if (out) out.textContent = String(e);
@@ -6054,24 +6571,54 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       });
     }
 
-    var fleetConnectEdgeRefresh = document.getElementById("fleet-connect-edge-refresh");
-    if (fleetConnectEdgeRefresh) {
-      fleetConnectEdgeRefresh.addEventListener("click", fleetConnectWizardRenderEdgeInstructions);
+    function fleetInitWelcome() {
+      fleetMaybeShowWelcome(null);
+      fleetSettingsLoad()
+        .then(function (j) {
+          fleetMaybeShowWelcome(j);
+        })
+        .catch(function () {
+          fleetMaybeShowWelcome(null);
+        });
+    }
+
+    var fleetWelcomeOpen = document.getElementById("fleet-welcome-open-settings");
+    if (fleetWelcomeOpen) {
+      fleetWelcomeOpen.addEventListener("click", function () {
+        fleetMarkWelcomeSeenLocal();
+        fleetMarkSetupCompleted()
+          .then(function () {
+            var welcome = document.getElementById("fleet-welcome-modal");
+            if (welcome && window.bootstrap && bootstrap.Modal) {
+              var inst = bootstrap.Modal.getInstance(welcome);
+              if (inst) inst.hide();
+            }
+            fleetOpenSettingsOffcanvas();
+          })
+          .catch(function () {
+            fleetOpenSettingsOffcanvas();
+          });
+      });
+    }
+
+    var fleetWelcomeDismiss = document.getElementById("fleet-welcome-dismiss");
+    if (fleetWelcomeDismiss) {
+      fleetWelcomeDismiss.addEventListener("click", function () {
+        fleetMarkWelcomeSeenLocal();
+        fleetMarkSetupCompleted().catch(function () {});
+        var welcome = document.getElementById("fleet-welcome-modal");
+        if (welcome && window.bootstrap && bootstrap.Modal) {
+          var inst = bootstrap.Modal.getInstance(welcome);
+          if (inst) inst.hide();
+        }
+      });
     }
 
     var fleetConnectWizardPanel = document.getElementById("fleet-connect-wizard-offcanvas");
     if (fleetConnectWizardPanel) {
       fleetConnectWizardPanel.addEventListener("show.bs.offcanvas", function () {
-        fleetConnectWizardShowStep(1);
-        var baseIn = document.getElementById("fleet-connect-peer-base");
-        var hostIn = document.getElementById("fleet-connect-edge-host");
-        if (baseIn && hostIn && baseIn.value && !hostIn.value) {
-          try {
-            hostIn.value = new URL(baseIn.value).hostname;
-          } catch (_e) {
-            /* ignore */
-          }
-        }
+        fleetSettingsShowTab("connection");
+        fleetSettingsLoad().catch(function () {});
       });
     }
 
@@ -6181,6 +6728,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
     }
 
     setInterval(tick, 500);
+    fleetInitWelcome();
     refreshRemotePeersTable().then(function () {
       applyFleetScopeChrome();
       loadSnapshot().then(function () { scheduleNext(); });

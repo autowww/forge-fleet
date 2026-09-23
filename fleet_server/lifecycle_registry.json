@@ -1,0 +1,22 @@
+{
+  "dependents": [
+    {
+      "service_id": "market-studio",
+      "prepare_url": "http://127.0.0.1:19792/api/lifecycle/prepare-stop",
+      "readiness_url": "http://127.0.0.1:19792/api/lifecycle/stop-readiness",
+      "optional": true
+    },
+    {
+      "service_id": "market-studio-dev",
+      "prepare_url": "http://127.0.0.1:19793/api/lifecycle/prepare-stop",
+      "readiness_url": "http://127.0.0.1:19793/api/lifecycle/stop-readiness",
+      "optional": true
+    },
+    {
+      "service_id": "forge-llm-gateway",
+      "prepare_url": "http://127.0.0.1:18080/api/lifecycle/prepare-stop",
+      "readiness_url": "http://127.0.0.1:18080/api/lifecycle/stop-readiness",
+      "optional": true
+    }
+  ]
+}

@@ -62,8 +62,9 @@ for _ in $(seq 1 60); do
   fi
 done
 
-echo "post-rehearsal health"
-health_json | python3 -c '
+echo "post-rehearsal health (wait up to 3m for app restart)"
+for _ in $(seq 1 18); do
+  if health_json | python3 -c '
 import sys, json
 d = json.load(sys.stdin)
 pending = d.get("schema_contract_pending") or []
@@ -75,11 +76,16 @@ print(
     "pending", pending,
 )
 if d.get("status") != "ok":
-    raise SystemExit("dev health not ok after m059 rehearsal")
+    raise SystemExit(1)
 if int(d.get("schema_version") or 0) < int(d.get("schema_head") or 0):
-    raise SystemExit("schema still behind head after rehearsal")
+    raise SystemExit(2)
 if pending:
-    raise SystemExit(f"contract migrations still pending: {pending}")
-'
-
-echo "dev m059 rehearsal ok"
+    raise SystemExit(3)
+'; then
+    echo "dev m059 rehearsal ok"
+    exit 0
+  fi
+  sleep 10
+done
+echo "dev health not ok after m059 rehearsal (check overlay app image matches schema 59)" >&2
+exit 1

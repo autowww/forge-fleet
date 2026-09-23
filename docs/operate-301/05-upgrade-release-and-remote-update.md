@@ -1,23 +1,31 @@
 # Operate 301 — Upgrade, release, and remote self-update
 
-This page ties together **semver shipping**, **bare-metal refresh**, and the authenticated **`POST /v1/admin/git-self-update`** path so operators aren’t juggling three contradictory README excerpts.
+This page ties together **semver shipping**, **bare-metal refresh**, **cooperative lifecycle upgrades**, and the authenticated admin upgrade paths.
 
-```blueprint-diagram
-key: linear
-alt: Release branch versus remote git self-update
-title: Release ship and remote pull
-summary: Maintainers publish semver releases to git; remote Fleet hosts refresh via an authenticated admin POST.
-node: Maintainer clone -> update-fleet.sh -> git push
-detail: Maintainer runs the release script, bumps semver, and pushes to origin.
-more: update-fleet.sh syncs submodules, commits chore(release), and may run local install or trigger remote git-self-update after push.
-node: Operator client -> POST admin git-self-update -> Fleet host git pull
-detail: Bearer-authenticated POST tells the remote host to fast-forward its Fleet tree.
-more: The host pulls against FLEET_GIT_ROOT; /opt installs may return 400 with a sudo command for SSH operators.
-caption: Maintainers bump semver and push; remote hosts may pull via authenticated POST.
-fallback_ascii: |
-  Maintainer clone -> update-fleet.sh -> git push
-  Operator client -> POST admin git-self-update -> Fleet host git pull
-```
+## Cooperative upgrade (preferred)
+
+**`POST /v1/admin/upgrade`** runs the lifecycle coordinator before any restart:
+
+| Step | Action |
+|------|--------|
+| 1 | Fleet `draining=true`; pause new jobs and app-gateway proxy admissions |
+| 2 | `POST …/prepare-stop` on loopback dependents |
+| 3 | Poll `GET …/stop-readiness` until clear or **`max_wait_sec`** |
+| 4 | Route by **`install_channel`**: git pull or apt signal queue |
+| 5 | Poll **`GET /v1/admin/upgrade/status`** (apt) or wait for Fleet health (git) |
+
+| Mode | Default wait | Target downtime |
+|------|--------------|-----------------|
+| `update` | 10s | ≤10s Fleet HTTP unavailable |
+| `upgrade` | 45s | ≤60s end-to-end (apt timer granularity) |
+
+On timeout with `on_timeout=abort`: **409** `upgrade_blocked` and **`waiting_on[]`** blockers. With `on_timeout=force`, Fleet proceeds anyway.
+
+**Apt channels:** Fleet writes **`upgrade-request.json`**; **`forge-fleet-apt-upgrade.timer`** (every minute) runs **`scripts/apt-upgrade-cron.sh`**. No stored password — one-time timer enable at install/migrate.
+
+CLI: **`land-fleet upgrade --wait`**, **`land-fleet timer-status`**, **`land-fleet migrate-to-apt`**.
+
+See [fleet-lifecycle-contract](../design/fleet-lifecycle-contract.md) and [migrate-installations-to-apt](../operate/migrate-installations-to-apt.md).
 
 ## Local maintainer workstation — ship Fleet
 
@@ -31,10 +39,16 @@ Env hints: **`FORGE_FLEET_BASE_URL`**, **`FORGE_FLEET_BEARER_TOKEN`**, **`FLEET_
 
 ## Remote Fleet host semantics
 
-Fleet must know **`FLEET_GIT_ROOT`** (tree without bare **`.git`**) so HTTP self-update can fast-forward cleanly. **`/opt/forge-fleet`** installs may reply **400** with **`system_root_install_command`**—operators must SSH and run that **sudo** line.
+Fleet must know **`FLEET_GIT_ROOT`** (tree with **`.git`**) for git-channel self-update. **`/opt/forge-fleet`** git installs may reply **400** with **`system_root_install_command`** — migrate to **`apt_system`** per runbook.
+
+After **apt_system** migration, routine remote bumps use **`POST /v1/admin/upgrade`** on the host bearer (not git pull).
 
 ## Operators refreshing “this laptop” Fleet
 
-Separate workflow: **`git pull --rebase`** in **`~/forge-fleet`**, **`./update-user.sh`**, **`systemctl --user restart forge-fleet.service`**. Workspace rules (“update service”) point here—not the semver release automation unless intentionally combined.
+**Git user path:** **`git pull --rebase`** in **`~/forge-fleet`**, **`./update-user.sh`**, **`systemctl --user restart forge-fleet.service`**.
 
-See also **[Architecture](03-architecture.md)** for systemd layout expectations and **[HTTP API](../reference/01-http-api-reference.md)** for the exact **`git-self-update`** response schema.
+**Apt user path:** admin **Update Fleet** or **`POST /v1/admin/upgrade`** + **`land-fleet upgrade --wait`**.
+
+Workspace rules (“update service”) refresh localhost Fleet without semver release unless combined intentionally.
+
+See also **[Architecture](03-architecture.md)** for systemd layout and **[HTTP API](../reference/01-http-api-reference.md)** for upgrade response schemas.

@@ -23,8 +23,13 @@ stage_common_code() {
     --exclude '__pycache__/' \
     --exclude '*.pyc' \
     "${ROOT}/fleet_server/" "$dest_lib/fleet_server/"
-  mkdir -p "$dest_lib/systemd"
+  install -m0644 "${ROOT}/pyproject.toml" "$dest_lib/pyproject.toml"
+  echo "$VERSION" >"$dest_lib/PACKAGE_VERSION"
+  mkdir -p "$dest_lib/systemd" "$dest_lib/scripts"
   install -m0644 "${ROOT}/systemd/environment.example" "$dest_lib/systemd/environment.example"
+  install -m0644 "${ROOT}/systemd/forge-fleet-apt-upgrade.service" "$dest_lib/systemd/forge-fleet-apt-upgrade.service"
+  install -m0644 "${ROOT}/systemd/forge-fleet-apt-upgrade.timer" "$dest_lib/systemd/forge-fleet-apt-upgrade.timer"
+  install -m0755 "${ROOT}/scripts/apt-upgrade-cron.sh" "$dest_lib/scripts/apt-upgrade-cron.sh"
   bash "${ROOT}/packaging/scripts/bundle-kitchensink-admin.sh" \
     "${ROOT}/kitchensink" "$dest_lib/kitchensink"
 }
@@ -43,8 +48,7 @@ Version: ${VERSION}
 Section: admin
 Priority: optional
 Architecture: ${ARCH}
-Depends: python3 (>= 3.11), rsync, curl
-Recommends: forge-fleet-docker
+Depends: python3 (>= 3.11), rsync, curl, forge-fleet-docker
 Maintainer: Forge Fleet <fleet@forgesdlc.com>
 Description: Forge Fleet user cockpit (systemd --user, port 18766)
  HTTP control plane for docker_argv jobs; mesh laptop router role.
@@ -56,6 +60,12 @@ set -e
 if [ "$1" = "configure" ]; then
   echo "forge-fleet-user: run as your user: land-fleet setup-user"
   echo "forge-fleet-user: then: curl -fsS http://127.0.0.1:18766/v1/health"
+  if command -v systemctl >/dev/null 2>&1; then
+    install -m0644 /usr/lib/forge-fleet/systemd/forge-fleet-apt-upgrade.service /etc/systemd/system/forge-fleet-apt-upgrade.service 2>/dev/null || true
+    install -m0644 /usr/lib/forge-fleet/systemd/forge-fleet-apt-upgrade.timer /etc/systemd/system/forge-fleet-apt-upgrade.timer 2>/dev/null || true
+    systemctl daemon-reload 2>/dev/null || true
+    systemctl enable --now forge-fleet-apt-upgrade.timer 2>/dev/null || true
+  fi
 fi
 EOF
   chmod 0755 "$staging/DEBIAN/postinst"
@@ -119,7 +129,10 @@ if [ "$1" = "configure" ]; then
     install -m0600 -o root -g root /opt/forge-fleet/systemd/environment.example /etc/forge-fleet/forge-fleet.env
   fi
   if command -v systemctl >/dev/null 2>&1; then
+    install -m0644 /opt/forge-fleet/systemd/forge-fleet-apt-upgrade.service /etc/systemd/system/forge-fleet-apt-upgrade.service 2>/dev/null || true
+    install -m0644 /opt/forge-fleet/systemd/forge-fleet-apt-upgrade.timer /etc/systemd/system/forge-fleet-apt-upgrade.timer 2>/dev/null || true
     systemctl daemon-reload
+    systemctl enable --now forge-fleet-apt-upgrade.timer 2>/dev/null || true
     systemctl enable forge-fleet.service 2>/dev/null || true
     systemctl restart forge-fleet.service 2>/dev/null || systemctl start forge-fleet.service 2>/dev/null || true
   fi
@@ -144,6 +157,7 @@ build_forge_fleet_docker() {
   rm -rf "$staging"
   mkdir -p "$staging/DEBIAN" "$staging/usr/share/forge-fleet-docker"
   install -m0755 "${ROOT}/packaging/scripts/install-docker-ce.sh" "$staging/usr/share/forge-fleet-docker/install-docker-ce.sh"
+  install -m0755 "${ROOT}/packaging/scripts/install-cloudflared.sh" "$staging/usr/share/forge-fleet-docker/install-cloudflared.sh"
 
   cat >"$staging/DEBIAN/control" <<EOF
 Package: forge-fleet-docker
@@ -153,16 +167,20 @@ Priority: optional
 Architecture: all
 Depends: ca-certificates, curl, gnupg
 Maintainer: Forge Fleet <fleet@forgesdlc.com>
-Description: Docker CE bootstrap for Forge Fleet hosts
- Adds Docker official apt repository and installs docker-ce, buildx, compose plugins.
+Description: Docker CE and cloudflared bootstrap for Forge Fleet hosts
+ Adds Docker and Cloudflare apt repositories; run install scripts after apt configure.
 EOF
 
   cat >"$staging/DEBIAN/postinst" <<'EOF'
 #!/bin/sh
-set -e
+# Do not run apt from postinst — dpkg already holds the frontend lock.
 if [ "$1" = "configure" ]; then
-  /usr/share/forge-fleet-docker/install-docker-ce.sh
+  echo "forge-fleet-docker: installed. After apt finishes, run:"
+  echo "  sudo land-fleet bootstrap-deps"
+  echo "Or: sudo /usr/share/forge-fleet-docker/install-docker-ce.sh"
+  echo "Server edge: sudo /usr/share/forge-fleet-docker/install-cloudflared.sh"
 fi
+exit 0
 EOF
   chmod 0755 "$staging/DEBIAN/postinst"
 

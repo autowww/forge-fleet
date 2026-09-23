@@ -1,0 +1,38 @@
+{
+  "ok": true,
+  "cached": false,
+  "cache_ttl_s": 20.0,
+  "observed_at": 1790057000.0,
+  "nodes": [
+    {
+      "scope": "local",
+      "peer_id": null,
+      "label": "Local",
+      "ok": true,
+      "probed_at": 1790057000.0,
+      "node_id": "mercury",
+      "role": "laptop",
+      "degraded": false,
+      "capacity": {
+        "cpu": { "available_cores": 14.0 },
+        "memory": { "available_mb": 24576 },
+        "gpu": []
+      }
+    },
+    {
+      "scope": "peer",
+      "peer_id": "granite",
+      "label": "Granite Fleet",
+      "ok": true,
+      "probed_at": 1790057001.0,
+      "node_id": "granite",
+      "role": "server",
+      "degraded": false,
+      "capacity": {
+        "cpu": { "available_cores": 6.2 },
+        "memory": { "available_mb": 52000 },
+        "gpu": [{ "vendor": "nvidia", "vram_available_mb": 18000 }]
+      }
+    }
+  ]
+}

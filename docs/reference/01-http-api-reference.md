@@ -38,6 +38,11 @@ Feature docs (details beyond this table): [CONTAINER-TEMPLATES.md](../build-201/
 | POST | `/v1/migrations/{id}/steps/{step_id}/run` | bearer | Run one step; `register_edge_route` completes in-process as an app gateway. |
 | POST | `/v1/migrations/{id}/cancel` | bearer | Cancel pending steps and linked jobs. |
 | GET | `/v1/host/processes` | bearer | Top host processes (`limit`, `sort=cpu|mem|pid`); Linux `/proc` sampler. |
+| GET | `/v1/operator/ui-settings` | none | Operator UI settings + command recipes + edge checklists (`edge_recipes`). |
+| PUT | `/v1/operator/ui-settings` | bearer | Save operator UI settings; returns updated recipes. |
+| POST | `/v1/operator/verify-public-health` | bearer | Server-side `GET {public_url}/v1/health` for Edge tab verify (body: `public_url`, `bearer_token`). |
+| GET | `/v1/capacity` | bearer | Per-node CPU/RAM/GPU headroom for planning (estimates; no reservation ledger). |
+| GET | `/v1/mesh/capacity` | bearer | Local capacity + cached fetch from each `remote-peers` entry (~20s TTL). |
 | GET | `/v1/remote-peers` | bearer | List configured remote Fleet peers (no secrets). |
 | PUT | `/v1/remote-peers/{id}` | bearer | Create/update peer (`label`, `base_url`, `bearer_token`). |
 | DELETE | `/v1/remote-peers/{id}` | bearer | Remove peer from `etc/remote-peers.json`. |
@@ -49,6 +54,7 @@ Feature docs (details beyond this table): [CONTAINER-TEMPLATES.md](../build-201/
 | GET | `/v1/remote-peers/{id}/container-types` | bearer | Proxy to peer `GET /v1/container-types`. |
 | GET | `/v1/remote-peers/{id}/container-templates` | bearer | Proxy to peer `GET /v1/container-templates`. |
 | GET | `/v1/remote-peers/{id}/fleet-apps/{appId}/about` | bearer | Proxy to peer `GET /v1/fleet-apps/{appId}/about`. |
+| GET | `/v1/remote-peers/{id}/capacity` | bearer | Proxy to peer `GET /v1/capacity`. |
 | GET | `/v1/admin/snapshot` | bearer | Jobs, integrations, host, **`jobs_recent`** paging (`jobs_limit`, `jobs_offset`), thermal advisory, self-update meta. |
 | GET | `/v1/environments/telemetry` | bearer | Per-environment Postgres **`docker stats`** rows for ready envs (same shape as **`meta.integrations.environment_telemetry`** in snapshot). |
 | GET | `/v1/cooldown-summary` | bearer | Query **`period=`** required (same values as **`/v1/telemetry`**). |
@@ -67,7 +73,15 @@ Feature docs (details beyond this table): [CONTAINER-TEMPLATES.md](../build-201/
 | POST | `/v1/jobs/{id}/cancel` | bearer | Best-effort cancel. |
 | POST | `/v1/containers/dispose` | bearer | Body **`container_id`** — `docker rm -f`. |
 | POST | `/v1/admin/test-fleet` | bearer | Optional **`count`** — enqueue `host_cpu_probe` jobs. |
-| POST | `/v1/admin/git-self-update` | bearer | Git pull + install hooks; system install may return **400** with instructions. |
+| POST | `/v1/admin/git-self-update` | bearer | Git pull + install hooks; delegates to cooperative upgrade on git channels. System install may return **400** with instructions. |
+| GET | `/v1/lifecycle/stop-readiness` | bearer | Fleet self readiness (`stop_allowed`, `blockers[]`, `draining`). |
+| POST | `/v1/lifecycle/prepare-stop` | bearer | Begin Fleet drain before upgrade. |
+| POST | `/v1/lifecycle/resume` | bearer | Clear drain after failed upgrade. |
+| GET | `/v1/admin/upgrade/readiness` | bearer | Aggregate readiness across dependents + Fleet. |
+| GET | `/v1/admin/upgrade/status` | bearer | Active upgrade session (`queued`, `complete`, `failed`, …). |
+| POST | `/v1/admin/upgrade` | bearer | Cooperative upgrade; routes by `install_channel` (git vs apt signal). Body: `mode`, `max_wait_sec`, `on_timeout` (`abort`|`force`). |
+| POST | `/v1/admin/package-upgrade` | bearer | Apt only: lifecycle wait → write signal → **202** queued. |
+| GET | `/v1/admin/install-channel` | bearer | `install_channel`, timer active, migration hints. |
 | POST | `/v1/container-services` | bearer | Create managed service (`type_id`, `compose_root`, …). |
 | PUT | `/v1/container-services/{id}` | bearer | Update service record. |
 | DELETE | `/v1/container-services/{id}` | bearer | Delete; **409** if forge_llm still running. |
@@ -162,9 +176,25 @@ Gateway **`control_plane`** is fetched with **`since_epoch`** aligned to Fleet s
 
 When **`FLEET_INJECT_HOST_METRICS_ENV_IN_DOCKER`** is truthy **and** **`FLEET_HOST_METRICS_BASE_URL`** is set, the runner injects **`FLEET_HOST_METRICS_URL`** and **`FLEET_HOST_METRICS_TOKEN`** (copy of bearer when set) into `docker_argv` jobs. See **[EXAMPLES.md](../build-201/05-examples-and-recipes.md)** and README — **this exposes the admin token inside containers** when enabled.
 
-## Admin self-update (`POST /v1/admin/git-self-update`)
+## Admin self-update and cooperative upgrade
+
+### `POST /v1/admin/git-self-update`
+
+Legacy alias for **git channel** upgrades. Prefer **`POST /v1/admin/upgrade`**, which runs the lifecycle coordinator first.
 
 Documented in the [README](../../README.md): **`FLEET_GIT_ROOT`**, **`FLEET_SELF_UPDATE_POST_GIT_COMMAND`**, system-install **400** path with **`system_root_install_command`**.
+
+### Cooperative upgrade (`POST /v1/admin/upgrade`)
+
+1. Detect **`install_channel`** (`git_user`, `apt_user`, `git_system`, `apt_system`).
+2. Prepare dependents (`POST /api/lifecycle/prepare-stop` on loopback services).
+3. Poll until **`stop_allowed: true`** or timeout — **409** with **`waiting_on[]`** when `on_timeout=abort`.
+4. **Git channels:** `git pull` + user/system restart.
+5. **Apt channels:** write **`upgrade-request.json`**; root **`forge-fleet-apt-upgrade.timer`** applies within ~60s.
+
+Example payloads: [`lifecycle-stop-readiness-response.json`](../examples/payloads/valid/lifecycle-stop-readiness-response.json), [`upgrade-queued-response.json`](../examples/payloads/valid/upgrade-queued-response.json), [`upgrade-blocked-response.json`](../examples/payloads/valid/upgrade-blocked-response.json).
+
+Design: [fleet-lifecycle-contract](../design/fleet-lifecycle-contract.md). Migration: [migrate-installations-to-apt](../operate/migrate-installations-to-apt.md).
 
 ## See also
 

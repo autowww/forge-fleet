@@ -1,0 +1,8 @@
+[Unit]
+Description=Forge Fleet apt upgrade worker (process queued signals)
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/forge-fleet/scripts/apt-upgrade-cron.sh
+SyslogIdentifier=forge-fleet-apt-upgrade

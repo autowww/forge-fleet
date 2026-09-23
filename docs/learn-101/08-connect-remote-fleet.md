@@ -37,9 +37,12 @@ land-fleet health
 curl -fsS http://127.0.0.1:18766/v1/health
 ```
 
-Or open **`http://127.0.0.1:18766/admin/`** → **Connect…** wizard → step **1 Local**.
+Or open **`http://127.0.0.1:18766/admin/`** → **Settings…** → **Connection** tab → **Check local health**.
 
-## Step 2 — Register remote peer
+## Step 2 — Register remote peer (web UI preferred)
+
+**Admin UI:** **Settings…** → **Connection** — enter peer id, remote URL, bearer → **Save connection** (stores settings + peer). **Machine** tab chooses laptop vs public server. **Edge** tab (server role) walks Cloudflare → Caddy. **Capacity** tab shows mesh headroom. **Commands** tab lists shell steps tagged **web UI**, **user**, or **root** (copy only — Fleet does not run root commands for you).
+
 
 Set env from your operator secrets file (example):
 
@@ -57,7 +60,7 @@ land-fleet join \
   --label "$(hostname -s)"
 ```
 
-**Admin UI:** `/admin/` → **Connect…** → steps **2 Remote** and **3 Test** (Save → Probe → **View remote dashboard**).
+**Admin UI:** `/admin/` → **Settings…** → **Connection** (Save → Probe → **View remote**).
 
 **API:**
 
@@ -80,9 +83,13 @@ Expect `"ok": true` and Fleet health JSON in the response.
 
 Switch scope in admin (**Fleet scope** dropdown) to read snapshot, telemetry, and jobs **read-only**.
 
+## Step 3b — Mesh capacity (planning)
+
+**Settings…** → **Capacity** (or `GET /v1/mesh/capacity` with bearer) lists local and peer CPU/RAM/GPU headroom. Values are **estimates** for planning; job reservations are not enforced yet.
+
 ## Step 4 — Publishing a server through Cloudflare (root)
 
-Only when **this machine** is the public Fleet host. The **Connect…** wizard step **4 Edge** copies the same recipe.
+Only when **this machine** is the public Fleet host. Use **Settings…** → **Edge** for the ordered checklist (same steps as below).
 
 1. **DNS / Cloudflare** — public hostname `<FLEET_PUBLIC_HOSTNAME>` in your zone.
 2. **`cloudflared`** on the server — install package, `cloudflared service install <CLOUDFLARE_TUNNEL_TOKEN>`, route hostname to `http://127.0.0.1:<CADDY_PORT>` (default **18767**).

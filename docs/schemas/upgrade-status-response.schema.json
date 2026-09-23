@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.forgesdlc.com/schemas/upgrade-status-response.schema.json",
+  "title": "Forge Fleet GET /v1/admin/upgrade/status body",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["ok"],
+  "properties": {
+    "ok": { "type": "boolean" },
+    "phase": {
+      "enum": [
+        "idle",
+        "preparing",
+        "waiting_on_services",
+        "queued",
+        "running_apt",
+        "git_pull",
+        "restarting",
+        "complete",
+        "failed",
+        "blocked"
+      ]
+    },
+    "upgrade_id": { "type": "string" },
+    "waiting_on": { "type": "array" },
+    "deadline_sec": { "type": "integer" },
+    "eta_sec": { "type": "integer" },
+    "install_channel": { "type": "string" },
+    "timer_active": { "type": "boolean" }
+  }
+}

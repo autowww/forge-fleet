@@ -1,0 +1,15 @@
+{
+  "ok": true,
+  "service_id": "market-studio",
+  "stop_allowed": false,
+  "reason": "active_work",
+  "retry_after_sec": 5,
+  "draining": true,
+  "blockers": [
+    {
+      "kind": "harvest_job",
+      "id": "ph-42",
+      "detail": "running"
+    }
+  ]
+}

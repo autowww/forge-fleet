@@ -1,0 +1,9 @@
+{
+  "ok": true,
+  "status": "queued",
+  "upgrade_id": "550e8400-e29b-41d4-a716-446655440000",
+  "install_channel": "apt_user",
+  "poll": "/v1/admin/upgrade/status",
+  "eta_sec": 60,
+  "note": "Root forge-fleet-apt-upgrade.timer will apply apt within ~60s."
+}

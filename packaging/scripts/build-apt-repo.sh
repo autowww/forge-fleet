@@ -31,8 +31,12 @@ done
   cd "$OUT"
   apt-ftparchive packages pool/main > "dists/${SUITE}/main/binary-amd64/Packages"
   gzip -9 -k -f "dists/${SUITE}/main/binary-amd64/Packages"
-  apt-ftparchive release -o APT::FTPArchive::Release::Origin="Forge Fleet" \
+  apt-ftparchive release \
+    -o APT::FTPArchive::Release::Origin="Forge Fleet" \
     -o APT::FTPArchive::Release::Label="Forge Fleet" \
+    -o APT::FTPArchive::Release::Suite="${SUITE}" \
+    -o APT::FTPArchive::Release::Codename="${SUITE}" \
+    -o APT::FTPArchive::Release::Architectures="amd64" \
     "dists/${SUITE}" > "dists/${SUITE}/Release"
 )
 

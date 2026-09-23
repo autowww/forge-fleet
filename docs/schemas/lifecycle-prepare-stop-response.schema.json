@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.forgesdlc.com/schemas/lifecycle-prepare-stop-response.schema.json",
+  "title": "Forge lifecycle POST prepare-stop 200 body",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["ok", "accepted"],
+  "properties": {
+    "ok": { "const": true },
+    "accepted": { "type": "boolean" },
+    "already_draining": { "type": "boolean" },
+    "service_id": { "type": "string" }
+  }
+}

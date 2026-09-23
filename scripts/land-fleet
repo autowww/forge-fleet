@@ -12,6 +12,10 @@ usage() {
   cat <<'EOF'
 Usage:
   land-fleet setup-user          Install user systemd unit (after apt install forge-fleet-user)
+  land-fleet bootstrap-deps      Install Docker CE (+ cloudflared when --server); run after apt upgrade
+  land-fleet migrate-to-apt      Checklist: apt source + package + unit ( --user | --system )
+  land-fleet upgrade --wait      POST /v1/admin/upgrade and poll status until complete
+  land-fleet timer-status        Show forge-fleet-apt-upgrade.timer state
   land-fleet join --coordinator URL --enroll-token TOKEN [--label NAME]
                                  Register Granite coordinator as remote peer (manual Phase 1)
   land-fleet health              curl local Fleet /v1/health
@@ -23,6 +27,44 @@ EOF
 
 die() { echo "land-fleet: $*" >&2; exit 1; }
 
+DOCKER_BOOT="${DOCKER_BOOT:-/usr/share/forge-fleet-docker/install-docker-ce.sh}"
+CLOUDFLARED_BOOT="${CLOUDFLARED_BOOT:-/usr/share/forge-fleet-docker/install-cloudflared.sh}"
+
+run_root_script() {
+  local script="$1"
+  [[ -x "$script" ]] || die "missing bootstrap script: $script (install forge-fleet-docker?)"
+  if [[ "$(id -u)" -eq 0 ]]; then
+    "$script"
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo "$script"
+  else
+    die "root or sudo required to run $script"
+  fi
+}
+
+bootstrap_deps() {
+  local role="laptop"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --server) role="server"; shift ;;
+      --laptop) role="laptop"; shift ;;
+      -h|--help)
+        echo "Usage: land-fleet bootstrap-deps [--server|--laptop]"
+        exit 0
+        ;;
+      *) die "unknown option: $1" ;;
+    esac
+  done
+
+  echo "land-fleet: bootstrap-deps (role=$role)"
+  run_root_script "$DOCKER_BOOT"
+
+  if [[ "$role" == "server" ]]; then
+    run_root_script "$CLOUDFLARED_BOOT"
+    echo "land-fleet: attach tunnel token: sudo cloudflared service install <CLOUDFLARE_TUNNEL_TOKEN>"
+  fi
+}
+
 setup_user() {
   command -v systemctl >/dev/null || die "systemctl required"
   [[ -d "$FLEET_LIB/fleet_server" ]] || die "missing $FLEET_LIB/fleet_server (is forge-fleet-user installed?)"
@@ -31,6 +73,17 @@ setup_user() {
   if [[ ! -f "$ENV_DIR/forge-fleet.env" ]] && [[ -f "$FLEET_LIB/systemd/environment.example" ]]; then
     install -m0600 "$FLEET_LIB/systemd/environment.example" "$ENV_DIR/forge-fleet.env"
     echo "land-fleet: created $ENV_DIR/forge-fleet.env"
+  fi
+  if command -v dpkg-query >/dev/null 2>&1; then
+    PKG_VER="$(dpkg-query -W -f='${Version}' forge-fleet-user 2>/dev/null || true)"
+    if [[ -n "$PKG_VER" ]] && [[ -f "$ENV_DIR/forge-fleet.env" ]]; then
+      if grep -q '^FLEET_PACKAGE_SEMVER=' "$ENV_DIR/forge-fleet.env" 2>/dev/null; then
+        sed -i "s/^FLEET_PACKAGE_SEMVER=.*/FLEET_PACKAGE_SEMVER=${PKG_VER}/" "$ENV_DIR/forge-fleet.env"
+      else
+        printf '\nFLEET_PACKAGE_SEMVER=%s\n' "$PKG_VER" >>"$ENV_DIR/forge-fleet.env"
+      fi
+      echo "land-fleet: set FLEET_PACKAGE_SEMVER=$PKG_VER in $ENV_DIR/forge-fleet.env"
+    fi
   fi
 
   PY="${FLEET_PYTHON:-/usr/bin/python3}"
@@ -59,6 +112,9 @@ EOF
   systemctl --user enable --now forge-fleet.service
   echo "land-fleet: enabled forge-fleet.service (user) on 127.0.0.1:$FLEET_USER_PORT"
   echo "land-fleet: for headless boot run once: loginctl enable-linger \$USER"
+  if [[ -x "$DOCKER_BOOT" ]]; then
+    bootstrap_deps --laptop || echo "land-fleet: warning: Docker bootstrap failed (retry: land-fleet bootstrap-deps)" >&2
+  fi
 }
 
 join_mesh() {
@@ -107,10 +163,63 @@ health() {
   echo ""
 }
 
+timer_status() {
+  systemctl is-active forge-fleet-apt-upgrade.timer 2>/dev/null || echo "inactive"
+  systemctl status forge-fleet-apt-upgrade.timer --no-pager 2>/dev/null | head -5 || true
+}
+
+migrate_to_apt() {
+  local role="user"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --user) role="user"; shift ;;
+      --system) role="system"; shift ;;
+      *) die "unknown option: $1" ;;
+    esac
+  done
+  echo "land-fleet migrate-to-apt (role=$role)"
+  if [[ ! -f /etc/apt/sources.list.d/forge-fleet.list ]]; then
+    echo "MISSING: /etc/apt/sources.list.d/forge-fleet.list — run packaging/ubuntu/install.sh"
+    exit 1
+  fi
+  if [[ "$role" == "user" ]]; then
+    dpkg-query -W forge-fleet-user >/dev/null 2>&1 || { echo "MISSING: forge-fleet-user package"; exit 1; }
+    [[ -d "$FLEET_LIB/fleet_server" ]] || { echo "MISSING: $FLEET_LIB/fleet_server"; exit 1; }
+  else
+    dpkg-query -W forge-fleet >/dev/null 2>&1 || { echo "MISSING: forge-fleet package"; exit 1; }
+  fi
+  timer_status
+  echo "OK: ready for cooperative POST /v1/admin/upgrade"
+}
+
+upgrade_wait() {
+  local base="${FLEET_BASE_URL:-http://127.0.0.1:${FLEET_USER_PORT}}"
+  local auth=()
+  if [[ -n "${FLEET_BEARER_TOKEN:-}" ]]; then
+    auth=(-H "Authorization: Bearer ${FLEET_BEARER_TOKEN}")
+  fi
+  curl -fsS -X POST "${base}/v1/admin/upgrade" \
+    "${auth[@]}" \
+    -H "Content-Type: application/json" \
+    -d '{"mode":"upgrade","max_wait_sec":45,"on_timeout":"abort"}'
+  echo ""
+  local i=0
+  while (( i < 90 )); do
+    sleep 2
+    curl -fsS "${base}/v1/admin/upgrade/status" "${auth[@]}" || true
+    echo ""
+    i=$((i + 1))
+  done
+}
+
 cmd="${1:-}"
 shift || true
 case "$cmd" in
   setup-user) setup_user ;;
+  bootstrap-deps) bootstrap_deps "$@" ;;
+  migrate-to-apt) migrate_to_apt "$@" ;;
+  upgrade) [[ "${1:-}" == "--wait" ]] && upgrade_wait || die "usage: land-fleet upgrade --wait" ;;
+  timer-status) timer_status ;;
   join) join_mesh "$@" ;;
   health) health ;;
   -h|--help|help|"") usage ;;

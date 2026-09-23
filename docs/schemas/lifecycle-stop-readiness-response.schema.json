@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fleet.forgesdlc.com/schemas/lifecycle-stop-readiness-response.schema.json",
+  "title": "Forge lifecycle GET stop-readiness 200 body",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["ok", "service_id", "stop_allowed"],
+  "properties": {
+    "ok": { "const": true },
+    "service_id": { "type": "string" },
+    "stop_allowed": { "type": "boolean" },
+    "reason": { "type": "string" },
+    "retry_after_sec": { "type": "integer", "minimum": 0 },
+    "draining": { "type": "boolean" },
+    "blockers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind"],
+        "properties": {
+          "kind": { "type": "string" },
+          "id": { "type": "string" },
+          "detail": { "type": "string" },
+          "count": { "type": "integer" }
+        }
+      }
+    }
+  }
+}

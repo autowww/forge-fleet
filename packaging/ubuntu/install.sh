@@ -6,7 +6,7 @@ set -euo pipefail
 APT_BASE="${FORGE_APT_BASE_URL:-https://packages.forgesdlc.com/fleet/ubuntu}"
 SUITE="${FORGE_APT_SUITE:-noble}"
 MODE="user"
-WITH_DOCKER=0
+WITH_DOCKER=1
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -36,7 +36,7 @@ SOURCES="/etc/apt/sources.list.d/forge-fleet.list"
 curl -fsSL "${APT_BASE}/gpg.key" | "${SUDO[@]}" gpg --dearmor -o "$KEYRING"
 chmod a+r "$KEYRING" 2>/dev/null || "${SUDO[@]}" chmod a+r "$KEYRING"
 
-echo "deb [signed-by=${KEYRING}] ${APT_BASE} ${SUITE} main" | "${SUDO[@]}" tee "$SOURCES" >/dev/null
+echo "deb [signed-by=${KEYRING} arch=amd64] ${APT_BASE} ${SUITE} main" | "${SUDO[@]}" tee "$SOURCES" >/dev/null
 
 if [[ "${FLEET_VERIFY_CHECKSUMS:-0}" == "1" ]]; then
   tmp="$(mktemp -d)"
@@ -59,7 +59,9 @@ if [[ "$MODE" == user ]]; then
       "${SUDO[@]}" loginctl enable-linger "${SUDO_USER:-$USER}" 2>/dev/null || true
   fi
   echo "install.sh: run: land-fleet setup-user"
+  echo "install.sh: then: land-fleet bootstrap-deps"
   echo "install.sh: health: curl -fsS http://127.0.0.1:18766/v1/health"
 else
+  echo "install.sh: run: land-fleet bootstrap-deps --server"
   echo "install.sh: health: curl -fsS http://127.0.0.1:18765/v1/health"
 fi

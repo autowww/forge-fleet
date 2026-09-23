@@ -1,6 +1,6 @@
 [project]
 name = "forge-fleet"
-version = "0.3.110"
+version = "0.3.117"
 description = "HTTP orchestrator for local Docker (and future remote) Docs Health / tasklet jobs"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -27,6 +27,7 @@ fleet_server = [
     "static/*.html",
     "static/gpu-logos/*.png",
     "migration_stubs/*.sh",
+    "lifecycle_registry.json",
 ]
 
 [tool.pytest.ini_options]

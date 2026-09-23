@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 _DEFAULTS: dict[str, Any] = {
+    "setup_completed": False,
     "machine_role": "laptop",
     "connection": {
         "peer_id": "remote",
@@ -19,6 +20,8 @@ _DEFAULTS: dict[str, Any] = {
         "caddy_port": 18767,
         "layout": "system",
         "forge_fleet_checkout": "/opt/forge-fleet",
+        "cloudflare_steps_completed": [],
+        "caddy_verified": False,
     },
 }
 
@@ -42,6 +45,8 @@ def _load_raw(data_dir: Path) -> dict[str, Any]:
 
 def _merge_defaults(doc: dict[str, Any]) -> dict[str, Any]:
     out = json.loads(json.dumps(_DEFAULTS))
+    if "setup_completed" in doc:
+        out["setup_completed"] = bool(doc.get("setup_completed"))
     role = str(doc.get("machine_role") or out["machine_role"]).strip().lower()
     if role in ("laptop", "server"):
         out["machine_role"] = role
@@ -63,17 +68,38 @@ def _merge_defaults(doc: dict[str, Any]) -> dict[str, Any]:
             out["edge"]["caddy_port"] = port
     except (TypeError, ValueError):
         pass
+    completed = edge.get("cloudflare_steps_completed")
+    if isinstance(completed, list):
+        out["edge"]["cloudflare_steps_completed"] = [str(x) for x in completed if str(x).strip()]
+    if "caddy_verified" in edge:
+        out["edge"]["caddy_verified"] = bool(edge.get("caddy_verified"))
     out["updated_at"] = doc.get("updated_at")
+    return out
+
+
+def _filter_recipes(settings: dict[str, Any], recipes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    role = str(settings.get("machine_role") or "laptop")
+    out: list[dict[str, Any]] = []
+    for recipe in recipes:
+        only = recipe.get("only_when") if isinstance(recipe.get("only_when"), dict) else {}
+        want = str(only.get("machine_role") or "").strip()
+        if want and want != role:
+            continue
+        out.append(recipe)
     return out
 
 
 def get_settings(data_dir: Path) -> dict[str, Any]:
     doc = _merge_defaults(_load_raw(data_dir))
-    return {"ok": True, "settings": doc, "recipes": build_recipes(doc)}
+    recipes = _filter_recipes(doc, build_recipes(doc))
+    edge_recipes = _filter_recipes(doc, build_edge_recipes(doc))
+    return {"ok": True, "settings": doc, "recipes": recipes, "edge_recipes": edge_recipes}
 
 
 def put_settings(data_dir: Path, body: dict[str, Any]) -> dict[str, Any]:
     current = _merge_defaults(_load_raw(data_dir))
+    if "setup_completed" in body:
+        current["setup_completed"] = bool(body.get("setup_completed"))
     if "machine_role" in body:
         role = str(body.get("machine_role") or "").strip().lower()
         if role in ("laptop", "server"):
@@ -101,6 +127,12 @@ def put_settings(data_dir: Path, body: dict[str, Any]) -> dict[str, Any]:
                     current["edge"]["caddy_port"] = port
             except (TypeError, ValueError):
                 pass
+        if "cloudflare_steps_completed" in edge and isinstance(edge.get("cloudflare_steps_completed"), list):
+            current["edge"]["cloudflare_steps_completed"] = [
+                str(x) for x in edge["cloudflare_steps_completed"] if str(x).strip()
+            ]
+        if "caddy_verified" in edge:
+            current["edge"]["caddy_verified"] = bool(edge.get("caddy_verified"))
     current["updated_at"] = time.time()
     path = settings_file(data_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -109,7 +141,9 @@ def put_settings(data_dir: Path, body: dict[str, Any]) -> dict[str, Any]:
         path.chmod(0o600)
     except OSError:
         pass
-    return {"ok": True, "settings": current, "recipes": build_recipes(current)}
+    recipes = _filter_recipes(current, build_recipes(current))
+    edge_recipes = _filter_recipes(current, build_edge_recipes(current))
+    return {"ok": True, "settings": current, "recipes": recipes, "edge_recipes": edge_recipes}
 
 
 def _public_base(url: str, hostname: str) -> str:
@@ -122,6 +156,95 @@ def _public_base(url: str, hostname: str) -> str:
     if h.startswith("http://") or h.startswith("https://"):
         return h.rstrip("/")
     return f"https://{h}"
+
+
+def build_edge_recipes(settings: dict[str, Any]) -> list[dict[str, Any]]:
+    """Structured Edge-tab checklists (server role only)."""
+    edge = settings.get("edge") or {}
+    role = str(settings.get("machine_role") or "laptop")
+    if role != "server":
+        return []
+    host = str(edge.get("public_hostname") or "<FLEET_PUBLIC_HOSTNAME>").strip()
+    if host.startswith("http://") or host.startswith("https://"):
+        try:
+            from urllib.parse import urlparse
+
+            host = urlparse(host).hostname or host
+        except Exception:
+            pass
+    port = int(edge.get("caddy_port") or 18767)
+    checkout = str(edge.get("forge_fleet_checkout") or "/opt/forge-fleet")
+    layout = str(edge.get("layout") or "system")
+    base = _public_base("", host)
+    return [
+        {
+            "id": "edge_cloudflare",
+            "kind": "checklist",
+            "title": "1. Cloudflare tunnel",
+            "runs_as": "root",
+            "only_when": {"machine_role": "server"},
+            "summary": "Install cloudflared and route your public hostname to the local Caddy port.",
+            "doc_url": "https://one.dash.cloudflare.com/",
+            "steps": [
+                {
+                    "id": "install_cloudflared",
+                    "label": "Install cloudflared package",
+                    "commands": [
+                        "sudo land-fleet bootstrap-deps --server",
+                    ],
+                },
+                {
+                    "id": "tunnel_service",
+                    "label": "Install tunnel service (token from Cloudflare Zero Trust)",
+                    "commands": [
+                        "sudo cloudflared service install <CLOUDFLARE_TUNNEL_TOKEN>",
+                        "sudo systemctl enable --now cloudflared",
+                    ],
+                },
+                {
+                    "id": "dashboard_route",
+                    "label": "Cloudflare dashboard — Public Hostname",
+                    "detail": f"Route {host or '<hostname>'} → http://127.0.0.1:{port} (unified Caddy listener).",
+                },
+            ],
+        },
+        {
+            "id": "edge_caddy",
+            "kind": "checklist",
+            "title": "2. Unified Caddy edge",
+            "runs_as": "root" if layout == "system" else "user",
+            "only_when": {"machine_role": "server"},
+            "summary": "Fleet /v1/health must route before Ollama on the public hostname.",
+            "steps": [
+                {
+                    "id": "run_caddy_installer",
+                    "label": "Run unified Caddy installer",
+                    "commands": [
+                        f"cd {checkout}",
+                        f"CADDY_SITE_ADDRESS={host} \\",
+                        f"LAYOUT={layout} \\",
+                        "FLEET_BEARER_TOKEN='<FLEET_BEARER_TOKEN>' \\",
+                        "LLM_BEARER_TOKEN='<LLM_BEARER_TOKEN>' \\",
+                        "bash ./scripts/install-caddy-fleet-ollama-unified.sh --non-interactive",
+                    ],
+                },
+                {
+                    "id": "restart_caddy",
+                    "label": "Restart Caddy",
+                    "commands": [
+                        "sudo systemctl restart forge-fleet-caddy.service"
+                        if layout == "system"
+                        else "systemctl --user restart forge-fleet-caddy.service"
+                    ],
+                },
+                {
+                    "id": "verify_public_health",
+                    "label": "Verify public Fleet health",
+                    "detail": f"Use the Verify button below or: curl -fsS -H 'Authorization: Bearer <TOKEN>' {base}/v1/health",
+                },
+            ],
+        },
+    ]
 
 
 def build_recipes(settings: dict[str, Any]) -> list[dict[str, Any]]:
@@ -170,8 +293,12 @@ def build_recipes(settings: dict[str, Any]) -> list[dict[str, Any]]:
             "only_when": {"machine_role": "laptop"},
             "steps": [
                 {
-                    "label": "Enable user Fleet unit",
-                    "commands": ["land-fleet setup-user", "loginctl enable-linger \"$USER\""],
+                    "label": "Enable user Fleet unit (+ Docker bootstrap)",
+                    "commands": [
+                        "land-fleet setup-user",
+                        "loginctl enable-linger \"$USER\"",
+                        "land-fleet bootstrap-deps",
+                    ],
                 },
                 {
                     "label": "Verify local health",

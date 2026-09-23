@@ -104,10 +104,36 @@ PY
 }
 
 fleet_rollout_done() {
-  local status_file
+  local status_file now
   status_file="$(_fleet_status_file)"
+  now="$(_fleet_iso_now)"
   if [[ -f "$status_file" ]]; then
-    rm -f "$status_file"
+    FLEET_STATUS_FILE="$status_file" \
+      FLEET_DONE_NOW="$now" \
+      python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+path = Path(os.environ["FLEET_STATUS_FILE"])
+now = os.environ["FLEET_DONE_NOW"]
+data: dict = {}
+if path.is_file():
+    data = json.loads(path.read_text(encoding="utf-8"))
+else:
+    data = {"service_id": "", "steps_done": []}
+steps = list(data.get("steps_done") or [])
+prev = str(data.get("current_step") or "")
+if prev and prev not in steps:
+    steps.append(prev)
+data["maintenance"] = False
+data["failed"] = False
+data["current_step"] = "done"
+data["current_step_label"] = "Rollout complete"
+data["updated_at"] = now
+data["steps_done"] = steps
+path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+PY
   fi
   _CURRENT_STEP=""
 }

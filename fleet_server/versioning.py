@@ -16,25 +16,49 @@ FLEET_DB_SCHEMA_VERSION = 9
 FLEET_TEMPLATE_LIB_VERSION = 4
 
 
-def _read_pyproject_semver() -> str:
-    root = Path(__file__).resolve().parent.parent
-    py = root / "pyproject.toml"
+def _package_root() -> Path:
+    return Path(__file__).resolve().parent.parent
+
+
+def _read_package_version_file() -> str | None:
+    path = _package_root() / "PACKAGE_VERSION"
+    if not path.is_file():
+        return None
+    try:
+        line = path.read_text(encoding="utf-8").splitlines()[0].strip()
+    except (OSError, IndexError):
+        return None
+    return line or None
+
+
+def _read_pyproject_semver() -> str | None:
+    py = _package_root() / "pyproject.toml"
     if not py.is_file():
-        return "0.0.0"
+        return None
     try:
         raw = py.read_text(encoding="utf-8")
     except OSError:
-        return "0.0.0"
+        return None
     m = re.search(r'(?m)^version\s*=\s*"([^"]+)"\s*$', raw)
-    return m.group(1).strip() if m else "0.0.0"
+    return m.group(1).strip() if m else None
 
 
 def package_semver() -> str:
-    """Installed distribution version, or ``pyproject.toml`` when running from a source checkout."""
+    """Installed distribution version — prefer on-disk apt/rsync metadata over stale pip dists."""
+    env = str(os.environ.get("FLEET_PACKAGE_SEMVER") or "").strip()
+    if env:
+        return env
+    from_file = _read_package_version_file()
+    if from_file:
+        return from_file
+    from_py = _read_pyproject_semver()
+    if from_py:
+        return from_py
     try:
         return importlib.metadata.version("forge-fleet").strip()
     except importlib.metadata.PackageNotFoundError:
-        return _read_pyproject_semver()
+        pass
+    return "0.0.0"
 
 
 _UNSET = object()

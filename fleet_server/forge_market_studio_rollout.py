@@ -41,6 +41,7 @@ _ROLLOUT_ENV_KEYS = (
     "FORGE_MARKET_SKIP_BACKUP",
     "FORGE_MARKET_CONFIRM_ATTR_V3_DROP",
     "FORGE_MARKET_CONFIRM_DICTIONARY_DROPS",
+    "FORGE_MARKET_VERIFY_SUITES",
 )
 
 
@@ -103,6 +104,7 @@ def _apply_rollout_overrides(env: dict[str, str], overrides: dict[str, Any]) -> 
         "forge_market_confirm_attr_v3_drop": "FORGE_MARKET_CONFIRM_ATTR_V3_DROP",
         "confirm_dictionary_drops": "FORGE_MARKET_CONFIRM_DICTIONARY_DROPS",
         "forge_market_confirm_dictionary_drops": "FORGE_MARKET_CONFIRM_DICTIONARY_DROPS",
+        "verify_suites": "FORGE_MARKET_VERIFY_SUITES",
     }
     for src, dst in alias.items():
         raw = overrides.get(src)
@@ -143,6 +145,12 @@ def _apply_rollout_overrides(env: dict[str, str], overrides: dict[str, Any]) -> 
         val = str(raw).strip()
         if val:
             env[dst] = val
+    if "verify_suites" in overrides and overrides.get("verify_suites") is not None:
+        raw_suites = overrides.get("verify_suites")
+        if isinstance(raw_suites, list):
+            env["FORGE_MARKET_VERIFY_SUITES"] = json.dumps([str(s) for s in raw_suites if str(s).strip()])
+        elif isinstance(raw_suites, str) and raw_suites.strip():
+            env["FORGE_MARKET_VERIFY_SUITES"] = raw_suites.strip()
 
 
 def _rollout_service_id(env: dict[str, str]) -> str:
