@@ -1682,6 +1682,10 @@ class FleetHandler(BaseHTTPRequestHandler):
                     "forge_market_confirm_attr_v3_drop",
                     "confirm_dictionary_drops",
                     "forge_market_confirm_dictionary_drops",
+                    "forge_market_confirm_legacy_rollup_drop",
+                    "confirm_legacy_rollup_drop",
+                    "forge_market_drop_legacy_rollups",
+                    "forge_market_period_completion_v3",
                     "verify_suites",
                 )
                 if body.get(k) is not None

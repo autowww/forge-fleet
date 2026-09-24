@@ -211,6 +211,7 @@ FORGE_MARKET_DATABASE_URL=postgresql://forge_market:forge_market_dev@postgres:54
 FORGE_MARKET_STUDIO_HOST_PORT=${studio_port}
 FORGE_MARKET_POSTGRES_HOST_PORT=${postgres_port}
 FORGE_MARKET_API_ONLY=1
+FORGE_MARKET_PERIOD_COMPLETION_V3=1
 INCLUDE_STUDIO_UI=0
 EOF
       else
@@ -959,7 +960,10 @@ run_postgres_schema_migrate() {
     FORGE_MARKET_CONFIRM_BARS_V2_DROP \
     FORGE_MARKET_CONFIRM_OBS_DICTIONARY \
     FORGE_MARKET_CONFIRM_ATTR_V3_DROP \
-    FORGE_MARKET_CONFIRM_DICTIONARY_DROPS; do
+    FORGE_MARKET_CONFIRM_DICTIONARY_DROPS \
+    FORGE_MARKET_CONFIRM_LEGACY_ROLLUP_DROP \
+    FORGE_MARKET_DROP_LEGACY_ROLLUPS \
+    FORGE_MARKET_PERIOD_COMPLETION_V3; do
     if [[ -n "${!confirm_key:-}" ]]; then
       log "gated migrate confirm: ${confirm_key}=${!confirm_key}"
       confirm_env+=(-e "${confirm_key}=${!confirm_key}")

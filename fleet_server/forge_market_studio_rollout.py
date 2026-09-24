@@ -41,6 +41,9 @@ _ROLLOUT_ENV_KEYS = (
     "FORGE_MARKET_SKIP_BACKUP",
     "FORGE_MARKET_CONFIRM_ATTR_V3_DROP",
     "FORGE_MARKET_CONFIRM_DICTIONARY_DROPS",
+    "FORGE_MARKET_CONFIRM_LEGACY_ROLLUP_DROP",
+    "FORGE_MARKET_DROP_LEGACY_ROLLUPS",
+    "FORGE_MARKET_PERIOD_COMPLETION_V3",
     "FORGE_MARKET_VERIFY_SUITES",
 )
 
@@ -104,6 +107,10 @@ def _apply_rollout_overrides(env: dict[str, str], overrides: dict[str, Any]) -> 
         "forge_market_confirm_attr_v3_drop": "FORGE_MARKET_CONFIRM_ATTR_V3_DROP",
         "confirm_dictionary_drops": "FORGE_MARKET_CONFIRM_DICTIONARY_DROPS",
         "forge_market_confirm_dictionary_drops": "FORGE_MARKET_CONFIRM_DICTIONARY_DROPS",
+        "forge_market_confirm_legacy_rollup_drop": "FORGE_MARKET_CONFIRM_LEGACY_ROLLUP_DROP",
+        "confirm_legacy_rollup_drop": "FORGE_MARKET_CONFIRM_LEGACY_ROLLUP_DROP",
+        "forge_market_drop_legacy_rollups": "FORGE_MARKET_DROP_LEGACY_ROLLUPS",
+        "forge_market_period_completion_v3": "FORGE_MARKET_PERIOD_COMPLETION_V3",
         "verify_suites": "FORGE_MARKET_VERIFY_SUITES",
     }
     for src, dst in alias.items():
