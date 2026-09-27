@@ -1,4 +1,5 @@
 # Build forge-fleet .deb packages and publish apt repo to packages.forgesdlc.com (Firebase Hosting).
+# Does NOT upload debs to GitHub — git is code only; CDN is the sole package channel.
 # Requires repo secret FIREBASE_TOKEN from: firebase login:ci
 name: Publish Fleet apt CDN
 
@@ -33,6 +34,16 @@ jobs:
           mkdir -p hosting-staging/public/fleet
           cp -a dist/apt-publish/fleet/ubuntu hosting-staging/public/fleet/ubuntu
           cp packaging/apt-cdn-hosting/firebase.json hosting-staging/firebase.json
+
+      - name: Require FIREBASE_TOKEN (CDN deploy)
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: |
+          if [ -z "${FIREBASE_TOKEN}" ]; then
+            echo "::error::Missing FIREBASE_TOKEN repo secret. Run: firebase login:ci && gh secret set FIREBASE_TOKEN -R autowww/forge-fleet"
+            echo "Debs are not published via GitHub Releases — only Firebase Hosting forge-packages."
+            exit 1
+          fi
 
       - name: Deploy to Firebase (forge-packages)
         uses: w9jds/firebase-action@v14.4.0

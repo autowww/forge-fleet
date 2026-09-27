@@ -16,5 +16,6 @@
 | **[Visual coverage map](VISUAL-COVERAGE.md)** | Prompt **09** — tables / ASCII / screenshots per tier |
 | **[Examples validation](EXAMPLES-VALIDATION.md)** | Prompt **08** — manual snippet cadence |
 | **[Docs release checklist](DOCS-RELEASE-CHECKLIST.md)** | Prompt **12** — pre-publish gates |
+| **[Fleet apt CDN publish](05-fleet-apt-cdn-publish.md)** | Build debs → **packages.forgesdlc.com** only (not GitHub Releases) |
 
 Public adoption content starts at **[Start hub](../start/README.md)**.
