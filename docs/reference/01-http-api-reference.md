@@ -73,7 +73,7 @@ Feature docs (details beyond this table): [CONTAINER-TEMPLATES.md](../build-201/
 | POST | `/v1/jobs/{id}/cancel` | bearer | Best-effort cancel. |
 | POST | `/v1/containers/dispose` | bearer | Body **`container_id`** — `docker rm -f`. |
 | POST | `/v1/admin/test-fleet` | bearer | Optional **`count`** — enqueue `host_cpu_probe` jobs. |
-| POST | `/v1/admin/git-self-update` | bearer | Git pull + install hooks; delegates to cooperative upgrade on git channels. System install may return **400** with instructions. |
+| POST | `/v1/admin/git-self-update` | bearer | Legacy alias: **git channel only** (`git pull`). **Apt channels** route to the same apt queue as **`POST /v1/admin/upgrade`** (no git pull). Prefer **`/v1/admin/upgrade`** for production. |
 | GET | `/v1/lifecycle/stop-readiness` | bearer | Fleet self readiness (`stop_allowed`, `blockers[]`, `draining`). |
 | POST | `/v1/lifecycle/prepare-stop` | bearer | Begin Fleet drain before upgrade. |
 | POST | `/v1/lifecycle/resume` | bearer | Clear drain after failed upgrade. |
@@ -180,9 +180,11 @@ When **`FLEET_INJECT_HOST_METRICS_ENV_IN_DOCKER`** is truthy **and** **`FLEET_HO
 
 ### `POST /v1/admin/git-self-update`
 
-Legacy alias for **git channel** upgrades. Prefer **`POST /v1/admin/upgrade`**, which runs the lifecycle coordinator first.
+Legacy entry point kept for older clients. Behavior matches **`POST /v1/admin/upgrade`** with **`mode: update`**, except on **git** install channels it forces **`channel: git`**. On **`apt_user`** / **`apt_system`** hosts it **never** runs **`git pull`** — it queues the apt cooperative upgrade instead.
 
-Documented in the [README](../../README.md): **`FLEET_GIT_ROOT`**, **`FLEET_SELF_UPDATE_POST_GIT_COMMAND`**, system-install **400** path with **`system_root_install_command`**.
+For routine production bumps (Granite, apt_system), use **`POST /v1/admin/upgrade`** only.
+
+Git-channel notes: [README](../../README.md) — **`FLEET_GIT_ROOT`**, **`FLEET_SELF_UPDATE_POST_GIT_COMMAND`**, system-install **400** path with **`system_root_install_command`**.
 
 ### Cooperative upgrade (`POST /v1/admin/upgrade`)
 

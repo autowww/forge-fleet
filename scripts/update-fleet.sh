@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # update-fleet.sh — propagate **this dev checkout** to **git** and **local production** (systemd):
 #   submodule sync → semver bump → git commit (all changes by default) → git push → optional POST
-#   /v1/admin/git-self-update on remote Fleet (--remote-git-self-update) → sudo install-update.sh
+#   POST /v1/admin/upgrade on remote Fleet (--remote-git-self-update) → apt/timer on apt hosts
 #   (sudo failure is non-fatal) → update-user.sh when ~/.config/systemd/user/forge-fleet.service exists (no sudo)
 #
 # Run from the forge-fleet repo root:
@@ -22,7 +22,7 @@
 #   --no-push      commit only, do not push
 #   --no-install   skip sudo install-update (no local /opt refresh)
 #   --no-user      skip update-user.sh even when a user systemd unit is present
-#   --remote-git-self-update  after a successful git push, POST /v1/admin/git-self-update on remote Fleet
+#   --remote-git-self-update  after push, POST /v1/admin/upgrade on remote Fleet (apt channel; not git pull)
 #   --remote-url URL   override base URL (else FLEET_REMOTE_GIT_SELF_UPDATE_URL or FORGE_FLEET_BASE_URL)
 #   --remote-bearer T  override bearer token (else FORGE_FLEET_BEARER_TOKEN)
 #   --dry-run      print plan only
@@ -172,16 +172,16 @@ invoke_remote_git_self_update() {
     echo "update-fleet: --remote-git-self-update requires FORGE_FLEET_BEARER_TOKEN or --remote-bearer" >&2
     return 1
   fi
-  _rb_url="${_rb_base}/v1/admin/git-self-update"
-  echo "[update-fleet] remote git-self-update POST ${_rb_url}"
+  _rb_url="${_rb_base}/v1/admin/upgrade"
+  echo "[update-fleet] remote Fleet upgrade POST ${_rb_url} (apt channel on production hosts)"
   _rb_tmp="$(mktemp)"
   _rb_code="$(curl -sS -o "$_rb_tmp" -w "%{http_code}" -X POST "$_rb_url" \
     -H "Authorization: Bearer ${_rb_bearer}" \
     -H "Content-Type: application/json" \
     -H "Accept: application/json" \
-    -d '{}')"
-  if [[ "$_rb_code" != "200" && "$_rb_code" != "400" ]]; then
-    echo "update-fleet: remote git-self-update HTTP ${_rb_code}" >&2
+    -d '{"mode":"upgrade"}')"
+  if [[ "$_rb_code" != "200" && "$_rb_code" != "202" && "$_rb_code" != "400" && "$_rb_code" != "409" ]]; then
+    echo "update-fleet: remote Fleet upgrade HTTP ${_rb_code}" >&2
     cat "$_rb_tmp" >&2 || true
     rm -f "$_rb_tmp"
     return 1
@@ -193,7 +193,7 @@ path = pathlib.Path(os.environ["_UPDATE_FLEET_JSON_TMP"])
 j = json.load(path.open(encoding="utf-8"))
 ok = j.get("ok")
 if ok is True:
-    note = (j.get("note") or "").strip() or "git-self-update completed"
+    note = (j.get("note") or "").strip() or "remote Fleet upgrade completed"
     print("[update-fleet] remote ok:", note)
     sys.exit(0)
 err = j.get("error") or "unknown"
@@ -223,7 +223,7 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
     if [[ -z "$_rb_base" || -z "$_rb_bearer" ]]; then
       echo "[dry-run] would need FORGE_FLEET_BASE_URL (or FLEET_REMOTE_GIT_SELF_UPDATE_URL / --remote-url) and FORGE_FLEET_BEARER_TOKEN (or --remote-bearer)" >&2
     else
-      echo "[dry-run] after successful push would: curl -sS -X POST ${_rb_base%/}/v1/admin/git-self-update -H \"Authorization: Bearer ***\" -H Content-Type: application/json -d {}"
+      echo "[dry-run] after successful push would: curl -sS -X POST ${_rb_base%/}/v1/admin/upgrade -H \"Authorization: Bearer ***\" -H Content-Type: application/json -d '{\"mode\":\"upgrade\"}'"
     fi
     if [[ "$NO_PUSH" -eq 1 ]]; then
       echo "[dry-run] note: --no-push skips remote step (nothing new on origin for remote to pull)" >&2

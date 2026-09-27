@@ -1575,28 +1575,29 @@ class FleetHandler(BaseHTTPRequestHandler):
             self._send(code, out)
             return
         if path == "/v1/admin/git-self-update":
-            stash_dirty = str(body.get("stash") or body.get("stash_dirty") or "").strip().lower() in {
-                "1",
-                "true",
-                "yes",
-                "on",
-            }
             data_dir_u = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            upgrade_body, detected_channel = upgrade_service.git_self_update_body(body, data_dir_u)
             out = upgrade_service.run_upgrade(
                 self._repo_root(),
                 data_dir_u,
                 Path(self.server.db_path),
-                {
-                    **body,
-                    "mode": "update",
-                    "stash_dirty": stash_dirty,
-                    "channel": "git",
-                },
+                upgrade_body,
                 schedule_restart_fn=self_update.schedule_post_git_and_restart,
             )
+            if detected_channel in ("apt_user", "apt_system") and out.get("ok"):
+                out = {
+                    **out,
+                    "routed_via": "apt_upgrade",
+                    "note": (
+                        (out.get("note") or "")
+                        + " (git-self-update on apt channel — use POST /v1/admin/upgrade for routine bumps.)"
+                    ).strip(),
+                }
             code = 200 if out.get("ok") else 400
             if out.get("error") == "upgrade_blocked":
                 code = 409
+            elif out.get("status") == "queued":
+                code = 202
             self._send(code, out)
             return
         if path == "/v1/admin/migration-scratch-gc":

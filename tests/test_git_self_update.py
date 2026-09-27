@@ -76,3 +76,25 @@ def test_run_upgrade_apt_queues_signal(tmp_path: Path) -> None:
     assert out["ok"] is True
     assert out["status"] == "queued"
     write_sig.assert_called_once()
+
+
+def test_git_self_update_body_apt_omits_git_channel(tmp_path: Path) -> None:
+    data_dir = tmp_path / "state"
+    data_dir.mkdir()
+    with patch.object(upgrade_service, "install_channel") as ic:
+        ic.detect_install_channel.return_value = "apt_system"
+        body, detected = upgrade_service.git_self_update_body({"channel": "git", "stash": "true"}, data_dir)
+    assert detected == "apt_system"
+    assert "channel" not in body
+    assert body["mode"] == "update"
+    assert body["stash_dirty"] is True
+
+
+def test_git_self_update_body_git_user_forces_channel(tmp_path: Path) -> None:
+    data_dir = tmp_path / "state"
+    data_dir.mkdir()
+    with patch.object(upgrade_service, "install_channel") as ic:
+        ic.detect_install_channel.return_value = "git_user"
+        body, detected = upgrade_service.git_self_update_body({}, data_dir)
+    assert detected == "git_user"
+    assert body["channel"] == "git"

@@ -11,18 +11,18 @@ cd forge-fleet
 ./scripts/update-fleet.sh --remote-git-self-update
 ```
 
-Or direct API:
+Or direct API (apt production hosts):
 
 ```bash
-curl -sS -X POST "${FORGE_FLEET_BASE_URL}/v1/admin/git-self-update" \
+curl -sS -X POST "${FORGE_FLEET_BASE_URL}/v1/admin/upgrade" \
   -H "Authorization: Bearer ${FORGE_FLEET_BEARER_TOKEN}" \
   -H "Content-Type: application/json" \
-  -d '{}'
+  -d '{"mode":"upgrade"}'
 ```
 
 ## SSH fallback (Fleet binary only)
 
-Use SSH **only** when `git-self-update` returns `system_install_requires_root` or the user unit refresh fails and the host operator must run the documented install script:
+Use SSH **only** when cooperative upgrade returns `system_install_requires_root` or the apt timer is inactive and the host operator must run the documented install script:
 
 ```bash
 cd ~/forge-fleet && git pull --ff-only && ./update-user.sh

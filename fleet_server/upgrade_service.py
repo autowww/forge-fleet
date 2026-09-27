@@ -15,6 +15,28 @@ def _defaults_for_mode(mode: str) -> tuple[int, str]:
     return 45, "abort"
 
 
+def git_self_update_body(body: dict[str, Any] | None, data_dir: Path) -> tuple[dict[str, Any], str]:
+    """Build upgrade payload for POST /v1/admin/git-self-update.
+
+    Apt-channel hosts never receive ``channel: git`` — they use the cooperative apt
+    upgrade path (same as POST /v1/admin/upgrade).
+    """
+    raw = dict(body or {})
+    stash_dirty = str(raw.get("stash") or raw.get("stash_dirty") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    detected = install_channel.detect_install_channel(data_dir)
+    upgrade_body = {k: v for k, v in raw.items() if k not in ("stash", "stash_dirty", "channel")}
+    upgrade_body["mode"] = "update"
+    upgrade_body["stash_dirty"] = stash_dirty
+    if detected not in ("apt_user", "apt_system"):
+        upgrade_body["channel"] = "git"
+    return upgrade_body, detected
+
+
 def run_upgrade(
     repo_root: Path,
     data_dir: Path,

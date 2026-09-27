@@ -42,8 +42,8 @@ fleet_get() {
   curl -fsS --max-time 60 -H "Authorization: Bearer ${TOK}" "${BASE}${path}"
 }
 
-log "1/5 git-self-update on Fleet host (stash dirty tree when needed)"
-fleet_post /v1/admin/git-self-update '{"stash": true}' >/dev/null || log "WARN: git-self-update failed (continuing)"
+log "1/5 Fleet apt upgrade on host (cooperative POST /v1/admin/upgrade)"
+fleet_post /v1/admin/upgrade '{"mode":"upgrade"}' >/dev/null || log "WARN: remote Fleet upgrade failed (continuing)"
 sleep 8
 
 log "2/5 sync built-in container types (forge_market_studio)"

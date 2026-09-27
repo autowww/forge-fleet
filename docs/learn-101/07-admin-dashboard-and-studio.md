@@ -48,9 +48,9 @@ These collide with Cursor workspace conventions—prefer **explicit** wording in
 
 | Phrase | Usually means |
 |--------|----------------|
-| **“Update fleet”** | **`./scripts/update-fleet.sh`** (semver bump → push → install paths). Optional **`--remote-git-self-update`** hits **`POST /v1/admin/git-self-update`** on a remote Fleet base URL. |
+| **“Update fleet”** | **`./scripts/update-fleet.sh`** (semver bump → push → install paths). Optional **`--remote-git-self-update`** hits **`POST /v1/admin/upgrade`** on a remote Fleet base URL. |
 | **“Update service”** | Local **`~/forge-fleet`** pull plus **`./update-user.sh`** / **`systemctl --user restart forge-fleet.service`**—not the semver release script unless the operator asked for that. |
-| **“Update certificator”** | Certificator refresh **plus** remote **`git-self-update`** hook—see workspace Forge rules ordering. |
+| **“Update certificator”** | Certificator refresh **plus** remote **`POST /v1/admin/upgrade`**—see workspace Forge rules ordering. |
 
 Do **not** store bearer tokens inside Markdown copies—prefer env files (**`forge-fleet.env`**, systemd drops) referenced from **[README.md](../../README.md)** and **`systemd/environment.example`**.
 

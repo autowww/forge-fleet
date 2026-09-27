@@ -33,7 +33,7 @@ See [fleet-lifecycle-contract](../design/fleet-lifecycle-contract.md) and [migra
 
 - **`git submodule update --init --recursive`**, SemVer bump, commit **`chore(release)`**, **`git push`**
 - optional **`sudo ./install-update.sh`** or **`./update-user.sh`** after push (layout-dependent)
-- optional **`--remote-git-self-update`** → **`curl` POST** **`{FORGE_FLEET_BASE_URL}/v1/admin/git-self-update`** with bearer
+- optional **`--remote-git-self-update`** → **`curl` POST** **`{FORGE_FLEET_BASE_URL}/v1/admin/upgrade`** with bearer (`{"mode":"upgrade"}`; apt timer on production hosts)
 
 Env hints: **`FORGE_FLEET_BASE_URL`**, **`FORGE_FLEET_BEARER_TOKEN`**, **`FLEET_REMOTE_GIT_SELF_UPDATE_URL`**. Overrides: **`--remote-url`**, **`--remote-bearer`**.
 
