@@ -30,7 +30,7 @@ jobs:
       - name: Stage Hosting tree
         run: |
           rm -rf hosting-staging/public
-          mkdir -p hosting-staging/public
+          mkdir -p hosting-staging/public/fleet
           cp -a dist/apt-publish/fleet/ubuntu hosting-staging/public/fleet/ubuntu
           cp packaging/apt-cdn-hosting/firebase.json hosting-staging/firebase.json
 
