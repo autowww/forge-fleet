@@ -24,6 +24,9 @@ jobs:
           pip install -e ".[docs]"
           pip install pytest
 
+      - name: No package artifacts in git
+        run: bash scripts/check-no-package-artifacts-in-git.sh
+
       - name: Fleet docs quality suite
         run: bash scripts/check-docs-all.sh
 

@@ -13,16 +13,12 @@ Do **not** attach `.deb` files to GitHub Releases or use release assets as an in
 1. From **`forge-fleet`** (version in `pyproject.toml` matches the release you are publishing):
 
    ```bash
-   ./scripts/publish-fleet-apt.sh
+   ./scripts/publish-and-deploy-fleet-apt-cdn.sh
    ```
 
-2. Deploy Hosting:
+   Or split: **`./scripts/publish-fleet-apt.sh`** then **`firebase deploy`** from **`forge-packages-website`**.
 
-   ```bash
-   cd ../forge-packages-website
-   firebase login --reauth   # if CLI auth is stale
-   firebase deploy --only hosting:forge-packages --project fleet-2f1d3
-   ```
+2. Before any git commit, CI runs **`./scripts/check-no-package-artifacts-in-git.sh`** — never commit **`dist/`** or **`.deb`** files.
 
 3. Verify the CDN index lists the new version:
 

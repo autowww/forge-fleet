@@ -5,9 +5,7 @@ name: Publish Fleet apt CDN
 
 on:
   workflow_dispatch:
-  push:
-    tags:
-      - "v*"
+  # Intentionally no `push: tags` — version tags are not a package channel; CDN deploy is manual or workflow_dispatch.
 
 permissions:
   contents: read

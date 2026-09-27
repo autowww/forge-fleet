@@ -23,6 +23,7 @@
 #   --no-install   skip sudo install-update (no local /opt refresh)
 #   --no-user      skip update-user.sh even when a user systemd unit is present
 #   --remote-git-self-update  after push, POST /v1/admin/upgrade on remote Fleet (apt channel; not git pull)
+#   --publish-apt-cdn         after push, build debs and deploy packages.forgesdlc.com (CDN only; not GitHub)
 #   --remote-url URL   override base URL (else FLEET_REMOTE_GIT_SELF_UPDATE_URL or FORGE_FLEET_BASE_URL)
 #   --remote-bearer T  override bearer token (else FORGE_FLEET_BEARER_TOKEN)
 #   --dry-run      print plan only
@@ -45,6 +46,7 @@ NO_USER=0
 ALLOW_DIRTY_STRICT=0
 DRY_RUN=0
 REMOTE_GIT_SELF_UPDATE=0
+PUBLISH_APT_CDN=0
 REMOTE_URL_OVERRIDE=""
 REMOTE_BEARER_OVERRIDE=""
 
@@ -134,6 +136,7 @@ while [[ $# -gt 0 ]]; do
     --commit-all) shift ;; # default in dev mode; kept for scripts that still pass it
     --dry-run) DRY_RUN=1; shift ;;
     --remote-git-self-update) REMOTE_GIT_SELF_UPDATE=1; shift ;;
+    --publish-apt-cdn) PUBLISH_APT_CDN=1; shift ;;
     --remote-url)
       REMOTE_URL_OVERRIDE="${2:-}"
       if [[ -z "$REMOTE_URL_OVERRIDE" ]]; then echo "update-fleet: --remote-url requires a value" >&2; exit 2; fi
@@ -239,6 +242,8 @@ if [[ "$STRICT" -eq 1 ]]; then
   fi
 fi
 
+bash "${ROOT}/scripts/check-no-package-artifacts-in-git.sh"
+
 if [[ "$NO_PUSH" -eq 0 ]]; then
   if ! git remote get-url origin >/dev/null 2>&1; then
     echo "update-fleet: git remote 'origin' is not set. Add: git remote add origin <url>" >&2
@@ -288,6 +293,13 @@ if [[ "$REMOTE_GIT_SELF_UPDATE" -eq 1 ]] && [[ "$NO_PUSH" -eq 0 ]]; then
   invoke_remote_git_self_update || exit 1
 elif [[ "$REMOTE_GIT_SELF_UPDATE" -eq 1 ]] && [[ "$NO_PUSH" -eq 1 ]]; then
   echo "[update-fleet] skipped remote git-self-update (--no-push)"
+fi
+
+if [[ "$PUBLISH_APT_CDN" -eq 1 ]] && [[ "$NO_PUSH" -eq 0 ]]; then
+  echo "[update-fleet] publish-and-deploy-fleet-apt-cdn.sh…"
+  bash "${ROOT}/scripts/publish-and-deploy-fleet-apt-cdn.sh"
+elif [[ "$PUBLISH_APT_CDN" -eq 1 ]] && [[ "$NO_PUSH" -eq 1 ]]; then
+  echo "[update-fleet] skipped publish-apt-cdn (--no-push)"
 fi
 
 if [[ "$NO_INSTALL" -eq 0 ]]; then
