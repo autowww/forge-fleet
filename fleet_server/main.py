@@ -1687,6 +1687,7 @@ class FleetHandler(BaseHTTPRequestHandler):
                     "forge_market_drop_legacy_rollups",
                     "forge_market_period_completion_v3",
                     "verify_suites",
+                    "forge_market_backend_version",
                 )
                 if body.get(k) is not None
             }

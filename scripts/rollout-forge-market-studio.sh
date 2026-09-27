@@ -170,6 +170,13 @@ _resolve_git_sha12() {
 }
 
 _resolve_backend_version() {
+  # Workstation Granite deploy bumps backend patch locally and passes
+  # FORGE_MARKET_BACKEND_VERSION on the Fleet rollout request. Prefer that over
+  # studio-versions.toml from the synced git tree (often behind until push).
+  if [[ -n "${FORGE_MARKET_BACKEND_VERSION:-}" ]]; then
+    printf '%s' "$FORGE_MARKET_BACKEND_VERSION"
+    return 0
+  fi
   local toml="${FORGE_MARKET_ROOT}/studio-versions.toml"
   [[ -f "$toml" ]] || return 0
   python3 - "$toml" <<'PY'
@@ -819,6 +826,9 @@ source_deploy() {
   log "copying src/ and studio-server/ into ${container}"
   docker cp "${FORGE_MARKET_ROOT}/src/." "${container}:/app/src/"
   docker cp "${FORGE_MARKET_ROOT}/studio-server/." "${container}:/app/studio-server/"
+  if [[ -f "${FORGE_MARKET_ROOT}/studio-versions.toml" ]]; then
+    docker cp "${FORGE_MARKET_ROOT}/studio-versions.toml" "${container}:/app/studio-versions.toml"
+  fi
   log "restarting market-app process"
   docker restart "$container"
   _ensure_app_on_postgres_network

@@ -45,6 +45,7 @@ _ROLLOUT_ENV_KEYS = (
     "FORGE_MARKET_DROP_LEGACY_ROLLUPS",
     "FORGE_MARKET_PERIOD_COMPLETION_V3",
     "FORGE_MARKET_VERIFY_SUITES",
+    "FORGE_MARKET_BACKEND_VERSION",
 )
 
 
@@ -112,6 +113,7 @@ def _apply_rollout_overrides(env: dict[str, str], overrides: dict[str, Any]) -> 
         "forge_market_drop_legacy_rollups": "FORGE_MARKET_DROP_LEGACY_ROLLUPS",
         "forge_market_period_completion_v3": "FORGE_MARKET_PERIOD_COMPLETION_V3",
         "verify_suites": "FORGE_MARKET_VERIFY_SUITES",
+        "forge_market_backend_version": "FORGE_MARKET_BACKEND_VERSION",
     }
     for src, dst in alias.items():
         raw = overrides.get(src)
