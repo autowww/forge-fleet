@@ -1,0 +1,31 @@
+{
+  "hosting": {
+    "site": "forge-packages",
+    "public": "public",
+    "ignore": [
+      "firebase.json",
+      "**/.DS_Store",
+      "**/node_modules/**"
+    ],
+    "headers": [
+      {
+        "source": "/fleet/ubuntu/dists/**",
+        "headers": [
+          { "key": "Cache-Control", "value": "public, max-age=300" }
+        ]
+      },
+      {
+        "source": "/fleet/ubuntu/pool/**",
+        "headers": [
+          { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+        ]
+      },
+      {
+        "source": "/fleet/ubuntu/install.sh",
+        "headers": [
+          { "key": "Cache-Control", "value": "public, max-age=3600" }
+        ]
+      }
+    ]
+  }
+}

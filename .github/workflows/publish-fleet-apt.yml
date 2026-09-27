@@ -1,0 +1,41 @@
+# Build forge-fleet .deb packages and publish apt repo to packages.forgesdlc.com (Firebase Hosting).
+# Requires repo secret FIREBASE_TOKEN from: firebase login:ci
+name: Publish Fleet apt CDN
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install packaging tools
+        run: sudo apt-get update -qq && sudo apt-get install -y apt-utils gnupg dpkg-dev
+
+      - name: Build debs and apt repository
+        run: |
+          bash packaging/scripts/build-debs.sh
+          bash packaging/scripts/build-apt-repo.sh
+
+      - name: Stage Hosting tree
+        run: |
+          rm -rf hosting-staging/public
+          mkdir -p hosting-staging/public
+          cp -a dist/apt-publish/fleet/ubuntu hosting-staging/public/fleet/ubuntu
+          cp packaging/apt-cdn-hosting/firebase.json hosting-staging/firebase.json
+
+      - name: Deploy to Firebase (forge-packages)
+        uses: w9jds/firebase-action@v14.4.0
+        with:
+          args: deploy --only hosting:forge-packages --project fleet-2f1d3 --non-interactive
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+          PROJECT_PATH: hosting-staging
