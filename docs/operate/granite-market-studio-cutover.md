@@ -59,6 +59,8 @@ Operator HTTP surface (local studio-server only):
 
    Rollout syncs `forge-market`, rebuilds `market-app`, starts Postgres, runs **`python -m forge_market.db.migrate upgrade`** (schema deltas), then starts the API. Poll `GET /v1/admin/forge-market-studio-rollout-log` for progress. Optional body: `"run_schema_migrate": false` to skip schema step (not recommended).
 
+   **Large harvest backlog:** set catch-up env in the stack `.env` before rollout (`FORGE_MARKET_ASYNC_ROLLUP=1`, `FORGE_MARKET_HARVEST_DERIVE_ON_UPLOAD=0`, `FORGE_MARKET_STUDIO_PRIORITY_WORKERS=8`). See `forge-market/docs/operate/ibgw-harvest-speed.md` (Catch-up drain profile). Restore derive-on-upload after the queue drains.
+
    Verify: `curl -fsS http://127.0.0.1:19792/health` should show matching `schema_version` and `schema_head`.
 
    **Two-tier deploy (source vs image rebuild):** the rollout script compares the running `market-app` image label `forge.market.reqs_hash` to the md5 of `studio-server/requirements.txt`. When unchanged, it uses a **source-only** path (`docker cp` + `docker restart`, ~20–30s). When `requirements.txt` changed, it runs a full `docker compose build`.
