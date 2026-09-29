@@ -13,6 +13,24 @@ from typing import Any
 from fleet_server import rollout_slot, rollout_status
 from fleet_server.market_studio_rollout_env import rollout_identity
 
+ROLLOUT_CONTRACT = 3
+ROLLOUT_CONTRACT_FEATURES = (
+    "backend_label_guard",
+    "migrate_from_source",
+    "status_filter_pause",
+    "health_label_compare",
+)
+
+
+def rollout_contract_payload() -> dict[str, Any]:
+    return {
+        "ok": True,
+        "contract": ROLLOUT_CONTRACT,
+        "features": list(ROLLOUT_CONTRACT_FEATURES),
+        "required_for_studio": ROLLOUT_CONTRACT,
+    }
+
+
 _ROLLOUT_ENV_KEYS = (
     "FORGE_MARKET_ROOT",
     "FORGE_MARKET_STUDIO_ROOT",

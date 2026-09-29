@@ -10,6 +10,8 @@ FORGE_MARKET_ENV="${FORGE_MARKET_ENV:-prod}"
 FORGE_MARKET_ROOT="${FORGE_MARKET_ROOT:-}"
 COMPOSE_FILES="${FORGE_MARKET_COMPOSE_FILES:-compose.granite.yaml}"
 FORGE_MARKET_SKIP_BUILD="${FORGE_MARKET_SKIP_BUILD:-0}"
+# Fleet rollout request may pass FORGE_MARKET_BACKEND_VERSION; compose .env must not win.
+_REQUESTED_BACKEND_VERSION="${FORGE_MARKET_BACKEND_VERSION:-}"
 
 log() { printf 'rollout-forge-market-studio: %s\n' "$*"; }
 die() { log "ERROR: $*"; exit 1; }
@@ -111,8 +113,13 @@ _persist_release_labels() {
     export FORGE_MARKET_GIT_SHA="$git_sha12"
     _persist_compose_env_key FORGE_MARKET_GIT_SHA "$git_sha12"
   fi
+  local old_backend=""
+  old_backend="$(grep -E '^FORGE_MARKET_BACKEND_VERSION=' .env 2>/dev/null | head -1 | cut -d= -f2- || true)"
   backend_version="$(_resolve_backend_version || true)"
   if [[ -n "$backend_version" ]]; then
+    local src="toml"
+    [[ -n "${_REQUESTED_BACKEND_VERSION:-}" ]] && src="request"
+    log "backend_version ${old_backend:-?} -> ${backend_version} (source=${src})"
     export FORGE_MARKET_BACKEND_VERSION="$backend_version"
     _persist_compose_env_key FORGE_MARKET_BACKEND_VERSION "$backend_version"
   fi
@@ -170,11 +177,9 @@ _resolve_git_sha12() {
 }
 
 _resolve_backend_version() {
-  # Workstation Granite deploy bumps backend patch locally and passes
-  # FORGE_MARKET_BACKEND_VERSION on the Fleet rollout request. Prefer that over
-  # studio-versions.toml from the synced git tree (often behind until push).
-  if [[ -n "${FORGE_MARKET_BACKEND_VERSION:-}" ]]; then
-    printf '%s' "$FORGE_MARKET_BACKEND_VERSION"
+  # Request from Fleet rollout overrides synced toml. Never use a stale value from compose .env.
+  if [[ -n "${_REQUESTED_BACKEND_VERSION:-}" ]]; then
+    printf '%s' "$_REQUESTED_BACKEND_VERSION"
     return 0
   fi
   local toml="${FORGE_MARKET_ROOT}/studio-versions.toml"
@@ -231,6 +236,7 @@ FORGE_MARKET_DATABASE_URL=postgresql://forge_market:forge_market_dev@postgres:54
 FORGE_MARKET_STUDIO_HOST_PORT=${studio_port}
 FORGE_MARKET_POSTGRES_HOST_PORT=${postgres_port}
 FORGE_MARKET_API_ONLY=1
+FORGE_MARKET_PERIOD_COMPLETION_V3=1
 INCLUDE_STUDIO_UI=0
 EOF
       fi
@@ -261,6 +267,11 @@ EOF
   _dockerfile_override="${FORGE_MARKET_DOCKERFILE:-}"
   # shellcheck disable=SC1091
   set -a && source .env && set +a
+  if [[ -n "${_REQUESTED_BACKEND_VERSION:-}" ]]; then
+    export FORGE_MARKET_BACKEND_VERSION="$_REQUESTED_BACKEND_VERSION"
+  else
+    unset FORGE_MARKET_BACKEND_VERSION
+  fi
   if [[ -n "$_root_override" ]]; then
     FORGE_MARKET_ROOT="$_root_override"
   else
@@ -686,7 +697,11 @@ pause_all_harvest_jobs() {
   port="$(_studio_health_port)"
   timeout="${FORGE_MARKET_JOB_PAUSE_TIMEOUT_SEC:-60}"
   job_ids="$(curl -fsS "http://127.0.0.1:${port}/api/prices/jobs?status=running" 2>/dev/null \
-    | python3 -c 'import sys,json; print("\n".join(str(j["job_id"]) for j in json.load(sys.stdin).get("jobs",[])))' \
+    | python3 -c 'import sys,json
+jobs=json.load(sys.stdin).get("jobs",[]) if sys.stdin.readable() else []
+for j in jobs:
+    if str(j.get("status") or "").lower()=="running":
+        print(j["job_id"])' \
     2>/dev/null || true)"
   if [[ -z "$job_ids" ]]; then
     log "no active harvest jobs"
@@ -702,7 +717,9 @@ pause_all_harvest_jobs() {
   while (( elapsed < timeout )); do
     local still_running
     still_running="$(curl -fsS "http://127.0.0.1:${port}/api/prices/jobs?status=running" 2>/dev/null \
-      | python3 -c 'import sys,json; print(len(json.load(sys.stdin).get("jobs",[])))' \
+      | python3 -c 'import sys,json
+jobs=json.load(sys.stdin).get("jobs",[])
+print(sum(1 for j in jobs if str(j.get("status") or "").lower()=="running"))' \
       2>/dev/null || echo 0)"
     if [[ "$still_running" == "0" ]]; then
       log "all harvest jobs paused (SQL committed)"
@@ -719,7 +736,10 @@ cancel_harvest_subprocesses() {
   local port job_ids
   port="$(_studio_health_port)"
   job_ids="$(curl -fsS "http://127.0.0.1:${port}/api/prices/jobs?status=paused" 2>/dev/null \
-    | python3 -c 'import sys,json; print("\n".join(str(j["job_id"]) for j in json.load(sys.stdin).get("jobs",[])))' \
+    | python3 -c 'import sys,json
+for j in json.load(sys.stdin).get("jobs",[]):
+    if str(j.get("status") or "").lower()=="paused":
+        print(j["job_id"])' \
     2>/dev/null || true)"
   while IFS= read -r jid; do
     [[ -n "$jid" ]] || continue
@@ -739,7 +759,10 @@ resume_paused_harvest_jobs() {
     elapsed=$((elapsed + 2))
   done
   job_ids="$(curl -fsS "http://127.0.0.1:${port}/api/prices/jobs?status=paused" 2>/dev/null \
-    | python3 -c 'import sys,json; print("\n".join(str(j["job_id"]) for j in json.load(sys.stdin).get("jobs",[])))' \
+    | python3 -c 'import sys,json
+for j in json.load(sys.stdin).get("jobs",[]):
+    if str(j.get("status") or "").lower()=="paused":
+        print(j["job_id"])' \
     2>/dev/null || true)"
   while IFS= read -r jid; do
     [[ -n "$jid" ]] || continue
@@ -980,12 +1003,46 @@ run_postgres_schema_migrate() {
     fi
   done
   log "running postgres schema migrate (${migrate_image} on network ${pg_network})"
-  docker run --rm --network "$pg_network" \
+  local -a migrate_mounts=()
+  if [[ "${FORGE_MARKET_MIGRATE_FROM_SOURCE:-1}" == "1" && -d "${FORGE_MARKET_ROOT}/src" ]]; then
+    migrate_mounts+=(-v "${FORGE_MARKET_ROOT}/src:/app/src:ro")
+    migrate_mounts+=(-v "${FORGE_MARKET_ROOT}/studio-server:/app/studio-server:ro")
+    log "migrate from synced source tree (FORGE_MARKET_MIGRATE_FROM_SOURCE=1)"
+  fi
+  local migrate_out
+  migrate_out="$(docker run --rm --network "$pg_network" \
     -e "PYTHONUNBUFFERED=1" \
     -e "FORGE_MARKET_DATABASE_URL=${migrate_db_url}" \
     ${confirm_env[@]+"${confirm_env[@]}"} \
+    ${migrate_mounts[@]+"${migrate_mounts[@]}"} \
     "$migrate_image" \
-    python -m forge_market.db.migrate upgrade
+    python -m forge_market.db.migrate upgrade 2>&1)" || die "schema migrate failed"
+  log "$migrate_out"
+  local synced_head=""
+  if [[ -d "${FORGE_MARKET_ROOT}/src" ]]; then
+    synced_head="$(docker run --rm \
+      ${migrate_mounts[@]+"${migrate_mounts[@]}"} \
+      "$migrate_image" \
+      python -c "from forge_market.db.migrate import SCHEMA_HEAD; print(SCHEMA_HEAD)" 2>/dev/null || true)"
+  fi
+  if [[ -n "$synced_head" ]]; then
+    migrate_applied_head="$(printf '%s' "$migrate_out" | sed -n 's/.*head=\([0-9][0-9]*\).*/\1/p' | tail -1)"
+    if [[ -n "$migrate_applied_head" && "$migrate_applied_head" -lt "$synced_head" ]]; then
+      die "migrator_stale migrator_head=${migrate_applied_head} synced_head=${synced_head}"
+    fi
+    log "schema_head_synced=${synced_head}"
+    FLEET_SERVICE_ID="${_FLEET_SERVICE_ID:-$(_resolve_rollout_service_id)}" \
+      FLEET_SCHEMA_HEAD_SYNCED="$synced_head" \
+      python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+from fleet_server import rollout_status
+
+sid = os.environ["FLEET_SERVICE_ID"]
+rollout_status.patch_rollout_status(sid, {"schema_head_synced": os.environ.get("FLEET_SCHEMA_HEAD_SYNCED", "")})
+PY
+  fi
 }
 
 _ensure_app_on_postgres_network() {
@@ -1265,6 +1322,23 @@ smoke() {
             die "schema version beyond contract head (applied=$sv head=$ch)"
           fi
         fi
+        local expected_backend expected_sha live_backend live_sha
+        expected_backend="$(_resolve_backend_version 2>/dev/null || true)"
+        expected_sha="$(_resolve_git_sha12 2>/dev/null || true)"
+        live_backend="$(echo "$body" | jq -r '.versions.backend // .environment.backend_version // empty' 2>/dev/null || true)"
+        live_sha="$(echo "$body" | jq -r '.versions.git_sha // .environment.git_sha // empty' 2>/dev/null || true)"
+        if [[ -n "$live_backend" && -n "$expected_backend" && "$live_backend" != "$expected_backend" ]]; then
+          die "release_label_mismatch backend live=${live_backend} expected=${expected_backend}"
+        fi
+        if [[ -n "$live_sha" && -n "$expected_sha" ]]; then
+          live_sha="${live_sha:0:12}"
+          expected_sha="${expected_sha:0:12}"
+          if [[ "$live_sha" != "$expected_sha" ]]; then
+            die "release_label_mismatch git_sha live=${live_sha} expected=${expected_sha}"
+          fi
+        elif [[ -z "$live_backend" ]]; then
+          log "smoke: label_unverified (health missing versions.backend)"
+        fi
       fi
       return 0
     fi
@@ -1315,6 +1389,7 @@ clear_hosted_data_plane_pref() {
 
 main() {
   trap '_on_rollout_error' ERR
+  _REQUESTED_BACKEND_VERSION="${FORGE_MARKET_BACKEND_VERSION:-${_REQUESTED_BACKEND_VERSION:-}}"
   _init_rollout_status
   fleet_rollout_step "prepare" "Preparing rollout environment"
   command -v docker >/dev/null || die "docker missing"

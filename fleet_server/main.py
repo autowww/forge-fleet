@@ -854,6 +854,9 @@ class FleetHandler(BaseHTTPRequestHandler):
         if path == "/v1/admin/forge-market-studio-rollout-log":
             self._send(200, forge_market_studio_rollout.read_rollout_log())
             return
+        if path == "/v1/admin/forge-market-studio-rollout-contract":
+            self._send(200, forge_market_studio_rollout.rollout_contract_payload())
+            return
         if path == "/v1/admin/forge-market-pattern-rollups-backfill-log":
             self._send(200, forge_market_pattern_rollups_backfill.read_backfill_log())
             return
@@ -950,6 +953,8 @@ class FleetHandler(BaseHTTPRequestHandler):
                             "template_lib_version": versioning.FLEET_TEMPLATE_LIB_VERSION,
                             "git_sha": versioning.git_sha_short() or None,
                         },
+                        "rollout_contract": forge_market_studio_rollout.ROLLOUT_CONTRACT,
+                        "forge_market_studio_rollout_contract": forge_market_studio_rollout.rollout_contract_payload(),
                         "integrations": integrations,
                     },
                     "host": host_snap,
