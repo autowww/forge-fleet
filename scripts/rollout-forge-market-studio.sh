@@ -1031,17 +1031,16 @@ run_postgres_schema_migrate() {
       die "migrator_stale migrator_head=${migrate_applied_head} synced_head=${synced_head}"
     fi
     log "schema_head_synced=${synced_head}"
-    FLEET_SERVICE_ID="${_FLEET_SERVICE_ID:-$(_resolve_rollout_service_id)}" \
+    (cd "$FLEET_ROOT" && FLEET_SERVICE_ID="${_FLEET_SERVICE_ID:-$(_resolve_rollout_service_id)}" \
       FLEET_SCHEMA_HEAD_SYNCED="$synced_head" \
       python3 - <<'PY'
-import json
 import os
-from pathlib import Path
 from fleet_server import rollout_status
 
 sid = os.environ["FLEET_SERVICE_ID"]
 rollout_status.patch_rollout_status(sid, {"schema_head_synced": os.environ.get("FLEET_SCHEMA_HEAD_SYNCED", "")})
 PY
+    )
   fi
 }
 
