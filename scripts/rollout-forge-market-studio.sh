@@ -313,6 +313,18 @@ EOF
       sed -i "s|^FORGE_MARKET_ROOT=.*|FORGE_MARKET_ROOT=${FORGE_MARKET_ROOT}|" .env
     fi
   fi
+  if [[ "$FORGE_MARKET_ENV" != "dev" ]]; then
+    local v3_off=""
+    if [[ -f "$GRANITE_MARKET_ENV" ]] && grep -qE '^FORGE_MARKET_PERIOD_COMPLETION_V3=0' "$GRANITE_MARKET_ENV" 2>/dev/null; then
+      v3_off=1
+    elif grep -qE '^FORGE_MARKET_PERIOD_COMPLETION_V3=0' .env 2>/dev/null; then
+      v3_off=1
+    fi
+    if [[ -z "$v3_off" ]]; then
+      _persist_compose_env_key FORGE_MARKET_PERIOD_COMPLETION_V3 "1"
+      export FORGE_MARKET_PERIOD_COMPLETION_V3=1
+    fi
+  fi
 }
 
 _ensure_git_fallback_clone() {
