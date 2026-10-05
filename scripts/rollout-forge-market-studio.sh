@@ -866,10 +866,19 @@ source_deploy() {
   compose_file_args files
   log "source-only deploy: recreating ${container} with synced release labels"
   compose "${files[@]}" up -d --no-deps --force-recreate market-app
-  log "copying src/, config/, and studio-server/ into ${container}"
+  log "copying src/, config/, studio-server/, lmeta/, and tools/ into ${container}"
   docker cp "${FORGE_MARKET_ROOT}/src/." "${container}:/app/src/"
   docker cp "${FORGE_MARKET_ROOT}/config/." "${container}:/app/config/"
   docker cp "${FORGE_MARKET_ROOT}/studio-server/." "${container}:/app/studio-server/"
+  # Runtime-read trees outside src/: lmeta flows drive SEC ingest waves and
+  # tools/ hosts the detached workers studio_server spawns. Leaving them at the
+  # image's build-time copy made flow fixes silently no-op until a reqs change
+  # forced an image rebuild.
+  for extra in lmeta tools; do
+    if [[ -d "${FORGE_MARKET_ROOT}/${extra}" ]]; then
+      docker cp "${FORGE_MARKET_ROOT}/${extra}/." "${container}:/app/${extra}/"
+    fi
+  done
   if [[ -f "${FORGE_MARKET_ROOT}/studio-versions.toml" ]]; then
     docker cp "${FORGE_MARKET_ROOT}/studio-versions.toml" "${container}:/app/studio-versions.toml"
   fi

@@ -101,6 +101,17 @@ def test_rollout_script_stops_market_app_before_migrate() -> None:
     assert "_resolve_migrate_image" in text
 
 
+def test_rollout_script_source_deploy_refreshes_runtime_trees() -> None:
+    """lmeta flows and tools/ workers are read at runtime; a source-only deploy
+    that leaves them at the image build-time copy makes flow fixes no-ops."""
+    script = Path(__file__).resolve().parents[1] / "scripts" / "rollout-forge-market-studio.sh"
+    text = script.read_text(encoding="utf-8")
+    for tree in ("src", "config", "studio-server"):
+        assert f'docker cp "${{FORGE_MARKET_ROOT}}/{tree}/." "${{container}}:/app/{tree}/"' in text
+    assert "for extra in lmeta tools; do" in text
+    assert '"${container}:/app/${extra}/"' in text
+
+
 def test_rollout_script_supports_dev_env_and_digest_promotion() -> None:
     script = Path(__file__).resolve().parents[1] / "scripts" / "rollout-forge-market-studio.sh"
     text = script.read_text(encoding="utf-8")
