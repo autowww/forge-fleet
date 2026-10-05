@@ -90,6 +90,14 @@ ensure_paths() {
   FORGE_MARKET_ROOT="$(resolve_forge_market_root)" || die "forge-market checkout missing (set FORGE_MARKET_ROOT or clone beside Fleet)"
   export FORGE_MARKET_ROOT
   log "using forge-market root $FORGE_MARKET_ROOT"
+  local tuning="${FORGE_MARKET_PG_TUNING_CONF:-./postgres-tuning.conf.disabled}"
+  if [[ -f "$MARKET_STUDIO_ROOT/$tuning" || -f "$tuning" ]]; then
+    : # mount target exists
+  elif [[ "$tuning" == *disabled* ]]; then
+    log "postgres PG-A tuning: disabled (default)"
+  else
+    log "WARN: FORGE_MARKET_PG_TUNING_CONF=$tuning not found beside compose — postgres mount may fail"
+  fi
 }
 
 _persist_compose_env_key() {
@@ -858,8 +866,9 @@ source_deploy() {
   compose_file_args files
   log "source-only deploy: recreating ${container} with synced release labels"
   compose "${files[@]}" up -d --no-deps --force-recreate market-app
-  log "copying src/ and studio-server/ into ${container}"
+  log "copying src/, config/, and studio-server/ into ${container}"
   docker cp "${FORGE_MARKET_ROOT}/src/." "${container}:/app/src/"
+  docker cp "${FORGE_MARKET_ROOT}/config/." "${container}:/app/config/"
   docker cp "${FORGE_MARKET_ROOT}/studio-server/." "${container}:/app/studio-server/"
   if [[ -f "${FORGE_MARKET_ROOT}/studio-versions.toml" ]]; then
     docker cp "${FORGE_MARKET_ROOT}/studio-versions.toml" "${container}:/app/studio-versions.toml"
