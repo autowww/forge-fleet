@@ -1134,7 +1134,9 @@ deploy_compose_stack() {
     start_market_app_stack
   else
     fleet_rollout_step "migrate" "Running schema migrations"
-    run_postgres_schema_migrate 0
+    # Always stop market-app before DDL — source-only deploys used to pass 0 here and
+    # blocked on stock_bars_v2 ACCESS EXCLUSIVE locks while the API held connections.
+    run_postgres_schema_migrate 1
     fleet_rollout_step "source_copy" "Copying source into running container"
     source_deploy
   fi
