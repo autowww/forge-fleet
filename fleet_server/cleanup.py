@@ -186,6 +186,7 @@ def gc_rollout_backups(
     *,
     keep_count: int = 3,
     keep_days: float = 14.0,
+    strict_keep_count: bool = True,
     service_ids: list[str] | None = None,
     dry_run: bool = True,
 ) -> dict[str, Any]:
@@ -219,13 +220,23 @@ def gc_rollout_backups(
                 sz = dump.stat().st_size
             except OSError:
                 continue
-            if i < keep_count or mtime >= cutoff:
+            if i < keep_count:
                 kept.append(
                     {
                         "path": str(dump),
                         "service_id": svc_dir.name,
                         "bytes": sz,
-                        "reason": "within_keep_count" if i < keep_count else "within_keep_days",
+                        "reason": "within_keep_count",
+                    }
+                )
+                continue
+            if not strict_keep_count and mtime >= cutoff:
+                kept.append(
+                    {
+                        "path": str(dump),
+                        "service_id": svc_dir.name,
+                        "bytes": sz,
+                        "reason": "within_keep_days",
                     }
                 )
                 continue
@@ -259,6 +270,7 @@ def gc_rollout_backups(
         "bytes_freed": bytes_freed,
         "keep_count": keep_count,
         "keep_days": keep_days,
+        "strict_keep_count": strict_keep_count,
     }
 
 
@@ -332,10 +344,13 @@ def run_cleanup(data_dir: Path, db_path: Path, body: dict[str, Any]) -> dict[str
             return {"ok": False, "error": "rollout_backups_must_be_object"}
         svc_ids = rb.get("service_ids")
         sid_list = [str(s) for s in svc_ids] if isinstance(svc_ids, list) else None
+        strict_raw = rb.get("strict_keep_count")
+        strict_keep = True if strict_raw is None else bool(strict_raw)
         out = gc_rollout_backups(
             backup_root_for(data_dir),
             keep_count=int(rb.get("keep_count") or rollout_backup_keep_count()),
             keep_days=float(rb.get("keep_days") or rollout_backup_keep_days()),
+            strict_keep_count=strict_keep,
             service_ids=sid_list,
             dry_run=dry_run,
         )
