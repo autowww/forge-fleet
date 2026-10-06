@@ -81,6 +81,9 @@ Feature docs (details beyond this table): [CONTAINER-TEMPLATES.md](../build-201/
 | GET | `/v1/admin/upgrade/status` | bearer | Active upgrade session (`queued`, `complete`, `failed`, …). |
 | POST | `/v1/admin/upgrade` | bearer | Cooperative upgrade; routes by `install_channel` (git vs apt signal). Body: `mode`, `max_wait_sec`, `on_timeout` (`abort`|`force`). |
 | POST | `/v1/admin/package-upgrade` | bearer | Apt only: lifecycle wait → write signal → **202** queued. |
+| GET | `/v1/admin/cleanup-inventory` | bearer | Disk inventory: rollout pg_dump backups, migration scratch, job-workspaces, docker `system df`, protected containers. |
+| POST | `/v1/admin/cleanup` | bearer | Safe host cleanup (`dry_run` defaults **true**). Targets: `rollout_backups`, `migration_scratch`, `job_workspaces`, `docker_builder`, `docker_images`. Rejects `containers`, `volumes`, `docker_system_prune`. Returns pre/post operational integrity checks. |
+| POST | `/v1/admin/migration-scratch-gc` | bearer | Purge stale migration bundle scratch under `migration-bundles/`. Body: `dry_run` (default false). |
 | GET | `/v1/admin/install-channel` | bearer | `install_channel`, timer active, migration hints. |
 | POST | `/v1/container-services` | bearer | Create managed service (`type_id`, `compose_root`, …). |
 | PUT | `/v1/container-services/{id}` | bearer | Update service record. |

@@ -52,6 +52,7 @@ from fleet_server import (
     versioning,
     workspace_bundle,
 )
+from fleet_server import cleanup as fleet_cleanup
 from fleet_server import migrations as fleet_migrations
 from fleet_server import docker_gc as fleet_docker_gc
 from fleet_server.test_fleet import spawn_test_fleet
@@ -881,6 +882,13 @@ class FleetHandler(BaseHTTPRequestHandler):
             return
         if self._handle_flows("GET"):
             return
+        if path == "/v1/admin/cleanup-inventory":
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+            out = fleet_cleanup.inventory(self._data_dir(), self.server.db_path)
+            self._send(200, out)
+            return
         if path == "/v1/admin/snapshot":
             conn = store.connect(self.server.db_path)
             try:
@@ -1613,6 +1621,20 @@ class FleetHandler(BaseHTTPRequestHandler):
                 dry_run=dry_run,
             )
             self._send(200, out)
+            return
+        if path == "/v1/admin/cleanup":
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+            out = fleet_cleanup.run_cleanup(self._data_dir(), self.server.db_path, body)
+            if out.get("error") in {
+                "targets_must_be_object",
+                "rollout_backups_must_be_object",
+            } or str(out.get("error") or "").startswith("cleanup_target_not_allowed"):
+                self._send(400, out)
+                return
+            code = 200 if out.get("ok", True) else 409
+            self._send(code, out)
             return
         if path == "/v1/admin/sync-container-types":
             added = container_layout.sync_builtin_types(self._data_dir())

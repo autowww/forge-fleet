@@ -967,6 +967,34 @@ run_pre_migrate_backup() {
   bytes="$(wc -c <"$backup_path" | tr -d ' ')"
   log "backup verified: ${backup_path} (${bytes} bytes)"
   _record_backup_status "$backup_path" "$bytes"
+  _prune_rollout_backups_after_backup
+}
+
+_prune_rollout_backups_after_backup() {
+  if [[ "${FORGE_MARKET_SKIP_BACKUP_GC:-0}" == "1" ]]; then
+    log "skip rollout backup GC (FORGE_MARKET_SKIP_BACKUP_GC=1)"
+    return 0
+  fi
+  local fleet_port="${FLEET_LOCAL_PORT:-18766}"
+  local fleet_token="${FLEET_BEARER_TOKEN:-}"
+  local service_id
+  service_id="${_FLEET_SERVICE_ID:-market-studio}"
+  if [[ -z "$fleet_token" && -f "$ENV_FILE" ]]; then
+    # shellcheck disable=SC1090
+    set -a && source "$ENV_FILE" && set +a
+    fleet_token="${FLEET_BEARER_TOKEN:-}"
+  fi
+  if [[ -z "$fleet_token" ]]; then
+    log "skip rollout backup GC (no FLEET_BEARER_TOKEN)"
+    return 0
+  fi
+  local keep_count="${FLEET_ROLLOUT_BACKUP_KEEP_COUNT:-3}"
+  log "rollout backup GC via Fleet (keep_count=${keep_count} service_id=${service_id})"
+  curl -fsS -X POST "http://127.0.0.1:${fleet_port}/v1/admin/cleanup" \
+    -H "Authorization: Bearer ${fleet_token}" \
+    -H "Content-Type: application/json" \
+    -d "{\"dry_run\":false,\"targets\":{\"rollout_backups\":{\"keep_count\":${keep_count},\"service_ids\":[\"${service_id}\"]}}}" \
+    >/dev/null 2>&1 || log "rollout backup GC skipped (Fleet cleanup API unavailable)"
 }
 
 check_migrate_gates() {

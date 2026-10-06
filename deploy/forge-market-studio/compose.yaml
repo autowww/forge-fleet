@@ -16,6 +16,7 @@ services:
       - max_connections=200
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ${FORGE_MARKET_PG_TUNING_CONF:-./postgres-tuning.conf.disabled}:/etc/postgresql/conf.d/99-forge-market-tuning.conf:ro
     healthcheck:
       test:
         [

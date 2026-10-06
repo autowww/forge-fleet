@@ -116,8 +116,9 @@ Check **`GET /v1/container-templates/status`**; docker buildx present (**[Contai
 
 | | |
 | --- | --- |
-| **Mitigation** | Prune old jobs if policy allows; expand volume; rotate logs |
-| **Prevent** | alarms on **`FLEET_DATA_DIR`** free space |
+| **Fast checks** | `GET /v1/admin/cleanup-inventory` (rollout backups, docker cache, scratch) |
+| **Mitigation** | `POST /v1/admin/cleanup` with `dry_run: true` first; then apply `rollout_backups` (keep ≥3 prod), `docker_builder`, `docker_images` (dangling only). Does **not** stop containers or prune volumes. |
+| **Prevent** | alarms on **`FLEET_DATA_DIR`** free space; post-rollout backup retention via cleanup API |
 
 ### Caddy / TLS failure
 

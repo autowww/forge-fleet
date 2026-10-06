@@ -50,6 +50,9 @@ Values are **case-sensitive**. Empty/unset usually means “use default” where
 | **`FLEET_MIGRATION_SCRATCH_RETENTION_HOURS`** | Hours to keep bundle scratch after a **failed** extract step before GC (default **24**). |
 | **`FLEET_MIGRATION_ABANDONED_HOURS`** | Hours before GC removes **ready** bundles whose extract steps never started (default **24**). |
 | **`FLEET_DOCKER_BUILDER_PRUNE_HOURS`** | Prune Docker BuildKit layers older than this many hours at Fleet startup (**0** = off; default **168**). |
+| **`FLEET_ROLLOUT_BACKUP_KEEP_COUNT`** | Default minimum rollout pg_dump files to keep per service when using **`POST /v1/admin/cleanup`** (default **3**). |
+| **`FLEET_ROLLOUT_BACKUP_KEEP_DAYS`** | Default age floor for rollout backups (days); newer dumps are never removed (default **14**). |
+| **`FLEET_ROLLOUT_BACKUP_ROOT`** | Override rollout backup parent directory (default **`{FLEET_DATA_DIR}/backups`** or **`~/.local/state/forge-fleet/backups`**). |
 
 ## Runner / Docker
 

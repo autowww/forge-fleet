@@ -1,0 +1,32 @@
+# Example PostgreSQL overrides for Granite market-studio (PG-A full tier).
+# Generate from forge-market: tools/granite_postgres_guc_proposal.py --inspect <inspect.json>
+#
+# Staged rollout:
+#   Stage 1: cp postgres-tuning-lite.conf postgres-tuning.conf
+#   Stage 2: cp postgres-tuning-full.conf postgres-tuning.conf
+# Default (no overrides): postgres-tuning.conf.disabled via FORGE_MARKET_PG_TUNING_CONF
+#
+# Compose mount (see compose.yaml):
+#   ${FORGE_MARKET_PG_TUNING_CONF:-./postgres-tuning.conf.disabled}
+#     -> /etc/postgresql/conf.d/99-forge-market-tuning.conf
+
+# --- Full tier (matches guc-proposal-20260929T225213Z-e0aa8c4) ---
+shared_buffers = 8GB
+effective_cache_size = 48002MB
+work_mem = 256MB
+maintenance_work_mem = 2048MB
+wal_buffers = 64MB
+max_wal_size = 4GB
+min_wal_size = 1GB
+checkpoint_timeout = 15min
+checkpoint_completion_target = 0.9
+random_page_cost = 1.1
+effective_io_concurrency = 200
+maintenance_io_concurrency = 64
+max_worker_processes = 16
+max_parallel_workers = 8
+max_parallel_workers_per_gather = 4
+max_parallel_maintenance_workers = 4
+max_connections = 200
+huge_pages = try
+jit = off

@@ -55,3 +55,8 @@ FLEET_BEARER_TOKEN=change-me
 #
 # Docker BuildKit cache prune at Fleet startup (0 = disable)
 # FLEET_DOCKER_BUILDER_PRUNE_HOURS=168
+#
+# Rollout backup retention (POST /v1/admin/cleanup rollout_backups target)
+# FLEET_ROLLOUT_BACKUP_KEEP_COUNT=3
+# FLEET_ROLLOUT_BACKUP_KEEP_DAYS=14
+# FLEET_ROLLOUT_BACKUP_ROOT=

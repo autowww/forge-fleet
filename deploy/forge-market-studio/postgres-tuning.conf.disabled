@@ -1,0 +1,3 @@
+# PG-A overrides disabled (comments only — safe default for compose mount).
+# For Granite prod: cp postgres-tuning-lite.conf postgres-tuning.conf (stage 1),
+# then postgres-tuning-full.conf for stage 2 after soak.
