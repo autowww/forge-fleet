@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -318,20 +319,54 @@ def gc_legacy_backup_roots(roots: list[Path], *, keep_count: int = 1, dry_run: b
     return {"ok": True, "dry_run": dry_run, "purged": purged, "bytes_freed": bytes_freed}
 
 
+_APP_GC_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_APP_GC_CACHE_LOCK = threading.Lock()
+
+
+def app_gc_cache_ttl_s() -> float:
+    """How long an app GC inventory answer is reused before asking the app again."""
+    raw = str(os.environ.get("FLEET_APP_GC_CACHE_TTL_SEC") or "").strip()
+    try:
+        return max(0.0, float(raw)) if raw else 600.0
+    except ValueError:
+        return 600.0
+
+
+def app_gc_request_timeout_s() -> float:
+    raw = str(os.environ.get("FLEET_APP_GC_TIMEOUT_SEC") or "").strip()
+    try:
+        return max(1.0, float(raw)) if raw else 15.0
+    except ValueError:
+        return 15.0
+
+
 def fetch_app_gc_per_env(
     data_dir: Path,
     *,
     aggressive: bool = False,
     service_ids: list[str] | None = None,
 ) -> dict[str, Any]:
-    """GET /api/maintenance/gc from each market-studio app gateway (inventory)."""
+    """GET /api/maintenance/gc from each market-studio app gateway (inventory).
+
+    Answers are cached per (service, aggressive) for ``app_gc_cache_ttl_s`` so
+    status readers cannot stampede the apps; the inventory walks the corpus on
+    the app side and must not be triggered by every poll.
+    """
     import json
     import urllib.error
     import urllib.request
 
     targets = service_ids or ["market-studio", "market-studio-dev"]
     results: dict[str, Any] = {}
+    ttl = app_gc_cache_ttl_s()
+    now = time.monotonic()
     for sid in targets:
+        cache_key = f"{sid}:{int(bool(aggressive))}"
+        with _APP_GC_CACHE_LOCK:
+            hit = _APP_GC_CACHE.get(cache_key)
+        if hit is not None and ttl > 0 and now - hit[0] < ttl:
+            results[sid] = {**hit[1], "cached": True}
+            continue
         gw = app_gateway.load_gateway(data_dir, sid)
         if not gw:
             results[sid] = {"ok": False, "error": "gateway_not_found"}
@@ -348,7 +383,7 @@ def fetch_app_gc_per_env(
             headers["Authorization"] = f"Bearer {bearer}"
         req = urllib.request.Request(url, headers=headers, method="GET")
         try:
-            with urllib.request.urlopen(req, timeout=60) as resp:
+            with urllib.request.urlopen(req, timeout=app_gc_request_timeout_s()) as resp:
                 raw = resp.read().decode("utf-8", errors="replace")
                 parsed = json.loads(raw) if raw else {}
                 results[sid] = parsed if isinstance(parsed, dict) else {"ok": True}
@@ -357,6 +392,9 @@ def fetch_app_gc_per_env(
             results[sid] = {"ok": False, "http_status": exc.code, "detail": raw[:400]}
         except (OSError, json.JSONDecodeError, TimeoutError) as ex:
             results[sid] = {"ok": False, "error": str(ex)[:200]}
+        if results[sid].get("ok"):
+            with _APP_GC_CACHE_LOCK:
+                _APP_GC_CACHE[cache_key] = (time.monotonic(), dict(results[sid]))
     return {"ok": True, "environments": results}
 
 

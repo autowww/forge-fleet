@@ -279,8 +279,14 @@ def next_run_epoch() -> float | None:
 
 
 def space_meta_summary(data_dir: Path, db_path: Path) -> dict[str, Any]:
-    """Compact summary for admin snapshot meta.space."""
-    st = space_status(data_dir, db_path)
+    """Compact summary for admin snapshot meta.space.
+
+    Never fans out to market-app ``/api/maintenance/gc``: the snapshot is polled
+    every ~20s by dock collectors and studios, and the app inventory walks the
+    whole corpus (minutes) — that coupling pinned every HTTP worker on Granite
+    prod (2026-10-07).
+    """
+    st = space_status(data_dir, db_path, include_app_gc=False)
     quarantine = (st.get("volumes") or {}).get("quarantine") if isinstance(st.get("volumes"), dict) else {}
     last = st.get("last_run") if isinstance(st.get("last_run"), dict) else {}
     return {
@@ -294,12 +300,17 @@ def space_meta_summary(data_dir: Path, db_path: Path) -> dict[str, Any]:
     }
 
 
-def space_status(data_dir: Path, db_path: Path) -> dict[str, Any]:
+def space_status(data_dir: Path, db_path: Path, *, include_app_gc: bool = True) -> dict[str, Any]:
     from fleet_server import cleanup as fleet_cleanup, volume_quarantine
 
     pressure = detect_pressure(data_dir)
     nxt = next_run_epoch()
     vol_sync = volume_quarantine.refresh_registry(data_dir)
+    app_gc: dict[str, Any] = (
+        fleet_cleanup.fetch_app_gc_per_env(data_dir, aggressive=False)
+        if include_app_gc
+        else {"ok": True, "skipped": True, "reason": "snapshot_summary", "environments": {}}
+    )
     return {
         "ok": True,
         "guardian_enabled": space_policy.guardian_enabled(),
@@ -318,7 +329,7 @@ def space_status(data_dir: Path, db_path: Path) -> dict[str, Any]:
             "orphan_candidates": vol_sync.get("candidates") or [],
             "quarantine": volume_quarantine.registry_summary(data_dir),
         },
-        "app_gc_per_env": fleet_cleanup.fetch_app_gc_per_env(data_dir, aggressive=False),
+        "app_gc_per_env": app_gc,
     }
 
 

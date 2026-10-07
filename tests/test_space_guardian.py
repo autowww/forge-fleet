@@ -57,6 +57,70 @@ def test_space_endpoint(tmp_path: Path) -> None:
         _stop_fleet_httpd(httpd, th)
 
 
+def test_snapshot_space_summary_never_calls_app_gc(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Snapshot is polled every ~20s; it must not fan out to market-app GC inventory."""
+    from fleet_server import cleanup as fleet_cleanup
+
+    data_dir = tmp_path / "fd_meta"
+    data_dir.mkdir()
+    calls: list[str] = []
+
+    def _boom(*_a, **_k):
+        calls.append("app_gc")
+        raise AssertionError("snapshot summary reached fetch_app_gc_per_env")
+
+    monkeypatch.setattr(fleet_cleanup, "fetch_app_gc_per_env", _boom)
+    out = space_guardian.space_meta_summary(data_dir, data_dir / "fleet.sqlite")
+    assert calls == []
+    assert "guardian_enabled" in out
+
+    full = space_guardian.space_status(data_dir, data_dir / "fleet.sqlite", include_app_gc=False)
+    assert full["app_gc_per_env"]["skipped"] is True
+
+
+def test_app_gc_inventory_is_cached_per_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from fleet_server import cleanup as fleet_cleanup
+
+    data_dir = tmp_path / "fd_cache"
+    data_dir.mkdir()
+    fleet_cleanup._APP_GC_CACHE.clear()
+    monkeypatch.setattr(
+        fleet_cleanup.app_gateway,
+        "load_gateway",
+        lambda _d, sid: {"upstream": f"http://127.0.0.1:1/{sid}"},
+    )
+    opened: list[str] = []
+
+    class _Resp:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_a):
+            return False
+
+        def read(self):
+            return b'{"ok": true, "reclaimable_bytes": 7}'
+
+    def _urlopen(req, timeout):
+        opened.append(req.full_url)
+        assert timeout <= 15.0
+        return _Resp()
+
+    monkeypatch.setattr("urllib.request.urlopen", _urlopen)
+    first = fleet_cleanup.fetch_app_gc_per_env(data_dir, service_ids=["market-studio"])
+    second = fleet_cleanup.fetch_app_gc_per_env(data_dir, service_ids=["market-studio"])
+    assert len(opened) == 1
+    assert first["environments"]["market-studio"]["reclaimable_bytes"] == 7
+    assert second["environments"]["market-studio"]["cached"] is True
+
+    monkeypatch.setenv("FLEET_APP_GC_CACHE_TTL_SEC", "0")
+    fleet_cleanup.fetch_app_gc_per_env(data_dir, service_ids=["market-studio"])
+    assert len(opened) == 2
+    fleet_cleanup._APP_GC_CACHE.clear()
+
+
 def test_tier1_skipped_without_pressure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     data_dir = tmp_path / "fd_t1"
     data_dir.mkdir()

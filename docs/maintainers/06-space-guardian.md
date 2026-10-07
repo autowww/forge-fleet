@@ -46,6 +46,8 @@ Volumes are orphans when they are not mounted by any container and not listed in
 
 Targets: stale harvest job files, wiki workspaces, broker snapshots, Postgres `VACUUM (ANALYZE)` on high dead-tuple tables when `aggressive=true`.
 
+**Fan-out budget.** The app inventory walks the whole corpus inside the container (minutes on Granite), so Fleet only asks for it from `GET /v1/admin/space` and `GET /v1/admin/cleanup-inventory`, caches each answer per environment for `FLEET_APP_GC_CACHE_TTL_SEC` (default 600 s) and bounds the request at `FLEET_APP_GC_TIMEOUT_SEC` (default 15 s). `GET /v1/admin/snapshot` (`meta.space`) never calls the app — it is polled every ~20 s by dock collectors and studios, and before this budget every poll started a corpus walk on market-app until all its HTTP workers were pinned (Granite prod, 2026-10-07).
+
 ## Verification
 
 ```bash
