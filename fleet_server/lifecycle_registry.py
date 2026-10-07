@@ -23,6 +23,11 @@ class LifecycleDependent:
     readiness_url: str
     optional: bool = True
 
+    @property
+    def resume_url(self) -> str:
+        """`POST …/api/lifecycle/resume` — the inverse of `prepare_url`."""
+        return re.sub(r"/prepare-stop/?$", "/resume", self.prepare_url, flags=re.I)
+
 
 def _load_static() -> list[LifecycleDependent]:
     if not _REGISTRY_PATH.is_file():

@@ -12,10 +12,11 @@ Fleet and Forge HTTP services cooperate during upgrades via **prepare-stop** and
 ## Coordinator flow
 
 1. Operator `POST /v1/admin/upgrade` (or `package-upgrade` for apt channel).
-2. Fleet sets `draining=true`, POST prepare-stop to dependents.
-3. Poll GET stop-readiness until all `stop_allowed: true` or timeout.
-4. Apply update (git pull, apt signal + root timer, or restart).
-5. Clear drain; dependents may receive resume.
+2. Policy gate (`require_apt_channel` on a git channel without `allow_git_fallback`) answers **400 before** any drain.
+3. Fleet sets `draining=true`, POST prepare-stop to dependents.
+4. Poll GET stop-readiness until all `stop_allowed: true` or timeout.
+5. Apply update (git pull, apt signal + root timer, or restart).
+6. **Always** clear drain and POST `resume` to **every** dependent that received prepare-stop — on success, on `upgrade_blocked`, and on any other failure. (Before v0.3.134 only Fleet's own flag was cleared, which left studios `draining: true` after each aborted attempt.)
 
 ## Wedged dependents (bounded probes)
 

@@ -126,6 +126,18 @@ def _prepare_all(upgrade_id: str, body: dict[str, Any]) -> None:
         _http_json("POST", dep.prepare_url, prep_body)
 
 
+def _resume_all(upgrade_id: str | None = None) -> None:
+    """Undo `_prepare_all`: Fleet's own flag plus every dependent we told to drain.
+
+    Without this, an aborted or finished upgrade left market studios in
+    `draining: true` indefinitely (observed on Granite prod, 2026-10-07).
+    """
+    lifecycle.resume()
+    body = {"upgrade_id": upgrade_id, "reason": "fleet_upgrade_done"} if upgrade_id else {"reason": "fleet_upgrade_done"}
+    for dep in list_dependents():
+        _http_json("POST", dep.resume_url, body)
+
+
 def wait_for_readiness(
     db_path: Path,
     data_dir: Path,
@@ -193,11 +205,11 @@ def complete_phase(phase: str, **extra: Any) -> dict[str, Any]:
 
 
 def fail_upgrade(error: str, detail: str = "") -> dict[str, Any]:
-    lifecycle.resume()
+    _resume_all(read_status().get("upgrade_id"))
     return _update_status(phase="failed", error=error, detail=detail)
 
 
 def finish_upgrade(**extra: Any) -> dict[str, Any]:
-    lifecycle.resume()
+    _resume_all(extra.get("upgrade_id") or read_status().get("upgrade_id"))
     doc = _update_status(phase="complete", **extra)
     return doc
