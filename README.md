@@ -135,6 +135,23 @@ Catalog + compose metadata live under **`FLEET_DATA_DIR`**:
 
 `forge-fleet-telemetry.timer` runs **`python -m fleet_server.telemetry_sampler`** into **`fleet.sqlite`**, respecting **`FLEET_TELEMETRY_INTERVAL_S`** so systemd sampling and HTTP probes do not hammer the DB.
 
+### Space Guardian (disk self-healing)
+
+**[Space Guardian runbook](docs/maintainers/06-space-guardian.md)** — scheduled Tier 0 cleanup + pressure-triggered Tier 1, orphan volume quarantine, and app GC via market-studio gateways.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `FLEET_SPACE_GUARDIAN` | `1` | Enable background scheduler |
+| `FLEET_SPACE_INTERVAL_S` | `21600` | Tier 0 interval (6h) |
+| `FLEET_SPACE_PRESSURE_FREE_PCT` | `15` | Pressure when free % below |
+| `FLEET_SPACE_PRESSURE_FREE_GB` | `40` | Pressure when free GB below |
+| `FLEET_VOLUME_QUARANTINE_DAYS` | `14` | Orphan volume TTL before delete |
+| `FLEET_VOLUME_SNAPSHOT_MAX_GB` | `10` | Snapshot before delete; above → operator approval |
+| `FLEET_LEGACY_BACKUP_ROOTS` | (optional `:` paths) | Tier 1 legacy backup GC |
+| `FLEET_VOLUME_ALLOWLIST` | (comma names) | Never classify as orphan |
+
+API: **`GET /v1/admin/space`**, **`POST /v1/admin/space/run`**, **`POST /v1/admin/space/approve`**.
+
 ### Test Fleet → Lenses Attention
 
 1. Run Fleet on Docker-capable hosts; optionally `export FLEET_LENSES_WORKSPACE_ROOT=/abs/path/to/lenses-workspace`.

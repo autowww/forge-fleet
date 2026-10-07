@@ -1001,6 +1001,10 @@ class FleetHandler(BaseHTTPRequestHandler):
                 except (OSError, RuntimeError, TypeError, ValueError, sqlite3.Error):
                     body["meta"]["cooldown_summary"] = {}
                 body["meta"]["self_update"] = self_update.self_update_meta(self._repo_root())
+                try:
+                    body["meta"]["space"] = space_guardian.space_meta_summary(data_dir, self.server.db_path)
+                except (OSError, RuntimeError, TypeError, ValueError):
+                    body["meta"]["space"] = {"ok": False}
                 body["apps"] = fleet_apps.snapshot_apps(data_dir)
                 self._send(200, body)
             finally:

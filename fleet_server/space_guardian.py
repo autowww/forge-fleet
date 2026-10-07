@@ -278,8 +278,24 @@ def next_run_epoch() -> float | None:
         return _NEXT_RUN_EPOCH
 
 
+def space_meta_summary(data_dir: Path, db_path: Path) -> dict[str, Any]:
+    """Compact summary for admin snapshot meta.space."""
+    st = space_status(data_dir, db_path)
+    quarantine = (st.get("volumes") or {}).get("quarantine") if isinstance(st.get("volumes"), dict) else {}
+    last = st.get("last_run") if isinstance(st.get("last_run"), dict) else {}
+    return {
+        "guardian_enabled": st.get("guardian_enabled"),
+        "under_pressure": (st.get("pressure") or {}).get("under_pressure"),
+        "quarantine_count": quarantine.get("count") if isinstance(quarantine, dict) else 0,
+        "last_run_at": last.get("started_at"),
+        "last_bytes_freed": last.get("bytes_freed_total"),
+        "next_run_in_s": st.get("next_run_in_s"),
+        "skip_reason": st.get("skip_reason"),
+    }
+
+
 def space_status(data_dir: Path, db_path: Path) -> dict[str, Any]:
-    from fleet_server import volume_quarantine
+    from fleet_server import cleanup as fleet_cleanup, volume_quarantine
 
     pressure = detect_pressure(data_dir)
     nxt = next_run_epoch()
@@ -302,6 +318,7 @@ def space_status(data_dir: Path, db_path: Path) -> dict[str, Any]:
             "orphan_candidates": vol_sync.get("candidates") or [],
             "quarantine": volume_quarantine.registry_summary(data_dir),
         },
+        "app_gc_per_env": fleet_cleanup.fetch_app_gc_per_env(data_dir, aggressive=False),
     }
 
 

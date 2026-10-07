@@ -318,6 +318,48 @@ def gc_legacy_backup_roots(roots: list[Path], *, keep_count: int = 1, dry_run: b
     return {"ok": True, "dry_run": dry_run, "purged": purged, "bytes_freed": bytes_freed}
 
 
+def fetch_app_gc_per_env(
+    data_dir: Path,
+    *,
+    aggressive: bool = False,
+    service_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    """GET /api/maintenance/gc from each market-studio app gateway (inventory)."""
+    import json
+    import urllib.error
+    import urllib.request
+
+    targets = service_ids or ["market-studio", "market-studio-dev"]
+    results: dict[str, Any] = {}
+    for sid in targets:
+        gw = app_gateway.load_gateway(data_dir, sid)
+        if not gw:
+            results[sid] = {"ok": False, "error": "gateway_not_found"}
+            continue
+        upstream = str(gw.get("upstream") or "").strip().rstrip("/")
+        if not upstream:
+            results[sid] = {"ok": False, "error": "upstream_missing"}
+            continue
+        q = "1" if aggressive else "0"
+        url = f"{upstream}/api/maintenance/gc?aggressive={q}"
+        headers = {"Accept": "application/json"}
+        bearer = str(gw.get("upstream_bearer") or "").strip()
+        if bearer:
+            headers["Authorization"] = f"Bearer {bearer}"
+        req = urllib.request.Request(url, headers=headers, method="GET")
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                raw = resp.read().decode("utf-8", errors="replace")
+                parsed = json.loads(raw) if raw else {}
+                results[sid] = parsed if isinstance(parsed, dict) else {"ok": True}
+        except urllib.error.HTTPError as exc:
+            raw = exc.read().decode("utf-8", errors="replace")
+            results[sid] = {"ok": False, "http_status": exc.code, "detail": raw[:400]}
+        except (OSError, json.JSONDecodeError, TimeoutError) as ex:
+            results[sid] = {"ok": False, "error": str(ex)[:200]}
+    return {"ok": True, "environments": results}
+
+
 def invoke_app_gc(
     data_dir: Path,
     *,
@@ -364,7 +406,7 @@ def invoke_app_gc(
 
 
 def inventory(data_dir: Path, db_path: Path) -> dict[str, Any]:
-    from fleet_server import volume_quarantine
+    from fleet_server import space_guardian, volume_quarantine
 
     backup_root = backup_root_for(data_dir)
     scratch = fleet_migrations.gc_stale_migration_scratch(data_dir, db_path, dry_run=True)
@@ -388,6 +430,8 @@ def inventory(data_dir: Path, db_path: Path) -> dict[str, Any]:
             "orphan_candidates": vol_sync.get("candidates") or [],
             "quarantine": volume_quarantine.registry_summary(data_dir),
         },
+        "pressure": space_guardian.detect_pressure(data_dir),
+        "app_gc_per_env": fetch_app_gc_per_env(data_dir, aggressive=False),
     }
 
 
