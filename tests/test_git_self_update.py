@@ -90,6 +90,38 @@ def test_git_self_update_body_apt_omits_git_channel(tmp_path: Path) -> None:
     assert body["stash_dirty"] is True
 
 
+def test_run_upgrade_require_apt_channel_blocks_git(tmp_path: Path) -> None:
+    db = tmp_path / "fleet.db"
+    from fleet_server import store
+
+    store.connect(db).close()
+    data_dir = tmp_path / "state"
+    data_dir.mkdir()
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    with patch.object(upgrade_service, "install_channel") as ic:
+        ic.detect_install_channel.return_value = "git_user"
+        with patch.object(upgrade_service.upgrade_coordinator, "begin_upgrade", return_value={"upgrade_id": "u3"}):
+            with patch.object(upgrade_service.upgrade_coordinator, "_prepare_all"):
+                with patch.object(
+                    upgrade_service.upgrade_coordinator,
+                    "wait_for_readiness",
+                    return_value={"ok": True},
+                ):
+                    with patch.object(upgrade_service.upgrade_coordinator, "fail_upgrade") as fail:
+                        out = upgrade_service.run_upgrade(
+                            repo_root,
+                            data_dir,
+                            db,
+                            {"mode": "upgrade", "require_apt_channel": True},
+                            schedule_restart_fn=MagicMock(),
+                        )
+    assert out["ok"] is False
+    assert out["error"] == "migrate_to_apt_required"
+    fail.assert_called_once_with("migrate_to_apt_required")
+
+
 def test_git_self_update_body_git_user_forces_channel(tmp_path: Path) -> None:
     data_dir = tmp_path / "state"
     data_dir.mkdir()

@@ -112,6 +112,41 @@ _persist_compose_env_key() {
   export "${key}=${val}"
 }
 
+_persist_granite_env_key() {
+  local file="$1"
+  local key="$2"
+  local val="${3:-}"
+  [[ -n "$file" && -n "$val" ]] || return 0
+  mkdir -p "$(dirname "$file")"
+  if [[ -f "$file" ]] && grep -q "^${key}=" "$file" 2>/dev/null; then
+    sed -i "s|^${key}=.*|${key}=${val}|" "$file"
+  else
+    echo "${key}=${val}" >>"$file"
+  fi
+}
+
+_persist_granite_llm_loopback() {
+  local gateway_port="${FORGE_GATEWAY_HOST_PORT:-18080}"
+  local loopback_url="http://host.docker.internal:${gateway_port}/v1"
+  if ! curl -fsS "http://127.0.0.1:${gateway_port}/healthz" >/dev/null 2>&1; then
+    log "skip LLM loopback persist (forge-gateway :${gateway_port} not healthy)"
+    return 0
+  fi
+  log "persisting loopback LLM_BASE_URL=${loopback_url}"
+  _persist_compose_env_key LLM_BASE_URL "$loopback_url"
+  _persist_compose_env_key FORGE_MARKET_NARRATIVE_LLM_QUEUE "1"
+  if [[ -n "${LLM_BEARER_TOKEN:-}" ]]; then
+    _persist_compose_env_key LLM_API_KEY "${LLM_BEARER_TOKEN}"
+  fi
+  if [[ "$FORGE_MARKET_ENV" != "dev" && -n "${GRANITE_MARKET_ENV:-}" ]]; then
+    _persist_granite_env_key "$GRANITE_MARKET_ENV" LLM_BASE_URL "$loopback_url"
+    _persist_granite_env_key "$GRANITE_MARKET_ENV" FORGE_MARKET_NARRATIVE_LLM_QUEUE "1"
+    if [[ -n "${LLM_BEARER_TOKEN:-}" ]]; then
+      _persist_granite_env_key "$GRANITE_MARKET_ENV" LLM_API_KEY "${LLM_BEARER_TOKEN}"
+    fi
+  fi
+}
+
 # Persist /health release labels from the synced tree (FORGE_MARKET_SYNCED_GIT_SHA wins).
 _persist_release_labels() {
   cd "$MARKET_STUDIO_ROOT"
@@ -332,6 +367,7 @@ EOF
       _persist_compose_env_key FORGE_MARKET_PERIOD_COMPLETION_V3 "1"
       export FORGE_MARKET_PERIOD_COMPLETION_V3=1
     fi
+    _persist_granite_llm_loopback
   fi
 }
 

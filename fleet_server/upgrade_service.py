@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import threading
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,49 @@ def _defaults_for_mode(mode: str) -> tuple[int, str]:
     if mode == "update":
         return 10, "abort"
     return 45, "abort"
+
+
+def require_apt_channel_requested(body: dict[str, Any] | None) -> bool:
+    raw = dict(body or {})
+    if str(raw.get("require_apt_channel") or "").strip().lower() in {"1", "true", "yes", "on"}:
+        return True
+    return str(os.environ.get("FLEET_REMOTE_UPGRADE_REQUIRE_APT") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def migrate_to_apt_required_response(channel: str) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "error": "migrate_to_apt_required",
+        "install_channel": channel,
+        "detail": (
+            "Remote Fleet upgrades must use the apt package channel. "
+            "Publish debs to packages.forgesdlc.com, bootstrap with packaging/ubuntu/install.sh, "
+            "then land-fleet migrate-to-apt. Routine bumps: POST /v1/admin/upgrade (not git-self-update)."
+        ),
+        "recommended_command": "land-fleet migrate-to-apt --user"
+        if channel == "git_user"
+        else "land-fleet migrate-to-apt --system",
+        "docs": "docs/operate/migrate-installations-to-apt.md",
+    }
+
+
+def git_self_update_deprecated_response(data_dir: Path) -> dict[str, Any]:
+    channel = install_channel.detect_install_channel(data_dir)
+    return {
+        "ok": False,
+        "error": "git_self_update_deprecated",
+        "install_channel": channel,
+        "detail": (
+            "POST /v1/admin/git-self-update is disabled. "
+            "Publish forge-fleet to the apt CDN, then POST /v1/admin/upgrade with require_apt_channel."
+        ),
+        "use_instead": "POST /v1/admin/upgrade",
+    }
 
 
 def git_self_update_body(body: dict[str, Any] | None, data_dir: Path) -> tuple[dict[str, Any], str]:
@@ -76,6 +120,10 @@ def run_upgrade(
             "waiting_on": wait.get("waiting_on") or [],
             "upgrade_id": upgrade_id,
         }
+
+    if channel.startswith("git") and require_apt_channel_requested(raw):
+        upgrade_coordinator.fail_upgrade("migrate_to_apt_required")
+        return migrate_to_apt_required_response(channel)
 
     if channel in ("apt_user", "apt_system"):
         queued = package_upgrade.write_upgrade_signal(

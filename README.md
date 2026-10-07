@@ -40,13 +40,13 @@ Fleet exposes JSON under **`/v1/`** and a browser dashboard at **`/admin/`**:
 - **Jobs and probes** — `POST /v1/jobs`, `PUT /v1/jobs/{id}/workspace`, `GET /v1/jobs/{id}`, `POST /v1/jobs/{id}/cancel`, `POST /v1/admin/test-fleet`, `POST /v1/containers/dispose`
 - **Operator snapshot** — `GET /v1/admin/snapshot`
 - **Container catalog and managed services** — `GET /v1/container-types`, `/v1/container-services/*`, legacy `/v1/services/forge-llm/*`
-- **Cooperative upgrade** — `POST /v1/admin/upgrade` (apt or git by **`install_channel`**). Legacy `POST /v1/admin/git-self-update` remains for git-channel dev installs only ([HTTP API reference](docs/reference/01-http-api-reference.md)).
+- **Cooperative upgrade** — `POST /v1/admin/upgrade` (apt package on production; local git dev optional). **`POST /v1/admin/git-self-update`** is **deprecated** (returns 400). Remote bumps: publish apt CDN + **`require_apt_channel: true`** ([HTTP API reference](docs/reference/01-http-api-reference.md)).
 
 Detailed tables—including static **`/admin/…`** asset routes and host-metrics injection—live in **`[docs/reference/01-http-api-reference.md](docs/reference/01-http-api-reference.md)`**.
 
 ### Remote automation (`scripts/update-fleet.sh`)
 
-From your **dev clone**, **`./scripts/update-fleet.sh --remote-git-self-update`** bumps/commits/pushes, then **`POST {FORGE_FLEET_BASE_URL}/v1/admin/upgrade`** so remote hosts (**Granite**/certificator pairs on **apt** channels) queue **`apt upgrade`**—see **`[docs/operate-301/05-upgrade-release-and-remote-update.md](docs/operate-301/05-upgrade-release-and-remote-update.md)`** for semantics.
+From your **dev clone**, **`./scripts/update-fleet.sh --remote-upgrade --publish-apt-cdn`** bumps/commits/pushes, publishes debs, then **`POST {FORGE_FLEET_BASE_URL}/v1/admin/upgrade`** with **`require_apt_channel`** so remote hosts queue **`apt upgrade`** only (never git pull)—see **`[docs/operate-301/05-upgrade-release-and-remote-update.md](docs/operate-301/05-upgrade-release-and-remote-update.md)`**.
 
 Full flag matrix remains below under **Update fleet**.
 
