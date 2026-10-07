@@ -16,16 +16,15 @@ def _defaults_for_mode(mode: str) -> tuple[int, str]:
     return 45, "abort"
 
 
+def _truthy(value: Any) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def require_apt_channel_requested(body: dict[str, Any] | None) -> bool:
     raw = dict(body or {})
-    if str(raw.get("require_apt_channel") or "").strip().lower() in {"1", "true", "yes", "on"}:
+    if _truthy(raw.get("require_apt_channel")):
         return True
-    return str(os.environ.get("FLEET_REMOTE_UPGRADE_REQUIRE_APT") or "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
+    return _truthy(os.environ.get("FLEET_REMOTE_UPGRADE_REQUIRE_APT"))
 
 
 def migrate_to_apt_required_response(channel: str) -> dict[str, Any]:
@@ -99,6 +98,14 @@ def run_upgrade(
     channel_override = str(raw.get("channel") or "").strip().lower()
     channel = channel_override or install_channel.detect_install_channel(data_dir)
 
+    # Policy check first: a rejected request must not drain dependents
+    # (prepare-stop) only to answer 400 and leave them in `draining`.
+    git_fallback = False
+    if channel.startswith("git") and require_apt_channel_requested(raw):
+        if not _truthy(raw.get("allow_git_fallback")):
+            return migrate_to_apt_required_response(channel)
+        git_fallback = True
+
     meta = upgrade_coordinator.begin_upgrade(
         {"mode": mode, "max_wait_sec": max_wait_sec, "on_timeout": on_timeout, **raw}
     )
@@ -120,10 +127,6 @@ def run_upgrade(
             "waiting_on": wait.get("waiting_on") or [],
             "upgrade_id": upgrade_id,
         }
-
-    if channel.startswith("git") and require_apt_channel_requested(raw):
-        upgrade_coordinator.fail_upgrade("migrate_to_apt_required")
-        return migrate_to_apt_required_response(channel)
 
     if channel in ("apt_user", "apt_system"):
         queued = package_upgrade.write_upgrade_signal(
@@ -177,7 +180,7 @@ def run_upgrade(
         upgrade_coordinator.complete_phase("restarting", upgrade_id=upgrade_id)
         will_restart, note = schedule_restart_fn(git_root)
         upgrade_coordinator.finish_upgrade(upgrade_id=upgrade_id, scheduled_restart=will_restart)
-        return {
+        out: dict[str, Any] = {
             "ok": True,
             "git_root": str(git_root),
             "steps": steps,
@@ -186,6 +189,13 @@ def run_upgrade(
             "upgrade_id": upgrade_id,
             "reload_after_ms": 2200,
         }
+        if git_fallback:
+            out["channel_fallback"] = channel
+            out["warning"] = (
+                f"host is still on the {channel} channel; upgraded via cooperative git pull. "
+                "Migrate to apt (land-fleet migrate-to-apt) to retire this fallback."
+            )
+        return out
 
     upgrade_coordinator.fail_upgrade("unknown_channel")
     return {"ok": False, "error": "unknown_channel", "install_channel": channel}

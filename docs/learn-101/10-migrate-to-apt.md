@@ -26,9 +26,12 @@ land-fleet migrate-to-apt --system  # Granite / system unit
 ```bash
 curl -fsSL "${FORGE_APT_BASE_URL:-https://packages.forgesdlc.com/fleet/ubuntu}/install.sh" \
   -o /tmp/forge-fleet-install.sh
-bash /tmp/forge-fleet-install.sh --user --migrate-from-git
+bash /tmp/forge-fleet-install.sh --user --with-docker   # prompts for sudo once (apt source + packages)
 land-fleet setup-user
+land-fleet migrate-to-apt --user
 ```
+
+Until this one-time root step is done, releases still reach the host automatically: `update-fleet.sh --remote-upgrade --publish-apt-cdn` falls back to the cooperative git upgrade through the API (see [Migrate installations to apt](../operate/migrate-installations-to-apt.md)).
 
 3. Confirm timer: `land-fleet timer-status` → `forge-fleet-apt-upgrade.timer` **active**.
 4. Upgrade from admin **Update Fleet** or:

@@ -13,6 +13,10 @@ Move **git_user** / **git_system** hosts to **`apt_user`** / **`apt_system`** so
 
 Detect with **`GET /v1/admin/install-channel`** or **`land-fleet migrate-to-apt`**.
 
+## Until a host is migrated
+
+Routine releases must not wait for the migration. `update-fleet.sh --remote-upgrade --publish-apt-cdn` publishes the debs and then upgrades **git-channel hosts through the same `POST /v1/admin/upgrade` API** (cooperative drain → `git pull` → `update-user.sh` → restart), printing a `WARN … still on a git install channel` line and verifying `/v1/health`. Nothing here needs SSH or an operator. The apt bootstrap itself (`install.sh` → `apt-get`) is the single step that needs root on the host and therefore cannot be driven by Fleet; do it once per host when convenient, after which the same command upgrades via apt automatically.
+
 ## Mercury (laptop) — git_user → apt_user
 
 1. Export bearer + remote peer settings from `~/.config/forge-fleet/` or env.

@@ -79,7 +79,7 @@ Feature docs (details beyond this table): [CONTAINER-TEMPLATES.md](../build-201/
 | POST | `/v1/lifecycle/resume` | bearer | Clear drain after failed upgrade. |
 | GET | `/v1/admin/upgrade/readiness` | bearer | Aggregate readiness across dependents + Fleet. |
 | GET | `/v1/admin/upgrade/status` | bearer | Active upgrade session (`queued`, `complete`, `failed`, …). |
-| POST | `/v1/admin/upgrade` | bearer | Cooperative upgrade; routes by `install_channel` (apt signal or local git dev). Body: `mode`, `max_wait_sec`, `on_timeout` (`abort`|`force`), `require_apt_channel` (remote/production — **400** `migrate_to_apt_required` on git channels). |
+| POST | `/v1/admin/upgrade` | bearer | Cooperative upgrade; routes by `install_channel` (apt signal or local git dev). Body: `mode`, `max_wait_sec`, `on_timeout` (`abort`|`force`), `require_apt_channel` (remote/production — **400** `migrate_to_apt_required` on git channels, answered **before** any dependent is drained), `allow_git_fallback` (with `require_apt_channel`: git-channel hosts proceed with the cooperative git upgrade and the response carries `channel_fallback` + `warning`). |
 | POST | `/v1/admin/package-upgrade` | bearer | Apt only: lifecycle wait → write signal → **202** queued. |
 | GET | `/v1/admin/space` | bearer | Space Guardian status: disk pressure, tier labels, last/next run, orphan/quarantine volumes. |
 | POST | `/v1/admin/space/run` | bearer | Run Space Guardian tier (`tier` 0 or 1, `dry_run` default **true**). Skips when upgrade/rollout active. |
@@ -191,11 +191,13 @@ When **`FLEET_INJECT_HOST_METRICS_ENV_IN_DOCKER`** is truthy **and** **`FLEET_HO
 ### Cooperative upgrade (`POST /v1/admin/upgrade`)
 
 1. Detect **`install_channel`** (`git_user`, `apt_user`, `git_system`, `apt_system`).
-2. Prepare dependents (`POST /api/lifecycle/prepare-stop` on loopback services).
-3. Poll until **`stop_allowed: true`** or timeout — **409** with **`waiting_on[]`** when `on_timeout=abort`.
-4. **`require_apt_channel: true`** (remote/production from **`update-fleet.sh --remote-upgrade`**): **400** `migrate_to_apt_required` on git channels — no remote **`git pull`**.
-5. **Git channels** (local dev only, no `require_apt_channel`): `git pull` + user/system restart.
+2. **Policy gate (before any drain):** **`require_apt_channel: true`** on a git channel → **400** `migrate_to_apt_required`, unless **`allow_git_fallback: true`** is also set (then continue on the git channel and flag it in the response). Rejecting here guarantees dependents are never left in `draining` by a refused request.
+3. Prepare dependents (`POST /api/lifecycle/prepare-stop` on loopback services).
+4. Poll until **`stop_allowed: true`** or timeout — **409** with **`waiting_on[]`** when `on_timeout=abort`.
+5. **Git channels:** `git pull` + user/system restart (response adds `channel_fallback` / `warning` when reached through `allow_git_fallback`).
 6. **Apt channels:** write **`upgrade-request.json`**; root **`forge-fleet-apt-upgrade.timer`** applies within ~60s.
+
+**`update-fleet.sh --remote-upgrade --publish-apt-cdn`** drives this end to end with no operator step: attempt 1 `require_apt_channel + allow_git_fallback` (abort on timeout); on `migrate_to_apt_required` from an older Fleet it retries without the apt requirement; on `upgrade_blocked` it retries once with `on_timeout=force` (Fleet-only restart; dependents keep running); then it polls `GET /v1/health` until `version.package_semver` equals the pushed version. `--remote-strict-apt` restores the hard refusal for hosts that must never git-pull.
 
 Example payloads: [`lifecycle-stop-readiness-response.json`](../examples/payloads/valid/lifecycle-stop-readiness-response.json), [`upgrade-queued-response.json`](../examples/payloads/valid/upgrade-queued-response.json), [`upgrade-blocked-response.json`](../examples/payloads/valid/upgrade-blocked-response.json).
 
