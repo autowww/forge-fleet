@@ -73,16 +73,19 @@ Feature docs (details beyond this table): [CONTAINER-TEMPLATES.md](../build-201/
 | POST | `/v1/jobs/{id}/cancel` | bearer | Best-effort cancel. |
 | POST | `/v1/containers/dispose` | bearer | Body **`container_id`** — `docker rm -f`. |
 | POST | `/v1/admin/test-fleet` | bearer | Optional **`count`** — enqueue `host_cpu_probe` jobs. |
-| POST | `/v1/admin/git-self-update` | bearer | Legacy alias: **git channel only** (`git pull`). **Apt channels** route to the same apt queue as **`POST /v1/admin/upgrade`** (no git pull). Prefer **`/v1/admin/upgrade`** for production. |
+| POST | `/v1/admin/git-self-update` | bearer | **Deprecated** — returns **400** `git_self_update_deprecated`. Use **`POST /v1/admin/upgrade`** after apt CDN publish. |
 | GET | `/v1/lifecycle/stop-readiness` | bearer | Fleet self readiness (`stop_allowed`, `blockers[]`, `draining`). |
 | POST | `/v1/lifecycle/prepare-stop` | bearer | Begin Fleet drain before upgrade. |
 | POST | `/v1/lifecycle/resume` | bearer | Clear drain after failed upgrade. |
 | GET | `/v1/admin/upgrade/readiness` | bearer | Aggregate readiness across dependents + Fleet. |
 | GET | `/v1/admin/upgrade/status` | bearer | Active upgrade session (`queued`, `complete`, `failed`, …). |
-| POST | `/v1/admin/upgrade` | bearer | Cooperative upgrade; routes by `install_channel` (git vs apt signal). Body: `mode`, `max_wait_sec`, `on_timeout` (`abort`|`force`). |
+| POST | `/v1/admin/upgrade` | bearer | Cooperative upgrade; routes by `install_channel` (apt signal or local git dev). Body: `mode`, `max_wait_sec`, `on_timeout` (`abort`|`force`), `require_apt_channel` (remote/production — **400** `migrate_to_apt_required` on git channels). |
 | POST | `/v1/admin/package-upgrade` | bearer | Apt only: lifecycle wait → write signal → **202** queued. |
-| GET | `/v1/admin/cleanup-inventory` | bearer | Disk inventory: rollout pg_dump backups, migration scratch, job-workspaces, docker `system df`, protected containers. |
-| POST | `/v1/admin/cleanup` | bearer | Safe host cleanup (`dry_run` defaults **true**). Targets: `rollout_backups`, `migration_scratch`, `job_workspaces`, `docker_builder`, `docker_images`. Rejects `containers`, `volumes`, `docker_system_prune`. Returns pre/post operational integrity checks. |
+| GET | `/v1/admin/space` | bearer | Space Guardian status: disk pressure, tier labels, last/next run, orphan/quarantine volumes. |
+| POST | `/v1/admin/space/run` | bearer | Run Space Guardian tier (`tier` 0 or 1, `dry_run` default **true**). Skips when upgrade/rollout active. |
+| POST | `/v1/admin/space/approve` | bearer | Approve deletion of a quarantined orphan volume (`volume_name`). |
+| GET | `/v1/admin/cleanup-inventory` | bearer | Disk inventory: rollout pg_dump backups, migration scratch, job-workspaces, docker `system df`, protected containers, orphan volumes. |
+| POST | `/v1/admin/cleanup` | bearer | Safe host cleanup (`dry_run` defaults **true**). Targets: `rollout_backups`, `migration_scratch`, `job_workspaces`, `docker_builder`, `docker_images`, `docker_images_unused`, `legacy_backup_roots`, `quarantined_volumes`, `app_gc`. Rejects `containers`, `volumes`, `docker_system_prune`. Returns pre/post operational integrity checks. |
 | POST | `/v1/admin/migration-scratch-gc` | bearer | Purge stale migration bundle scratch under `migration-bundles/`. Body: `dry_run` (default false). |
 | GET | `/v1/admin/install-channel` | bearer | `install_channel`, timer active, migration hints. |
 | POST | `/v1/container-services` | bearer | Create managed service (`type_id`, `compose_root`, …). |
@@ -183,19 +186,16 @@ When **`FLEET_INJECT_HOST_METRICS_ENV_IN_DOCKER`** is truthy **and** **`FLEET_HO
 
 ### `POST /v1/admin/git-self-update`
 
-Legacy entry point kept for older clients. Behavior matches **`POST /v1/admin/upgrade`** with **`mode: update`**, except on **git** install channels it forces **`channel: git`**. On **`apt_user`** / **`apt_system`** hosts it **never** runs **`git pull`** — it queues the apt cooperative upgrade instead.
-
-For routine production bumps (Granite, apt_system), use **`POST /v1/admin/upgrade`** only.
-
-Git-channel notes: [README](../../README.md) — **`FLEET_GIT_ROOT`**, **`FLEET_SELF_UPDATE_POST_GIT_COMMAND`**, system-install **400** path with **`system_root_install_command`**.
+**Deprecated** — always returns **400** `git_self_update_deprecated`. Use **`POST /v1/admin/upgrade`** after publishing to the apt CDN.
 
 ### Cooperative upgrade (`POST /v1/admin/upgrade`)
 
 1. Detect **`install_channel`** (`git_user`, `apt_user`, `git_system`, `apt_system`).
 2. Prepare dependents (`POST /api/lifecycle/prepare-stop` on loopback services).
 3. Poll until **`stop_allowed: true`** or timeout — **409** with **`waiting_on[]`** when `on_timeout=abort`.
-4. **Git channels:** `git pull` + user/system restart.
-5. **Apt channels:** write **`upgrade-request.json`**; root **`forge-fleet-apt-upgrade.timer`** applies within ~60s.
+4. **`require_apt_channel: true`** (remote/production from **`update-fleet.sh --remote-upgrade`**): **400** `migrate_to_apt_required` on git channels — no remote **`git pull`**.
+5. **Git channels** (local dev only, no `require_apt_channel`): `git pull` + user/system restart.
+6. **Apt channels:** write **`upgrade-request.json`**; root **`forge-fleet-apt-upgrade.timer`** applies within ~60s.
 
 Example payloads: [`lifecycle-stop-readiness-response.json`](../examples/payloads/valid/lifecycle-stop-readiness-response.json), [`upgrade-queued-response.json`](../examples/payloads/valid/upgrade-queued-response.json), [`upgrade-blocked-response.json`](../examples/payloads/valid/upgrade-blocked-response.json).
 

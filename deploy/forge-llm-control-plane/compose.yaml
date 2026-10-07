@@ -3,6 +3,11 @@ name: forge-llm-control-plane
 
 services:
   forge-gateway:
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
     build:
       context: ./apps/forge-gateway
       dockerfile: Dockerfile

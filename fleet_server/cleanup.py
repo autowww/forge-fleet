@@ -10,7 +10,10 @@ import time
 from pathlib import Path
 from typing import Any
 
-from fleet_server import docker_gc, migrations as fleet_migrations, workspace_bundle
+from fleet_server import app_gateway, docker_gc, migrations as fleet_migrations, volume_quarantine, workspace_bundle
+
+# Marker for space_guardian tier-1 enablement.
+run_tier1_targets = True
 
 DISALLOWED_TARGET_KEYS = frozenset(
     {
@@ -290,9 +293,82 @@ def docker_inventory() -> dict[str, Any]:
     return {"ok": r.returncode == 0, "returncode": r.returncode, "lines": rows[:20]}
 
 
+def gc_legacy_backup_roots(roots: list[Path], *, keep_count: int = 1, dry_run: bool = True) -> dict[str, Any]:
+    purged: list[dict[str, Any]] = []
+    bytes_freed = 0
+    for root in roots:
+        if not root.is_dir():
+            continue
+        files = sorted(root.rglob("*"), key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True)
+        files = [p for p in files if p.is_file()]
+        for i, path in enumerate(files):
+            if i < keep_count:
+                continue
+            try:
+                sz = path.stat().st_size
+            except OSError:
+                continue
+            if not dry_run:
+                try:
+                    path.unlink()
+                except OSError:
+                    continue
+            bytes_freed += sz
+            purged.append({"path": str(path), "bytes_freed": sz})
+    return {"ok": True, "dry_run": dry_run, "purged": purged, "bytes_freed": bytes_freed}
+
+
+def invoke_app_gc(
+    data_dir: Path,
+    *,
+    aggressive: bool = False,
+    dry_run: bool = True,
+    service_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    import json
+    import urllib.error
+    import urllib.request
+
+    from fleet_server import space_policy
+
+    targets = service_ids or ["market-studio", "market-studio-dev"]
+    results: dict[str, Any] = {}
+    for sid in targets:
+        gw = app_gateway.load_gateway(data_dir, sid)
+        if not gw:
+            results[sid] = {"ok": False, "error": "gateway_not_found"}
+            continue
+        upstream = str(gw.get("upstream") or "").strip().rstrip("/")
+        if not upstream:
+            results[sid] = {"ok": False, "error": "upstream_missing"}
+            continue
+        url = f"{upstream}/api/maintenance/gc"
+        body = json.dumps({"dry_run": dry_run, "aggressive": aggressive}).encode("utf-8")
+        headers = {"Content-Type": "application/json", "Accept": "application/json"}
+        bearer = str(gw.get("upstream_bearer") or "").strip()
+        if bearer:
+            headers["Authorization"] = f"Bearer {bearer}"
+        req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                raw = resp.read().decode("utf-8", errors="replace")
+                parsed = json.loads(raw) if raw else {}
+                results[sid] = parsed if isinstance(parsed, dict) else {"ok": True}
+        except urllib.error.HTTPError as exc:
+            raw = exc.read().decode("utf-8", errors="replace")
+            results[sid] = {"ok": False, "http_status": exc.code, "detail": raw[:400]}
+        except (OSError, json.JSONDecodeError, TimeoutError) as ex:
+            results[sid] = {"ok": False, "error": str(ex)[:200]}
+    total = sum(int((v or {}).get("bytes_freed_total") or 0) for v in results.values() if isinstance(v, dict))
+    return {"ok": True, "dry_run": dry_run, "aggressive": aggressive, "results": results, "bytes_freed": total}
+
+
 def inventory(data_dir: Path, db_path: Path) -> dict[str, Any]:
+    from fleet_server import volume_quarantine
+
     backup_root = backup_root_for(data_dir)
     scratch = fleet_migrations.gc_stale_migration_scratch(data_dir, db_path, dry_run=True)
+    vol_sync = volume_quarantine.refresh_registry(data_dir)
     return {
         "ok": True,
         "fleet_data_dir": str(data_dir),
@@ -308,6 +384,10 @@ def inventory(data_dir: Path, db_path: Path) -> dict[str, Any]:
         },
         "docker": docker_inventory(),
         "protected_containers": snapshot_protected_containers(),
+        "volumes": {
+            "orphan_candidates": vol_sync.get("candidates") or [],
+            "quarantine": volume_quarantine.registry_summary(data_dir),
+        },
     }
 
 
@@ -409,6 +489,46 @@ def run_cleanup(data_dir: Path, db_path: Path, body: dict[str, Any]) -> dict[str
                 prune_unused_all=prune_unused_all,
                 protected_image_ids=set(preflight.get("running_image_ids") or []),
             )
+
+    if "docker_images_unused" in targets:
+        diu = targets.get("docker_images_unused") or {}
+        hours = float((diu.get("until_hours") if isinstance(diu, dict) else None) or 72)
+        if dry_run:
+            results["docker_images_unused"] = {
+                "ok": True,
+                "dry_run": True,
+                "would_prune_unused_all": True,
+                "until_hours": hours,
+            }
+        else:
+            results["docker_images_unused"] = docker_gc.prune_docker_images_safe(
+                hours=hours,
+                prune_dangling=False,
+                prune_unused_all=True,
+                protected_image_ids=set(preflight.get("running_image_ids") or []),
+            )
+
+    if "legacy_backup_roots" in targets:
+        from fleet_server import space_policy
+
+        lbr = targets.get("legacy_backup_roots") or {}
+        keep = int((lbr.get("keep_count") if isinstance(lbr, dict) else None) or 1)
+        out = gc_legacy_backup_roots(space_policy.legacy_backup_roots(), keep_count=keep, dry_run=dry_run)
+        results["legacy_backup_roots"] = out
+        bytes_freed_total += int(out.get("bytes_freed") or 0)
+
+    if "quarantined_volumes" in targets:
+        out = volume_quarantine.gc_quarantined_volumes(data_dir, dry_run=dry_run)
+        results["quarantined_volumes"] = out
+        bytes_freed_total += int(out.get("bytes_freed") or 0)
+
+    if "app_gc" in targets:
+        agc = targets.get("app_gc") or {}
+        aggressive = bool(agc.get("aggressive")) if isinstance(agc, dict) else False
+        svc_ids = agc.get("service_ids") if isinstance(agc, dict) and isinstance(agc.get("service_ids"), list) else None
+        out = invoke_app_gc(data_dir, aggressive=aggressive, dry_run=dry_run, service_ids=svc_ids)
+        results["app_gc"] = out
+        bytes_freed_total += int(out.get("bytes_freed") or 0)
 
     postflight = snapshot_protected_containers()
     integrity = operational_integrity_check(preflight, postflight)

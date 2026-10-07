@@ -17,5 +17,6 @@
 | **[Examples validation](EXAMPLES-VALIDATION.md)** | Prompt **08** — manual snippet cadence |
 | **[Docs release checklist](DOCS-RELEASE-CHECKLIST.md)** | Prompt **12** — pre-publish gates |
 | **[Fleet apt CDN publish](05-fleet-apt-cdn-publish.md)** | Build debs → **packages.forgesdlc.com** only (not GitHub Releases) |
+| **[Space Guardian](06-space-guardian.md)** | Self-healing disk tiers, quarantine volumes, API and env knobs |
 
 Public adoption content starts at **[Start hub](../start/README.md)**.

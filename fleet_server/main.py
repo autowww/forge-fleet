@@ -55,6 +55,7 @@ from fleet_server import (
 from fleet_server import cleanup as fleet_cleanup
 from fleet_server import migrations as fleet_migrations
 from fleet_server import docker_gc as fleet_docker_gc
+from fleet_server import space_guardian
 from fleet_server.test_fleet import spawn_test_fleet
 
 
@@ -889,6 +890,13 @@ class FleetHandler(BaseHTTPRequestHandler):
             out = fleet_cleanup.inventory(self._data_dir(), self.server.db_path)
             self._send(200, out)
             return
+        if path == "/v1/admin/space":
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+            out = space_guardian.space_status(self._data_dir(), self.server.db_path)
+            self._send(200, out)
+            return
         if path == "/v1/admin/snapshot":
             conn = store.connect(self.server.db_path)
             try:
@@ -1588,30 +1596,12 @@ class FleetHandler(BaseHTTPRequestHandler):
             self._send(code, out)
             return
         if path == "/v1/admin/git-self-update":
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
             data_dir_u = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
-            upgrade_body, detected_channel = upgrade_service.git_self_update_body(body, data_dir_u)
-            out = upgrade_service.run_upgrade(
-                self._repo_root(),
-                data_dir_u,
-                Path(self.server.db_path),
-                upgrade_body,
-                schedule_restart_fn=self_update.schedule_post_git_and_restart,
-            )
-            if detected_channel in ("apt_user", "apt_system") and out.get("ok"):
-                out = {
-                    **out,
-                    "routed_via": "apt_upgrade",
-                    "note": (
-                        (out.get("note") or "")
-                        + " (git-self-update on apt channel — use POST /v1/admin/upgrade for routine bumps.)"
-                    ).strip(),
-                }
-            code = 200 if out.get("ok") else 400
-            if out.get("error") == "upgrade_blocked":
-                code = 409
-            elif out.get("status") == "queued":
-                code = 202
-            self._send(code, out)
+            out = upgrade_service.git_self_update_deprecated_response(data_dir_u)
+            self._send(400, out)
             return
         if path == "/v1/admin/migration-scratch-gc":
             dry_run = str(body.get("dry_run") or "").strip().lower() in {"1", "true", "yes", "on"}
@@ -1621,6 +1611,31 @@ class FleetHandler(BaseHTTPRequestHandler):
                 dry_run=dry_run,
             )
             self._send(200, out)
+            return
+        if path == "/v1/admin/space/run":
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+            tier = int(body.get("tier") or 0)
+            dry_run = str(body.get("dry_run", True)).strip().lower() in {"1", "true", "yes", "on"}
+            out = space_guardian.run_tier(
+                self._data_dir(),
+                self.server.db_path,
+                tier,
+                dry_run=dry_run,
+                trigger="manual",
+            )
+            code = 200 if out.get("ok", True) else 409
+            self._send(code, out)
+            return
+        if path == "/v1/admin/space/approve":
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+            name = str(body.get("volume_name") or body.get("name") or "").strip()
+            out = space_guardian.approve_volume(self._data_dir(), name)
+            code = 200 if out.get("ok") else 400
+            self._send(code, out)
             return
         if path == "/v1/admin/cleanup":
             if not self._auth_ok():
@@ -2528,27 +2543,8 @@ def main() -> None:
             name="fleet-template-prefetch",
             daemon=True,
         ).start()
-    try:
-        n_gc = workspace_bundle.gc_stale_workspaces(data_dir, db_path, max_age_seconds=86400.0 * 7)
-        if n_gc:
-            print(f"[fleet] workspace GC removed {n_gc} stale job-workspaces dir(s)")
-    except OSError:
-        pass
-    try:
-        mig_gc = fleet_migrations.gc_stale_migration_scratch(data_dir, db_path)
-        if mig_gc.get("purged"):
-            print(
-                f"[fleet] migration scratch GC removed {len(mig_gc['purged'])} bundle dir(s), "
-                f"freed {int(mig_gc.get('bytes_freed') or 0)} bytes"
-            )
-    except OSError:
-        pass
-    try:
-        prune_out = fleet_docker_gc.prune_docker_builder_cache()
-        if prune_out.get("ok") and not prune_out.get("skipped"):
-            print(f"[fleet] docker builder prune (until={prune_out.get('hours')}h) ok")
-    except OSError:
-        pass
+    space_guardian.run_startup_gc(data_dir, db_path)
+    space_guardian.start_guardian(data_dir, db_path)
 
     httpd = ThreadingHTTPServer((args.host, args.port), FleetHandler)
     httpd.db_path = db_path

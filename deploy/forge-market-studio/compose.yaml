@@ -6,6 +6,11 @@ services:
     image: postgres:16
     container_name: ${FORGE_MARKET_PG_CONTAINER:-forge-market-postgres}
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-forge_market}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-forge_market_dev}
@@ -29,6 +34,11 @@ services:
       start_period: 15s
 
   market-app:
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
     build:
       context: ${FORGE_MARKET_ROOT:-../../../forge-market}
       dockerfile: ${FORGE_MARKET_DOCKERFILE:-Dockerfile}
