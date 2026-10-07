@@ -87,9 +87,16 @@ class _Upstream(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         auth = self.headers.get("Authorization") or ""
+        etag = '"42:7"'
+        if (self.headers.get("If-None-Match") or "").strip() == etag:
+            self.send_response(304)
+            self.send_header("ETag", etag)
+            self.end_headers()
+            return
         body = json.dumps({"ok": True, "auth": auth, "path": self.path}).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
+        self.send_header("ETag", etag)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -135,6 +142,44 @@ def test_proxy_injects_app_bearer(tmp_path) -> None:
         assert status2 == 200
         assert json.loads(payload2.decode())["ok"] is True
         assert _Upstream.setups == 1
+    finally:
+        reset_http_pool()
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_proxy_forwards_conditional_headers_and_relays_304(tmp_path) -> None:
+    from fleet_server.pooled_http import reset_http_pool
+
+    reset_http_pool()
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), _Upstream)
+    port = httpd.server_address[1]
+    thread = Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    try:
+        rec = {"service_id": "example-app", "upstream": f"http://127.0.0.1:{port}"}
+        status, headers, _payload = app_gateway.proxy(
+            rec,
+            method="GET",
+            rest_path="api/coverage",
+            query="",
+            req_headers={"Accept": "application/json"},
+            body=b"",
+        )
+        assert status == 200
+        etag = headers.get("ETag") or headers.get("etag")
+        assert etag == '"42:7"'
+        status2, headers2, payload2 = app_gateway.proxy(
+            rec,
+            method="GET",
+            rest_path="api/coverage",
+            query="",
+            req_headers={"Accept": "application/json", "If-None-Match": etag},
+            body=b"",
+        )
+        assert status2 == 304
+        assert payload2 == b""
+        assert (headers2.get("ETag") or headers2.get("etag")) == etag
     finally:
         reset_http_pool()
         httpd.shutdown()

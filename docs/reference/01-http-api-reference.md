@@ -31,7 +31,7 @@ Feature docs (details beyond this table): [CONTAINER-TEMPLATES.md](../build-201/
 | GET | `/v1/app-gateways/{id}` | bearer | Gateway metadata JSON, or upstream UI when `Accept: text/html`. |
 | PUT | `/v1/app-gateways/{id}` | bearer | Register/update loopback upstream (`upstream` must be 127.0.0.1/localhost). |
 | DELETE | `/v1/app-gateways/{id}` | bearer | Unregister gateway (does not stop the compose app). |
-| * | `/v1/app-gateways/{id}/{path}` | bearer | Proxy to loopback app; Fleet bearer at the edge, app bearer injected upstream. Reuses HTTP/1.1 keep-alive to the upstream so each call does not open a new TCP/TLS session. |
+| * | `/v1/app-gateways/{id}/{path}` | bearer | Proxy to loopback app; Fleet bearer at the edge, app bearer injected upstream. Reuses HTTP/1.1 keep-alive to the upstream so each call does not open a new TCP/TLS session. Forwards `Accept`, `Accept-Language`, `Content-Type`, `If-None-Match`, `If-Modified-Since`, `X-Forge-Role`, `X-Forge-Actor`; upstream `304` and `ETag` are relayed as-is (edge CDNs may weaken the tag to `W/…`). |
 | POST | `/v1/migrations` | bearer | Create a migration session (step kinds from body/recipe). |
 | GET | `/v1/migrations/{id}` | bearer | Session status, bundle digests, per-step state. |
 | PUT | `/v1/migrations/{id}/data-bundle` | bearer | Upload gzip tarball (or chunked session — see migration API). |

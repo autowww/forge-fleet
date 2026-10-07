@@ -40,6 +40,10 @@ _FORWARD_REQ_HEADERS = {
     "accept",
     "accept-language",
     "content-type",
+    # Conditional requests: upstream apps (market-studio coverage) answer 304
+    # against their own ETag; dropping these made every poll a full 200.
+    "if-none-match",
+    "if-modified-since",
     "x-forge-role",
     "x-forge-actor",
 }
