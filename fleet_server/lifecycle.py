@@ -75,10 +75,29 @@ def wait_proxy_drain(timeout_sec: float) -> bool:
     return proxy_inflight() == 0
 
 
-def _running_job_blockers(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+def queued_block_max_age_sec() -> float:
+    """How long a *queued* job counts as imminent work that should delay a stop.
+
+    Queued rows persist in SQLite across a Fleet restart, so they are never lost;
+    they only matter if a runner is about to pick them up. Anything queued longer
+    than this (default 15 min) is an abandoned submission — e.g. workspace jobs
+    whose upload never arrived — and must not veto every upgrade forever.
+    """
+    raw = str(os.environ.get("FLEET_LIFECYCLE_QUEUED_BLOCK_MAX_AGE_SEC") or "").strip()
+    try:
+        return max(0.0, float(raw)) if raw else 900.0
+    except ValueError:
+        return 900.0
+
+
+def _running_job_blockers(conn: sqlite3.Connection, *, now: float | None = None) -> list[dict[str, Any]]:
     blockers: list[dict[str, Any]] = []
+    cutoff = (now if now is not None else time.time()) - queued_block_max_age_sec()
     rows = conn.execute(
-        "SELECT id, status FROM jobs WHERE status IN ('running', 'queued') LIMIT 50"
+        "SELECT id, status FROM jobs "
+        "WHERE status = 'running' OR (status = 'queued' AND updated >= ?) "
+        "ORDER BY updated DESC LIMIT 50",
+        (cutoff,),
     ).fetchall()
     for row in rows:
         blockers.append(

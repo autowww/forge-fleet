@@ -16,6 +16,7 @@ Fleet and Forge HTTP services cooperate during upgrades via **prepare-stop** and
 3. Fleet sets `draining=true`, POST prepare-stop to dependents.
 4. Poll GET stop-readiness until all `stop_allowed: true` or timeout.
 5. Apply update (git pull, apt signal + root timer, or restart).
+   Fleet's own blockers: in-flight gateway proxies, held rollout slots, `running` jobs, and `queued` jobs updated within `FLEET_LIFECYCLE_QUEUED_BLOCK_MAX_AGE_SEC` (default 900 s). Older queued rows are abandoned submissions (they survive a restart in SQLite) and no longer veto upgrades — on Granite, 50 `pending_upload` workspace jobs from May had forced every upgrade onto `on_timeout=force`.
 6. **Always** clear drain and POST `resume` to **every** dependent that received prepare-stop — on success, on `upgrade_blocked`, and on any other failure. (Before v0.3.134 only Fleet's own flag was cleared, which left studios `draining: true` after each aborted attempt.)
 
 ## Wedged dependents (bounded probes)
