@@ -128,7 +128,7 @@ _persist_granite_env_key() {
 _persist_granite_llm_loopback() {
   local gateway_port="${FORGE_GATEWAY_HOST_PORT:-18080}"
   local loopback_url="http://host.docker.internal:${gateway_port}/v1"
-  if ! curl -fsS "http://127.0.0.1:${gateway_port}/healthz" >/dev/null 2>&1; then
+  if ! curl -fsS --connect-timeout 3 --max-time 10 "http://127.0.0.1:${gateway_port}/healthz" >/dev/null 2>&1; then
     log "skip LLM loopback persist (forge-gateway :${gateway_port} not healthy)"
     return 0
   fi
@@ -705,6 +705,18 @@ _studio_health_port() {
   printf '%s' "${FORGE_MARKET_STUDIO_HOST_PORT:-$(_default_studio_host_port)}"
 }
 
+# Every HTTP probe against the running studio must be bounded. A wedged
+# market-app accepts the TCP connection but never answers, and a bare
+# `curl -fsS` then blocks forever — the rollout stalls inside the drain /
+# lifecycle guards until Fleet kills it at FLEET_FORGE_MARKET_STUDIO_ROLLOUT_TIMEOUT_SEC,
+# which is exactly the state where a rollout is the only recovery path.
+_studio_curl() {
+  curl -fsS \
+    --connect-timeout "${FORGE_MARKET_STUDIO_CURL_CONNECT_TIMEOUT_SEC:-3}" \
+    --max-time "${FORGE_MARKET_STUDIO_CURL_TIMEOUT_SEC:-10}" \
+    "$@"
+}
+
 precheck_schema_pending() {
   local raw="${FORGE_MARKET_RUN_SCHEMA_MIGRATE:-auto}"
   case "$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]')" in
@@ -713,7 +725,7 @@ precheck_schema_pending() {
   esac
   local port pending
   port="$(_studio_health_port)"
-  pending="$(curl -fsS "http://127.0.0.1:${port}/health" 2>/dev/null \
+  pending="$(_studio_curl "http://127.0.0.1:${port}/health" 2>/dev/null \
     | python3 -c 'import sys,json; d=json.load(sys.stdin); print(len(d.get("schema_online_pending") or []))' \
     2>/dev/null || echo "-1")"
   if [[ "$pending" == "0" ]]; then
@@ -752,7 +764,7 @@ pause_all_harvest_jobs() {
   local port timeout job_ids paused=0 elapsed=0
   port="$(_studio_health_port)"
   timeout="${FORGE_MARKET_JOB_PAUSE_TIMEOUT_SEC:-60}"
-  job_ids="$(curl -fsS "http://127.0.0.1:${port}/api/prices/jobs?status=running" 2>/dev/null \
+  job_ids="$(_studio_curl "http://127.0.0.1:${port}/api/prices/jobs?status=running" 2>/dev/null \
     | python3 -c 'import sys,json
 jobs=json.load(sys.stdin).get("jobs",[]) if sys.stdin.readable() else []
 for j in jobs:
@@ -765,14 +777,14 @@ for j in jobs:
   fi
   while IFS= read -r jid; do
     [[ -n "$jid" ]] || continue
-    curl -fsS -X POST "http://127.0.0.1:${port}/api/prices/jobs/${jid}/pause" 2>/dev/null || true
+    _studio_curl -X POST "http://127.0.0.1:${port}/api/prices/jobs/${jid}/pause" 2>/dev/null || true
     log "pause requested: job ${jid}"
     paused=1
   done <<<"$job_ids"
   [[ "$paused" == "1" ]] || return 0
   while (( elapsed < timeout )); do
     local still_running
-    still_running="$(curl -fsS "http://127.0.0.1:${port}/api/prices/jobs?status=running" 2>/dev/null \
+    still_running="$(_studio_curl "http://127.0.0.1:${port}/api/prices/jobs?status=running" 2>/dev/null \
       | python3 -c 'import sys,json
 jobs=json.load(sys.stdin).get("jobs",[])
 print(sum(1 for j in jobs if str(j.get("status") or "").lower()=="running"))' \
@@ -791,7 +803,7 @@ print(sum(1 for j in jobs if str(j.get("status") or "").lower()=="running"))' \
 cancel_harvest_subprocesses() {
   local port job_ids
   port="$(_studio_health_port)"
-  job_ids="$(curl -fsS "http://127.0.0.1:${port}/api/prices/jobs?status=paused" 2>/dev/null \
+  job_ids="$(_studio_curl "http://127.0.0.1:${port}/api/prices/jobs?status=paused" 2>/dev/null \
     | python3 -c 'import sys,json
 for j in json.load(sys.stdin).get("jobs",[]):
     if str(j.get("status") or "").lower()=="paused":
@@ -799,7 +811,7 @@ for j in json.load(sys.stdin).get("jobs",[]):
     2>/dev/null || true)"
   while IFS= read -r jid; do
     [[ -n "$jid" ]] || continue
-    curl -fsS -X POST "http://127.0.0.1:${port}/api/prices/jobs/${jid}/cancel" 2>/dev/null || true
+    _studio_curl -X POST "http://127.0.0.1:${port}/api/prices/jobs/${jid}/cancel" 2>/dev/null || true
     log "cancelled harvest subprocess: job ${jid}"
   done <<<"$job_ids"
 }
@@ -810,11 +822,11 @@ resume_paused_harvest_jobs() {
   timeout=30
   elapsed=0
   while (( elapsed < timeout )); do
-    curl -fsS "http://127.0.0.1:${port}/health" 2>/dev/null | grep -q forge-market-studio && break
+    _studio_curl "http://127.0.0.1:${port}/health" 2>/dev/null | grep -q forge-market-studio && break
     sleep 2
     elapsed=$((elapsed + 2))
   done
-  job_ids="$(curl -fsS "http://127.0.0.1:${port}/api/prices/jobs?status=paused" 2>/dev/null \
+  job_ids="$(_studio_curl "http://127.0.0.1:${port}/api/prices/jobs?status=paused" 2>/dev/null \
     | python3 -c 'import sys,json
 for j in json.load(sys.stdin).get("jobs",[]):
     if str(j.get("status") or "").lower()=="paused":
@@ -822,7 +834,7 @@ for j in json.load(sys.stdin).get("jobs",[]):
     2>/dev/null || true)"
   while IFS= read -r jid; do
     [[ -n "$jid" ]] || continue
-    curl -fsS -X POST "http://127.0.0.1:${port}/api/prices/jobs/${jid}/resume" 2>/dev/null || true
+    _studio_curl -X POST "http://127.0.0.1:${port}/api/prices/jobs/${jid}/resume" 2>/dev/null || true
     log "resumed harvest job ${jid}"
   done <<<"$job_ids"
 }
@@ -833,7 +845,7 @@ drain_enrichment_jobs() {
   timeout="${FORGE_MARKET_JOB_DRAIN_TIMEOUT_SEC:-30}"
   elapsed=0
   while (( elapsed < timeout )); do
-    running="$(curl -fsS "http://127.0.0.1:${port}/api/pipeline/telemetry" 2>/dev/null \
+    running="$(_studio_curl "http://127.0.0.1:${port}/api/pipeline/telemetry" 2>/dev/null \
       | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("jobs",{}).get("market_bars_running",0))' \
       2>/dev/null || echo 0)"
     if [[ "$running" == "0" ]]; then
@@ -848,9 +860,11 @@ drain_enrichment_jobs() {
 
 _lifecycle_prepare_studio() {
   local port="${FORGE_MARKET_STUDIO_HOST_PORT:-19792}"
-  curl -fsS -X POST "http://127.0.0.1:${port}/api/lifecycle/prepare-stop" \
+  if ! _studio_curl -X POST "http://127.0.0.1:${port}/api/lifecycle/prepare-stop" \
     -H "Content-Type: application/json" \
-    -d '{"reason":"market_studio_rollout","mode":"upgrade"}' >/dev/null 2>&1 || true
+    -d '{"reason":"market_studio_rollout","mode":"upgrade"}' >/dev/null 2>&1; then
+    log "WARN: lifecycle prepare-stop unreachable on :${port} — studio may be wedged; continuing rollout"
+  fi
 }
 
 _lifecycle_wait_studio() {
@@ -858,9 +872,24 @@ _lifecycle_wait_studio() {
   port="${FORGE_MARKET_STUDIO_HOST_PORT:-19792}"
   timeout="${FORGE_MARKET_LIFECYCLE_WAIT_SEC:-45}"
   elapsed=0
+  local unreachable=0
   while (( elapsed < timeout )); do
-    local allowed
-    allowed="$(curl -fsS "http://127.0.0.1:${port}/api/lifecycle/stop-readiness" 2>/dev/null \
+    local body allowed
+    if ! body="$(_studio_curl "http://127.0.0.1:${port}/api/lifecycle/stop-readiness" 2>/dev/null)"; then
+      unreachable=$((unreachable + 1))
+      # Two consecutive bounded probes with no answer means the studio is not
+      # going to drain anything — stop waiting and let the restart recover it.
+      if (( unreachable >= 2 )); then
+        log "WARN: lifecycle stop-readiness unreachable on :${port} — studio wedged; continuing rollout"
+        return 0
+      fi
+      log "waiting for studio lifecycle stop-readiness (${elapsed}s / ${timeout}s, probe failed)"
+      sleep 3
+      elapsed=$((elapsed + 3))
+      continue
+    fi
+    unreachable=0
+    allowed="$(printf '%s' "$body" \
       | python3 -c 'import sys,json; print("1" if json.load(sys.stdin).get("stop_allowed") else "0")' \
       2>/dev/null || echo 0)"
     if [[ "$allowed" == "1" ]]; then
@@ -1049,7 +1078,7 @@ check_migrate_gates() {
   if [[ "${FORGE_MARKET_CONFIRM_DICTIONARY_DROPS:-}" == "1" ]]; then
     local port parity_ok
     port="$(_studio_health_port)"
-    parity_ok="$(curl -fsS "http://127.0.0.1:${port}/health" 2>/dev/null \
+    parity_ok="$(_studio_curl "http://127.0.0.1:${port}/health" 2>/dev/null \
       | python3 -c 'import sys,json; d=json.load(sys.stdin); print("true" if d.get("dictionary_parity_ok") else "false")' \
       2>/dev/null || echo "false")"
     if [[ "$parity_ok" != "true" ]]; then
@@ -1297,7 +1326,7 @@ _run_remote_verify_check() {
     remote.health)
       label="Health"
       local body
-      body="$(curl -fsS "http://127.0.0.1:${port}/health" 2>/dev/null || true)"
+      body="$(_studio_curl "http://127.0.0.1:${port}/health" 2>/dev/null || true)"
       if echo "$body" | grep -q forge-market-studio; then
         ok=1
         detail="forge-market-studio"
@@ -1308,7 +1337,7 @@ _run_remote_verify_check() {
     remote.schema)
       label="Schema"
       local body sv sh ch
-      body="$(curl -fsS "http://127.0.0.1:${port}/health" 2>/dev/null || true)"
+      body="$(_studio_curl "http://127.0.0.1:${port}/health" 2>/dev/null || true)"
       if command -v jq >/dev/null 2>&1; then
         sv="$(echo "$body" | jq -r '.schema_version // empty')"
         sh="$(echo "$body" | jq -r '.schema_online_head // .schema_head // empty')"
@@ -1332,7 +1361,7 @@ _run_remote_verify_check() {
       label="${check_id#remote.}"
       local path="/api/tickers"
       [[ "$check_id" == "remote.watchlists" ]] && path="/api/watchlists"
-      if curl -fsS "http://127.0.0.1:${port}${path}" >/dev/null 2>&1; then
+      if _studio_curl "http://127.0.0.1:${port}${path}" >/dev/null 2>&1; then
         ok=1
         detail="ok"
       else
@@ -1399,7 +1428,7 @@ smoke() {
   local attempt
   for attempt in 1 2 3 4 5 6 7 8 9 10; do
     local body
-    body="$(curl -fsS "$url" 2>/dev/null || true)"
+    body="$(_studio_curl "$url" 2>/dev/null || true)"
     if echo "$body" | grep -q forge-market-studio; then
       if command -v jq >/dev/null 2>&1; then
         local sv sh ch
