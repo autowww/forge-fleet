@@ -1735,6 +1735,10 @@ class FleetHandler(BaseHTTPRequestHandler):
                     "forge_market_period_completion_v3",
                     "verify_suites",
                     "forge_market_backend_version",
+                    "forge_market_harvest_catch_up",
+                    "forge_market_async_rollup",
+                    "forge_market_harvest_derive_on_upload",
+                    "forge_market_studio_priority_workers",
                 )
                 if body.get(k) is not None
             }

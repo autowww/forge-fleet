@@ -64,6 +64,10 @@ _ROLLOUT_ENV_KEYS = (
     "FORGE_MARKET_PERIOD_COMPLETION_V3",
     "FORGE_MARKET_VERIFY_SUITES",
     "FORGE_MARKET_BACKEND_VERSION",
+    "FORGE_MARKET_HARVEST_CATCH_UP",
+    "FORGE_MARKET_ASYNC_ROLLUP",
+    "FORGE_MARKET_HARVEST_DERIVE_ON_UPLOAD",
+    "FORGE_MARKET_STUDIO_PRIORITY_WORKERS",
 )
 
 
@@ -132,7 +136,29 @@ def _apply_rollout_overrides(env: dict[str, str], overrides: dict[str, Any]) -> 
         "forge_market_period_completion_v3": "FORGE_MARKET_PERIOD_COMPLETION_V3",
         "verify_suites": "FORGE_MARKET_VERIFY_SUITES",
         "forge_market_backend_version": "FORGE_MARKET_BACKEND_VERSION",
+        "forge_market_harvest_catch_up": "FORGE_MARKET_HARVEST_CATCH_UP",
+        "forge_market_async_rollup": "FORGE_MARKET_ASYNC_ROLLUP",
+        "forge_market_harvest_derive_on_upload": "FORGE_MARKET_HARVEST_DERIVE_ON_UPLOAD",
+        "forge_market_studio_priority_workers": "FORGE_MARKET_STUDIO_PRIORITY_WORKERS",
     }
+    catch_up = overrides.get("forge_market_harvest_catch_up") or overrides.get("FORGE_MARKET_HARVEST_CATCH_UP")
+    if catch_up is not None and str(catch_up).strip().lower() in ("1", "true", "yes", "on"):
+        env["FORGE_MARKET_HARVEST_CATCH_UP"] = "1"
+        env["FORGE_MARKET_ASYNC_ROLLUP"] = str(
+            overrides.get("forge_market_async_rollup")
+            or overrides.get("FORGE_MARKET_ASYNC_ROLLUP")
+            or "1"
+        )
+        env["FORGE_MARKET_HARVEST_DERIVE_ON_UPLOAD"] = str(
+            overrides.get("forge_market_harvest_derive_on_upload")
+            or overrides.get("FORGE_MARKET_HARVEST_DERIVE_ON_UPLOAD")
+            or "0"
+        )
+        env["FORGE_MARKET_STUDIO_PRIORITY_WORKERS"] = str(
+            overrides.get("forge_market_studio_priority_workers")
+            or overrides.get("FORGE_MARKET_STUDIO_PRIORITY_WORKERS")
+            or "8"
+        )
     for src, dst in alias.items():
         raw = overrides.get(src)
         if raw is None:

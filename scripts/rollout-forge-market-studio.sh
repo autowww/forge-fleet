@@ -359,6 +359,20 @@ EOF
     echo "FORGE_MARKET_DOCKERFILE=${FORGE_MARKET_DOCKERFILE}" >>.env
   fi
   _persist_compose_env_key FORGE_MARKET_SEC_CONTACT "${FORGE_MARKET_SEC_CONTACT:-}"
+  if [[ "${FORGE_MARKET_HARVEST_CATCH_UP:-}" == "1" ]]; then
+    export FORGE_MARKET_ASYNC_ROLLUP="${FORGE_MARKET_ASYNC_ROLLUP:-1}"
+    export FORGE_MARKET_HARVEST_DERIVE_ON_UPLOAD="${FORGE_MARKET_HARVEST_DERIVE_ON_UPLOAD:-0}"
+    export FORGE_MARKET_STUDIO_PRIORITY_WORKERS="${FORGE_MARKET_STUDIO_PRIORITY_WORKERS:-8}"
+    log "harvest catch-up drain profile (derive-off upload, async rollup, priority workers)"
+  fi
+  for _harvest_tune_key in \
+    FORGE_MARKET_ASYNC_ROLLUP \
+    FORGE_MARKET_HARVEST_DERIVE_ON_UPLOAD \
+    FORGE_MARKET_STUDIO_PRIORITY_WORKERS; do
+    if [[ -n "${!_harvest_tune_key:-}" ]]; then
+      _persist_compose_env_key "$_harvest_tune_key" "${!_harvest_tune_key}"
+    fi
+  done
   if [[ -n "${FORGE_MARKET_APP_IMAGE:-}" ]]; then
     _persist_compose_env_key FORGE_MARKET_APP_IMAGE "${FORGE_MARKET_APP_IMAGE}"
   fi

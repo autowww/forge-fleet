@@ -130,6 +130,15 @@ def test_rollout_env_keys_include_delivery_pipeline_vars() -> None:
     assert "FORGE_MARKET_GIT_SHA" in fmsr._ROLLOUT_ENV_KEYS
 
 
+def test_rollout_env_applies_harvest_catch_up_profile(monkeypatch) -> None:
+    monkeypatch.setenv("FORGE_MARKET_ASYNC_ROLLUP", "0")
+    env = fmsr._rollout_env({"forge_market_harvest_catch_up": "1", "forge_market_env": "prod"})
+    assert env["FORGE_MARKET_HARVEST_CATCH_UP"] == "1"
+    assert env["FORGE_MARKET_ASYNC_ROLLUP"] == "1"
+    assert env["FORGE_MARKET_HARVEST_DERIVE_ON_UPLOAD"] == "0"
+    assert env["FORGE_MARKET_STUDIO_PRIORITY_WORKERS"] == "8"
+
+
 def test_rollout_script_includes_schema_migrate() -> None:
     script = Path(__file__).resolve().parents[1] / "scripts" / "rollout-forge-market-studio.sh"
     text = script.read_text(encoding="utf-8")

@@ -59,7 +59,9 @@ Operator HTTP surface (local studio-server only):
 
    Rollout syncs `forge-market`, rebuilds `market-app`, starts Postgres, runs **`python -m forge_market.db.migrate upgrade`** (schema deltas), then starts the API. Poll `GET /v1/admin/forge-market-studio-rollout-log` for progress. Optional body: `"run_schema_migrate": false` to skip schema step (not recommended).
 
-   **Large harvest backlog:** set catch-up env in the stack `.env` before rollout (`FORGE_MARKET_ASYNC_ROLLUP=1`, `FORGE_MARKET_HARVEST_DERIVE_ON_UPLOAD=0`, `FORGE_MARKET_STUDIO_PRIORITY_WORKERS=8`). See `forge-market/docs/operate/ibgw-harvest-speed.md` (Catch-up drain profile). Restore derive-on-upload after the queue drains.
+   **Env-gated migration m059 (dictionary TEXT drops):** set `"forge_market_confirm_dictionary_drops": "1"` on the rollout POST body. The rollout script checks `dictionary_parity_ok` on `/health` before migrate when that flag is set. **Completed 2026-10-08** on dev and prod (`main`, backend **1.0.70**); use `"forge_market_git_ref": "main"` for routine rollouts. Historical dev rehearsal used branch `m059-cutover` (deleted).
+
+   **Large harvest backlog:** set catch-up env in the stack `.env` before rollout (`FORGE_MARKET_ASYNC_ROLLUP=1`, `FORGE_MARKET_HARVEST_DERIVE_ON_UPLOAD=0`, `FORGE_MARKET_STUDIO_PRIORITY_WORKERS=8`), or pass `"forge_market_harvest_catch_up": "1"` on this POST (Fleet persists compose `.env` during rollout). See `forge-market/docs/operate/ibgw-harvest-speed.md` (Catch-up drain profile). Restore derive-on-upload after the queue drains.
 
    Verify: `curl -fsS http://127.0.0.1:19792/health` should show matching `schema_version` and `schema_head`.
 
