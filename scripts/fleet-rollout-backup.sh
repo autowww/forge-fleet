@@ -26,13 +26,18 @@ verify_backup_dump() {
   if command -v pg_restore >/dev/null 2>&1 && pg_restore --list "$dump" >/dev/null 2>&1; then
     return 0
   fi
-  local remote="/tmp/fleet-rollout-backup-verify-$$.dump"
-  docker cp "$dump" "${PG_CONTAINER}:${remote}"
-  if docker exec "$PG_CONTAINER" pg_restore --list "$remote" >/dev/null 2>&1; then
-    docker exec "$PG_CONTAINER" rm -f "$remote"
+  # Prefer stdin into the DB container — avoids docker cp when postgres has a bad bind mount.
+  if docker exec -i "$PG_CONTAINER" pg_restore --list <"$dump" >/dev/null 2>&1; then
     return 0
   fi
-  docker exec "$PG_CONTAINER" rm -f "$remote" 2>/dev/null || true
+  local remote="/tmp/fleet-rollout-backup-verify-$$.dump"
+  if docker cp "$dump" "${PG_CONTAINER}:${remote}" 2>/dev/null; then
+    if docker exec "$PG_CONTAINER" pg_restore --list "$remote" >/dev/null 2>&1; then
+      docker exec "$PG_CONTAINER" rm -f "$remote"
+      return 0
+    fi
+    docker exec "$PG_CONTAINER" rm -f "$remote" 2>/dev/null || true
+  fi
   return 1
 }
 

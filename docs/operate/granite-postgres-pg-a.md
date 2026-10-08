@@ -28,3 +28,11 @@ Tuning mounts to `/etc/postgresql/conf.d/99-forge-market-tuning.conf` (outside `
 5. Rerun forge-market bench tools in-container (see [granite-nvda-pipeline-benchmark.md](../../../forge-market/docs/perf/granite-nvda-pipeline-benchmark.md)).
 
 Rollback: `cp postgres-tuning.conf.disabled postgres-tuning.conf` and restart postgres.
+
+## Rollout backup failures (mistaken `postgres-tuning.conf` directory)
+
+If pre-migrate `pg_dump` verification fails with a **bind-mount / docker cp** error, check the Granite deploy tree (`~/.local/share/forge-fleet/deploy/forge-market-studio`):
+
+1. `postgres-tuning.conf` must be a **file**, not a directory — remove the directory and set `FORGE_MARKET_PG_TUNING_CONF=./postgres-tuning.conf.disabled` in `.env`.
+2. If Postgres restart-loops with **flex scanner** errors on `99-forge-market-tuning.conf`, strip the `include_if_exists` line from the **pgdata** volume (`forge_market_studio_pgdata`) and recreate postgres (see `scripts/remediate-market-studio-pg-tuning-backup.sh`).
+3. Take a manual verified dump: `scripts/fleet-rollout-backup.sh` (stdin `pg_restore --list` verify) or Fleet job per remediate script.

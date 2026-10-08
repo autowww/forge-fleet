@@ -85,11 +85,31 @@ compose() {
   fi
 }
 
+_remediate_postgres_tuning_mount() {
+  local root="$MARKET_STUDIO_ROOT"
+  local mistaken="${root}/postgres-tuning.conf"
+  if [[ -d "$mistaken" ]]; then
+    log "WARN: removing mistaken directory $mistaken (compose expects a file mount)"
+    rm -rf "$mistaken"
+  fi
+  local env_file="${root}/.env"
+  [[ -f "$env_file" ]] || return 0
+  local cur=""
+  cur="$(grep -E '^FORGE_MARKET_PG_TUNING_CONF=' "$env_file" 2>/dev/null | head -1 | cut -d= -f2- || true)"
+  if [[ -z "$cur" || "$cur" == "./postgres-tuning.conf" ]]; then
+    if [[ -f "${root}/postgres-tuning.conf.disabled" ]]; then
+      (cd "$root" && _persist_compose_env_key FORGE_MARKET_PG_TUNING_CONF ./postgres-tuning.conf.disabled)
+      log "postgres PG-A tuning: pointed FORGE_MARKET_PG_TUNING_CONF at postgres-tuning.conf.disabled"
+    fi
+  fi
+}
+
 ensure_paths() {
   [[ -f "$MARKET_STUDIO_ROOT/compose.yaml" ]] || die "missing $MARKET_STUDIO_ROOT/compose.yaml"
   FORGE_MARKET_ROOT="$(resolve_forge_market_root)" || die "forge-market checkout missing (set FORGE_MARKET_ROOT or clone beside Fleet)"
   export FORGE_MARKET_ROOT
   log "using forge-market root $FORGE_MARKET_ROOT"
+  _remediate_postgres_tuning_mount
   local tuning="${FORGE_MARKET_PG_TUNING_CONF:-./postgres-tuning.conf.disabled}"
   if [[ -f "$MARKET_STUDIO_ROOT/$tuning" || -f "$tuning" ]]; then
     : # mount target exists
