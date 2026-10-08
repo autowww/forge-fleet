@@ -1132,15 +1132,24 @@ run_postgres_schema_migrate() {
     migrate_mounts+=(-v "${FORGE_MARKET_ROOT}/studio-server:/app/studio-server:ro")
     log "migrate from synced source tree (FORGE_MARKET_MIGRATE_FROM_SOURCE=1)"
   fi
-  local migrate_out
+  local migrate_out migrate_rc=0
   migrate_out="$(docker run --rm --network "$pg_network" \
     -e "PYTHONUNBUFFERED=1" \
     -e "FORGE_MARKET_DATABASE_URL=${migrate_db_url}" \
     ${confirm_env[@]+"${confirm_env[@]}"} \
     ${migrate_mounts[@]+"${migrate_mounts[@]}"} \
     "$migrate_image" \
-    python -m forge_market.db.migrate upgrade 2>&1)" || die "schema migrate failed"
+    python -m forge_market.db.migrate upgrade 2>&1)" || migrate_rc=$?
+  # Always surface the migrator output: a swallowed error cost an hour of
+  # prod downtime (m085 ref_market shape, 2026-10-08) and left the app stopped.
   log "$migrate_out"
+  if [[ "$migrate_rc" -ne 0 ]]; then
+    if [[ "$stop_app" == "1" ]]; then
+      log "schema migrate failed — restarting previous market-app container so the lane stays up"
+      docker start "$app_container" >/dev/null 2>&1 || compose "${files[@]}" start market-app 2>/dev/null || true
+    fi
+    die "schema migrate failed (exit ${migrate_rc}): $(printf '%s' "$migrate_out" | tail -n 3 | tr '\n' ' ')"
+  fi
   local synced_head=""
   if [[ -d "${FORGE_MARKET_ROOT}/src" ]]; then
     synced_head="$(docker run --rm \
@@ -1151,6 +1160,10 @@ run_postgres_schema_migrate() {
   if [[ -n "$synced_head" ]]; then
     migrate_applied_head="$(printf '%s' "$migrate_out" | sed -n 's/.*head=\([0-9][0-9]*\).*/\1/p' | tail -1)"
     if [[ -n "$migrate_applied_head" && "$migrate_applied_head" -lt "$synced_head" ]]; then
+      if [[ "$stop_app" == "1" ]]; then
+        log "migrator stale — restarting previous market-app container so the lane stays up"
+        docker start "$app_container" >/dev/null 2>&1 || true
+      fi
       die "migrator_stale migrator_head=${migrate_applied_head} synced_head=${synced_head}"
     fi
     log "schema_head_synced=${synced_head}"

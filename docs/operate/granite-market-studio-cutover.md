@@ -173,6 +173,17 @@ curl -sS -X POST "${FORGE_FLEET_BASE_URL}/v1/migrations/MIGRATION_ID/steps/${FLE
   -d '{}'
 ```
 
+## Schema migrate failure behaviour
+
+`rollout-forge-market-studio.sh` stops `market-app` before `python -m forge_market.db.migrate upgrade`.
+Since 2026-10-08 a failed or stale migrator:
+
+1. logs the full migrator output into the rollout log (`GET /v1/admin/forge-market-studio-rollout-log`) — previously the error was swallowed and only `schema migrate failed` was visible;
+2. restarts the **previous** `market-app` container before the rollout exits non-zero, so a bad migration leaves the lane on the old code/schema instead of down;
+3. reports the last three migrator lines in the maintenance `error` field.
+
+Reproduce a migrator failure read-only with the `plan` subcommand through a Fleet job (`docker_argv` on `forge-market-app:studio`, mounts `src/` + `studio-server/`, `python -m forge_market.db.migrate plan`).
+
 ## Forbidden on Granite SSH
 
 - `scp`, `rsync`, manual `tar` extract for Market data
