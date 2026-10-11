@@ -33,4 +33,4 @@ EXPOSE 9792
 HEALTHCHECK --interval=15s --timeout=5s --retries=5 --start-period=45s \
   CMD curl -fsS http://127.0.0.1:9792/health >/dev/null || exit 1
 
-CMD ["python", "studio-server/studio_server.py"]
+CMD ["python", "studio-server/studio_multiprocess.py"]
