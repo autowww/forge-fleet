@@ -49,6 +49,7 @@ services:
         FORGE_MARKET_REQS_HASH: ${FORGE_MARKET_REQS_HASH:-}
     image: ${FORGE_MARKET_APP_IMAGE:-forge-market-app:studio}
     container_name: ${FORGE_MARKET_APP_CONTAINER:-forge-market-app}
+    command: ["python", "studio-server/studio_multiprocess.py"]
     restart: unless-stopped
     depends_on:
       postgres:
