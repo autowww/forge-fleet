@@ -34,6 +34,7 @@ Values are **case-sensitive**. Empty/unset usually means “use default” where
 | Variable | Purpose |
 |----------|---------|
 | **`FLEET_TELEMETRY_INTERVAL_S`** | Minimum seconds between throttled samples (default **60**, floor **5**). |
+| **`FLEET_ENVIRONMENT_TELEMETRY_CACHE_TTL_S`** | Cache for **`docker stats`** / compose ps rows shared by admin snapshot and **`GET /v1/environments/telemetry`** (default **8**, floor **5**). On Granite with Studio dock polling, **60** reduces duplicate docker work. |
 | **`FLEET_TELEMETRY_RETENTION_DAYS`** | Prune old telemetry + cooldown rows (**0** may mean no prune — see **`store.py`**). |
 | **`FLEET_COOLDOWN_EVENT_MAX_S`** | Max recorded **`duration_s`** per cooldown event (default **86400**). |
 

@@ -15,7 +15,14 @@ from fleet_server import env_templates, environments, managed_compose_service as
 
 _CACHE_LOCK = threading.Lock()
 _CACHE: dict[str, Any] = {"ts": 0.0, "rows": []}
-_CACHE_TTL_S = 8.0
+
+
+def _cache_ttl_s() -> float:
+    try:
+        v = float(os.environ.get("FLEET_ENVIRONMENT_TELEMETRY_CACHE_TTL_S") or "8")
+    except ValueError:
+        return 8.0
+    return max(5.0, v)
 
 _MEM_RE = re.compile(r"^([\d.]+)\s*([KMG]?)i?B?\s*/\s*([\d.]+)\s*([KMG]?)i?B?", re.I)
 
@@ -172,22 +179,58 @@ def environment_telemetry_row(data_dir: Path, record: dict[str, Any]) -> dict[st
     return row
 
 
+def _telemetry_row_from_ps(
+    record: dict[str, Any],
+    ps_rows: list[dict[str, Any]],
+    ps_err: str | None,
+    postgres_container: str | None,
+    stats_by_name: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Build one telemetry row from an already-fetched ``compose ps`` (no extra docker calls)."""
+    env_id = str(record.get("env_id") or "")
+    rid = str(record.get("id") or "")
+    state = str(record.get("state") or "unknown")
+    summary = mcs._summarize_rows(ps_rows)
+    postgres_service = _postgres_service_name(record)
+    postgres_stats: dict[str, Any] | None = None
+    if postgres_container and postgres_container in stats_by_name:
+        postgres_stats = dict(stats_by_name[postgres_container])
+        postgres_stats["container"] = postgres_container
+        postgres_stats["service"] = postgres_service
+    return {
+        "id": rid,
+        "env_id": env_id,
+        "label": str(record.get("label") or env_id),
+        "state": state,
+        "containers_total": int(summary.get("services_total") or 0),
+        "containers_running": int(summary.get("services_running") or 0),
+        "services": summary.get("services") if isinstance(summary.get("services"), list) else [],
+        "compose_ok": ps_err is None,
+        "compose_error": ps_err,
+        "ports": dict(record.get("ports") or {}),
+        "gateway_slug": record.get("gateway_slug"),
+        "template_id": record.get("template_id"),
+        "postgres": postgres_stats,
+    }
+
+
 def environment_telemetry_snapshot(
     data_dir: Path,
     *,
     use_cache: bool = True,
 ) -> list[dict[str, Any]]:
     now = time.time()
+    cache_ttl = _cache_ttl_s()
     if use_cache:
         with _CACHE_LOCK:
-            if now - float(_CACHE.get("ts") or 0) < _CACHE_TTL_S:
+            if now - float(_CACHE.get("ts") or 0) < cache_ttl:
                 cached = _CACHE.get("rows")
                 if isinstance(cached, list):
                     return list(cached)
     recs = environments.list_records(data_dir)
     rows: list[dict[str, Any]] = []
     postgres_names: list[str] = []
-    pending: list[tuple[dict[str, Any], str | None]] = []
+    pending: list[tuple[dict[str, Any], str | None, list[dict[str, Any]], str | None]] = []
     for rec in recs:
         state = str(rec.get("state") or "")
         if state not in ("ready", "running", "stopped"):
@@ -199,21 +242,17 @@ def environment_telemetry_snapshot(
             rel = mcs.resolve_compose_files(root, list(rec.get("compose_files") or []))
         except (ValueError, FileNotFoundError, OSError):
             continue
-        ps_rows, _ = mcs.compose_ps(root, rel)
+        ps_rows, ps_err = mcs.compose_ps(root, rel)
         postgres_service = _postgres_service_name(rec)
         postgres_container = _find_postgres_container(ps_rows, postgres_service)
-        pending.append((rec, postgres_container))
+        pending.append((rec, postgres_container, ps_rows, ps_err))
         if postgres_container:
             postgres_names.append(postgres_container)
     stats_by_name = docker_stats_map(sorted(set(postgres_names)))
-    for rec, postgres_container in pending:
-        row = environment_telemetry_row(data_dir, rec)
-        if postgres_container and postgres_container in stats_by_name:
-            pg = dict(stats_by_name[postgres_container])
-            pg["container"] = postgres_container
-            pg["service"] = _postgres_service_name(rec)
-            row["postgres"] = pg
-        rows.append(row)
+    for rec, postgres_container, ps_rows, ps_err in pending:
+        rows.append(
+            _telemetry_row_from_ps(rec, ps_rows, ps_err, postgres_container, stats_by_name)
+        )
     with _CACHE_LOCK:
         _CACHE["ts"] = now
         _CACHE["rows"] = list(rows)
