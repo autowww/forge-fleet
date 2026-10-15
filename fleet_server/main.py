@@ -55,7 +55,8 @@ from fleet_server import (
 from fleet_server import cleanup as fleet_cleanup
 from fleet_server import migrations as fleet_migrations
 from fleet_server import docker_gc as fleet_docker_gc
-from fleet_server import space_guardian
+from fleet_server import memory_guardian, space_guardian
+from fleet_server import capacity_policy
 from fleet_server.test_fleet import spawn_test_fleet
 
 
@@ -609,6 +610,14 @@ class FleetHandler(BaseHTTPRequestHandler):
         if path == "/admin/":
             self._serve_admin_shell()
             return
+        if path == "/admin/capacity.js":
+            try:
+                cap_js = resources.files("fleet_server").joinpath("static/capacity.js").read_bytes()
+            except OSError:
+                self._send_raw(404, b"", "text/plain; charset=utf-8")
+                return
+            self._send_raw(200, cap_js, "application/javascript; charset=utf-8")
+            return
         if path == "/admin/theme.css":
             self._serve_theme_css()
             return
@@ -897,6 +906,19 @@ class FleetHandler(BaseHTTPRequestHandler):
             out = space_guardian.space_status(self._data_dir(), self.server.db_path)
             self._send(200, out)
             return
+        if path == "/v1/admin/memory":
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+            out = memory_guardian.memory_status(self._data_dir(), self.server.db_path)
+            self._send(200, out)
+            return
+        if path == "/v1/admin/capacity/policy":
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+            self._send(200, {"ok": True, "policy": capacity_policy.load_policy(self._data_dir())})
+            return
         if path == "/v1/admin/snapshot":
             conn = store.connect(self.server.db_path)
             try:
@@ -1005,6 +1027,10 @@ class FleetHandler(BaseHTTPRequestHandler):
                     body["meta"]["space"] = space_guardian.space_meta_summary(data_dir, self.server.db_path)
                 except (OSError, RuntimeError, TypeError, ValueError):
                     body["meta"]["space"] = {"ok": False}
+                try:
+                    body["meta"]["memory"] = memory_guardian.memory_meta_summary(data_dir, self.server.db_path)
+                except (OSError, RuntimeError, TypeError, ValueError):
+                    body["meta"]["memory"] = {"ok": False}
                 body["apps"] = fleet_apps.snapshot_apps(data_dir)
                 self._send(200, body)
             finally:
@@ -1632,6 +1658,37 @@ class FleetHandler(BaseHTTPRequestHandler):
             code = 200 if out.get("ok", True) else 409
             self._send(code, out)
             return
+        if path == "/v1/admin/memory/run":
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+            tier = int(body.get("tier") or 0)
+            dry_run = str(body.get("dry_run", True)).strip().lower() in {"1", "true", "yes", "on"}
+            sid = str(body.get("service_id") or "").strip() or None
+            out = memory_guardian.run_tier(
+                self._data_dir(),
+                self.server.db_path,
+                tier,
+                dry_run=dry_run,
+                trigger="manual",
+                service_id=sid,
+            )
+            code = 200 if out.get("ok", True) else 409
+            self._send(code, out)
+            return
+        if path == "/v1/admin/memory/ensure-running":
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+            target = str(body.get("target_id") or body.get("id") or "host-ollama").strip()
+            try:
+                wait_sec = float(body.get("wait_sec") or 90.0)
+            except (TypeError, ValueError):
+                wait_sec = 90.0
+            out = memory_guardian.ensure_running(self._data_dir(), target, wait_sec=wait_sec)
+            code = 200 if out.get("ok") else 409
+            self._send(code, out)
+            return
         if path == "/v1/admin/space/approve":
             if not self._auth_ok():
                 self._send_unauthorized()
@@ -2109,6 +2166,11 @@ class FleetHandler(BaseHTTPRequestHandler):
             return
         path = urlparse(self.path).path
         data_dir = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+        if path == "/v1/admin/capacity/policy":
+            body = self._read_json()
+            saved = capacity_policy.save_policy(data_dir, body if isinstance(body, dict) else {})
+            self._send(200, {"ok": True, "policy": saved})
+            return
         if path == "/v1/operator/ui-settings":
             body = self._read_json()
             data_dir = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
@@ -2553,6 +2615,7 @@ def main() -> None:
         ).start()
     space_guardian.run_startup_gc(data_dir, db_path)
     space_guardian.start_guardian(data_dir, db_path)
+    memory_guardian.start_guardian(data_dir, db_path)
 
     httpd = ThreadingHTTPServer((args.host, args.port), FleetHandler)
     httpd.db_path = db_path

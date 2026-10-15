@@ -27,6 +27,8 @@ Volumes are orphans when they are not mounted by any container and not listed in
 4. **approved_for_delete** — operator approved via `/v1/admin/space/approve`
 5. **deleted** — removed after snapshot tarball under `data_dir/space/volume-snapshots/`
 
+Disk scheduling can also be toggled in **`{fleet_data_dir}/etc/capacity-policy.json`** (`space.enabled`) via the Fleet admin **Capacity** tab or **`PUT /v1/admin/capacity/policy`**. When `space.enabled` is omitted (`null`), behavior follows **`FLEET_SPACE_GUARDIAN`** below.
+
 ## Environment variables
 
 | Variable | Default | Purpose |

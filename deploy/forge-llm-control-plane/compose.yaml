@@ -22,6 +22,8 @@ services:
       FORGE_API_TOKEN: ${FORGE_API_TOKEN:-}
       LLM_API_KEY: ${FORGE_API_TOKEN:-}
       FORGE_LLM_DB_PATH: /data/forge-llm.sqlite
+      FLEET_WAKE_BASE_URL: ${FLEET_WAKE_BASE_URL:-http://host.docker.internal:18766}
+      FLEET_WAKE_BEARER_TOKEN: ${FLEET_WAKE_BEARER_TOKEN:-${FORGE_API_TOKEN:-}}
     volumes:
       - gateway_state:/data
     ports:

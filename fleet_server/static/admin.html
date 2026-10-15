@@ -220,6 +220,21 @@
           Apps
         </button>
       </li>
+      <li class="nav-item" role="presentation">
+        <button
+          class="nav-link"
+          id="fleet-tab-capacity-btn"
+          data-bs-toggle="tab"
+          data-bs-target="#fleet-tab-capacity"
+          type="button"
+          role="tab"
+          aria-controls="fleet-tab-capacity"
+          aria-selected="false"
+          tabindex="-1"
+        >
+          Capacity
+        </button>
+      </li>
       <span id="fleet-dynamic-app-tabs" class="d-contents"></span>
     </ul>
 
@@ -451,6 +466,94 @@
             <h2 class="h6 text-uppercase text-body-secondary mb-3">Catalog</h2>
             <p class="small text-body-secondary">Packages from <code class="fleet-mono">fleet.forgesdlc.com</code>.</p>
             <div id="fleet-apps-catalog" class="small text-body-secondary">Loading catalog…</div>
+          </div>
+        </section>
+      </div>
+
+      <div
+        class="tab-pane fade"
+        id="fleet-tab-capacity"
+        role="tabpanel"
+        aria-labelledby="fleet-tab-capacity-btn"
+        tabindex="0"
+      >
+        <p id="fleet-capacity-msg" class="fleet-mono small text-body-secondary mb-2" aria-live="polite"></p>
+        <div class="d-flex flex-wrap gap-2 mb-3 fleet-capacity-local-only">
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-capacity-refresh-btn">Refresh</button>
+        </div>
+        <div class="row g-3">
+          <div class="col-lg-6">
+            <section class="card border-secondary-subtle shadow-sm h-100">
+              <div class="card-body">
+                <h2 class="h6 text-uppercase text-body-secondary mb-2">Disk (Space Guardian)</h2>
+                <p class="small text-body-secondary mb-2">Scheduled cleanup and pressure tiers. Mutations are local scope only.</p>
+                <div id="fleet-capacity-disk-body" class="small text-body-secondary">Open this tab to load disk status.</div>
+                <div class="d-flex flex-wrap gap-2 mt-3 fleet-capacity-local-only">
+                  <button type="button" class="btn btn-sm btn-outline-primary" id="fleet-cap-disk-dry-btn">Dry-run tier 0</button>
+                </div>
+              </div>
+            </section>
+          </div>
+          <div class="col-lg-6">
+            <section class="card border-secondary-subtle shadow-sm h-100">
+              <div class="card-body">
+                <h2 class="h6 text-uppercase text-body-secondary mb-2">Memory</h2>
+                <p class="small text-body-secondary mb-2">Idle parking uses <code class="fleet-mono">MemAvailable</code>. Apply stops stays off until you enable it.</p>
+                <div id="fleet-capacity-memory-body" class="small text-body-secondary">Open this tab to load memory status.</div>
+                <div class="d-flex flex-wrap gap-2 mt-3 fleet-capacity-local-only">
+                  <button type="button" class="btn btn-sm btn-outline-primary" id="fleet-cap-memory-dry-btn">Dry-run plan</button>
+                  <button type="button" class="btn btn-sm btn-outline-warning" id="fleet-cap-memory-apply-btn">Run stops (tier 1)</button>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+        <section class="card border-secondary-subtle shadow-sm mt-3 fleet-capacity-local-only">
+          <div class="card-body">
+            <h2 class="h6 text-uppercase text-body-secondary mb-3">Policy</h2>
+            <div class="row g-2 small">
+              <div class="col-md-4">
+                <label class="form-check"><input type="checkbox" class="form-check-input" id="fleet-cap-space-enabled" checked /> Disk guardian enabled</label>
+              </div>
+              <div class="col-md-4">
+                <label class="form-check"><input type="checkbox" class="form-check-input" id="fleet-cap-memory-enabled" checked /> Memory guardian enabled</label>
+              </div>
+              <div class="col-md-4">
+                <label class="form-check"><input type="checkbox" class="form-check-input" id="fleet-cap-apply-stops" /> Apply memory stops</label>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label small mb-0" for="fleet-cap-floor-gib">Free RAM floor (GiB)</label>
+                <input type="number" class="form-control form-control-sm" id="fleet-cap-floor-gib" min="1" step="1" value="16" />
+              </div>
+              <div class="col-md-4">
+                <label class="form-label small mb-0" for="fleet-cap-cold-hours">Cold idle (hours)</label>
+                <input type="number" class="form-control form-control-sm" id="fleet-cap-cold-hours" min="0.25" step="0.25" value="2" />
+              </div>
+              <div class="col-md-4">
+                <label class="form-label small mb-0" for="fleet-cap-warm-hours">Warm idle (hours)</label>
+                <input type="number" class="form-control form-control-sm" id="fleet-cap-warm-hours" min="0.25" step="0.25" value="6" />
+              </div>
+            </div>
+            <button type="button" class="btn btn-sm btn-primary mt-3" id="fleet-cap-policy-save-btn">Save policy</button>
+          </div>
+        </section>
+        <section class="card border-danger border-opacity-50 shadow-sm mt-3 fleet-capacity-local-only">
+          <div class="card-body">
+            <h2 class="h6 text-uppercase text-danger mb-2">Manual stop (tier 2)</h2>
+            <p class="small text-body-secondary mb-2">Stops a managed compose service by Fleet service id. Type <strong>STOP</strong> to confirm.</p>
+            <div class="row g-2 align-items-end small">
+              <div class="col-md-5">
+                <label class="form-label small mb-0" for="fleet-cap-tier2-sid">Service id</label>
+                <input type="text" class="form-control form-control-sm fleet-mono" id="fleet-cap-tier2-sid" placeholder="market-studio-dev" autocomplete="off" />
+              </div>
+              <div class="col-md-4">
+                <label class="form-label small mb-0" for="fleet-cap-tier2-confirm">Confirm</label>
+                <input type="text" class="form-control form-control-sm" id="fleet-cap-tier2-confirm" placeholder="STOP" autocomplete="off" />
+              </div>
+              <div class="col-md-3">
+                <button type="button" class="btn btn-sm btn-danger" id="fleet-cap-memory-tier2-btn">Stop service</button>
+              </div>
+            </div>
           </div>
         </section>
       </div>
@@ -989,6 +1092,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
   <script src="/admin/ks/js/forge-theme.js"></script>
   <script src="/admin/ks/js/forge-fleet-app-ui.js"></script>
+  <script src="/admin/capacity.js"></script>
   <script>
   /* forge-theme.js only registers DOMContentLoaded; if that event already fired, theme + clicks never wire — fix here. */
   (function () {

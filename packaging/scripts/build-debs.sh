@@ -32,6 +32,13 @@ stage_common_code() {
   install -m0755 "${ROOT}/scripts/apt-upgrade-cron.sh" "$dest_lib/scripts/apt-upgrade-cron.sh"
   bash "${ROOT}/packaging/scripts/bundle-kitchensink-admin.sh" \
     "${ROOT}/kitchensink" "$dest_lib/kitchensink"
+  if [[ -d "${ROOT}/deploy/forge-llm-control-plane" ]]; then
+    mkdir -p "$dest_lib/deploy"
+    rsync -a \
+      --exclude '__pycache__/' \
+      --exclude '*.pyc' \
+      "${ROOT}/deploy/forge-llm-control-plane/" "$dest_lib/deploy/forge-llm-control-plane/"
+  fi
 }
 
 build_forge_fleet_user() {

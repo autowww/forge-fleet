@@ -17,6 +17,36 @@ from metrics import REQUEST_LATENCY, record_request
 logger = logging.getLogger("forge-gateway.ollama")
 
 OLLAMA_BASE = os.environ.get("OLLAMA_INTERNAL_URL", "http://ollama:11434").rstrip("/")
+FLEET_WAKE_BASE_URL = os.environ.get(
+    "FLEET_WAKE_BASE_URL", "http://host.docker.internal:18766"
+).rstrip("/")
+FLEET_WAKE_BEARER_TOKEN = (
+    os.environ.get("FLEET_WAKE_BEARER_TOKEN") or os.environ.get("FORGE_API_TOKEN") or ""
+).strip()
+
+
+async def _wake_ollama_via_fleet() -> bool:
+    """Ask Fleet memory guardian to start host Ollama before retrying the proxy."""
+    if not FLEET_WAKE_BEARER_TOKEN:
+        return False
+    url = f"{FLEET_WAKE_BASE_URL}/v1/admin/memory/ensure-running"
+    headers = {
+        "Authorization": f"Bearer {FLEET_WAKE_BEARER_TOKEN}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+    payload = {"target_id": "host-ollama", "wait_sec": 90}
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0)) as client:
+            r = await client.post(url, headers=headers, json=payload)
+            if r.status_code != 200:
+                logger.warning("fleet wake returned %s: %s", r.status_code, r.text[:200])
+                return False
+            doc = r.json()
+            return bool(doc.get("ok"))
+    except (httpx.RequestError, json.JSONDecodeError, TypeError, ValueError) as ex:
+        logger.warning("fleet wake failed: %s", ex)
+        return False
 
 
 def _needs_think_false(model: str) -> bool:
@@ -96,8 +126,24 @@ async def proxy_request(
                 content=body,
             )
         except httpx.RequestError as e:
-            logger.exception("ollama upstream error: %s", e)
-            return Response(status_code=502, content=b"Bad gateway: Ollama unreachable")
+            logger.warning("ollama upstream error (will try fleet wake): %s", e)
+            if await _wake_ollama_via_fleet():
+                try:
+                    r = await client.request(
+                        request.method,
+                        url,
+                        headers=headers,
+                        content=body,
+                    )
+                except httpx.RequestError as e2:
+                    logger.exception("ollama upstream error after wake: %s", e2)
+                    return Response(
+                        status_code=502,
+                        content=b"Bad gateway: Ollama unreachable after wake",
+                    )
+            else:
+                logger.exception("ollama upstream error: %s", e)
+                return Response(status_code=502, content=b"Bad gateway: Ollama unreachable")
         dt = time.perf_counter() - t0
         REQUEST_LATENCY.labels(endpoint=ep).observe(dt)
 

@@ -152,6 +152,21 @@ Catalog + compose metadata live under **`FLEET_DATA_DIR`**:
 
 API: **`GET /v1/admin/space`**, **`POST /v1/admin/space/run`**, **`POST /v1/admin/space/approve`**.
 
+### Capacity (disk + memory)
+
+**Admin UI:** **`/admin/`** → **Capacity** tab (disk Space Guardian + memory idle parking).
+
+**[Memory Guardian runbook](docs/maintainers/07-memory-guardian.md)** — observe-by-default RAM parking, optional apply stops, wake-on-request for host Ollama via forge-gateway.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `FLEET_MEMORY_GUARDIAN` | `1` | Enable memory scheduler thread |
+| `FLEET_MEMORY_INTERVAL_S` | `3600` | Scheduled memory pass |
+
+Policy file: **`{data_dir}/etc/capacity-policy.json`** (`GET`/`PUT` **`/v1/admin/capacity/policy`**). Memory API: **`GET /v1/admin/memory`**, **`POST /v1/admin/memory/run`**, **`POST /v1/admin/memory/ensure-running`**.
+
+Shipped in **`forge-fleet`** / **`forge-fleet-user`** debs (`packaging/scripts/build-debs.sh`).
+
 ### Test Fleet → Lenses Attention
 
 1. Run Fleet on Docker-capable hosts; optionally `export FLEET_LENSES_WORKSPACE_ROOT=/abs/path/to/lenses-workspace`.

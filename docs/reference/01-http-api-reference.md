@@ -84,6 +84,11 @@ Feature docs (details beyond this table): [CONTAINER-TEMPLATES.md](../build-201/
 | GET | `/v1/admin/space` | bearer | Space Guardian status: disk pressure, tier labels, last/next run, orphan/quarantine volumes. |
 | POST | `/v1/admin/space/run` | bearer | Run Space Guardian tier (`tier` 0 or 1, `dry_run` default **true**). Skips when upgrade/rollout active. |
 | POST | `/v1/admin/space/approve` | bearer | Approve deletion of a quarantined orphan volume (`volume_name`). |
+| GET | `/v1/admin/memory` | bearer | Memory Guardian status: `MemAvailable` pressure, service classes, idle ages, dry-run stop plan (cached; not used by snapshot). |
+| POST | `/v1/admin/memory/run` | bearer | Memory tier run (`tier` 0–2, `dry_run` default **true**, optional `service_id` for tier 2). Stops apply only when policy `apply_stops` is true. |
+| POST | `/v1/admin/memory/ensure-running` | bearer | Wake cold target (default `host-ollama`); body `wait_sec`. Used by forge-gateway on Ollama connection failure. |
+| GET | `/v1/admin/capacity/policy` | bearer | Disk + memory policy (`etc/capacity-policy.json`). |
+| PUT | `/v1/admin/capacity/policy` | bearer | Merge-update capacity policy (`space`, `memory` blocks). |
 | GET | `/v1/admin/cleanup-inventory` | bearer | Disk inventory: rollout pg_dump backups, migration scratch, job-workspaces, docker `system df`, protected containers, orphan volumes. |
 | POST | `/v1/admin/cleanup` | bearer | Safe host cleanup (`dry_run` defaults **true**). Targets: `rollout_backups`, `migration_scratch`, `job_workspaces`, `docker_builder`, `docker_images`, `docker_images_unused`, `legacy_backup_roots`, `quarantined_volumes`, `app_gc`. Rejects `containers`, `volumes`, `docker_system_prune`. Returns pre/post operational integrity checks. |
 | POST | `/v1/admin/migration-scratch-gc` | bearer | Purge stale migration bundle scratch under `migration-bundles/`. Body: `dry_run` (default false). |

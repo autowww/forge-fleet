@@ -98,8 +98,11 @@ def upgrade_active() -> bool:
     return phase not in {"", "idle", "complete", "done"}
 
 
-def should_skip_run(db_path: Path) -> str | None:
-    if not space_policy.guardian_enabled():
+def should_skip_run(db_path: Path, data_dir: Path | None = None) -> str | None:
+    from fleet_server import capacity_policy
+
+    dd = data_dir if data_dir is not None else db_path.parent
+    if not capacity_policy.space_loop_enabled(dd):
         return "guardian_disabled"
     if lifecycle.is_draining():
         return "fleet_draining"
@@ -164,7 +167,7 @@ def run_tier(
     dry_run: bool = False,
     trigger: str = "manual",
 ) -> dict[str, Any]:
-    skip = should_skip_run(db_path)
+    skip = should_skip_run(db_path, data_dir)
     if skip and not dry_run and trigger != "startup":
         return {"ok": True, "skipped": True, "reason": skip, "tier": tier, "trigger": trigger}
 
@@ -311,15 +314,17 @@ def space_status(data_dir: Path, db_path: Path, *, include_app_gc: bool = True) 
         if include_app_gc
         else {"ok": True, "skipped": True, "reason": "snapshot_summary", "environments": {}}
     )
+    from fleet_server import capacity_policy
+
     return {
         "ok": True,
-        "guardian_enabled": space_policy.guardian_enabled(),
+        "guardian_enabled": capacity_policy.space_loop_enabled(data_dir),
         "interval_s": space_policy.interval_s(),
         "pressure": pressure,
         "tiers": space_policy.tier_labels(),
         "tier0_targets": list(space_policy.tier0_cleanup_targets().keys()),
         "tier1_targets": list(space_policy.tier1_cleanup_targets().keys()),
-        "skip_reason": should_skip_run(db_path),
+        "skip_reason": should_skip_run(db_path, data_dir),
         "last_run": last_run(),
         "next_run_at": datetime.fromtimestamp(nxt, UTC).strftime("%Y-%m-%dT%H:%M:%SZ") if nxt else None,
         "next_run_in_s": max(0, int(nxt - time.time())) if nxt else None,
@@ -351,7 +356,7 @@ def _guardian_loop(data_dir: Path, db_path: Path) -> None:
     time.sleep(jitter)
     while True:
         try:
-            skip = should_skip_run(db_path)
+            skip = should_skip_run(db_path, data_dir)
             if not skip:
                 run_tier(data_dir, db_path, 0, dry_run=False, trigger="scheduled")
                 if tier1_enabled():
