@@ -1995,8 +1995,31 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
     function gpuLogoBrand(vendor, alt) {
       return '<div class="fleet-gpu-brand">' + gpuLogoButton(vendor, alt, false) + "</div>";
     }
-    function renderGpuStubTile() {
-      return "";
+    function gpuUnavailableReason(g) {
+      var reasons = [];
+      ["nvidia", "amdgpu_sysfs", "rocm", "intel_drm_est"].forEach(function (key) {
+        var block = g && g[key];
+        if (block && block.available === false && block.reason) {
+          reasons.push(String(block.reason).split("\n")[0].trim());
+        }
+      });
+      var text = reasons[0] || "No GPU metrics";
+      if (text.length > 72) text = text.slice(0, 69) + "…";
+      return text;
+    }
+    function renderGpuStubTile(g) {
+      var reason = gpuUnavailableReason(g || {});
+      return (
+        '<div class="fleet-tile fleet-gpu-stub" title="' +
+        esc(reason) +
+        '"><div class="fleet-tile__brand">' +
+        gpuLogoButton("nvidia", "NVIDIA", true) +
+        '</div><div class="fleet-tile__value fleet-mono">—</div>' +
+        '<div class="fleet-tile__mem">GPU</div>' +
+        '<div class="fleet-tile__hint">' +
+        esc(reason) +
+        "</div></div>"
+      );
     }
 
     function tileMark(svg, hiddenLabel) {
@@ -4030,7 +4053,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
 
       var gpuBlock = "";
       if (!nvHas && !amHas && !irHas) {
-        gpuBlock = renderGpuStubTile();
+        gpuBlock = renderGpuStubTile(g);
       } else {
         if (nvHas) {
           var nvh = nv == null ? 0 : nv;
