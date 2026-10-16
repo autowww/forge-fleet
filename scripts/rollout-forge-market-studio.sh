@@ -966,6 +966,28 @@ _apply_job_drain_guards() {
   _lifecycle_wait_studio
 }
 
+_activate_node_for_ui_build() {
+  if command -v npm >/dev/null 2>&1; then
+    return 0
+  fi
+  local nvm_sh="${NVM_DIR:-$HOME/.nvm}/nvm.sh"
+  if [[ -f "$nvm_sh" ]]; then
+    # shellcheck source=/dev/null
+    . "$nvm_sh"
+    nvm use default >/dev/null 2>&1 || nvm use node >/dev/null 2>&1 || true
+  fi
+  if command -v npm >/dev/null 2>&1; then
+    return 0
+  fi
+  for d in /usr/local/bin /usr/bin "${HOME}/.local/bin"; do
+    if [[ -x "${d}/npm" ]]; then
+      export PATH="${d}:${PATH}"
+      return 0
+    fi
+  done
+  return 1
+}
+
 _build_studio_ui_static() {
   local ui="${FORGE_MARKET_ROOT}/studio-ui"
   local static_index="${FORGE_MARKET_ROOT}/studio-server/static/studio/index.html"
@@ -974,16 +996,29 @@ _build_studio_ui_static() {
     log "skip studio-ui build (FORGE_MARKET_SKIP_UI_BUILD=1)"
     return 0
   fi
+  if ! _activate_node_for_ui_build; then
+    die "npm not found — install Node.js on this host or set FORGE_MARKET_SKIP_UI_BUILD=1"
+  fi
   log "building studio-ui → studio-server/static/studio/"
-  (
-    cd "$ui"
-    if [[ -f package-lock.json ]]; then
-      npm ci --no-audit --no-fund --prefer-offline
-    else
-      npm install --no-audit --no-fund
-    fi
-    npm run build
-  )
+  local install_cmd="npm install --no-audit --no-fund"
+  if [[ -f "${ui}/package-lock.json" ]]; then
+    install_cmd="npm ci --no-audit --no-fund --prefer-offline"
+  fi
+  if command -v npm >/dev/null 2>&1; then
+    (
+      cd "$ui"
+      eval "$install_cmd"
+      npm run build
+    )
+  else
+    local node_image="${FORGE_MARKET_UI_BUILD_IMAGE:-node:22-bookworm-slim}"
+    log "npm not on PATH — building studio-ui via docker (${node_image})"
+    docker run --rm \
+      -v "${FORGE_MARKET_ROOT}:/work" \
+      -w /work/studio-ui \
+      "$node_image" \
+      bash -lc "${install_cmd} && npm run build"
+  fi
   [[ -f "$static_index" ]] || die "studio-ui build did not produce ${static_index}"
 }
 
