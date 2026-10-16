@@ -966,6 +966,28 @@ _apply_job_drain_guards() {
   _lifecycle_wait_studio
 }
 
+_resolve_kitchensink_root() {
+  if [[ -n "${FORGE_MARKET_KITCHENSINK_ROOT:-}" && -d "${FORGE_MARKET_KITCHENSINK_ROOT}/react" ]]; then
+    printf '%s' "$(cd "${FORGE_MARKET_KITCHENSINK_ROOT}" && pwd)"
+    return 0
+  fi
+  local fm_root="${FORGE_MARKET_ROOT:-}"
+  local fallback="${FORGE_MARKET_GIT_FALLBACK_ROOT:-}"
+  local d
+  for d in \
+    "${fm_root}/../forgesdlc-kitchensink" \
+    "${fallback}/../forgesdlc-kitchensink" \
+    "/home/administrator/Code/forgesdlc-kitchensink" \
+    "$HOME/Code/forgesdlc-kitchensink" \
+    "$HOME/forgesdlc-kitchensink"; do
+    if [[ -n "$d" && -d "${d}/react" ]]; then
+      printf '%s' "$(cd "$d" && pwd)"
+      return 0
+    fi
+  done
+  return 1
+}
+
 _activate_node_for_ui_build() {
   if command -v npm >/dev/null 2>&1; then
     return 0
@@ -1010,9 +1032,17 @@ _build_studio_ui_static() {
     )
   else
     local node_image="${FORGE_MARKET_UI_BUILD_IMAGE:-node:22-bookworm-slim}"
+    local ks_root docker_ks_mount=()
     log "npm not on PATH — building studio-ui via docker (${node_image})"
+    if ks_root="$(_resolve_kitchensink_root)"; then
+      log "docker UI build: mount kitchensink ${ks_root} → /forgesdlc-kitchensink"
+      docker_ks_mount=(-v "${ks_root}:/forgesdlc-kitchensink:ro")
+    else
+      log "WARN: forgesdlc-kitchensink/react not found — set FORGE_MARKET_KITCHENSINK_ROOT if vite build fails"
+    fi
     docker run --rm \
       -v "${FORGE_MARKET_ROOT}:/work" \
+      "${docker_ks_mount[@]}" \
       -w /work/studio-ui \
       "$node_image" \
       bash -lc "${install_cmd} && npm run build"
