@@ -415,15 +415,29 @@ EOF
   fi
 }
 
+_sync_kitchensink_for_ui_build() {
+  local ks_root="$1"
+  local ks_ref="${FORGE_MARKET_KITCHENSINK_GIT_REF:-main}"
+  [[ -d "$ks_root/.git" ]] || return 1
+  log "syncing forgesdlc-kitchensink at ${ks_root} (${ks_ref})"
+  git -C "$ks_root" fetch --depth 1 origin "$ks_ref" 2>/dev/null \
+    || git -C "$ks_root" fetch origin "$ks_ref" 2>/dev/null \
+    || return 1
+  git -C "$ks_root" reset --hard "origin/${ks_ref}" || return 1
+}
+
 _ensure_kitchensink_clone() {
   local ks_root="$1"
   local git_remote="${FORGE_MARKET_KITCHENSINK_GIT_REMOTE:-https://github.com/autowww/forgesdlc-kitchensink.git}"
   [[ -n "$ks_root" ]] || return 1
-  if [[ -d "${ks_root}/react" ]]; then
+  if [[ -d "${ks_root}/react/ForgeStudioAppNav.tsx" ]]; then
+    _sync_kitchensink_for_ui_build "$ks_root" || true
     return 0
   fi
   if [[ -d "$ks_root/.git" ]]; then
-    log "kitchensink checkout missing react/ at ${ks_root}"
+    _sync_kitchensink_for_ui_build "$ks_root" || log "WARN: kitchensink sync failed at ${ks_root}"
+    [[ -d "${ks_root}/react/ForgeStudioAppNav.tsx" ]] && return 0
+    log "kitchensink checkout missing react/ForgeStudioAppNav.tsx at ${ks_root}"
     return 1
   fi
   if [[ -e "$ks_root" ]]; then
@@ -987,7 +1001,7 @@ _apply_job_drain_guards() {
 }
 
 _resolve_kitchensink_root() {
-  if [[ -n "${FORGE_MARKET_KITCHENSINK_ROOT:-}" && -d "${FORGE_MARKET_KITCHENSINK_ROOT}/react" ]]; then
+  if [[ -n "${FORGE_MARKET_KITCHENSINK_ROOT:-}" && -d "${FORGE_MARKET_KITCHENSINK_ROOT}/react/ForgeStudioAppNav.tsx" ]]; then
     printf '%s' "$(cd "${FORGE_MARKET_KITCHENSINK_ROOT}" && pwd)"
     return 0
   fi
@@ -998,9 +1012,10 @@ _resolve_kitchensink_root() {
     "${fm_root}/../forgesdlc-kitchensink" \
     "${fallback}/../forgesdlc-kitchensink" \
     "/home/administrator/Code/forgesdlc-kitchensink" \
+    "/home/administrator/forgesdlc-kitchensink" \
     "$HOME/Code/forgesdlc-kitchensink" \
     "$HOME/forgesdlc-kitchensink"; do
-    if [[ -n "$d" && -d "${d}/react" ]]; then
+    if [[ -n "$d" && -d "${d}/react/ForgeStudioAppNav.tsx" ]]; then
       printf '%s' "$(cd "$d" && pwd)"
       return 0
     fi
@@ -1042,6 +1057,7 @@ _build_studio_ui_static() {
   if ! _resolve_kitchensink_root >/dev/null; then
     for candidate in \
       "/home/administrator/Code/forgesdlc-kitchensink" \
+      "/home/administrator/forgesdlc-kitchensink" \
       "$(dirname "${FORGE_MARKET_ROOT}")/forgesdlc-kitchensink"; do
       if [[ -n "$candidate" ]]; then
         _ensure_kitchensink_clone "$candidate" || true
