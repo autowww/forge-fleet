@@ -430,17 +430,17 @@ _ensure_kitchensink_clone() {
   local ks_root="$1"
   local git_remote="${FORGE_MARKET_KITCHENSINK_GIT_REMOTE:-https://github.com/autowww/forgesdlc-kitchensink.git}"
   [[ -n "$ks_root" ]] || return 1
-  if [[ -d "${ks_root}/react/ForgeStudioAppNav.tsx" ]]; then
+  if [[ -d "${ks_root}/react/ForgeRunHeader.tsx" ]]; then
     _sync_kitchensink_for_ui_build "$ks_root" || true
     return 0
   fi
   if [[ -d "$ks_root/.git" ]]; then
-    if [[ ! -f "${ks_root}/react/ForgeStudioAppNav.tsx" ]]; then
+    if [[ ! -f "${ks_root}/react/ForgeRunHeader.tsx" ]]; then
       log "replacing incomplete kitchensink checkout at ${ks_root}"
       rm -rf "$ks_root"
     else
       _sync_kitchensink_for_ui_build "$ks_root" || log "WARN: kitchensink sync failed at ${ks_root}"
-      [[ -f "${ks_root}/react/ForgeStudioAppNav.tsx" ]] && return 0
+      [[ -f "${ks_root}/react/ForgeRunHeader.tsx" ]] && return 0
     fi
   fi
   if [[ -e "$ks_root" ]]; then
@@ -1004,7 +1004,7 @@ _apply_job_drain_guards() {
 }
 
 _resolve_kitchensink_root() {
-  if [[ -n "${FORGE_MARKET_KITCHENSINK_ROOT:-}" && -d "${FORGE_MARKET_KITCHENSINK_ROOT}/react/ForgeStudioAppNav.tsx" ]]; then
+  if [[ -n "${FORGE_MARKET_KITCHENSINK_ROOT:-}" && -d "${FORGE_MARKET_KITCHENSINK_ROOT}/react/ForgeRunHeader.tsx" ]]; then
     printf '%s' "$(cd "${FORGE_MARKET_KITCHENSINK_ROOT}" && pwd)"
     return 0
   fi
@@ -1018,7 +1018,7 @@ _resolve_kitchensink_root() {
     "/home/administrator/forgesdlc-kitchensink" \
     "$HOME/Code/forgesdlc-kitchensink" \
     "$HOME/forgesdlc-kitchensink"; do
-    if [[ -n "$d" && -d "${d}/react/ForgeStudioAppNav.tsx" ]]; then
+    if [[ -n "$d" && -d "${d}/react/ForgeRunHeader.tsx" ]]; then
       printf '%s' "$(cd "$d" && pwd)"
       return 0
     fi
