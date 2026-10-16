@@ -417,7 +417,7 @@ EOF
 
 _sync_kitchensink_for_ui_build() {
   local ks_root="$1"
-  local ks_ref="${FORGE_MARKET_KITCHENSINK_GIT_REF:-main}"
+  local ks_ref="${FORGE_MARKET_KITCHENSINK_GIT_REF:-master}"
   [[ -d "$ks_root/.git" ]] || return 1
   log "syncing forgesdlc-kitchensink at ${ks_root} (${ks_ref})"
   git -C "$ks_root" fetch --depth 1 origin "$ks_ref" 2>/dev/null \
@@ -435,10 +435,13 @@ _ensure_kitchensink_clone() {
     return 0
   fi
   if [[ -d "$ks_root/.git" ]]; then
-    _sync_kitchensink_for_ui_build "$ks_root" || log "WARN: kitchensink sync failed at ${ks_root}"
-    [[ -d "${ks_root}/react/ForgeStudioAppNav.tsx" ]] && return 0
-    log "kitchensink checkout missing react/ForgeStudioAppNav.tsx at ${ks_root}"
-    return 1
+    if [[ ! -f "${ks_root}/react/ForgeStudioAppNav.tsx" ]]; then
+      log "replacing incomplete kitchensink checkout at ${ks_root}"
+      rm -rf "$ks_root"
+    else
+      _sync_kitchensink_for_ui_build "$ks_root" || log "WARN: kitchensink sync failed at ${ks_root}"
+      [[ -f "${ks_root}/react/ForgeStudioAppNav.tsx" ]] && return 0
+    fi
   fi
   if [[ -e "$ks_root" ]]; then
     log "WARN: kitchensink path ${ks_root} exists but is not a git checkout — skipping clone"
