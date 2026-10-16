@@ -520,11 +520,33 @@ _sync_git_tree() {
   git -C "$root" pull --ff-only
 }
 
+_repair_studio_static_permissions() {
+  local root="$1"
+  local static="${root}/studio-server/static/studio"
+  [[ -e "$static" ]] || return 0
+  local uid gid
+  uid="$(id -u)"
+  gid="$(id -g)"
+  if chown -R "${uid}:${gid}" "$static" 2>/dev/null; then
+    return 0
+  fi
+  if command -v sudo >/dev/null 2>&1 && sudo chown -R "${uid}:${gid}" "$static" 2>/dev/null; then
+    return 0
+  fi
+  log "repair studio static permissions via docker (uid=${uid})"
+  docker run --rm \
+    -v "${root}/studio-server/static:/mnt/static" \
+    alpine:3.20 \
+    sh -c "chown -R ${uid}:${gid} /mnt/static/studio 2>/dev/null || chmod -R a+rwX /mnt/static/studio" \
+    2>/dev/null || log "WARN: could not repair studio-server/static/studio permissions"
+}
+
 _rsync_forge_market_tree() {
   local src="$1"
   local dst="$2"
   local -a rsync_args=(-a)
   if [[ "${FORGE_MARKET_RSYNC_DELETE:-}" == "1" ]]; then
+    _repair_studio_static_permissions "$dst"
     rsync_args+=(--delete)
   else
     log "rsync overlay (no --delete) — host-only paths under ${dst} are preserved"
@@ -536,6 +558,7 @@ _rsync_forge_market_tree() {
     --exclude vendor/ \
     --exclude studio-ui/node_modules/ \
     --exclude desktop/node_modules/ \
+    --exclude studio-server/static/studio/ \
     "${src}/" "${dst}/"
 }
 
