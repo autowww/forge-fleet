@@ -415,6 +415,26 @@ EOF
   fi
 }
 
+_ensure_kitchensink_clone() {
+  local ks_root="$1"
+  local git_remote="${FORGE_MARKET_KITCHENSINK_GIT_REMOTE:-https://github.com/autowww/forgesdlc-kitchensink.git}"
+  [[ -n "$ks_root" ]] || return 1
+  if [[ -d "${ks_root}/react" ]]; then
+    return 0
+  fi
+  if [[ -d "$ks_root/.git" ]]; then
+    log "kitchensink checkout missing react/ at ${ks_root}"
+    return 1
+  fi
+  if [[ -e "$ks_root" ]]; then
+    log "WARN: kitchensink path ${ks_root} exists but is not a git checkout — skipping clone"
+    return 1
+  fi
+  log "cloning forgesdlc-kitchensink into ${ks_root}"
+  mkdir -p "$(dirname "$ks_root")"
+  git clone --depth 1 --origin origin "$git_remote" "$ks_root" || return 1
+}
+
 _ensure_git_fallback_clone() {
   local fallback="$1"
   local git_remote="${FORGE_MARKET_GIT_REMOTE:-https://github.com/autowww/forge-market.git}"
@@ -1019,6 +1039,15 @@ _build_studio_ui_static() {
     return 0
   fi
   _activate_node_for_ui_build || true
+  if ! _resolve_kitchensink_root >/dev/null; then
+    for candidate in \
+      "/home/administrator/Code/forgesdlc-kitchensink" \
+      "$(dirname "${FORGE_MARKET_ROOT}")/forgesdlc-kitchensink"; do
+      if [[ -n "$candidate" ]]; then
+        _ensure_kitchensink_clone "$candidate" || true
+      fi
+    done
+  fi
   log "building studio-ui → studio-server/static/studio/"
   local install_cmd="npm install --no-audit --no-fund"
   if [[ -f "${ui}/package-lock.json" ]]; then
