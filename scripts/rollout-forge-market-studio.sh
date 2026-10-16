@@ -996,9 +996,7 @@ _build_studio_ui_static() {
     log "skip studio-ui build (FORGE_MARKET_SKIP_UI_BUILD=1)"
     return 0
   fi
-  if ! _activate_node_for_ui_build; then
-    die "npm not found — install Node.js on this host or set FORGE_MARKET_SKIP_UI_BUILD=1"
-  fi
+  _activate_node_for_ui_build || true
   log "building studio-ui → studio-server/static/studio/"
   local install_cmd="npm install --no-audit --no-fund"
   if [[ -f "${ui}/package-lock.json" ]]; then
