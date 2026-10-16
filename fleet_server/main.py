@@ -1767,6 +1767,7 @@ class FleetHandler(BaseHTTPRequestHandler):
                     "forge_market_run_schema_migrate",
                     "run_schema_migrate",
                     "forge_market_skip_build",
+                    "forge_market_skip_ui_build",
                     "forge_market_app_image",
                     "forge_market_env",
                     "forge_market_git_sha",
