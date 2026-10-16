@@ -184,6 +184,7 @@ def _apply_rollout_overrides(env: dict[str, str], overrides: dict[str, Any]) -> 
         if dst in {
             "FORGE_MARKET_PAUSE_SCHEDULER",
             "FORGE_MARKET_SKIP_BUILD",
+            "FORGE_MARKET_SKIP_UI_BUILD",
             "FORGE_MARKET_SKIP_GIT_SYNC",
             "FORGE_MARKET_GIT_HARD_RESET",
             "FORGE_MARKET_SKIP_BACKUP",

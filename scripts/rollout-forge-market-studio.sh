@@ -132,6 +132,18 @@ _persist_compose_env_key() {
   export "${key}=${val}"
 }
 
+_scrub_fleet_env_skip_ui_build() {
+  local env_file="${XDG_CONFIG_HOME:-$HOME/.config}/forge-fleet/forge-fleet.env"
+  [[ -f "$env_file" ]] || return 0
+  if [[ "${FORGE_MARKET_SKIP_UI_BUILD:-0}" == "1" ]]; then
+    return 0
+  fi
+  if grep -q '^FORGE_MARKET_SKIP_UI_BUILD=' "$env_file" 2>/dev/null; then
+    sed -i '/^FORGE_MARKET_SKIP_UI_BUILD=/d' "$env_file"
+    log "removed FORGE_MARKET_SKIP_UI_BUILD from ${env_file} (studio-ui builds enabled by default)"
+  fi
+}
+
 _persist_granite_env_key() {
   local file="$1"
   local key="$2"
@@ -1709,6 +1721,7 @@ main() {
   command -v docker >/dev/null || die "docker missing"
   command -v curl >/dev/null || die "curl missing"
   ensure_env_file
+  _scrub_fleet_env_skip_ui_build
   ensure_external_volumes
   ensure_paths
   ensure_vendor_lcdl
