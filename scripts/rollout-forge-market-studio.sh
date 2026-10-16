@@ -966,9 +966,31 @@ _apply_job_drain_guards() {
   _lifecycle_wait_studio
 }
 
+_build_studio_ui_static() {
+  local ui="${FORGE_MARKET_ROOT}/studio-ui"
+  local static_index="${FORGE_MARKET_ROOT}/studio-server/static/studio/index.html"
+  [[ -f "${ui}/package.json" ]] || return 0
+  if [[ "${FORGE_MARKET_SKIP_UI_BUILD:-0}" == "1" ]]; then
+    log "skip studio-ui build (FORGE_MARKET_SKIP_UI_BUILD=1)"
+    return 0
+  fi
+  log "building studio-ui → studio-server/static/studio/"
+  (
+    cd "$ui"
+    if [[ -f package-lock.json ]]; then
+      npm ci --no-audit --no-fund --prefer-offline
+    else
+      npm install --no-audit --no-fund
+    fi
+    npm run build
+  )
+  [[ -f "$static_index" ]] || die "studio-ui build did not produce ${static_index}"
+}
+
 source_deploy() {
   local container="${FORGE_MARKET_APP_CONTAINER:-forge-market-app}"
   [[ -f "${FORGE_MARKET_ROOT}/studio-server/studio_server.py" ]] || die "forge-market root missing for source deploy"
+  _build_studio_ui_static
   cd "$MARKET_STUDIO_ROOT"
   _persist_release_labels
   local -a files
