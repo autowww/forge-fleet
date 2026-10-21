@@ -83,6 +83,8 @@ Expect `"ok": true` and Fleet health JSON in the response.
 
 Switch scope in admin (**Fleet scope** dropdown) to read snapshot, telemetry, and jobs **read-only**.
 
+**Remote edge cache (Granite):** with a remote peer selected, open **Settings…** → **Edge** — cache policy `PUT` and **Sync to Cloudflare** proxy to the peer (`/v1/remote-peers/<id>/operator/ui-settings` and `…/admin/edge-cache/sync`). Or run `bash scripts/enable-granite-edge-cache-playwright.sh` from this repo (loads certificator + `forge-matrix` Cloudflare env, drives local `/admin/` via Playwright). Granite Fleet must be **0.3.143+** so edge-cache saves return without blocking on Cloudflare (async sync).
+
 ## Step 3b — Mesh capacity (planning)
 
 **Settings…** → **Capacity** (or `GET /v1/mesh/capacity` with bearer) lists local and peer CPU/RAM/GPU headroom. Values are **estimates** for planning; job reservations are not enforced yet.

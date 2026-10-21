@@ -4487,6 +4487,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       chartHostIdentity = null;
       __fleetTypesLoaded = false;
       applyFleetScopeChrome();
+      fleetSettingsToggleEdgeFields();
       loadSnapshot().then(function () {
         scheduleNext();
       });
@@ -6345,12 +6346,29 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       fleetSettingsToggleEdgeFields();
     }
 
+    function fleetOperatorUiSettingsPath() {
+      var scope = getFleetScope();
+      if (scope.mode === "remote") {
+        return "/v1/remote-peers/" + encodeURIComponent(scope.peerId) + "/operator/ui-settings";
+      }
+      return "/v1/operator/ui-settings";
+    }
+
+    function fleetEdgeCacheSyncPath() {
+      var scope = getFleetScope();
+      if (scope.mode === "remote") {
+        return "/v1/remote-peers/" + encodeURIComponent(scope.peerId) + "/admin/edge-cache/sync";
+      }
+      return "/v1/admin/edge-cache/sync";
+    }
+
     function fleetSettingsToggleEdgeFields() {
       var server = document.getElementById("fleet-settings-role-server");
       var wrap = document.getElementById("fleet-settings-edge-fields");
       var edgeTab = document.getElementById("fleet-settings-tab-edge-wrap");
-      if (wrap && server) wrap.classList.toggle("d-none", !server.checked);
-      if (edgeTab && server) edgeTab.classList.toggle("d-none", !server.checked);
+      var showEdge = isFleetScopeRemote() || (server && server.checked);
+      if (wrap) wrap.classList.toggle("d-none", !showEdge);
+      if (edgeTab) edgeTab.classList.toggle("d-none", !showEdge);
     }
 
     function fleetEdgeCacheCollect() {
@@ -6409,10 +6427,15 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
 
     function fleetEdgeCacheSave() {
       var out = document.getElementById("fleet-edge-cache-sync-out");
-      var payload = fleetSettingsCollectPayload();
-      payload.edge = payload.edge || {};
-      payload.edge.cache = fleetEdgeCacheCollect();
-      return fleetApi("/v1/operator/ui-settings", {
+      var payload;
+      if (isFleetScopeRemote()) {
+        payload = { edge: { cache: fleetEdgeCacheCollect() } };
+      } else {
+        payload = fleetSettingsCollectPayload();
+        payload.edge = payload.edge || {};
+        payload.edge.cache = fleetEdgeCacheCollect();
+      }
+      return fleetApi(fleetOperatorUiSettingsPath(), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -6432,7 +6455,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
 
     function fleetEdgeCacheSyncOnly() {
       var out = document.getElementById("fleet-edge-cache-sync-out");
-      return fleetApi("/v1/admin/edge-cache/sync", { method: "POST" })
+      return fleetApi(fleetEdgeCacheSyncPath(), { method: "POST" })
         .then(function (res) { return res.json().then(function (j) { return { res: res, j: j }; }); })
         .then(function (pack) {
           if (out) out.textContent = JSON.stringify(pack.j.sync || pack.j, null, 2);
@@ -6659,7 +6682,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
     }
 
     function fleetSettingsLoad() {
-      return fleetApi("/v1/operator/ui-settings")
+      return fleetApi(fleetOperatorUiSettingsPath())
         .then(function (res) { return res.json(); })
         .then(function (j) {
           if (j && j.settings) fleetSettingsApplyToForm(j.settings);

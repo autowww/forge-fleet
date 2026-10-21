@@ -483,35 +483,21 @@ def _ruleset_body(hostname: str, *, enabled: bool) -> dict[str, Any]:
                 }
             ]
         }
-    no_auth = (
-        f"({get_expr} and not http.request.headers[\"authorization\"][0])"
-    )
-    with_auth = (
-        f"({get_expr} and http.request.headers[\"authorization\"][0])"
+    # App-gateway only. Caddy replaces Authorization before Fleet, and this zone
+    # cannot set a custom cache key, so do not cache /v1/admin or other client-bearer routes.
+    gateway_expr = (
+        f"({get_expr} and starts_with(http.request.uri.path, \"/v1/app-gateways/\"))"
     )
     return {
         "rules": [
             {
                 "action": "set_cache_settings",
-                "description": _RULE_BYPASS_ID,
-                "expression": no_auth,
-                "enabled": True,
-                "action_parameters": {"cache": False},
-            },
-            {
-                "action": "set_cache_settings",
                 "description": _RULE_ELIGIBLE_ID,
-                "expression": with_auth,
+                "expression": gateway_expr,
                 "enabled": True,
                 "action_parameters": {
                     "cache": True,
                     "edge_ttl": {"mode": "respect_origin"},
-                    "cache_key": {
-                        "custom_key": {
-                            "query_string": {"include": {"all": True}},
-                            "header": {"include": ["authorization"]},
-                        }
-                    },
                 },
             },
         ]

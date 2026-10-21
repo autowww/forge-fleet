@@ -13,6 +13,7 @@ from typing import Any
 
 _PEER_ID_RE = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 _PROXY_TIMEOUT_S = 30.0
+_PROXY_SLOW_TIMEOUT_S = 120.0
 
 
 def peers_file(data_dir: Path) -> Path:
@@ -132,30 +133,38 @@ def _request_peer(
     path: str,
     *,
     query: str = "",
+    method: str = "GET",
+    body: bytes | None = None,
+    timeout_s: float | None = None,
 ) -> tuple[int, bytes, str]:
     base = _normalize_base(str(peer.get("base_url") or ""))
     token = str(peer.get("bearer_token") or "").strip()
     url = f"{base}{path}"
     if query:
         url = f"{url}?{query.lstrip('?')}"
+    headers = {
+        "Accept": "application/json",
+        "Authorization": f"Bearer {token}",
+    }
+    if body is not None:
+        headers["Content-Type"] = "application/json"
     req = urllib.request.Request(
         url,
-        headers={
-            "Accept": "application/json",
-            "Authorization": f"Bearer {token}",
-        },
-        method="GET",
+        data=body,
+        headers=headers,
+        method=method.upper(),
     )
     ctx = ssl.create_default_context()
+    timeout = timeout_s if timeout_s is not None else _PROXY_TIMEOUT_S
     try:
-        with urllib.request.urlopen(req, timeout=_PROXY_TIMEOUT_S, context=ctx) as resp:
-            body = resp.read()
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+            raw = resp.read()
             ctype = str(resp.headers.get("Content-Type") or "application/json")
-            return int(resp.status), body, ctype
+            return int(resp.status), raw, ctype
     except urllib.error.HTTPError as exc:
-        body = exc.read() if exc.fp else b""
+        raw = exc.read() if exc.fp else b""
         ctype = str(exc.headers.get("Content-Type") or "application/json") if exc.headers else "application/json"
-        return int(exc.code), body, ctype
+        return int(exc.code), raw, ctype
     except (urllib.error.URLError, OSError, TimeoutError) as exc:
         err = json.dumps({"ok": False, "error": "upstream_unreachable", "detail": str(exc)[:500]}).encode("utf-8")
         return 502, err, "application/json"
@@ -191,3 +200,27 @@ def proxy_get(
         body = json.dumps({"ok": False, "error": "not_found"}).encode("utf-8")
         return 404, body, "application/json"
     return _request_peer(peer, upstream_path, query=query)
+
+
+def proxy_json(
+    data_dir: Path,
+    peer_id: str,
+    upstream_path: str,
+    *,
+    method: str,
+    body: bytes | None = None,
+    query: str = "",
+    timeout_s: float | None = None,
+) -> tuple[int, bytes, str]:
+    peer = get_peer(data_dir, peer_id)
+    if peer is None:
+        raw = json.dumps({"ok": False, "error": "not_found"}).encode("utf-8")
+        return 404, raw, "application/json"
+    return _request_peer(
+        peer,
+        upstream_path,
+        query=query,
+        method=method,
+        body=body,
+        timeout_s=timeout_s,
+    )

@@ -34,6 +34,16 @@ def test_health_hard_bypass(tmp_path: Path) -> None:
     assert edge_cache.resolve_ttl(method="GET", path="/v1/health", status=200, data_dir=tmp_path) == 0
 
 
+def test_ruleset_targets_app_gateways_only() -> None:
+    body = edge_cache._ruleset_body("granite.forgedc.net", enabled=True)
+    rules = body["rules"]
+    assert len(rules) == 1
+    expr = rules[0]["expression"]
+    assert "starts_with(http.request.uri.path, \"/v1/app-gateways/\")" in expr
+    assert "custom_key" not in json.dumps(rules[0])
+    assert rules[0]["action_parameters"]["edge_ttl"]["mode"] == "respect_origin"
+
+
 def test_clamp_ttl(tmp_path: Path) -> None:
     operator_ui_settings.put_settings(tmp_path, {"edge": {"cache": {"enabled": True, "max_ttl_s": 15}}})
     policy = edge_cache.cache_policy(tmp_path)

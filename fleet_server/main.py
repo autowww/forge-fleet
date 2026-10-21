@@ -625,6 +625,12 @@ class FleetHandler(BaseHTTPRequestHandler):
             code, body, ctype = remote_peers.proxy_get(data_dir, peer_id, "/v1/capacity")
             self._send_proxy_body(code, body, ctype)
             return True
+        m_ui = re.match(r"^/v1/remote-peers/([^/]+)/operator/ui-settings$", path)
+        if m_ui:
+            peer_id = m_ui.group(1)
+            code, body, ctype = remote_peers.proxy_get(data_dir, peer_id, "/v1/operator/ui-settings")
+            self._send_proxy_body(code, body, ctype)
+            return True
         return False
 
     def _send(self, code: int, body: dict[str, Any]) -> None:
@@ -1629,6 +1635,20 @@ class FleetHandler(BaseHTTPRequestHandler):
             code = 200 if sync.get("ok") else (409 if sync.get("error") == "not_orchestrator" else 502)
             self._send(code, {"ok": bool(sync.get("ok")), "sync": sync})
             return
+        m_remote_edge_sync = re.match(r"^/v1/remote-peers/([^/]+)/admin/edge-cache/sync$", path)
+        if m_remote_edge_sync:
+            data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            peer_id = m_remote_edge_sync.group(1)
+            code, raw, ctype = remote_peers.proxy_json(
+                data_dir_p,
+                peer_id,
+                "/v1/admin/edge-cache/sync",
+                method="POST",
+                body=b"{}",
+                timeout_s=remote_peers._PROXY_SLOW_TIMEOUT_S,
+            )
+            self._send_proxy_body(code, raw, ctype)
+            return
         if path == "/v1/host/profile/benchmark":
             from fleet_server import host_profile
 
@@ -2449,6 +2469,22 @@ class FleetHandler(BaseHTTPRequestHandler):
             body = self._read_json()
             data_dir = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
             self._send(200, operator_ui_settings.put_settings(data_dir, body))
+            return
+        m_remote_ui = re.match(r"^/v1/remote-peers/([^/]+)/operator/ui-settings$", path)
+        if m_remote_ui:
+            data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            peer_id = m_remote_ui.group(1)
+            length = int(self.headers.get("Content-Length") or 0)
+            raw_put = self.rfile.read(length) if 0 < length <= 2_097_152 else b"{}"
+            code, raw, ctype = remote_peers.proxy_json(
+                data_dir_p,
+                peer_id,
+                "/v1/operator/ui-settings",
+                method="PUT",
+                body=raw_put,
+                timeout_s=remote_peers._PROXY_SLOW_TIMEOUT_S,
+            )
+            self._send_proxy_body(code, raw, ctype)
             return
         m_peer_put = re.match(r"^/v1/remote-peers/([^/]+)$", path)
         if m_peer_put:
