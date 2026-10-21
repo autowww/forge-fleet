@@ -63,6 +63,8 @@ Operator HTTP surface (local studio-server only):
 
    **Large harvest backlog:** set catch-up env in the stack `.env` before rollout (`FORGE_MARKET_ASYNC_ROLLUP=1`, `FORGE_MARKET_HARVEST_DERIVE_ON_UPLOAD=0`, `FORGE_MARKET_STUDIO_PRIORITY_WORKERS=8`), or pass `"forge_market_harvest_catch_up": "1"` on this POST (Fleet persists compose `.env` during rollout). See `forge-market/docs/operate/ibgw-harvest-speed.md` (Catch-up drain profile). Restore derive-on-upload after the queue drains.
 
+   **SEC filing intelligence flags (FM-SEC-FIC-001):** `FORGE_MARKET_SEC_FIC_UI` / `FORGE_MARKET_SEC_FIC_ANALYZE` default `0` in the stack compose. Flip them either by adding the lines to `~/.config/forge-fleet/forge-market-granite.env` (sourced on non-dev rollouts and persisted to compose `.env`) or by passing `"forge_market_sec_fic_ui": "1"` / `"forge_market_sec_fic_analyze": "1"` on this POST. A `forge_market_skip_build: true` rollout is enough to recreate the container with the new env (Fleet ≥ 0.3.145).
+
    Verify: `curl -fsS http://127.0.0.1:19792/health` should show matching `schema_version` and `schema_head`.
 
    **Two-tier deploy (source vs image rebuild):** the rollout script compares the running `market-app` image label `forge.market.reqs_hash` to the md5 of `studio-server/requirements.txt`. When unchanged, it uses a **source-only** path (`docker cp` + `docker restart`, ~20–30s). When `requirements.txt` changed, it runs a full `docker compose build`.

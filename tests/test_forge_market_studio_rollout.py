@@ -139,6 +139,20 @@ def test_rollout_env_applies_harvest_catch_up_profile(monkeypatch) -> None:
     assert env["FORGE_MARKET_STUDIO_PRIORITY_WORKERS"] == "8"
 
 
+def test_rollout_passes_sec_fic_flags_end_to_end() -> None:
+    """FM-SEC-FIC-001: request body -> rollout env -> compose .env persist -> container environment."""
+    env = fmsr._rollout_env({"forge_market_sec_fic_ui": "1", "forge_market_sec_fic_analyze": "1"})
+    assert env["FORGE_MARKET_SEC_FIC_UI"] == "1"
+    assert env["FORGE_MARKET_SEC_FIC_ANALYZE"] == "1"
+    assert "FORGE_MARKET_SEC_FIC_UI" in fmsr._ROLLOUT_ENV_KEYS
+    root = Path(__file__).resolve().parents[1]
+    script = (root / "scripts" / "rollout-forge-market-studio.sh").read_text(encoding="utf-8")
+    compose = (root / "deploy" / "forge-market-studio" / "compose.yaml").read_text(encoding="utf-8")
+    for key in ("FORGE_MARKET_SEC_FIC_UI", "FORGE_MARKET_SEC_FIC_ANALYZE"):
+        assert f"{key} \\" in script or f"{key}; do" in script, f"{key} missing from compose .env persist loop"
+        assert f"{key}: ${{{key}:-0}}" in compose, f"{key} missing from compose environment"
+
+
 def test_rollout_script_includes_schema_migrate() -> None:
     script = Path(__file__).resolve().parents[1] / "scripts" / "rollout-forge-market-studio.sh"
     text = script.read_text(encoding="utf-8")

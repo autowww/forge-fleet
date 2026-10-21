@@ -82,6 +82,9 @@ services:
       FORGE_MARKET_COMPUTE_MAX_PARALLEL_BATCHES: ${FORGE_MARKET_COMPUTE_MAX_PARALLEL_BATCHES:-4}
       FORGE_MARKET_DB_POOL_MAX: ${FORGE_MARKET_DB_POOL_MAX:-}
       FORGE_MARKET_STUDIO_HTTP_PROCESSES: ${FORGE_MARKET_STUDIO_HTTP_PROCESSES:-}
+      # FM-SEC-FIC-001 — SEC filing intelligence feature flags (default off; set via forge-market-granite.env or rollout request)
+      FORGE_MARKET_SEC_FIC_UI: ${FORGE_MARKET_SEC_FIC_UI:-0}
+      FORGE_MARKET_SEC_FIC_ANALYZE: ${FORGE_MARKET_SEC_FIC_ANALYZE:-0}
     volumes:
       - appdata:/app/data
     healthcheck:

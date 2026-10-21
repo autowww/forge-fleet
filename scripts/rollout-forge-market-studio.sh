@@ -390,7 +390,9 @@ EOF
     FORGE_MARKET_COMPUTE_MAX_PARALLEL_BATCHES \
     FORGE_MARKET_DB_POOL_MAX \
     FORGE_MARKET_PG_TUNING_CONF \
-    FORGE_MARKET_STUDIO_HTTP_PROCESSES; do
+    FORGE_MARKET_STUDIO_HTTP_PROCESSES \
+    FORGE_MARKET_SEC_FIC_UI \
+    FORGE_MARKET_SEC_FIC_ANALYZE; do
     if [[ -n "${!_harvest_tune_key:-}" ]]; then
       _persist_compose_env_key "$_harvest_tune_key" "${!_harvest_tune_key}"
     fi

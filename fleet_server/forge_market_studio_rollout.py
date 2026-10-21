@@ -70,6 +70,8 @@ _ROLLOUT_ENV_KEYS = (
     "FORGE_MARKET_ASYNC_ROLLUP",
     "FORGE_MARKET_HARVEST_DERIVE_ON_UPLOAD",
     "FORGE_MARKET_STUDIO_PRIORITY_WORKERS",
+    "FORGE_MARKET_SEC_FIC_UI",
+    "FORGE_MARKET_SEC_FIC_ANALYZE",
 )
 
 
@@ -144,6 +146,9 @@ def _apply_rollout_overrides(env: dict[str, str], overrides: dict[str, Any]) -> 
         "forge_market_async_rollup": "FORGE_MARKET_ASYNC_ROLLUP",
         "forge_market_harvest_derive_on_upload": "FORGE_MARKET_HARVEST_DERIVE_ON_UPLOAD",
         "forge_market_studio_priority_workers": "FORGE_MARKET_STUDIO_PRIORITY_WORKERS",
+        # FM-SEC-FIC-001 feature flags — rollout request can flip them without host edits.
+        "forge_market_sec_fic_ui": "FORGE_MARKET_SEC_FIC_UI",
+        "forge_market_sec_fic_analyze": "FORGE_MARKET_SEC_FIC_ANALYZE",
     }
     catch_up = overrides.get("forge_market_harvest_catch_up") or overrides.get("FORGE_MARKET_HARVEST_CATCH_UP")
     if catch_up is not None and str(catch_up).strip().lower() in ("1", "true", "yes", "on"):
