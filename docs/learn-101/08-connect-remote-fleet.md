@@ -116,6 +116,7 @@ Fleet does **not** create Cloudflare tunnels via API today; tunnel tokens come f
 
 | Topic | Doc |
 |-------|-----|
+| Full node topology (laptop + Granite + gateways) | **[Distributed nodes](../operate/distributed-nodes.md)** |
 | Admin tour + Connect wizard | **[07-admin-dashboard-and-studio.md](07-admin-dashboard-and-studio.md)** |
 | Apt install | **[09-operator-apt-install.md](09-operator-apt-install.md)** |
 | Caddy + Cloudflare routing | **[04-caddy-unified-granite.md](../build-201/04-caddy-unified-granite.md)** |

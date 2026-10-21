@@ -218,9 +218,15 @@ def compute_5m_bucket(conn: sqlite3.Connection, bucket_start: float) -> dict[str
         "bucket_start": t0,
         "sample_count": count,
         "cpu_avg": _avg(cpus),
+        "cpu_min": min(cpus) if cpus else None,
+        "cpu_max": max(cpus) if cpus else None,
         "mem_avg": _avg(mems),
+        "mem_min": min(mems) if mems else None,
+        "mem_max": max(mems) if mems else None,
         "temp_c_avg": _avg(temps),
         "load_pct_avg": _avg(loads),
+        "load_pct_min": min(loads) if loads else None,
+        "load_pct_max": max(loads) if loads else None,
         "disk_ui_avg": _avg(disks),
         "computed_at": now,
     }
@@ -230,14 +236,21 @@ def upsert_5m_bucket(conn: sqlite3.Connection, bucket: dict[str, Any]) -> None:
     conn.execute(
         """
         INSERT INTO telemetry_buckets_5m
-            (bucket_start, sample_count, cpu_avg, mem_avg, temp_c_avg, load_pct_avg, disk_ui_avg, computed_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (bucket_start, sample_count, cpu_avg, cpu_min, cpu_max, mem_avg, mem_min, mem_max,
+             temp_c_avg, load_pct_avg, load_pct_min, load_pct_max, disk_ui_avg, computed_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(bucket_start) DO UPDATE SET
             sample_count = excluded.sample_count,
             cpu_avg = excluded.cpu_avg,
+            cpu_min = excluded.cpu_min,
+            cpu_max = excluded.cpu_max,
             mem_avg = excluded.mem_avg,
+            mem_min = excluded.mem_min,
+            mem_max = excluded.mem_max,
             temp_c_avg = excluded.temp_c_avg,
             load_pct_avg = excluded.load_pct_avg,
+            load_pct_min = excluded.load_pct_min,
+            load_pct_max = excluded.load_pct_max,
             disk_ui_avg = excluded.disk_ui_avg,
             computed_at = excluded.computed_at
         """,
@@ -245,9 +258,15 @@ def upsert_5m_bucket(conn: sqlite3.Connection, bucket: dict[str, Any]) -> None:
             float(bucket["bucket_start"]),
             int(bucket["sample_count"]),
             bucket.get("cpu_avg"),
+            bucket.get("cpu_min"),
+            bucket.get("cpu_max"),
             bucket.get("mem_avg"),
+            bucket.get("mem_min"),
+            bucket.get("mem_max"),
             bucket.get("temp_c_avg"),
             bucket.get("load_pct_avg"),
+            bucket.get("load_pct_min"),
+            bucket.get("load_pct_max"),
             bucket.get("disk_ui_avg"),
             float(bucket["computed_at"]),
         ),
@@ -631,6 +650,42 @@ def chart_buckets_for_period(
 
 def gaps_remain(conn: sqlite3.Connection, *, now: float | None = None) -> bool:
     return _rollup_gaps_remain(conn, now=now)
+
+
+def load_profile_history(conn: sqlite3.Connection, since: float) -> dict[str, Any]:
+    """5m rollup buckets since ``since`` for host profile API."""
+    try:
+        rows = conn.execute(
+            """
+            SELECT bucket_start, sample_count, cpu_avg, cpu_min, cpu_max, mem_avg, mem_min, mem_max,
+                   load_pct_avg, load_pct_min, load_pct_max, disk_ui_avg
+            FROM telemetry_buckets_5m
+            WHERE bucket_start >= ?
+            ORDER BY bucket_start ASC
+            """,
+            (float(since),),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        rows = []
+    buckets: list[dict[str, Any]] = []
+    for r in rows:
+        buckets.append(
+            {
+                "bucket_start": float(r["bucket_start"]),
+                "sample_count": int(r["sample_count"] or 0),
+                "cpu_avg": r["cpu_avg"],
+                "cpu_min": r["cpu_min"],
+                "cpu_max": r["cpu_max"],
+                "mem_avg": r["mem_avg"],
+                "mem_min": r["mem_min"],
+                "mem_max": r["mem_max"],
+                "load_pct_avg": r["load_pct_avg"],
+                "load_pct_min": r["load_pct_min"],
+                "load_pct_max": r["load_pct_max"],
+                "disk_ui_avg": r["disk_ui_avg"],
+            }
+        )
+    return {"since": float(since), "buckets": buckets}
 
 
 def rollup_state_public(conn: sqlite3.Connection) -> dict[str, Any]:

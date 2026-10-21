@@ -13,7 +13,7 @@
 
 - **You will:** bring up Fleet locally or on a host, verify **`/v1/*`**, finish one **`docker_argv`** lab, and skim **`/admin/`**.
 - **Time:** plan **~1–2 hours** if Docker and systemd are unfamiliar.
-- **Out of scope:** multi-tenant schedulers and cross-host orchestration — Fleet stays single-host on purpose.
+- **Out of scope:** multi-tenant schedulers and automatic cross-host **job** placement (mesh placement is roadmap). Each Fleet host still runs its own jobs; laptops **do** federate admin to remote peers and reach Granite data through app gateways — see **[Distributed nodes](../operate/distributed-nodes.md)**.
 
 Follow in order unless you already know Docker + Fleet:
 

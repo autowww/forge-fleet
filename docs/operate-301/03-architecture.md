@@ -2,6 +2,8 @@
 
 Forge Fleet is a **Python** **BaseHTTPRequestHandler** server (`fleet_server/main.py`) fronting a **SQLite** job store, a **Docker/Podman-invoking** runner, optional **workspace extraction**, **requirement-template** image builds, and **managed compose** services. This page is a maintainers’ map, not a protocol spec (use [HTTP API reference](../reference/01-http-api-reference.md) and [schemas/openapi.json](../schemas/openapi.json) for contracts).
 
+**Per-host execution:** job rows and Docker runs are always local to the Fleet process that accepted `POST /v1/jobs`. **Federation** (remote peers, app gateways, environment provisioning) is documented for operators in **[Distributed nodes](../operate/distributed-nodes.md)** — not a distributed SQLite job cluster.
+
 ## Request dispatch
 
 1. Parse **`path`** from **`urlparse(self.path).path`**.

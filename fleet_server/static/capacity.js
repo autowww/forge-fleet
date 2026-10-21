@@ -234,6 +234,71 @@
     }
   }
 
+  function renderMesh(profile, links) {
+    var root = document.getElementById("fleet-capacity-mesh-body");
+    if (!root) return;
+    var bench = profile && profile.benchmark ? profile.benchmark : {};
+    var mark = bench.fleet_mark != null ? bench.fleet_mark : "—";
+    var html =
+      "<p class=\"mb-1\">Fleet mark: <strong>" +
+      esc(mark) +
+      "</strong>" +
+      (profile && profile.measured_at
+        ? " (measured " + esc(new Date(profile.measured_at * 1000).toISOString()) + ")"
+        : "") +
+      "</p>";
+    var edges = links && links.edges ? links.edges : [];
+    if (!edges.length) {
+      html += "<p class=\"mb-0\">No peer link samples yet.</p>";
+    } else {
+      html += "<ul class=\"mb-0\">";
+      edges.forEach(function (e) {
+        var st = e.stats_1h || {};
+        var mbps = st.throughput_mbps_avg != null ? st.throughput_mbps_avg : "—";
+        var rtt = st.rtt_ms_avg != null ? st.rtt_ms_avg : "—";
+        html +=
+          "<li><span class=\"fleet-mono\">" +
+          esc(e.peer_id) +
+          "</span>: ~" +
+          esc(mbps) +
+          " Mb/s, RTT " +
+          esc(rtt) +
+          " ms (1h avg)</li>";
+      });
+      html += "</ul>";
+    }
+    root.innerHTML = html;
+  }
+
+  function renderSecurity(blocks, events) {
+    var root = document.getElementById("fleet-capacity-security-body");
+    if (!root) return;
+    var siege = blocks && blocks.siege_active;
+    var rows = blocks && blocks.blocks ? blocks.blocks : [];
+    var evs = events && events.events ? events.events : [];
+    var html = "<p class=\"mb-1\">Siege mode: <strong>" + (siege ? "active" : "off") + "</strong></p>";
+    html += "<p class=\"mb-1\">Active blocks: " + rows.length + "</p>";
+    if (evs.length) {
+      html += "<ul class=\"mb-0\">";
+      evs.slice(0, 8).forEach(function (ev) {
+        html +=
+          "<li>" +
+          esc(ev.severity) +
+          " " +
+          esc(ev.rule) +
+          " " +
+          esc(ev.source) +
+          " " +
+          esc(ev.path) +
+          "</li>";
+      });
+      html += "</ul>";
+    } else {
+      html += "<p class=\"mb-0\">No recent security events.</p>";
+    }
+    root.innerHTML = html;
+  }
+
   function refreshCapacity() {
     var diskBody = document.getElementById("fleet-capacity-disk-body");
     if (!diskBody) return;
@@ -250,10 +315,24 @@
       fleetApi("/v1/admin/capacity/policy").then(function (r) {
         return r.json();
       }),
+      fleetApi("/v1/host/profile").then(function (r) {
+        return r.json();
+      }),
+      fleetApi("/v1/mesh/links").then(function (r) {
+        return r.json();
+      }),
+      fleetApi("/v1/admin/security/blocks").then(function (r) {
+        return r.json();
+      }),
+      fleetApi("/v1/admin/security/events?period_sec=3600").then(function (r) {
+        return r.json();
+      }),
     ])
       .then(function (parts) {
         renderDisk(parts[0]);
         renderMemory(parts[1], parts[2]);
+        renderMesh(parts[3], parts[4]);
+        renderSecurity(parts[5], parts[6]);
       })
       .catch(function (e) {
         setMsg("fleet-capacity-msg", String(e), true);
@@ -362,6 +441,33 @@
     }
     var ref = document.getElementById("fleet-capacity-refresh-btn");
     if (ref) ref.addEventListener("click", refreshCapacity);
+    var benchBtn = document.getElementById("fleet-cap-bench-btn");
+    if (benchBtn) {
+      benchBtn.addEventListener("click", function () {
+        if (isRemoteScope()) {
+          setMsg("fleet-capacity-msg", "Read-only remote scope.", true);
+          return;
+        }
+        fleetApi("/v1/host/profile/benchmark", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        })
+          .then(function (r) {
+            return r.json().then(function (j) {
+              if (!r.ok) throw new Error(j.error || r.statusText);
+              return j;
+            });
+          })
+          .then(function () {
+            setMsg("fleet-capacity-msg", "Benchmark complete.");
+            refreshCapacity();
+          })
+          .catch(function (e) {
+            setMsg("fleet-capacity-msg", String(e), true);
+          });
+      });
+    }
     var diskDry = document.getElementById("fleet-cap-disk-dry-btn");
     if (diskDry) diskDry.addEventListener("click", function () {
       runSpace(true);

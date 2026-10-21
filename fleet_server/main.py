@@ -476,6 +476,9 @@ class FleetHandler(BaseHTTPRequestHandler):
         return True
 
     def _auth_ok(self) -> bool:
+        ga = getattr(self, "_guard_auth", None)
+        if ga is not None and ga.ok:
+            return True
         if getattr(self.server, "loopback_bind_skips_auth", False):
             return True
         exp = getattr(self.server, "expected_token", "") or ""
@@ -485,6 +488,48 @@ class FleetHandler(BaseHTTPRequestHandler):
         m = re.match(r"Bearer\s+(.+)", auth, re.I)
         got = (m.group(1) if m else "").strip()
         return got == exp.strip()
+
+    def _peer_addr(self) -> str:
+        if self.client_address:
+            return f"{self.client_address[0]}:{self.client_address[1]}"
+        return "127.0.0.1:0"
+
+    def _v1_anonymous_allowed(self, path: str, method: str) -> bool:
+        if path == "/v1/health" and method == "GET":
+            return True
+        return False
+
+    def _v1_skip_guard(self, path: str) -> bool:
+        if re.match(r"^/v1/jobs/[^/]+/workspace-worker-(progress|complete)$", path):
+            return True
+        return False
+
+    def _apply_request_guard(self, method: str, path: str, body: bytes = b"") -> bool:
+        from fleet_server import request_guard
+
+        self._guard_auth = None
+        self._health_mode = None
+        dec = request_guard.evaluate(
+            db_path=self.server.db_path,
+            data_dir=Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve(),
+            method=method,
+            path=path,
+            headers=self.headers,
+            peer=self._peer_addr(),
+            body=body,
+            expected_token=str(getattr(self.server, "expected_token", "") or ""),
+            loopback_skips_auth=bool(getattr(self.server, "loopback_bind_skips_auth", False)),
+            listen_host=str(getattr(self.server, "listen_host", "127.0.0.1")),
+        )
+        if dec.delay_s > 0:
+            time.sleep(dec.delay_s)
+        if not dec.allow:
+            self._send(dec.http_code, dec.body or {"ok": False, "error": "denied"})
+            return False
+        self._guard_auth = dec.auth
+        if dec.body and dec.body.get("health_mode"):
+            self._health_mode = str(dec.body["health_mode"])
+        return True
 
     def _send_proxy_body(self, code: int, body: bytes, content_type: str) -> None:
         self._send_raw(code, body, content_type or "application/json")
@@ -736,13 +781,17 @@ class FleetHandler(BaseHTTPRequestHandler):
                 return
             self._send(200, {"ok": True, "argv": argv_b, "cwd": str(bundle.get("cwd") or "")})
             return
-        if path == "/v1/operator/ui-settings":
-            data_dir = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
-            self._send(200, operator_ui_settings.get_settings(data_dir))
-            return
-        if not self._auth_ok():
-            self._send_unauthorized()
-            return
+        if path.startswith("/v1/"):
+            if not self._apply_request_guard("GET", path, b""):
+                return
+        if path.startswith("/v1/") and not self._v1_anonymous_allowed(path, "GET"):
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+        elif not path.startswith("/v1/"):
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
         if self._handle_app_gateway("GET"):
             return
         if path == "/v1/version":
@@ -794,6 +843,12 @@ class FleetHandler(BaseHTTPRequestHandler):
             self._send(200, install_channel.install_channel_payload(data_dir_l))
             return
         if path == "/v1/health":
+            health_mode = getattr(self, "_health_mode", None) or "minimal"
+            ext = lifecycle.health_extensions()
+            if health_mode == "minimal":
+                ready = ext.get("ready", True)
+                self._send(200 if ready else 503, {"ok": True, "service": "forge-fleet", "ready": ready})
+                return
             token_set = bool(str(getattr(self.server, "expected_token", "") or "").strip())
             skip = bool(getattr(self.server, "loopback_bind_skips_auth", False))
             snap = host_stats.snapshot()
@@ -835,7 +890,7 @@ class FleetHandler(BaseHTTPRequestHandler):
                     "energy_ledger_kwh": el or None,
                 },
             }
-            health_body.update(lifecycle.health_extensions())
+            health_body.update(ext)
             code = 200 if health_body.get("ready", True) else 503
             self._send(code, health_body)
             return
@@ -856,6 +911,73 @@ class FleetHandler(BaseHTTPRequestHandler):
         if path == "/v1/mesh/capacity":
             data_dir_c = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
             self._send(200, capacity.mesh_capacity(data_dir_c))
+            return
+        if path == "/v1/operator/ui-settings":
+            data_dir = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            self._send(200, operator_ui_settings.get_settings(data_dir))
+            return
+        if path == "/v1/host/profile":
+            from fleet_server import host_profile
+
+            data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            q = parse_qs(urlparse(self.path).query)
+            period = (q.get("period") or ["24h"])[0].strip() or "24h"
+            self._send(200, host_profile.profile_payload(data_dir_p, Path(self.server.db_path), period=period))
+            return
+        if path == "/v1/host/link-probe":
+            from fleet_server import host_profile
+
+            data = host_profile.link_probe_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+            return
+        if path == "/v1/mesh/links":
+            from fleet_server import peer_links
+
+            data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            self._send(200, peer_links.mesh_links_payload(Path(self.server.db_path), data_dir_p))
+            return
+        m_vis = re.match(r"^/v1/services/([^/]+)/vision$", path)
+        if m_vis:
+            from fleet_server import service_vision
+
+            data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            out = service_vision.vision_payload(data_dir_p, Path(self.server.db_path), m_vis.group(1))
+            self._send(200 if out.get("ok") else 404, out)
+            return
+        if path == "/v1/admin/security/events":
+            from fleet_server import request_guard
+
+            q = parse_qs(urlparse(self.path).query)
+            try:
+                period = float((q.get("period_sec") or ["3600"])[0])
+            except (TypeError, ValueError):
+                period = 3600.0
+            self._send(200, request_guard.events_payload(self.server.db_path, period))
+            return
+        if path == "/v1/admin/security/blocks":
+            from fleet_server import request_guard
+
+            self._send(200, request_guard.blocks_payload(self.server.db_path))
+            return
+        if path == "/v1/admin/security/agent":
+            from fleet_server import security_agent
+
+            self._send(200, security_agent.status_payload(self.server.db_path))
+            return
+        if path == "/v1/auth/sessions":
+            from fleet_server import fleet_sessions
+
+            conn = store.connect(self.server.db_path)
+            try:
+                rows = fleet_sessions.list_sessions(conn)
+            finally:
+                conn.close()
+            self._send(200, {"ok": True, "sessions": rows})
             return
         if self._handle_remote_peers_get(path):
             return
@@ -1385,7 +1507,25 @@ class FleetHandler(BaseHTTPRequestHandler):
                 return
             self._send(200, {"ok": True, **rec})
             return
-        body = self._read_json()
+        body: dict[str, Any] = {}
+        if self._v1_skip_guard(path):
+            body = self._read_json()
+        elif path.startswith("/v1/"):
+            length = int(self.headers.get("Content-Length") or 0)
+            if length > 2_097_152:
+                self._send(413, {"ok": False, "error": "body_too_large"})
+                return
+            raw_post = self.rfile.read(length) if length > 0 else b""
+            if not self._apply_request_guard("POST", path, raw_post):
+                return
+            if raw_post.strip():
+                try:
+                    body = json.loads(raw_post.decode("utf-8"))
+                except json.JSONDecodeError:
+                    self._send(400, {"ok": False, "error": "invalid_json"})
+                    return
+        else:
+            body = self._read_json()
         m_br = re.match(r"^/v1/jobs/([^/]+)/workspace-worker-(progress|complete)$", path)
         if m_br:
             jid = m_br.group(1)
@@ -1415,8 +1555,76 @@ class FleetHandler(BaseHTTPRequestHandler):
                 conn.close()
             self._send(200, {"ok": True})
             return
-        if not self._auth_ok():
-            self._send_unauthorized()
+        if path.startswith("/v1/") and not self._v1_skip_guard(path):
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+        elif not path.startswith("/v1/"):
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+        if path == "/v1/auth/session":
+            from fleet_server import fleet_sessions, request_guard
+
+            ga = getattr(self, "_guard_auth", None)
+            scopes = sorted(ga.scopes) if ga and ga.ok else ["admin"]
+            conn = store.connect(self.server.db_path)
+            try:
+                out = fleet_sessions.mint_session(
+                    conn,
+                    scopes=scopes,
+                    source=request_guard.client_source(self.headers, self._peer_addr()),
+                    user_agent=str(self.headers.get("User-Agent") or ""),
+                    token_id=ga.token_id if ga else None,
+                )
+            finally:
+                conn.close()
+            self._send(200, out)
+            return
+        if path == "/v1/host/profile/benchmark":
+            from fleet_server import host_profile
+
+            data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            out, _err = host_profile.run_benchmark(data_dir_p)
+            code = 200 if out.get("ok") else 429 if out.get("error") == "cooldown" else 503
+            self._send(code, out)
+            return
+        if path == "/v1/mesh/offload/advise":
+            from fleet_server import mesh_advise
+
+            data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            try:
+                cpu_s = float(body.get("cpu_seconds") or 0)
+                xfer = float(body.get("transfer_mb") or 0)
+            except (TypeError, ValueError):
+                self._send(400, {"ok": False, "error": "invalid_input"})
+                return
+            sid = str(body.get("service_id") or "")
+            out = mesh_advise.advise(data_dir_p, Path(self.server.db_path), service_id=sid, cpu_seconds=cpu_s, transfer_mb=xfer)
+            self._send(200 if out.get("ok") else 400, out)
+            return
+        if path == "/v1/admin/security/blocks":
+            from fleet_server import request_guard, security_store
+
+            action = str(body.get("action") or "list")
+            conn = store.connect(self.server.db_path)
+            try:
+                if action == "unblock":
+                    src = str(body.get("source") or "").strip()
+                    if not src:
+                        self._send(400, {"ok": False, "error": "source_required"})
+                        return
+                    security_store.remove_block(conn, src)
+                    self._send(200, {"ok": True, "unblocked": src})
+                    return
+            finally:
+                conn.close()
+            self._send(200, request_guard.blocks_payload(self.server.db_path))
+            return
+        if path == "/v1/admin/security/agent/test":
+            from fleet_server import security_agent
+
+            self._send(200, security_agent.send_test_alert())
             return
         if self._handle_environments("POST", body=body):
             return
@@ -2161,12 +2369,20 @@ class FleetHandler(BaseHTTPRequestHandler):
         self._send(404, {"ok": False, "error": "not_found"})
 
     def do_PUT(self) -> None:
+        path = urlparse(self.path).path
+        if path.startswith("/v1/"):
+            length = int(self.headers.get("Content-Length") or 0)
+            raw_put = self.rfile.read(length) if 0 < length <= 2_097_152 else b""
+            if length > 2_097_152:
+                self._send(413, {"ok": False, "error": "body_too_large"})
+                return
+            if not self._apply_request_guard("PUT", path, raw_put):
+                return
         if not self._auth_ok():
             self._send_unauthorized()
             return
         if self._handle_app_gateway("PUT"):
             return
-        path = urlparse(self.path).path
         data_dir = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
         if path == "/v1/admin/capacity/policy":
             body = self._read_json()
@@ -2491,12 +2707,26 @@ class FleetHandler(BaseHTTPRequestHandler):
         self._send(200, {"ok": True, "service": rec})
 
     def do_DELETE(self) -> None:
+        path = urlparse(self.path).path
+        if path.startswith("/v1/"):
+            if not self._apply_request_guard("DELETE", path, b""):
+                return
         if not self._auth_ok():
             self._send_unauthorized()
             return
         if self._handle_app_gateway("DELETE"):
             return
-        path = urlparse(self.path).path
+        m_sess_del = re.match(r"^/v1/auth/session/([^/]+)$", path)
+        if m_sess_del:
+            from fleet_server import fleet_sessions
+
+            conn = store.connect(self.server.db_path)
+            try:
+                ok = fleet_sessions.revoke_session(conn, m_sess_del.group(1))
+            finally:
+                conn.close()
+            self._send(200 if ok else 404, {"ok": ok})
+            return
         if self._handle_environments("DELETE"):
             return
         data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
@@ -2618,6 +2848,15 @@ def main() -> None:
     space_guardian.run_startup_gc(data_dir, db_path)
     space_guardian.start_guardian(data_dir, db_path)
     memory_guardian.start_guardian(data_dir, db_path)
+
+    from fleet_server import peer_links, request_guard, security_agent
+
+    request_guard.load_canary_and_rotated(data_dir)
+    peer_links.start_hourly_probes(db_path, data_dir, token)
+    security_agent.start_agent(db_path, data_dir)
+    weak = str(os.environ.get("FLEET_BEARER_TOKEN") or "").strip()
+    if weak and len(weak) < 24:
+        print("[fleet] WARN: FLEET_BEARER_TOKEN is short; use a high-entropy secret in production", file=sys.stderr)
 
     httpd = ThreadingHTTPServer((args.host, args.port), FleetHandler)
     httpd.db_path = db_path

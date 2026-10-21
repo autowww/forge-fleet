@@ -42,9 +42,19 @@ def test_run_skipped_when_upgrade_active(tmp_path: Path):
     assert out.get("reason") == "upgrade_active"
 
 
-def test_space_endpoint(tmp_path: Path) -> None:
+def test_space_endpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     data_dir = tmp_path / "fd_api"
     data_dir.mkdir()
+    # Status must not walk the operator's Docker volumes; that scan outlives the
+    # client timeout and the next test's app-GC monkeypatch then sees the request.
+    monkeypatch.setattr(
+        "fleet_server.volume_quarantine.discover_orphan_candidates",
+        lambda _data_dir: [],
+    )
+    monkeypatch.setattr(
+        "fleet_server.cleanup.fetch_app_gc_per_env",
+        lambda *_a, **_k: {"ok": True, "environments": {}},
+    )
     httpd, th, base = _start_fleet_httpd(data_dir)
     try:
         req = urllib.request.Request(f"{base}/v1/admin/space", method="GET")
@@ -70,6 +80,10 @@ def test_snapshot_space_summary_never_calls_app_gc(tmp_path: Path, monkeypatch: 
         raise AssertionError("snapshot summary reached fetch_app_gc_per_env")
 
     monkeypatch.setattr(fleet_cleanup, "fetch_app_gc_per_env", _boom)
+    monkeypatch.setattr(
+        "fleet_server.volume_quarantine.discover_orphan_candidates",
+        lambda _data_dir: [],
+    )
     out = space_guardian.space_meta_summary(data_dir, data_dir / "fleet.sqlite")
     assert calls == []
     assert "guardian_enabled" in out

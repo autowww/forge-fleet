@@ -297,7 +297,11 @@ remote_upgrade_verify() {
   _rv_deadline=$(( $(date +%s) + ${FLEET_REMOTE_UPGRADE_VERIFY_SEC:-180} ))
   _rv_seen=""
   while [[ "$(date +%s)" -lt "$_rv_deadline" ]]; do
-    _rv_seen="$(curl -sS --connect-timeout 5 --max-time 15 "${_rb_base}/v1/health" 2>/dev/null \
+    _rv_curl=(curl -sS --connect-timeout 5 --max-time 15)
+    if [[ -n "${_rb_bearer:-}" ]]; then
+      _rv_curl+=(-H "Authorization: Bearer ${_rb_bearer}")
+    fi
+    _rv_seen="$("${_rv_curl[@]}" "${_rb_base}/v1/health" 2>/dev/null \
       | python3 -c 'import json,sys
 try:
     j=json.load(sys.stdin); v=j.get("version") or {}

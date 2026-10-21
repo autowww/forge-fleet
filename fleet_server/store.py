@@ -57,6 +57,20 @@ def _ensure_energy_ledger(conn: sqlite3.Connection) -> None:
         )
 
 
+def _ensure_rollup_minmax_columns(conn: sqlite3.Connection) -> None:
+    cols = {str(r[1]) for r in conn.execute("PRAGMA table_info(telemetry_buckets_5m)").fetchall()}
+    for name, typ in (
+        ("cpu_min", "REAL"),
+        ("cpu_max", "REAL"),
+        ("mem_min", "REAL"),
+        ("mem_max", "REAL"),
+        ("load_pct_min", "REAL"),
+        ("load_pct_max", "REAL"),
+    ):
+        if name not in cols:
+            conn.execute(f"ALTER TABLE telemetry_buckets_5m ADD COLUMN {name} {typ}")
+
+
 def _ensure_environment_versions_table(conn: sqlite3.Connection) -> None:
     conn.execute(
         """
@@ -125,6 +139,12 @@ def connect(db_path: Path) -> sqlite3.Connection:
     _ensure_cooldown_table(conn)
     _ensure_migration_tables(conn)
     telemetry_rollup.ensure_rollup_tables(conn)
+    try:
+        from fleet_server import security_store
+
+        security_store.ensure_security_tables(conn)
+    except Exception:
+        pass
     conn.commit()
     return conn
 
@@ -199,6 +219,16 @@ def _run_fleet_schema_migrations(conn: sqlite3.Connection, from_v: int, to_v: in
             telemetry_rollup.ensure_rollup_tables(conn)
         elif next_v == 9:
             _ensure_environment_versions_table(conn)
+        elif next_v == 10:
+            from fleet_server import security_store
+
+            security_store.ensure_security_tables(conn)
+            _ensure_rollup_minmax_columns(conn)
+            sess_cols = {str(r[1]) for r in conn.execute("PRAGMA table_info(fleet_auth_sessions)").fetchall()}
+            if sess_cols and "session_secret" not in sess_cols:
+                conn.execute(
+                    "ALTER TABLE fleet_auth_sessions ADD COLUMN session_secret TEXT NOT NULL DEFAULT ''"
+                )
         else:
             raise RuntimeError(f"fleet_schema migration missing for {v} -> {next_v}")
         v = next_v

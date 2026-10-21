@@ -18,7 +18,9 @@ Usage:
   land-fleet timer-status        Show forge-fleet-apt-upgrade.timer state
   land-fleet join --coordinator URL --enroll-token TOKEN [--label NAME]
                                  Register Granite coordinator as remote peer (manual Phase 1)
-  land-fleet health              curl local Fleet /v1/health
+  land-fleet health              curl local Fleet /v1/health (bearer when set)
+  land-fleet token issue --label NAME --scopes admin,read:profile
+  land-fleet token list
 
 Environment:
   FLEET_BEARER_TOKEN             Bearer for local Fleet API (or set in forge-fleet.env)
@@ -159,8 +161,54 @@ PY
 
 health() {
   local base="${FLEET_BASE_URL:-http://127.0.0.1:${FLEET_USER_PORT}}"
-  curl -fsS "${base}/v1/health"
+  if [[ -n "${FLEET_BEARER_TOKEN:-}" ]]; then
+    curl -fsS -H "Authorization: Bearer ${FLEET_BEARER_TOKEN}" "${base}/v1/health"
+  else
+    curl -fsS "${base}/v1/health"
+  fi
   echo ""
+}
+
+token_cmd() {
+  local sub="${1:-}"
+  shift || true
+  local data_dir="${FLEET_USER_DATA}"
+  case "$sub" in
+    issue)
+      local label="" scopes="admin"
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --label) label="${2:-}"; shift 2 ;;
+          --scopes) scopes="${2:-}"; shift 2 ;;
+          *) die "unknown option: $1" ;;
+        esac
+      done
+      [[ -n "$label" ]] || die "--label required"
+      PYTHONPATH="${FLEET_LIB}:${PYTHONPATH:-}" python3 - "$data_dir" "$label" "$scopes" <<'PY'
+import sys
+from pathlib import Path
+from fleet_server import inbound_tokens
+data_dir = Path(sys.argv[1])
+label = sys.argv[2]
+scopes = [s.strip() for s in sys.argv[3].split(",") if s.strip()]
+tid, raw = inbound_tokens.issue_token(data_dir, label=label, scopes=scopes)
+print(f"token_id={tid}")
+print(raw)
+PY
+      ;;
+    list)
+      PYTHONPATH="${FLEET_LIB}:${PYTHONPATH:-}" python3 - "$data_dir" <<'PY'
+import json, sys
+from pathlib import Path
+from fleet_server import inbound_tokens
+rows = inbound_tokens.load_tokens(Path(sys.argv[1]))
+print(json.dumps(rows, indent=2))
+PY
+      ;;
+    *)
+      die "usage: land-fleet token issue|list"
+      ;;
+  esac
 }
 
 timer_status() {
@@ -222,6 +270,7 @@ case "$cmd" in
   timer-status) timer_status ;;
   join) join_mesh "$@" ;;
   health) health ;;
+  token) token_cmd "$@" ;;
   -h|--help|help|"") usage ;;
   *) die "unknown command: $cmd (try --help)" ;;
 esac

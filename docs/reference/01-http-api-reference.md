@@ -26,7 +26,21 @@ Feature docs (details beyond this table): [CONTAINER-TEMPLATES.md](../build-201/
 | POST | `/v1/jobs/{id}/workspace-worker-complete` | worker | Final JSON result for worker bridge. |
 | GET | `/v1/version` | bearer | Semver, DB schema, template library, optional git SHA. |
 | GET | `/v1/templates` | bearer | Container template catalog (`host_cpu_probe`, etc.). |
-| GET | `/v1/health` | bearer | `service: forge-fleet`, host CPU/mem/load, energy ledger; may sample telemetry. |
+| GET | `/v1/health` | public (minimal) / bearer (full) | Anonymous: `{ok, service, ready}` only (no telemetry write). Bearer or loopback admin: full host metrics, version, energy ledger. |
+| POST | `/v1/auth/session` | bearer | Mint signed session (`session_id`, `session_secret`, scopes). Use `X-Fleet-Session` + `X-Fleet-Sig` on later calls. |
+| GET | `/v1/auth/sessions` | admin | List active sessions. |
+| DELETE | `/v1/auth/session/{id}` | admin | Revoke session. |
+| GET | `/v1/host/profile` | `read:profile` | Hardware snapshot, Fleet mark benchmark, 5m rollup history (`period=1h\|24h\|7d`). |
+| POST | `/v1/host/profile/benchmark` | admin | Run bounded Fleet-mark benchmark (cooldown). |
+| GET | `/v1/host/link-probe` | `read:links` | Fixed 1 MiB body for throughput probes (`Cache-Control: no-store`). |
+| GET | `/v1/mesh/links` | `read:links` | Peer RTT/throughput samples (1h/24h stats). |
+| POST | `/v1/mesh/offload/advise` | `mesh:advise` | Rank local vs peers for CPU+transfer workload (`cpu_seconds`, `transfer_mb`, `service_id`). |
+| GET | `/v1/services/{id}/vision` | `read:profile` | Primary/secondary vision for a service id under `etc/services/`. |
+| GET | `/v1/admin/security/events` | admin | Recent guard events (`period_sec`). |
+| GET | `/v1/admin/security/blocks` | admin | Active IP blocks + siege flag. |
+| POST | `/v1/admin/security/blocks` | admin | Body `action=unblock`, `source=…`. |
+| GET | `/v1/admin/security/agent` | admin | Matrix security agent status. |
+| POST | `/v1/admin/security/agent/test` | admin | Send test alert to `#fleet-security`. |
 | GET | `/v1/app-gateways` | bearer | List registered loopback app gateways (no secrets). |
 | GET | `/v1/app-gateways/{id}` | bearer | Gateway metadata JSON, or upstream UI when `Accept: text/html`. |
 | PUT | `/v1/app-gateways/{id}` | bearer | Register/update loopback upstream (`upstream` must be 127.0.0.1/localhost). |
@@ -38,7 +52,7 @@ Feature docs (details beyond this table): [CONTAINER-TEMPLATES.md](../build-201/
 | POST | `/v1/migrations/{id}/steps/{step_id}/run` | bearer | Run one step; `register_edge_route` completes in-process as an app gateway. |
 | POST | `/v1/migrations/{id}/cancel` | bearer | Cancel pending steps and linked jobs. |
 | GET | `/v1/host/processes` | bearer | Top host processes (`limit`, `sort=cpu|mem|pid`); Linux `/proc` sampler. |
-| GET | `/v1/operator/ui-settings` | none | Operator UI settings + command recipes + edge checklists (`edge_recipes`). |
+| GET | `/v1/operator/ui-settings` | bearer | Operator UI settings + command recipes + edge checklists (`edge_recipes`). |
 | PUT | `/v1/operator/ui-settings` | bearer | Save operator UI settings; returns updated recipes. |
 | POST | `/v1/operator/verify-public-health` | bearer | Server-side `GET {public_url}/v1/health` for Edge tab verify (body: `public_url`, `bearer_token`). |
 | GET | `/v1/capacity` | bearer | Per-node CPU/RAM/GPU headroom for planning (estimates; no reservation ledger). |
