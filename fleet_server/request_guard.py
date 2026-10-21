@@ -19,8 +19,17 @@ from fleet_server.fleet_sessions import AuthContext
 
 GuardMode = Literal["observe", "enforce"]
 
-LIMITS = {"read": 120, "mutate": 30, "heavy": 6, "public": 30}
-BODY_LIMIT = {"read": 1_048_576, "mutate": 1_048_576, "heavy": 2_097_152, "public": 65536}
+# Per client address, per 60s. `read` is Fleet's own JSON. `proxy` is a product UI
+# (Market Studio and others) served under `/v1/app-gateways/<id>/…`, which polls
+# several times a second and must not share the Fleet JSON budget.
+LIMITS = {"read": 300, "mutate": 120, "heavy": 6, "public": 60, "proxy": 1200}
+BODY_LIMIT = {
+    "read": 1_048_576,
+    "mutate": 1_048_576,
+    "heavy": 2_097_152,
+    "public": 65536,
+    "proxy": 64 * 1024 * 1024,
+}
 
 
 @dataclass

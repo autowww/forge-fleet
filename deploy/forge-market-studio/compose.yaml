@@ -3,7 +3,7 @@ name: ${FORGE_MARKET_COMPOSE_PROJECT:-forge-market-studio}
 
 services:
   postgres:
-    image: postgres:16
+    image: pgvector/pgvector:pg16
     container_name: ${FORGE_MARKET_PG_CONTAINER:-forge-market-postgres}
     restart: unless-stopped
     logging:

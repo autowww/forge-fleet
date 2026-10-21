@@ -66,6 +66,26 @@
     el.className = "fleet-mono small mb-2 " + (isErr ? "text-danger" : "text-body-secondary");
   }
 
+  function setBenchStatus(text, isErr) {
+    var el = document.getElementById("fleet-cap-bench-status");
+    if (!el) return;
+    el.textContent = text || "";
+    el.className = "small mb-0 mt-2 " + (isErr ? "text-danger" : "text-body-secondary");
+  }
+
+  function benchErrorText(j, statusText) {
+    var err = (j && j.error) || statusText || "benchmark_failed";
+    if (err === "busy") return "Host load is above the CPU count, so the benchmark was skipped.";
+    if (err === "cooldown") {
+      var wait = j && j.retry_after_s != null ? " Try again in " + j.retry_after_s + "s." : "";
+      return "A benchmark already ran recently." + wait;
+    }
+    if (err === "heavy_busy") return "Another heavy Fleet request is still running.";
+    if (err === "benchmark_timeout") return "The benchmark did not finish in time.";
+    if (err === "benchmark_failed" && j && j.detail) return "Benchmark failed: " + j.detail;
+    return String(err);
+  }
+
   function renderDisk(space) {
     var root = document.getElementById("fleet-capacity-disk-body");
     if (!root) return;
@@ -446,8 +466,14 @@
       benchBtn.addEventListener("click", function () {
         if (isRemoteScope()) {
           setMsg("fleet-capacity-msg", "Read-only remote scope.", true);
+          setBenchStatus("Read-only remote scope.", true);
           return;
         }
+        if (benchBtn.disabled) return;
+        benchBtn.disabled = true;
+        benchBtn.textContent = "Running benchmark…";
+        setBenchStatus("Running. This usually takes under a minute. The Fleet mark updates here when it finishes.");
+        setMsg("fleet-capacity-msg", "Benchmark running.");
         fleetApi("/v1/host/profile/benchmark", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -455,16 +481,28 @@
         })
           .then(function (r) {
             return r.json().then(function (j) {
-              if (!r.ok) throw new Error(j.error || r.statusText);
+              if (!r.ok) throw new Error(benchErrorText(j, r.statusText));
               return j;
             });
           })
-          .then(function () {
-            setMsg("fleet-capacity-msg", "Benchmark complete.");
+          .then(function (j) {
+            var mark = j && j.benchmark && j.benchmark.fleet_mark != null ? j.benchmark.fleet_mark : null;
+            var done = mark != null ? "Benchmark complete. Fleet mark " + mark + "." : "Benchmark complete.";
+            setMsg("fleet-capacity-msg", done);
+            setBenchStatus(done);
             refreshCapacity();
           })
           .catch(function (e) {
-            setMsg("fleet-capacity-msg", String(e), true);
+            var msg = e && e.message ? e.message : String(e);
+            if (msg === "Failed to fetch") {
+              msg = "The benchmark request did not return. Fleet may still be busy with it.";
+            }
+            setMsg("fleet-capacity-msg", msg, true);
+            setBenchStatus(msg, true);
+          })
+          .finally(function () {
+            benchBtn.disabled = false;
+            benchBtn.textContent = "Run benchmark";
           });
       });
     }

@@ -86,7 +86,12 @@ def run_benchmark(data_dir: Path) -> tuple[dict[str, Any], str | None]:
     cpus = os.cpu_count() or 1
     if la > cpus:
         return {"ok": False, "error": "busy"}, None
-    bench = fleet_bench.run_benchmark(data_dir)
+    try:
+        bench = fleet_bench.run_benchmark(data_dir)
+    except TimeoutError:
+        return {"ok": False, "error": "benchmark_timeout"}, None
+    except Exception as exc:  # noqa: BLE001 — return JSON instead of dropping the HTTP connection
+        return {"ok": False, "error": "benchmark_failed", "detail": str(exc)[:400]}, None
     doc = {
         "measured_at": now,
         "hardware": static_hardware(),

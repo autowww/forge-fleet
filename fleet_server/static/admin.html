@@ -513,6 +513,7 @@
             <h2 class="h6 text-uppercase text-body-secondary mb-3">Host profile &amp; mesh links</h2>
             <div id="fleet-capacity-mesh-body" class="small text-body-secondary">Open this tab to load Fleet mark and peer link stats.</div>
             <button type="button" class="btn btn-sm btn-outline-primary mt-2" id="fleet-cap-bench-btn">Run benchmark</button>
+            <p id="fleet-cap-bench-status" class="small mb-0 mt-2" aria-live="polite"></p>
           </div>
         </section>
         <section class="card border-secondary-subtle shadow-sm mt-3 fleet-capacity-local-only">
@@ -1178,6 +1179,10 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
     var LS_METRIC_MAX = "forgeFleetMetricMaximaV2";
     var POLL_MS = 3000;
     var REMOTE_GIT_POLL_MS = 300000;
+    /** DB telemetry is sparse (~60s). Reloading the hour series every poll trips the read rate limit. */
+    var TELEMETRY_REFRESH_MS = 60000;
+    var __fleetTelemetryFetchedAt = 0;
+    var __fleetInstallChannelLoadedAt = 0;
     /** Recent jobs table: page size and offset (passed as ``jobs_limit`` / ``jobs_offset`` on snapshot). */
     var fleetJobsPageSize = 10;
     var fleetJobsOffset = 0;
@@ -3153,6 +3158,17 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
      * poll (~3s). DB rows alone are sparse (``FLEET_TELEMETRY_INTERVAL_S``, default 60s).
      */
     async function refreshTelemetryChartsFromDb(host, snapshotOrch) {
+      var nowMs = Date.now();
+      if (
+        __fleetTelemetryFetchedAt &&
+        nowMs - __fleetTelemetryFetchedAt < TELEMETRY_REFRESH_MS &&
+        chartBuf.length
+      ) {
+        appendLiveTelemetryTail(host, snapshotOrch);
+        renderFleetChart();
+        renderOrchestrationChart();
+        return;
+      }
       chartBuf = [];
       orchBuf = [];
       try {
@@ -3196,6 +3212,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
           if (orch && typeof orch === "object") lastOrch = orch;
         }
         if (lastOrch) __fleetLastOrchestration = lastOrch;
+        __fleetTelemetryFetchedAt = Date.now();
       } catch (_e) {
         /* network / parse */
       }
@@ -5343,6 +5360,8 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       if (isFleetScopeRemote()) return;
       var el = document.getElementById("fleet-install-channel");
       if (!el) return;
+      var nowMs = Date.now();
+      if (__fleetInstallChannelLoadedAt && nowMs - __fleetInstallChannelLoadedAt < 300000) return;
       try {
         var res = await fetch("/v1/admin/install-channel", { headers: authHeaders(), cache: "no-store" });
         var j = {};
@@ -5355,6 +5374,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
           el.textContent = "";
           return;
         }
+        __fleetInstallChannelLoadedAt = Date.now();
         el.textContent = String(j.install_channel || "unknown");
         var hint = j.recommended_command || "";
         if (j.timer_active) hint = (hint ? hint + " · " : "") + "apt timer active";
@@ -5602,6 +5622,10 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       }
       if (res.status === 401) {
         setErr("Unauthorized — send Authorization: Bearer … matching FLEET_BEARER_TOKEN (or use loopback-only bind).");
+        return false;
+      }
+      if (res.status === 429) {
+        setErr("Rate limited. The status page will retry on its own.");
         return false;
       }
       if (!res.ok) {

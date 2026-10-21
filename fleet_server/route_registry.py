@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 from typing import Literal
 
-RouteClass = Literal["read", "mutate", "heavy", "public"]
+RouteClass = Literal["read", "mutate", "heavy", "public", "proxy"]
 Scope = Literal[
     "public",
     "admin",
@@ -98,6 +98,10 @@ ROUTE_SPECS: tuple[RouteSpec, ...] = (
 )
 
 
+# Product UI served through Fleet (`/v1/app-gateways/<id>/api/...`). Not the gateway catalog.
+_GATEWAY_PROXY = re.compile(r"^/v1/app-gateways/[^/]+/.+")
+
+
 def match_route(path: str, method: str) -> RouteSpec | None:
     m = method.upper()
     for spec in ROUTE_SPECS:
@@ -107,6 +111,9 @@ def match_route(path: str, method: str) -> RouteSpec | None:
 
 
 def route_class_for_path(path: str, method: str, default: RouteClass = "read") -> RouteClass:
+    bare = path.split("?", 1)[0]
+    if _GATEWAY_PROXY.match(bare):
+        return "proxy"
     spec = match_route(path, method)
     if spec is not None:
         return spec.route_class

@@ -51,7 +51,7 @@ fallback_ascii: |
 - **Admin HTML** (`/admin/`) is served **without** bearer by design; on public hosts use unified Caddy **loopback-only** `/admin*` and view remote Fleet via the **Remote** tab on a trusted local Fleet instance.
 - **`/v1/admin/*`** on public hosts should use **client bearer** at the edge (installer default: no Caddy bearer injection on `/v1/admin/*`).
 - **Workspace-worker** endpoints use **`X-Workspace-Worker-Token`**, not the admin bearer.
-- **Request guard** (`FLEET_GUARD_MODE=observe|enforce`) rate-limits by route class, blocks repeat auth failures, supports siege mode, and audits to **`security_events`**. Scoped inbound tokens live in **`etc/inbound-tokens.json`** (`land-fleet token issue`).
+- **Request guard** (`FLEET_GUARD_MODE=observe|enforce`) rate-limits by route class per client address per minute: **read 300** (Fleet JSON), **proxy 1200** (product UI under `/v1/app-gateways/<id>/…`), **mutate 120**, **heavy 6**, **public 60**. It blocks repeat auth failures, supports siege mode, and audits to **`security_events`**. Scoped inbound tokens live in **`etc/inbound-tokens.json`** (`land-fleet token issue`).
 - **Signed sessions** — `POST /v1/auth/session` mints `X-Fleet-Session` + `X-Fleet-Sig` (HMAC) for high-volume clients; set **`FLEET_BEARER_DIRECT=mint-only`** to require sessions for non-mint `/v1/*` calls.
 - **Public health** — unauthenticated `GET /v1/health` returns only `{ok, service, ready}`; upgrade scripts and peers should send the Fleet bearer for the full body.
 - **Matrix agent** — optional `#fleet-security` alerts via **`FLEET_SECURITY_MATRIX_*`** env vars; reply `unblock <source>` or `mute 1h` in the room.

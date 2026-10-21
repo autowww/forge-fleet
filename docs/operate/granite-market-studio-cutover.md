@@ -186,6 +186,10 @@ Since 2026-10-08 a failed or stale migrator:
 
 Reproduce a migrator failure read-only with the `plan` subcommand through a Fleet job (`docker_argv` on `forge-market-app:studio`, mounts `src/` + `studio-server/`, `python -m forge_market.db.migrate plan`).
 
+## NLP tone and pgvector (FM-NLP-001)
+
+Compose image is `pgvector/pgvector:pg16` (`deploy/forge-market-studio/compose.yaml`). Granite overlay enables `FORGE_MARKET_NARRATIVE_TONE=1` and `FORGE_MARKET_NARRATIVE_EMBED=1` by default; `FORGE_MARKET_NARRATIVE_ENCODER` stays `0` until the ONNX artifact and `fm_nlp_gpu_worker` template are on the host. Rollout is still `POST /v1/admin/forge-market-studio-rollout` (no SSH). The first start runs `CREATE EXTENSION vector` from `migrate_narrative_nlp`.
+
 ## Forbidden on Granite SSH
 
 - `scp`, `rsync`, manual `tar` extract for Market data

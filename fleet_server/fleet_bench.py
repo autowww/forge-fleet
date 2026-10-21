@@ -40,8 +40,27 @@ def _cpu_mix() -> float:
     return sum(parts)
 
 
-def _cpu_worker() -> float:
+def _cpu_worker(_idx: int = 0) -> float:
     return _cpu_mix()
+
+
+def _multi_times(procs: int, *, timeout_s: float = 180.0) -> list[float]:
+    """Run one CPU mix per logical CPU.
+
+    Fleet serves this from ``ThreadingHTTPServer`` (daemon request threads).
+    The default ``fork`` start method deadlocks in that process. ``spawn``
+    starts clean interpreters and returns.
+    """
+    ctx = multiprocessing.get_context("spawn")
+    pool = ctx.Pool(processes=procs)
+    try:
+        return pool.map_async(_cpu_worker, range(procs)).get(timeout=timeout_s)
+    except multiprocessing.TimeoutError as exc:
+        pool.terminate()
+        raise TimeoutError("benchmark_cpu_timeout") from exc
+    finally:
+        pool.close()
+        pool.join()
 
 
 def run_benchmark(data_dir: Path, *, disk_mb: int = 256, mem_cap_mb: int = 512) -> dict[str, Any]:
@@ -49,8 +68,7 @@ def run_benchmark(data_dir: Path, *, disk_mb: int = 256, mem_cap_mb: int = 512) 
     cpu_single_mark = int((REF_CPU_SINGLE / max(single_t, 1e-6)) * 1000)
 
     procs = max(1, os.cpu_count() or 1)
-    with multiprocessing.Pool(processes=procs) as pool:
-        multi_ts = pool.map(_cpu_worker, [None] * procs)
+    multi_ts = _multi_times(procs)
     multi_t = sum(multi_ts) / len(multi_ts)
     cpu_multi_mark = int((REF_CPU_MULTI / max(multi_t, 1e-6)) * 1000)
 
