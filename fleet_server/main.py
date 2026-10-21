@@ -36,6 +36,7 @@ from fleet_server import (
     install_channel,
     lifecycle,
     managed_compose_service,
+    edge_cache,
     operator_ui_settings,
     remote_peers,
     rollout_status,
@@ -206,10 +207,15 @@ class FleetHandler(BaseHTTPRequestHandler):
         return self.rfile.read(n)
 
     def _read_json(self) -> dict[str, Any]:
-        n = int(self.headers.get("Content-Length") or 0)
-        if n <= 0 or n > 4_000_000:
-            return {}
-        raw = self.rfile.read(n)
+        cached = getattr(self, "_cached_request_body", None)
+        if cached is not None:
+            self._cached_request_body = None
+            raw = cached
+        else:
+            n = int(self.headers.get("Content-Length") or 0)
+            if n <= 0 or n > 4_000_000:
+                return {}
+            raw = self.rfile.read(n)
         try:
             o = json.loads(raw.decode("utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError):
@@ -416,6 +422,16 @@ class FleetHandler(BaseHTTPRequestHandler):
             app_gateway.apply_cors(headers, self.headers)
             self._send_raw_with_headers(204, b"", headers)
             return True
+        if method == "PUT" and rest == "edge-cache":
+            body = self._read_json()
+            out = edge_cache.register_gateway_edge_cache(
+                data_dir,
+                service_id,
+                body if isinstance(body, dict) else {},
+            )
+            code = 200 if out.get("ok") else (404 if out.get("error") == "gateway_not_found" else 400)
+            self._send(code, out)
+            return True
         if method == "PUT" and rest is None:
             body = self._read_json()
             try:
@@ -469,6 +485,7 @@ class FleetHandler(BaseHTTPRequestHandler):
                 query=parsed.query or "",
                 req_headers=self.headers,
                 body=body,
+                data_dir=data_dir,
             )
         finally:
             lifecycle.proxy_exit()
@@ -612,11 +629,37 @@ class FleetHandler(BaseHTTPRequestHandler):
 
     def _send(self, code: int, body: dict[str, Any]) -> None:
         data = _json_bytes(body)
+        path = urlparse(self.path).path
+        method = str(getattr(self, "command", "GET") or "GET")
+        headers: dict[str, str] = {"Content-Type": "application/json"}
+        ttl = edge_cache.resolve_ttl(
+            method=method,
+            path=path,
+            status=code,
+            data_dir=self._data_dir(),
+        )
+        edge_cache.apply_response_cache_headers(headers, ttl, path)
         self.send_response(code)
-        self.send_header("Content-Type", "application/json")
+        for key, value in headers.items():
+            self.send_header(key, value)
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
+
+    def _edge_cache_put_auth(self, service_id: str) -> bool:
+        if self._auth_ok():
+            return True
+        host = (self.client_address[0] or "").strip().lower()
+        if host not in {"127.0.0.1", "::1"}:
+            return False
+        rec = app_gateway.load_gateway(self._data_dir(), service_id)
+        if rec is None:
+            return False
+        token = str(rec.get("upstream_bearer") or "").strip()
+        if not token:
+            return False
+        auth = str(self.headers.get("Authorization") or "").strip()
+        return auth == f"Bearer {token}"
 
     def _browser_navigation(self) -> bool:
         """True when the request looks like a top-level document load (address bar), not fetch/XHR."""
@@ -1581,6 +1624,11 @@ class FleetHandler(BaseHTTPRequestHandler):
                 conn.close()
             self._send(200, out)
             return
+        if path == "/v1/admin/edge-cache/sync":
+            sync = edge_cache.sync_zone_cache_rules(self._data_dir())
+            code = 200 if sync.get("ok") else (409 if sync.get("error") == "not_orchestrator" else 502)
+            self._send(code, {"ok": bool(sync.get("ok")), "sync": sync})
+            return
         if path == "/v1/host/profile/benchmark":
             from fleet_server import host_profile
 
@@ -2377,6 +2425,14 @@ class FleetHandler(BaseHTTPRequestHandler):
                 self._send(413, {"ok": False, "error": "body_too_large"})
                 return
             if not self._apply_request_guard("PUT", path, raw_put):
+                return
+            self._cached_request_body = raw_put
+        m_edge_cache = re.match(r"^/v1/app-gateways/([^/]+)/edge-cache$", path)
+        if m_edge_cache:
+            if not self._edge_cache_put_auth(m_edge_cache.group(1)):
+                self._send_unauthorized()
+                return
+            if self._handle_app_gateway("PUT"):
                 return
         if not self._auth_ok():
             self._send_unauthorized()

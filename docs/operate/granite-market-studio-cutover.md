@@ -158,6 +158,17 @@ Operator HTTP surface (local studio-server only):
      -H "Authorization: Bearer ${FORGE_FLEET_BEARER_TOKEN}"
    ```
 
+4. **Edge cache (optional)** — after gateway register, refresh Market hot-path TTLs (or run `./scripts/register-market-studio-edge-cache.sh market-studio`):
+
+   ```bash
+   curl -sS -X PUT "${FORGE_FLEET_BASE_URL}/v1/app-gateways/market-studio/edge-cache" \
+     -H "Authorization: Bearer ${FORGE_FLEET_BEARER_TOKEN}" \
+     -H "Content-Type: application/json" \
+     -d @<(PYTHONPATH="${FORGE_MARKET_STUDIO_ROOT:-../forge-market}/src" python3 -c 'from forge_market.operator.fleet_edge_cache import registration_body; import json; print(json.dumps(registration_body()))')
+   ```
+
+   Requires Fleet **edge.cache.enabled** on the Granite host. Repeat an identical authenticated GET and check `CF-Cache-Status: HIT`.
+
 ## Rollback (API only)
 
 ```bash

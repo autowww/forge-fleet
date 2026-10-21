@@ -73,8 +73,46 @@ def _merge_defaults(doc: dict[str, Any]) -> dict[str, Any]:
         out["edge"]["cloudflare_steps_completed"] = [str(x) for x in completed if str(x).strip()]
     if "caddy_verified" in edge:
         out["edge"]["caddy_verified"] = bool(edge.get("caddy_verified"))
+    from fleet_server import edge_cache
+
+    out["edge"]["cache"] = edge_cache.merge_cache_defaults(edge)
     out["updated_at"] = doc.get("updated_at")
     return out
+
+
+def _with_public_cache(settings: dict[str, Any], data_dir: Path) -> dict[str, Any]:
+    from fleet_server import edge_cache
+
+    out = json.loads(json.dumps(settings))
+    edge = out.get("edge")
+    if isinstance(edge, dict):
+        edge = dict(edge)
+        edge["cache"] = edge_cache.public_cache_view(edge_cache.merge_cache_defaults(edge), data_dir)
+        out["edge"] = edge
+    return out
+
+
+def update_cache_sync(data_dir: Path, sync: dict[str, Any]) -> None:
+    from fleet_server import edge_cache
+
+    current = _merge_defaults(_load_raw(data_dir))
+    edge = dict(current.get("edge") or {})
+    cache = edge_cache.merge_cache_defaults(edge)
+    cache["sync"] = {
+        "ok": bool(sync.get("ok")),
+        "error": str(sync.get("error") or "")[:500],
+        "at": float(sync.get("at") or time.time()),
+    }
+    edge["cache"] = cache
+    current["edge"] = edge
+    current["updated_at"] = time.time()
+    path = settings_file(data_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(current, indent=2) + "\n", encoding="utf-8")
+    try:
+        path.chmod(0o600)
+    except OSError:
+        pass
 
 
 def _filter_recipes(settings: dict[str, Any], recipes: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -90,13 +128,24 @@ def _filter_recipes(settings: dict[str, Any], recipes: list[dict[str, Any]]) -> 
 
 
 def get_settings(data_dir: Path) -> dict[str, Any]:
-    doc = _merge_defaults(_load_raw(data_dir))
+    from fleet_server import edge_cache
+
+    doc = _with_public_cache(_merge_defaults(_load_raw(data_dir)), data_dir)
     recipes = _filter_recipes(doc, build_recipes(doc))
     edge_recipes = _filter_recipes(doc, build_edge_recipes(doc))
-    return {"ok": True, "settings": doc, "recipes": recipes, "edge_recipes": edge_recipes}
+    gateway_edge = edge_cache.list_gateway_edge_registrations(data_dir)
+    return {
+        "ok": True,
+        "settings": doc,
+        "recipes": recipes,
+        "edge_recipes": edge_recipes,
+        "gateway_edge_cache": gateway_edge,
+    }
 
 
 def put_settings(data_dir: Path, body: dict[str, Any]) -> dict[str, Any]:
+    from fleet_server import edge_cache
+
     current = _merge_defaults(_load_raw(data_dir))
     if "setup_completed" in body:
         current["setup_completed"] = bool(body.get("setup_completed"))
@@ -133,6 +182,42 @@ def put_settings(data_dir: Path, body: dict[str, Any]) -> dict[str, Any]:
             ]
         if "caddy_verified" in edge:
             current["edge"]["caddy_verified"] = bool(edge.get("caddy_verified"))
+        if isinstance(edge.get("cache"), dict):
+            cache_in = edge["cache"]
+            cache = edge_cache.merge_cache_defaults(current.get("edge") or {})
+            if "enabled" in cache_in:
+                cache["enabled"] = bool(cache_in.get("enabled"))
+            if "orchestrate" in cache_in:
+                cache["orchestrate"] = bool(cache_in.get("orchestrate"))
+            if "zone_id" in cache_in:
+                cache["zone_id"] = str(cache_in.get("zone_id") or "").strip()
+            if "max_ttl_s" in cache_in:
+                try:
+                    mx = int(cache_in.get("max_ttl_s"))
+                    if 0 <= mx <= 86400:
+                        cache["max_ttl_s"] = mx
+                except (TypeError, ValueError):
+                    pass
+            if isinstance(cache_in.get("routes"), list):
+                routes: list[dict[str, Any]] = []
+                for row in cache_in["routes"]:
+                    if not isinstance(row, dict):
+                        continue
+                    method = str(row.get("method") or "GET").upper()
+                    path = str(row.get("path") or "").strip()
+                    if not path.startswith("/"):
+                        continue
+                    try:
+                        ttl = int(row.get("ttl_s", 0))
+                    except (TypeError, ValueError):
+                        ttl = 0
+                    routes.append({"method": method, "path": path, "ttl_s": max(0, ttl)})
+                if routes:
+                    cache["routes"] = routes
+            token = str(cache_in.get("cloudflare_api_token") or "").strip()
+            if token:
+                edge_cache.save_token(data_dir, token)
+            current["edge"]["cache"] = cache
     current["updated_at"] = time.time()
     path = settings_file(data_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -141,9 +226,19 @@ def put_settings(data_dir: Path, body: dict[str, Any]) -> dict[str, Any]:
         path.chmod(0o600)
     except OSError:
         pass
-    recipes = _filter_recipes(current, build_recipes(current))
-    edge_recipes = _filter_recipes(current, build_edge_recipes(current))
-    return {"ok": True, "settings": current, "recipes": recipes, "edge_recipes": edge_recipes}
+    sync = edge_cache.schedule_cloudflare_sync(data_dir)
+    doc = _with_public_cache(current, data_dir)
+    recipes = _filter_recipes(doc, build_recipes(doc))
+    edge_recipes = _filter_recipes(doc, build_edge_recipes(doc))
+    gateway_edge = edge_cache.list_gateway_edge_registrations(data_dir)
+    return {
+        "ok": True,
+        "settings": doc,
+        "recipes": recipes,
+        "edge_recipes": edge_recipes,
+        "gateway_edge_cache": gateway_edge,
+        "sync": sync,
+    }
 
 
 def _public_base(url: str, hostname: str) -> str:

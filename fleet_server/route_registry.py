@@ -89,6 +89,13 @@ ROUTE_SPECS: tuple[RouteSpec, ...] = (
         "operator_ui_settings",
     ),
     RouteSpec(
+        _p("/v1/admin/edge-cache/sync"),
+        frozenset({"POST"}),
+        "admin",
+        "mutate",
+        "edge_cache_sync",
+    ),
+    RouteSpec(
         _p("/v1/services/[^/]+/vision"),
         frozenset({"GET"}),
         "read:profile",

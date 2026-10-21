@@ -99,6 +99,12 @@ curl -sS -o /dev/null -w 'Fleet health=%{http_code}\n' -H "Authorization: Bearer
 
 Expected when Caddy injects Fleet bearer upstream: Fleet health may return **200** even if the client sends no `Authorization` header, depending on your Fleet settings; if you require a client bearer at the edge, keep `FORGE_FLEET_BEARER_TOKEN` in certificators aligned with **`FLEET_BEARER_TOKEN`** on the Fleet host.
 
+## Cloudflare edge cache (orchestrator node)
+
+On the **public server** Fleet host, open **Settings → Edge → Cloudflare edge cache**. Enable **Orchestrate** on that node, set zone id and API token (Zone → Cache Rules → Edit), then **Save** and **Sync to Cloudflare**. Fleet upserts zone rules so authenticated `GET` responses with `Cloudflare-CDN-Cache-Control` may be cached at the edge; unauthenticated `GET` bypasses cache. `/v1/health` and other hard-bypass paths never receive the edge header.
+
+Container apps on loopback register paths with `PUT http://127.0.0.1:<fleet-port>/v1/app-gateways/<service_id>/edge-cache` using the Fleet bearer or the gateway app bearer. Verify with `CF-Cache-Status: HIT` on a repeated authenticated GET after enabling a route TTL.
+
 ## Related
 
 - `03-caddy-systemd.md` — user vs system layout, linger, logs.

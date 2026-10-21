@@ -126,6 +126,21 @@ def public_record(record: dict[str, Any]) -> dict[str, Any]:
         "updated_at": record.get("updated_at") or "",
         "via": "fleet_api",
     }
+    ec = record.get("edge_cache")
+    if isinstance(ec, dict) and ec:
+        pub_ec: dict[str, Any] = {
+            "ttl_s": ec.get("ttl_s"),
+            "paths": ec.get("paths") if isinstance(ec.get("paths"), list) else [],
+            "updated_at": ec.get("updated_at"),
+        }
+        routes = ec.get("routes")
+        if isinstance(routes, list) and routes:
+            pub_ec["routes"] = [
+                {"path": r.get("path"), "ttl_s": r.get("ttl_s")}
+                for r in routes
+                if isinstance(r, dict)
+            ]
+        out["edge_cache"] = pub_ec
     return out
 
 
@@ -155,24 +170,35 @@ def list_gateways(data_dir: Path) -> list[dict[str, Any]]:
 def save_gateway(data_dir: Path, record: dict[str, Any]) -> dict[str, Any]:
     sid = validate_service_id(str(record.get("service_id") or ""))
     upstream = validate_loopback_upstream(str(record.get("upstream") or ""))
-    root = gateways_dir(data_dir)
-    root.mkdir(parents=True, exist_ok=True)
-    path = _gateway_path(data_dir, sid)
-    env_name = str(record.get("app_bearer_env") or "").strip()
-    upstream_bearer = str(record.get("upstream_bearer") or "").strip()
+    existing = load_gateway(data_dir, sid) or {}
+    env_name = str(record.get("app_bearer_env") or existing.get("app_bearer_env") or "").strip()
+    upstream_bearer = str(record.get("upstream_bearer") or existing.get("upstream_bearer") or "").strip()
     compose_root_raw = str(record.get("compose_root") or "").strip()
     if not upstream_bearer and env_name and compose_root_raw:
         upstream_bearer = read_dotenv_value(Path(compose_root_raw).expanduser() / ".env", env_name)
     payload = {
         "service_id": sid,
         "upstream": upstream,
-        "inject_bearer": bool(record.get("inject_bearer", True)),
+        "inject_bearer": bool(record.get("inject_bearer", existing.get("inject_bearer", True))),
         "upstream_bearer": upstream_bearer,
         "app_bearer_env": env_name,
-        "host_ui": bool(record.get("host_ui")),
+        "host_ui": bool(record.get("host_ui", existing.get("host_ui"))),
         "updated_at": datetime.now(UTC).replace(microsecond=0).isoformat(),
         "via": "fleet_api",
     }
+    if isinstance(record.get("edge_cache"), dict):
+        payload["edge_cache"] = record["edge_cache"]
+    elif isinstance(existing.get("edge_cache"), dict):
+        payload["edge_cache"] = existing["edge_cache"]
+    return save_gateway_record(data_dir, payload)
+
+
+def save_gateway_record(data_dir: Path, payload: dict[str, Any]) -> dict[str, Any]:
+    sid = validate_service_id(str(payload.get("service_id") or ""))
+    validate_loopback_upstream(str(payload.get("upstream") or ""))
+    root = gateways_dir(data_dir)
+    root.mkdir(parents=True, exist_ok=True)
+    path = _gateway_path(data_dir, sid)
     tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     os.chmod(tmp, stat.S_IRUSR | stat.S_IWUSR)
@@ -325,7 +351,9 @@ def apply_cors(headers: dict[str, str], req_headers: Any) -> None:
         "Authorization, Content-Type, X-Forge-Role, X-Forge-Actor"
     )
     headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
-    headers["Vary"] = "Origin"
+    from fleet_server import edge_cache
+
+    edge_cache.merge_vary(headers, "Origin")
 
 
 def delete_gateway(data_dir: Path, service_id: str) -> bool:
@@ -405,6 +433,7 @@ def proxy(
     query: str,
     req_headers: Any,
     body: bytes,
+    data_dir: Path | None = None,
 ) -> tuple[int, dict[str, str], bytes]:
     upstream = str(record.get("upstream") or "").rstrip("/")
     rest = str(rest_path or "").lstrip("/")
@@ -449,4 +478,17 @@ def proxy(
         out_headers["Location"] = prefix + loc[len(upstream) :]
     out_headers["Content-Type"] = ctype
     apply_cors(out_headers, req_headers)
+    from fleet_server import edge_cache
+
+    data_dir_p = (data_dir or Path(".")).resolve()
+    public_path_str = public_path(str(record.get("service_id") or ""))
+    full_path = f"{public_path_str}/{rest}".rstrip("/") if rest else public_path_str
+    ttl = edge_cache.resolve_gateway_proxy_ttl(
+        method=method,
+        rest_path=rest or "",
+        status=status,
+        gateway_record=record,
+        data_dir=data_dir_p,
+    )
+    edge_cache.apply_response_cache_headers(out_headers, ttl, full_path)
     return status, out_headers, payload

@@ -52,8 +52,10 @@ Feature docs (details beyond this table): [CONTAINER-TEMPLATES.md](../build-201/
 | POST | `/v1/migrations/{id}/steps/{step_id}/run` | bearer | Run one step; `register_edge_route` completes in-process as an app gateway. |
 | POST | `/v1/migrations/{id}/cancel` | bearer | Cancel pending steps and linked jobs. |
 | GET | `/v1/host/processes` | bearer | Top host processes (`limit`, `sort=cpu|mem|pid`); Linux `/proc` sampler. |
-| GET | `/v1/operator/ui-settings` | bearer | Operator UI settings + command recipes + edge checklists (`edge_recipes`). |
-| PUT | `/v1/operator/ui-settings` | bearer | Save operator UI settings; returns updated recipes. |
+| GET | `/v1/operator/ui-settings` | bearer | Operator UI settings + command recipes + edge checklists (`edge_recipes`). Includes `settings.edge.cache` (no API token), `gateway_edge_cache` from app registrations. |
+| PUT | `/v1/operator/ui-settings` | bearer | Save operator UI settings; `edge.cache` controls origin TTLs and orchestrator sync. Write-only `cloudflare_api_token` stored in `etc/cloudflare-cache.json`. |
+| POST | `/v1/admin/edge-cache/sync` | bearer | Push zone cache rules to Cloudflare when `edge.cache.orchestrate` is true on this node. |
+| PUT | `/v1/app-gateways/{id}/edge-cache` | bearer or loopback app bearer | Container apps register cacheable gateway paths (`ttl_s`, `paths`). Fleet stamps `Cloudflare-CDN-Cache-Control` on proxied GET 200 responses. |
 | POST | `/v1/operator/verify-public-health` | bearer | Server-side `GET {public_url}/v1/health` for Edge tab verify (body: `public_url`, `bearer_token`). |
 | GET | `/v1/capacity` | bearer | Per-node CPU/RAM/GPU headroom for planning (estimates; no reservation ledger). |
 | GET | `/v1/mesh/capacity` | bearer | Local capacity + cached fetch from each `remote-peers` entry (~20s TTL). |

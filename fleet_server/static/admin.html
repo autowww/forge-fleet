@@ -725,6 +725,44 @@
           Cloudflare tunnel → unified Caddy → public Fleet health. Run <strong>root</strong> steps on this server only.
           <a href="https://one.dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare Zero Trust</a>
         </p>
+        <section class="border rounded p-2 mb-3" id="fleet-edge-cache-panel">
+          <h3 class="h6 mb-2">Cloudflare edge cache</h3>
+          <p class="small text-body-secondary mb-2">
+            This Fleet node orchestrates zone cache rules. Container apps register paths via
+            <code class="fleet-mono">PUT /v1/app-gateways/&lt;id&gt;/edge-cache</code> on loopback.
+          </p>
+          <div class="form-check mb-1">
+            <input class="form-check-input" type="checkbox" id="fleet-edge-cache-orchestrate" />
+            <label class="form-check-label small" for="fleet-edge-cache-orchestrate">Orchestrate Cloudflare on this node</label>
+          </div>
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" id="fleet-edge-cache-enabled" />
+            <label class="form-check-label small" for="fleet-edge-cache-enabled">Enable edge caching (origin headers)</label>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small mb-0" for="fleet-edge-cache-max-ttl">Max TTL (seconds)</label>
+            <input id="fleet-edge-cache-max-ttl" class="form-control form-control-sm fleet-mono" type="number" min="0" max="86400" value="300" />
+          </div>
+          <div class="mb-2">
+            <label class="form-label small mb-0" for="fleet-edge-cache-zone-id">Cloudflare zone id</label>
+            <input id="fleet-edge-cache-zone-id" class="form-control form-control-sm fleet-mono" placeholder="zone id" />
+          </div>
+          <div class="mb-2">
+            <label class="form-label small mb-0" for="fleet-edge-cache-token">API token (write-only)</label>
+            <input id="fleet-edge-cache-token" class="form-control form-control-sm fleet-mono" type="password" autocomplete="new-password" placeholder="leave blank to keep stored token" />
+            <div class="form-text" id="fleet-edge-cache-token-hint"></div>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small mb-0" for="fleet-edge-cache-routes">Fleet route TTLs (JSON array)</label>
+            <textarea id="fleet-edge-cache-routes" class="form-control form-control-sm fleet-mono" rows="6"></textarea>
+          </div>
+          <div class="d-flex flex-wrap gap-2 mb-2">
+            <button type="button" class="btn btn-sm btn-primary" id="fleet-edge-cache-save">Save cache policy</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-edge-cache-sync">Sync to Cloudflare</button>
+          </div>
+          <pre class="fleet-mono small p-2 rounded border bg-body-secondary mb-2" id="fleet-edge-cache-sync-out" style="max-height: 6rem; overflow: auto">—</pre>
+          <pre class="fleet-mono small p-2 rounded border bg-body-secondary mb-0" id="fleet-edge-cache-gateways" style="max-height: 8rem; overflow: auto">—</pre>
+        </section>
         <div id="fleet-settings-edge-recipes"></div>
         <div class="d-flex flex-wrap gap-2 mt-2">
           <button type="button" class="btn btn-sm btn-outline-primary" id="fleet-edge-verify-public">Verify public health</button>
@@ -6256,7 +6294,10 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         btn.classList.toggle("active", btn.getAttribute("data-fleet-settings-tab") === name);
       });
       if (name === "commands") fleetSettingsRenderRecipes(__fleetUiRecipes);
-      if (name === "edge") fleetSettingsRenderEdgeRecipes(__fleetEdgeRecipes);
+      if (name === "edge") {
+        fleetSettingsRenderEdgeRecipes(__fleetEdgeRecipes);
+        fleetEdgeCacheRefreshFromDom();
+      }
       if (name === "capacity") fleetCapacityLoad();
     }
 
@@ -6310,6 +6351,93 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       var edgeTab = document.getElementById("fleet-settings-tab-edge-wrap");
       if (wrap && server) wrap.classList.toggle("d-none", !server.checked);
       if (edgeTab && server) edgeTab.classList.toggle("d-none", !server.checked);
+    }
+
+    function fleetEdgeCacheCollect() {
+      var routesRaw = ((document.getElementById("fleet-edge-cache-routes") || {}).value || "").trim();
+      var routes = [];
+      if (routesRaw) {
+        try {
+          routes = JSON.parse(routesRaw);
+        } catch (_e) {
+          routes = [];
+        }
+      }
+      return {
+        orchestrate: !!(document.getElementById("fleet-edge-cache-orchestrate") || {}).checked,
+        enabled: !!(document.getElementById("fleet-edge-cache-enabled") || {}).checked,
+        max_ttl_s: parseInt(((document.getElementById("fleet-edge-cache-max-ttl") || {}).value || "300"), 10) || 300,
+        zone_id: ((document.getElementById("fleet-edge-cache-zone-id") || {}).value || "").trim(),
+        routes: routes,
+        cloudflare_api_token: ((document.getElementById("fleet-edge-cache-token") || {}).value || "").trim(),
+      };
+    }
+
+    function fleetEdgeCacheApply(settings, gatewayList, sync) {
+      var edge = (settings && settings.edge) || {};
+      var cache = edge.cache || {};
+      var orch = document.getElementById("fleet-edge-cache-orchestrate");
+      var en = document.getElementById("fleet-edge-cache-enabled");
+      var maxT = document.getElementById("fleet-edge-cache-max-ttl");
+      var zone = document.getElementById("fleet-edge-cache-zone-id");
+      var routes = document.getElementById("fleet-edge-cache-routes");
+      var hint = document.getElementById("fleet-edge-cache-token-hint");
+      var syncOut = document.getElementById("fleet-edge-cache-sync-out");
+      var gwOut = document.getElementById("fleet-edge-cache-gateways");
+      if (orch) orch.checked = !!cache.orchestrate;
+      if (en) en.checked = !!cache.enabled;
+      if (maxT) maxT.value = String(cache.max_ttl_s != null ? cache.max_ttl_s : 300);
+      if (zone) zone.value = cache.zone_id || "";
+      if (routes) routes.value = JSON.stringify(cache.routes || [], null, 2);
+      if (hint) {
+        hint.textContent = cache.token_configured
+          ? "A token is stored on this host (not shown)."
+          : "No API token stored yet.";
+      }
+      var tok = document.getElementById("fleet-edge-cache-token");
+      if (tok) tok.value = "";
+      var syncDoc = sync || cache.sync || {};
+      if (syncOut) syncOut.textContent = JSON.stringify(syncDoc, null, 2);
+      if (gwOut) {
+        gwOut.textContent = JSON.stringify(gatewayList || [], null, 2);
+      }
+    }
+
+    function fleetEdgeCacheRefreshFromDom() {
+      /* no-op placeholder when tab opens before load */
+    }
+
+    function fleetEdgeCacheSave() {
+      var out = document.getElementById("fleet-edge-cache-sync-out");
+      var payload = fleetSettingsCollectPayload();
+      payload.edge = payload.edge || {};
+      payload.edge.cache = fleetEdgeCacheCollect();
+      return fleetApi("/v1/operator/ui-settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+        .then(function (res) { return res.json().then(function (j) { return { res: res, j: j }; }); })
+        .then(function (pack) {
+          if (pack.j && pack.j.settings) fleetSettingsApplyToForm(pack.j.settings);
+          fleetEdgeCacheApply(
+            pack.j.settings,
+            pack.j.gateway_edge_cache,
+            pack.j.sync || (pack.j.settings && pack.j.settings.edge && pack.j.settings.edge.cache && pack.j.settings.edge.cache.sync)
+          );
+          if (out) out.textContent = pack.res.ok ? JSON.stringify(pack.j.sync || {}, null, 2) : JSON.stringify(pack.j, null, 2);
+          return pack;
+        });
+    }
+
+    function fleetEdgeCacheSyncOnly() {
+      var out = document.getElementById("fleet-edge-cache-sync-out");
+      return fleetApi("/v1/admin/edge-cache/sync", { method: "POST" })
+        .then(function (res) { return res.json().then(function (j) { return { res: res, j: j }; }); })
+        .then(function (pack) {
+          if (out) out.textContent = JSON.stringify(pack.j.sync || pack.j, null, 2);
+          return fleetSettingsLoad();
+        });
     }
 
     function fleetSettingsRenderEdgeRecipes(recipes) {
@@ -6539,6 +6667,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
           __fleetEdgeRecipes = j.edge_recipes || [];
           fleetSettingsRenderRecipes(__fleetUiRecipes);
           fleetSettingsRenderEdgeRecipes(__fleetEdgeRecipes);
+          fleetEdgeCacheApply(j.settings, j.gateway_edge_cache, j.sync);
           return j;
         });
     }
@@ -6689,6 +6818,19 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
           .catch(function (e) {
             if (out) out.textContent = String(e);
           });
+      });
+    }
+
+    var fleetEdgeCacheSaveBtn = document.getElementById("fleet-edge-cache-save");
+    if (fleetEdgeCacheSaveBtn) {
+      fleetEdgeCacheSaveBtn.addEventListener("click", function () {
+        fleetEdgeCacheSave();
+      });
+    }
+    var fleetEdgeCacheSyncBtn = document.getElementById("fleet-edge-cache-sync");
+    if (fleetEdgeCacheSyncBtn) {
+      fleetEdgeCacheSyncBtn.addEventListener("click", function () {
+        fleetEdgeCacheSyncOnly();
       });
     }
 

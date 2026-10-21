@@ -38,3 +38,4 @@ curl -fsS -X PUT \
   "${BASE}/v1/app-gateways/${SERVICE_ID}" | python3 -m json.tool
 
 log "gateway registered — health probe: ${BASE}/v1/app-gateways/${SERVICE_ID}/health"
+bash "$ROOT/scripts/register-market-studio-edge-cache.sh" "$SERVICE_ID"
