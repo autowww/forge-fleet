@@ -21,10 +21,25 @@
 | Day-two checks (`systemctl`, SQLite, rotations) | **[Operations runbook](02-operations-runbook.md)** |
 | Dispatcher diagrams + data paths | **[Architecture](03-architecture.md)** |
 | Symptom → fix ladders | **[Troubleshooting](04-troubleshooting.md)** · start at symptom headings |
-| Release scripts + **`git-self-update`** interplay | **[Upgrade & remote operations](05-upgrade-release-and-remote-update.md)** |
+| Cooperative upgrade (`POST /v1/admin/upgrade`) + apt channel | **[Upgrade & remote operations](05-upgrade-release-and-remote-update.md)** |
 | Backup / DR posture | **[Backup, restore & DR](06-backup-restore-and-disaster-recovery.md)** |
 | Telemetry, SLOs, alerting | **[Observability & SLOs](07-observability-and-slos.md)** |
 | Production / enterprise go-live | **[Enterprise deployment checklist](08-enterprise-deployment-checklist.md)** |
+| Disk self-healing (Space Guardian) | **[Space Guardian](../maintainers/06-space-guardian.md)** |
+| RAM parking (Memory Guardian) | **[Memory Guardian](../maintainers/07-memory-guardian.md)** |
+| Host cleanup inventory / apply | **`GET /v1/admin/cleanup-inventory`**, **`POST /v1/admin/cleanup`** — [HTTP API](../reference/01-http-api-reference.md) |
+| Fleet environment provisioning | **[Environments](../operate/environments.md)** · ADR **[Fleet environments](../adr/adr-fleet-environments.md)** |
+| Laptop ↔ Granite admin federation | **[Distributed nodes](../operate/distributed-nodes.md)** |
+| Git install channel → apt | **[Migrate installations to apt](../operate/migrate-installations-to-apt.md)** |
+
+### Granite host runbooks (operator-specific)
+
+| Topic | Page |
+|------|------|
+| Fleet upgrade without routine SSH | **[Granite Fleet upgrade (API only)](../operate/granite-fleet-upgrade-only-ssh.md)** |
+| Market Studio cutover | **[Granite Market Studio cutover](../operate/granite-market-studio-cutover.md)** |
+| Market Studio dev / N-env / edge | **[Dev](../operate/granite-market-studio-dev.md)** · **[Environments](../operate/granite-market-studio-environments.md)** · **[Edge plane](../operate/granite-market-edge-plane.md)** |
+| Postgres on Granite | **[Granite Postgres (PG-A)](../operate/granite-postgres-pg-a.md)** |
 
 Release notes (**`CHANGELOG.md`**) complement this section—particularly **`### Host operator`** blocks paired with **`docs/host-operator-steps.json`** and **`scripts/fleet-host-upgrade-hints.sh`** when upgrading bare-metal installs.
 

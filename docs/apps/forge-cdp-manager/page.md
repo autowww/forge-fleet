@@ -66,4 +66,4 @@ See [CDP-OPERATOR-RUNBOOK.md](https://github.com/autowww/forge-cdp-manager/blob/
 ## See also
 
 - Upstream repo: [forge-cdp-manager](https://github.com/autowww/forge-cdp-manager)
-- Protocol: [Fleet Apps](../build-201/03-fleet-apps-protocol.md)
+- Protocol: [Fleet Apps](../../build-201/03-fleet-apps-protocol.md)

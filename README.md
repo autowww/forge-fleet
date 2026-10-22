@@ -38,9 +38,15 @@ Fleet exposes JSON under **`/v1/`** and a browser dashboard at **`/admin/`**:
 - **Version and templates** — `GET /v1/version`, `GET /v1/templates`
 - **Host health and history** — `GET /v1/health`, `GET /v1/telemetry`, `GET /v1/cooldown-summary`, `POST /v1/cooldown-events`
 - **Jobs and probes** — `POST /v1/jobs`, `PUT /v1/jobs/{id}/workspace`, `GET /v1/jobs/{id}`, `POST /v1/jobs/{id}/cancel`, `POST /v1/admin/test-fleet`, `POST /v1/containers/dispose`
-- **Operator snapshot** — `GET /v1/admin/snapshot`
-- **Container catalog and managed services** — `GET /v1/container-types`, `/v1/container-services/*`, legacy `/v1/services/forge-llm/*`
-- **Cooperative upgrade** — `POST /v1/admin/upgrade` (apt package on production; local git dev optional). **`POST /v1/admin/git-self-update`** is **deprecated** (returns 400). Remote bumps: publish apt CDN + **`require_apt_channel: true`** ([HTTP API reference](docs/reference/01-http-api-reference.md)).
+- **Operator snapshot** — `GET /v1/admin/snapshot`, cleanup inventory/apply, rollout logs, app deployment status
+- **Capacity guardians** — Space Guardian (`GET/POST /v1/admin/space*`), Memory Guardian (`GET/POST /v1/admin/memory*`), policy (`GET/PUT /v1/admin/capacity/policy`)
+- **Environments** — `GET/POST /v1/environments`, templates, provision log, telemetry strip for dock UI
+- **Mesh and remote peers** — `GET /v1/mesh/capacity`, `GET/PUT /v1/remote-peers/*`, read-only proxy routes
+- **App gateways** — `GET/PUT /v1/app-gateways/{id}` loopback proxy to Market Studio and other compose apps
+- **Migrations API** — `POST /v1/migrations`, chunked data-bundle upload, per-step run (Granite cutover)
+- **Container catalog and managed services** — `GET /v1/container-types`, `/v1/container-services/*`, managed-service rollouts, legacy `/v1/services/forge-llm/*`
+- **Fleet Apps (FAEP)** — catalog, install, upgrade, UI/data/actions handlers
+- **Cooperative upgrade** — lifecycle drain + `POST /v1/admin/upgrade` (apt or git channel). **`POST /v1/admin/git-self-update`** is **deprecated** (returns 400). Remote bumps: **`update-fleet.sh --remote-upgrade --publish-apt-cdn`** ([HTTP API reference](docs/reference/01-http-api-reference.md)).
 
 Detailed tables—including static **`/admin/…`** asset routes and host-metrics injection—live in **`[docs/reference/01-http-api-reference.md](docs/reference/01-http-api-reference.md)`**.
 

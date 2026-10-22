@@ -73,6 +73,38 @@ Values are **case-sensitive**. Empty/unset usually means “use default” where
 | **`FLEET_THERMAL_CPU_DEFAULT`** | Policy default tier behavior (**`thermal_llm_policy.py`**). |
 | **`FLEET_ARM_SOC_TJMAX_C`** | SoC thermal ceiling hint on ARM. |
 
+## Space and Memory guardians
+
+| Variable | Purpose |
+|----------|---------|
+| **`FLEET_SPACE_GUARDIAN`** | Enable Space Guardian scheduler (default **1**). |
+| **`FLEET_SPACE_INTERVAL_S`** | Tier 0 interval seconds (default **21600**). |
+| **`FLEET_SPACE_PRESSURE_FREE_PCT`** / **`FLEET_SPACE_PRESSURE_FREE_GB`** | Disk pressure thresholds. |
+| **`FLEET_VOLUME_QUARANTINE_DAYS`** / **`FLEET_VOLUME_SNAPSHOT_MAX_GB`** | Orphan volume quarantine TTL and snapshot cap. |
+| **`FLEET_LEGACY_BACKUP_ROOTS`** | Colon-separated Tier 1 legacy backup roots. |
+| **`FLEET_VOLUME_ALLOWLIST`** | Comma-separated Docker volume names never quarantined. |
+| **`FLEET_MEMORY_GUARDIAN`** | Enable Memory Guardian thread (default **1**). |
+| **`FLEET_MEMORY_INTERVAL_S`** | Memory pass interval (default **3600**). |
+
+## Request guard and app gateways
+
+| Variable | Purpose |
+|----------|---------|
+| **`FLEET_GUARD_MODE`** | **`enforce`** (default) or **`observe`** for request guard. |
+| **`FLEET_BEARER_DIRECT`** | Direct bearer mint policy (**`mint-only`**, etc.). |
+| **`FLEET_TRUSTED_PROXY_CIDRS`** | CIDRs allowed to set forwarded client IP. |
+| **`FLEET_APP_GATEWAY_CORS_ORIGINS`** | Comma-separated CORS origins for app gateway proxy. |
+| **`FLEET_APP_GATEWAY_PROXY_TIMEOUT_SEC`** | Upstream proxy timeout for app gateways. |
+
+## Lifecycle and upgrade
+
+| Variable | Purpose |
+|----------|---------|
+| **`FLEET_LIFECYCLE_QUEUED_BLOCK_MAX_AGE_SEC`** | Stale queued jobs no longer block cooperative upgrade. |
+| **`FLEET_STOP_GRACE_SEC`** | Dependent drain grace (default **25**). |
+| **`FLEET_LIFECYCLE_EXTRA`** | Extra loopback lifecycle dependents JSON. |
+| **`FLEET_REMOTE_UPGRADE_REQUIRE_APT`** | When set, remote upgrade paths prefer apt channel. |
+
 ## See also
 
 - **[SECURITY.md](../operate-301/01-security.md)** — sensitivity and threat notes  

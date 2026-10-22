@@ -10,6 +10,14 @@ landing_blocks:
         body: venv, Compose, first verification
         href: ../learn-101/02-install-run-local-dev.md
       - persona: Host ops
+        title: Apt install
+        body: packages.forgesdlc.com, no git clone
+        href: ../learn-101/09-operator-apt-install.md
+      - persona: Remote
+        title: Connect remote Fleet
+        body: bearer, Connect wizard, Granite scope
+        href: ../learn-101/08-connect-remote-fleet.md
+      - persona: Host bootstrap
         title: Host bootstrap
         body: systemd, Docker on fresh machine
         href: ../learn-101/03-host-bootstrap.md

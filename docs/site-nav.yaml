@@ -29,8 +29,11 @@ top_level:
   - id: operate
     label: Operate
     hub_href_md: docs/operate-301/README.md
-    sidebar_prefix: docs/operate-301/
-    dropdown_max_items: 14
+    sidebar_prefixes:
+      - docs/operate-301/
+      - docs/operate/
+      - docs/adr/
+    dropdown_max_items: 20
   - id: reference
     label: Reference
     hub_href_md: docs/reference/README.md

@@ -49,8 +49,29 @@ Feature docs (details beyond this table): [CONTAINER-TEMPLATES.md](../build-201/
 | POST | `/v1/migrations` | bearer | Create a migration session (step kinds from body/recipe). |
 | GET | `/v1/migrations/{id}` | bearer | Session status, bundle digests, per-step state. |
 | PUT | `/v1/migrations/{id}/data-bundle` | bearer | Upload gzip tarball (or chunked session — see migration API). |
+| PUT | `/v1/migrations/{id}/data-bundle/chunks/{n}` | bearer | Upload one chunk of a large data bundle (64 MiB chunks). |
+| POST | `/v1/migrations/{id}/data-bundle/chunks/complete` | bearer | Finalize chunked upload and assemble bundle. |
 | POST | `/v1/migrations/{id}/steps/{step_id}/run` | bearer | Run one step; `register_edge_route` completes in-process as an app gateway. |
 | POST | `/v1/migrations/{id}/cancel` | bearer | Cancel pending steps and linked jobs. |
+| GET | `/v1/environments` | bearer | List provisioned environments (auto-adopts existing Market Studio stacks). |
+| GET | `/v1/environments/templates` | bearer | Environment templates for `POST /v1/environments`. |
+| POST | `/v1/environments` | bearer | Provision environment (`seed`: `clean` or `replicate`). |
+| GET | `/v1/environments/provision-log` | bearer | Async provision progress log. |
+| GET | `/v1/flows` | bearer | List automation flows registered on this host. |
+| POST | `/v1/flows/submit` | bearer | Submit a flow run (body: flow id + inputs). |
+| POST | `/v1/fleet-apps/upgrade` | bearer | Upgrade installed app from catalog (`app_id`, optional `version`). |
+| GET | `/v1/fleet-apps/{id}/about` | bearer | Installed app metadata for remote peer proxy and About UI. |
+| GET | `/v1/admin/app-deployments/{sid}` | bearer | App deployment / rollout status for service id. |
+| GET | `/v1/admin/forge-llm-rollout-log` | bearer | Tail Forge LLM control-plane rollout log. |
+| POST | `/v1/admin/forge-llm-control-plane-rollout` | bearer | Queue Forge LLM gateway control-plane rollout. |
+| POST | `/v1/admin/forge-market-studio-rollout` | bearer | Queue Forge Market Studio rollout (schema migrate gate, backup verify). |
+| GET | `/v1/admin/forge-market-studio-rollout-log` | bearer | Tail Market Studio rollout log. |
+| GET | `/v1/admin/forge-market-studio-rollout-contract` | bearer | Rollout contract JSON (steps, env, paths). |
+| POST | `/v1/admin/forge-market-rollout-slot/release` | bearer | Emergency release of Market rollout serialization slot. |
+| PUT | `/v1/admin/forge-market-source-overlay` | bearer | Gzip source overlay tarball for Market Studio dev/prod trees. |
+| POST | `/v1/admin/forge-market-pattern-rollups-backfill` | bearer | Queue pattern cell rollups backfill job. |
+| GET | `/v1/admin/forge-market-pattern-rollups-backfill-log` | bearer | Tail backfill log. |
+| POST | `/v1/admin/sync-container-types` | bearer | Refresh `types.json` from packaged defaults. |
 | GET | `/v1/host/processes` | bearer | Top host processes (`limit`, `sort=cpu|mem|pid`); Linux `/proc` sampler. |
 | GET | `/v1/operator/ui-settings` | bearer | Operator UI settings + command recipes + edge checklists (`edge_recipes`). Includes `settings.edge.cache` (no API token), `gateway_edge_cache` from app registrations. |
 | PUT | `/v1/operator/ui-settings` | bearer | Save operator UI settings; `edge.cache` controls origin TTLs and orchestrator sync. Write-only `cloudflare_api_token` stored in `etc/cloudflare-cache.json`. |
@@ -114,7 +135,7 @@ Feature docs (details beyond this table): [CONTAINER-TEMPLATES.md](../build-201/
 | DELETE | `/v1/container-services/{id}` | bearer | Delete; **409** if forge_llm still running. |
 | POST | `/v1/container-services/{id}/start` | bearer | **`docker compose up`** for **forge_llm** services. |
 | POST | `/v1/container-services/{id}/stop` | bearer | **`docker compose down`**. |
-| POST | `/v1/managed-services/{service_id}/rollout` | bearer | Generic rollout from [rollout_registry.json](../fleet_server/rollout_registry.json). Body: service overrides + `sync`. **409** when slot held. |
+| POST | `/v1/managed-services/{service_id}/rollout` | bearer | Generic rollout from [rollout_registry.json](../../fleet_server/rollout_registry.json). Body: service overrides + `sync`. **409** when slot held. |
 | PUT | `/v1/managed-services/{service_id}/source-overlay` | bearer | Gzip tarball overlay; layout marker from registry. Optional `?dest_root=`. |
 | GET | `/v1/managed-services/{service_id}/maintenance-status` | bearer | Rollout maintenance JSON (`maintenance`, `current_step`, `eta_sec`, `progress_pct`, `job_id`, `backup_path`, `backup_verified`, …). |
 | GET | `/v1/managed-services/{service_id}/rollout-log` | bearer | Tail of rollout log file for the service. |

@@ -58,5 +58,5 @@ Fleet's power is also its risk. A host-level Docker execution service must be tr
 
 ## Related
 
-- [Start here](../01-start-here.md)
-- [Forge Fleet README](../../README.md)
+- [Start here](../../start/01-start-here.md)
+- [Forge Fleet README](../../../README.md)

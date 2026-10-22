@@ -79,6 +79,8 @@ def _regex_to_openapi_paths(patt: str) -> list[str]:
         s = s.replace("([^/]+)", "{id}", 1)
     while "(.+)" in s:
         s = s.replace("(.+)", "{path}", 1)
+    while r"(\d+)" in s:
+        s = s.replace(r"(\d+)", "{n}", 1)
 
     if "(" in s or ")" in s:
         raise ValueError(f"Unnormalized route regex: {patt!r}")

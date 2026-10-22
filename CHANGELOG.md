@@ -4,6 +4,92 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.145] - 2026-10-22
+
+### Changed
+
+- Handbook refresh for fleet.forgesdlc.com: operate nav covers **`docs/operate/`** and **`docs/adr/`**, admin dashboard tour, API reference gaps closed, OpenAPI parity restored (**129** routes).
+
+## [0.3.139] - 2026-10-15
+
+### Added
+
+- **Capacity** admin tab: Space Guardian + Memory Guardian UI, policy editor, mesh/security panels on **`/admin/`**.
+
+### Host operator
+
+- Apt **`forge-fleet`** / **`forge-fleet-user`** debs ship memory guardian daemon wiring when policy **`apply_stops`** is enabled.
+
+## [0.3.127] - 2026-09-28
+
+### Added
+
+- **Space Guardian** self-healing disk tiers: **`GET/POST /v1/admin/space*`**, orphan volume quarantine, app GC inventory — [`docs/maintainers/06-space-guardian.md`](docs/maintainers/06-space-guardian.md).
+
+## [0.3.118] - 2026-09-14
+
+### Changed
+
+- Fleet **apt CDN only** for production debs (**packages.forgesdlc.com**); **`update-fleet.sh --publish-apt-cdn`** integrated into release workflow.
+
+### Host operator
+
+- Production hosts should migrate git installs to apt — [`docs/learn-101/10-migrate-to-apt.md`](docs/learn-101/10-migrate-to-apt.md).
+
+## [0.3.107] - 2026-09-02
+
+### Added
+
+- **Pattern cell rollups backfill** admin API: **`POST /v1/admin/forge-market-pattern-rollups-backfill`**.
+
+## [0.3.99] - 2026-08-22
+
+### Added
+
+- **N-environment** Forge Market Studio rollout on Granite; environment telemetry on admin snapshot and **`GET /v1/environments/telemetry`**.
+
+## [0.3.96] - 2026-08-18
+
+### Added
+
+- **Fleet environments API** (`GET/POST /v1/environments`, templates, provision log) — ADR [`docs/adr/adr-fleet-environments.md`](docs/adr/adr-fleet-environments.md).
+
+## [0.3.135] - 2026-10-08
+
+### Fixed
+
+- Cooperative **upgrade** resumes every dependent after upgrade ends or aborts; stale queued jobs no longer veto upgrades indefinitely.
+
+## [0.3.133] - 2026-10-06
+
+### Added
+
+- **Remote Fleet upgrade** completes via **`POST /v1/admin/upgrade`** on git-channel hosts (no operator SSH); **`allow_git_fallback`** + apt CDN publish from **`update-fleet.sh`**.
+
+## [0.3.82] - 2026-07-28
+
+### Added
+
+- **Migrations API** (`POST /v1/migrations`, chunked data-bundle upload) for Granite Market cutover — [`docs/build-201/09-migration-api.md`](docs/build-201/09-migration-api.md).
+
+## [0.3.81] - 2026-07-27
+
+### Added
+
+- Chunked migration data-bundle upload (**64 MiB** chunks).
+
+## [0.3.80] - 2026-07-26
+
+### Added
+
+- **GW-2** **`/v1/migrations`** API scaffold for managed compose cutover recipes.
+
+## [0.3.68] - 2026-06-02
+
+### Added
+
+- Handbook **Start** hub role-path rail, doc-hydration example job template, standout learn guide.
+
 ## [0.3.61] - 2026-05-17
 
 ### Changed

@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Forge Fleet HTTP API",
-    "version": "0.3.61",
+    "version": "0.3.145",
     "description": "HTTP API for forge-fleet (fleet_server). Bearer auth on /v1 unless listen loopback-only and token unset; workspace-worker routes use X-Workspace-Worker-Token. Narrative handbook: docs/reference/01-http-api-reference.md."
   },
   "servers": [
@@ -2918,6 +2918,3443 @@
                 "schema": {
                   "$ref": "#/components/schemas/FleetJsonSuccess"
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/session/{id}": {
+      "delete": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "DELETE /v1/auth/session/{id}",
+        "operationId": "deleteV1AuthSessionById",
+        "description": "DELETE /v1/auth/session/{id}. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/managed-services/{id}/maintenance-status": {
+      "delete": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "DELETE /v1/managed-services/{id}/maintenance-status",
+        "operationId": "deleteV1ManagedServicesByIdMaintenanceStatus",
+        "description": "DELETE /v1/managed-services/{id}/maintenance-status. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "GET /v1/managed-services/{id}/maintenance-status",
+        "operationId": "getV1ManagedServicesByIdMaintenanceStatus",
+        "description": "GET /v1/managed-services/{id}/maintenance-status. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/managed-services/{id}/rollout-slot": {
+      "delete": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "DELETE /v1/managed-services/{id}/rollout-slot",
+        "operationId": "deleteV1ManagedServicesByIdRolloutSlot",
+        "description": "DELETE /v1/managed-services/{id}/rollout-slot. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/remote-peers/{id}": {
+      "delete": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "DELETE /v1/remote-peers/{id}",
+        "operationId": "deleteV1RemotePeersById",
+        "description": "DELETE /v1/remote-peers/{id}. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "PUT /v1/remote-peers/{id}",
+        "operationId": "putV1RemotePeersById",
+        "description": "PUT /v1/remote-peers/{id}. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/apps/{id}/sessions/{id}/stream": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "GET /admin/apps/{id}/sessions/{id}/stream",
+        "operationId": "getAdminAppsByIdSessionsByIdStream",
+        "description": "GET /admin/apps/{id}/sessions/{id}/stream. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/admin/apps/{id}/surfaces/{id}/snapshot\\.jpg": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "GET /admin/apps/{id}/surfaces/{id}/snapshot\\.jpg",
+        "operationId": "getAdminAppsByIdSurfacesByIdSnapshotJpg",
+        "description": "GET /admin/apps/{id}/surfaces/{id}/snapshot\\.jpg. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/admin/capacity.js": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "GET /admin/capacity.js",
+        "operationId": "getAdminCapacityJs",
+        "description": "GET /admin/capacity.js. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/admin/capacity/policy": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "GET /v1/admin/capacity/policy",
+        "operationId": "getV1AdminCapacityPolicy",
+        "description": "GET /v1/admin/capacity/policy. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "PUT /v1/admin/capacity/policy",
+        "operationId": "putV1AdminCapacityPolicy",
+        "description": "PUT /v1/admin/capacity/policy. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/cleanup-inventory": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "GET /v1/admin/cleanup-inventory",
+        "operationId": "getV1AdminCleanupInventory",
+        "description": "GET /v1/admin/cleanup-inventory. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/admin/forge-llm-rollout-log": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "GET /v1/admin/forge-llm-rollout-log",
+        "operationId": "getV1AdminForgeLlmRolloutLog",
+        "description": "GET /v1/admin/forge-llm-rollout-log. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/admin/forge-market-pattern-rollups-backfill-log": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "GET /v1/admin/forge-market-pattern-rollups-backfill-log",
+        "operationId": "getV1AdminForgeMarketPatternRollupsBackfillLog",
+        "description": "GET /v1/admin/forge-market-pattern-rollups-backfill-log. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/admin/forge-market-studio-rollout-contract": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "GET /v1/admin/forge-market-studio-rollout-contract",
+        "operationId": "getV1AdminForgeMarketStudioRolloutContract",
+        "description": "GET /v1/admin/forge-market-studio-rollout-contract. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/admin/forge-market-studio-rollout-log": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "GET /v1/admin/forge-market-studio-rollout-log",
+        "operationId": "getV1AdminForgeMarketStudioRolloutLog",
+        "description": "GET /v1/admin/forge-market-studio-rollout-log. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/admin/install-channel": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "GET /v1/admin/install-channel",
+        "operationId": "getV1AdminInstallChannel",
+        "description": "GET /v1/admin/install-channel. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/admin/memory": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "GET /v1/admin/memory",
+        "operationId": "getV1AdminMemory",
+        "description": "GET /v1/admin/memory. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/admin/security/agent": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "GET /v1/admin/security/agent",
+        "operationId": "getV1AdminSecurityAgent",
+        "description": "GET /v1/admin/security/agent. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/admin/security/blocks": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "GET /v1/admin/security/blocks",
+        "operationId": "getV1AdminSecurityBlocks",
+        "description": "GET /v1/admin/security/blocks. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "POST /v1/admin/security/blocks",
+        "operationId": "postV1AdminSecurityBlocks",
+        "description": "POST /v1/admin/security/blocks. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/security/events": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "GET /v1/admin/security/events",
+        "operationId": "getV1AdminSecurityEvents",
+        "description": "GET /v1/admin/security/events. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/admin/space": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "GET /v1/admin/space",
+        "operationId": "getV1AdminSpace",
+        "description": "GET /v1/admin/space. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/admin/upgrade/readiness": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "GET /v1/admin/upgrade/readiness",
+        "operationId": "getV1AdminUpgradeReadiness",
+        "description": "GET /v1/admin/upgrade/readiness. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/admin/upgrade/status": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "GET /v1/admin/upgrade/status",
+        "operationId": "getV1AdminUpgradeStatus",
+        "description": "GET /v1/admin/upgrade/status. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/auth/sessions": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "GET /v1/auth/sessions",
+        "operationId": "getV1AuthSessions",
+        "description": "GET /v1/auth/sessions. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/capacity": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "GET /v1/capacity",
+        "operationId": "getV1Capacity",
+        "description": "GET /v1/capacity. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/fleet-apps/{id}/about": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "GET /v1/fleet-apps/{id}/about",
+        "operationId": "getV1FleetAppsByIdAbout",
+        "description": "GET /v1/fleet-apps/{id}/about. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/host/link-probe": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "GET /v1/host/link-probe",
+        "operationId": "getV1HostLinkProbe",
+        "description": "GET /v1/host/link-probe. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/host/processes": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "GET /v1/host/processes",
+        "operationId": "getV1HostProcesses",
+        "description": "GET /v1/host/processes. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/host/profile": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "GET /v1/host/profile",
+        "operationId": "getV1HostProfile",
+        "description": "GET /v1/host/profile. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/lifecycle/stop-readiness": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "GET /v1/lifecycle/stop-readiness",
+        "operationId": "getV1LifecycleStopReadiness",
+        "description": "GET /v1/lifecycle/stop-readiness. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/managed-services/{id}/rollout-log": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "GET /v1/managed-services/{id}/rollout-log",
+        "operationId": "getV1ManagedServicesByIdRolloutLog",
+        "description": "GET /v1/managed-services/{id}/rollout-log. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/mesh/capacity": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "GET /v1/mesh/capacity",
+        "operationId": "getV1MeshCapacity",
+        "description": "GET /v1/mesh/capacity. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/mesh/links": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "GET /v1/mesh/links",
+        "operationId": "getV1MeshLinks",
+        "description": "GET /v1/mesh/links. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/migrations/{id}": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "GET /v1/migrations/{id}",
+        "operationId": "getV1MigrationsById",
+        "description": "GET /v1/migrations/{id}. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/operator/ui-settings": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "GET /v1/operator/ui-settings",
+        "operationId": "getV1OperatorUiSettings",
+        "description": "GET /v1/operator/ui-settings. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "PUT /v1/operator/ui-settings",
+        "operationId": "putV1OperatorUiSettings",
+        "description": "PUT /v1/operator/ui-settings. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/services/{id}/vision": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "GET /v1/services/{id}/vision",
+        "operationId": "getV1ServicesByIdVision",
+        "description": "GET /v1/services/{id}/vision. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/admin/cleanup": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "POST /v1/admin/cleanup",
+        "operationId": "postV1AdminCleanup",
+        "description": "POST /v1/admin/cleanup. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/edge-cache/sync": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "POST /v1/admin/edge-cache/sync",
+        "operationId": "postV1AdminEdgeCacheSync",
+        "description": "POST /v1/admin/edge-cache/sync. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/forge-llm-control-plane-rollout": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "POST /v1/admin/forge-llm-control-plane-rollout",
+        "operationId": "postV1AdminForgeLlmControlPlaneRollout",
+        "description": "POST /v1/admin/forge-llm-control-plane-rollout. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/forge-market-pattern-rollups-backfill": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "POST /v1/admin/forge-market-pattern-rollups-backfill",
+        "operationId": "postV1AdminForgeMarketPatternRollupsBackfill",
+        "description": "POST /v1/admin/forge-market-pattern-rollups-backfill. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/forge-market-rollout-slot/release": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "POST /v1/admin/forge-market-rollout-slot/release",
+        "operationId": "postV1AdminForgeMarketRolloutSlotRelease",
+        "description": "POST /v1/admin/forge-market-rollout-slot/release. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/forge-market-studio-rollout": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "POST /v1/admin/forge-market-studio-rollout",
+        "operationId": "postV1AdminForgeMarketStudioRollout",
+        "description": "POST /v1/admin/forge-market-studio-rollout. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/memory/ensure-running": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "POST /v1/admin/memory/ensure-running",
+        "operationId": "postV1AdminMemoryEnsureRunning",
+        "description": "POST /v1/admin/memory/ensure-running. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/memory/run": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "POST /v1/admin/memory/run",
+        "operationId": "postV1AdminMemoryRun",
+        "description": "POST /v1/admin/memory/run. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/migration-scratch-gc": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "POST /v1/admin/migration-scratch-gc",
+        "operationId": "postV1AdminMigrationScratchGc",
+        "description": "POST /v1/admin/migration-scratch-gc. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/package-upgrade": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "POST /v1/admin/package-upgrade",
+        "operationId": "postV1AdminPackageUpgrade",
+        "description": "POST /v1/admin/package-upgrade. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/security/agent/test": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "POST /v1/admin/security/agent/test",
+        "operationId": "postV1AdminSecurityAgentTest",
+        "description": "POST /v1/admin/security/agent/test. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/space/approve": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "POST /v1/admin/space/approve",
+        "operationId": "postV1AdminSpaceApprove",
+        "description": "POST /v1/admin/space/approve. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/space/run": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "POST /v1/admin/space/run",
+        "operationId": "postV1AdminSpaceRun",
+        "description": "POST /v1/admin/space/run. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/sync-container-types": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "POST /v1/admin/sync-container-types",
+        "operationId": "postV1AdminSyncContainerTypes",
+        "description": "POST /v1/admin/sync-container-types. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/upgrade": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "POST /v1/admin/upgrade",
+        "operationId": "postV1AdminUpgrade",
+        "description": "POST /v1/admin/upgrade. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/session": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "POST /v1/auth/session",
+        "operationId": "postV1AuthSession",
+        "description": "POST /v1/auth/session. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/fleet-apps/upgrade": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "POST /v1/fleet-apps/upgrade",
+        "operationId": "postV1FleetAppsUpgrade",
+        "description": "POST /v1/fleet-apps/upgrade. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/host/profile/benchmark": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "POST /v1/host/profile/benchmark",
+        "operationId": "postV1HostProfileBenchmark",
+        "description": "POST /v1/host/profile/benchmark. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/lifecycle/prepare-stop": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "POST /v1/lifecycle/prepare-stop",
+        "operationId": "postV1LifecyclePrepareStop",
+        "description": "POST /v1/lifecycle/prepare-stop. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/lifecycle/resume": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "POST /v1/lifecycle/resume",
+        "operationId": "postV1LifecycleResume",
+        "description": "POST /v1/lifecycle/resume. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/managed-services/{id}/rollout": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "POST /v1/managed-services/{id}/rollout",
+        "operationId": "postV1ManagedServicesByIdRollout",
+        "description": "POST /v1/managed-services/{id}/rollout. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/mesh/offload/advise": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "POST /v1/mesh/offload/advise",
+        "operationId": "postV1MeshOffloadAdvise",
+        "description": "POST /v1/mesh/offload/advise. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/migrations": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "POST /v1/migrations",
+        "operationId": "postV1Migrations",
+        "description": "POST /v1/migrations. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/migrations/{id}/cancel": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "POST /v1/migrations/{id}/cancel",
+        "operationId": "postV1MigrationsByIdCancel",
+        "description": "POST /v1/migrations/{id}/cancel. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/migrations/{id}/data-bundle/finalize": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "POST /v1/migrations/{id}/data-bundle/finalize",
+        "operationId": "postV1MigrationsByIdDataBundleFinalize",
+        "description": "POST /v1/migrations/{id}/data-bundle/finalize. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/migrations/{id}/data-bundle/upload-session": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "POST /v1/migrations/{id}/data-bundle/upload-session",
+        "operationId": "postV1MigrationsByIdDataBundleUploadSession",
+        "description": "POST /v1/migrations/{id}/data-bundle/upload-session. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/migrations/{id}/steps/{id}/run": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "POST /v1/migrations/{id}/steps/{id}/run",
+        "operationId": "postV1MigrationsByIdStepsByIdRun",
+        "description": "POST /v1/migrations/{id}/steps/{id}/run. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/operator/verify-public-health": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "POST /v1/operator/verify-public-health",
+        "operationId": "postV1OperatorVerifyPublicHealth",
+        "description": "POST /v1/operator/verify-public-health. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/remote-peers/{id}/admin/edge-cache/sync": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "POST /v1/remote-peers/{id}/admin/edge-cache/sync",
+        "operationId": "postV1RemotePeersByIdAdminEdgeCacheSync",
+        "description": "POST /v1/remote-peers/{id}/admin/edge-cache/sync. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/remote-peers/{id}/probe": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "POST /v1/remote-peers/{id}/probe",
+        "operationId": "postV1RemotePeersByIdProbe",
+        "description": "POST /v1/remote-peers/{id}/probe. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/forge-market-source-overlay": {
+      "put": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "PUT /v1/admin/forge-market-source-overlay",
+        "operationId": "putV1AdminForgeMarketSourceOverlay",
+        "description": "PUT /v1/admin/forge-market-source-overlay. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/app-gateways/{id}/edge-cache": {
+      "put": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "PUT /v1/app-gateways/{id}/edge-cache",
+        "operationId": "putV1AppGatewaysByIdEdgeCache",
+        "description": "PUT /v1/app-gateways/{id}/edge-cache. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/managed-services/{id}/source-overlay": {
+      "put": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "PUT /v1/managed-services/{id}/source-overlay",
+        "operationId": "putV1ManagedServicesByIdSourceOverlay",
+        "description": "PUT /v1/managed-services/{id}/source-overlay. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/migrations/{id}/data-bundle": {
+      "put": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "PUT /v1/migrations/{id}/data-bundle",
+        "operationId": "putV1MigrationsByIdDataBundle",
+        "description": "PUT /v1/migrations/{id}/data-bundle. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/migrations/{id}/data-bundle/chunks/{n}": {
+      "put": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "PUT /v1/migrations/{id}/data-bundle/chunks/{n}",
+        "operationId": "putV1MigrationsByIdDataBundleChunksByN",
+        "description": "PUT /v1/migrations/{id}/data-bundle/chunks/{n}. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "n",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/remote-peers/{id}/operator/ui-settings": {
+      "put": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "PUT /v1/remote-peers/{id}/operator/ui-settings",
+        "operationId": "putV1RemotePeersByIdOperatorUiSettings",
+        "description": "PUT /v1/remote-peers/{id}/operator/ui-settings. Operator narrative: `docs/reference/01-http-api-reference.md`.",
+        "responses": {
+          "200": {
+            "description": "Success payload (see handbook for fields).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetJsonSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorJson"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FleetJsonSuccess"
               }
             }
           }

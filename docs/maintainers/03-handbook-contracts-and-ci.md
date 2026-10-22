@@ -16,8 +16,11 @@
 | **`check-docs-assets.py`** | Local image paths exist |
 | **`check-version-consistency.py`** | **`pyproject.toml`**, OpenAPI **`info.version`**, changelog head |
 | **`apply_openapi_contract.py`** | (Regenerate) add stable OpenAPI metadata — run after large route edits |
+| **`sync_openapi_stubs_from_main.py`** | Add minimal path stubs for routes missing from OpenAPI (then re-run contracts check) |
 
 **Aggregate:** **`bash scripts/check-docs-all.sh`**
+
+**Route parser:** **`check-docs-contracts.py`** normalises migration chunk regexes such as **`(\d+)`** → **`{n}`** when comparing **`main.py`** to OpenAPI paths.
 
 ## CI
 

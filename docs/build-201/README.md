@@ -25,6 +25,7 @@
 | Topic-based snippets (Python / TS / CI) | **[Examples library](../examples/README.md)** |
 | Copy‑paste **`curl`** / **`jq`** | **[Examples & recipes](05-examples-and-recipes.md)** |
 | Curated integrations index | **[Integration recipes hub](06-integration-recipes-index.md)** |
+| LCDL NN GPU worker images | **[LCDL NN GPU workers](07-lcdl-nn-gpu-workers.md)** |
 | Migration API (Granite cutover) | **[Migration API](09-migration-api.md)** |
 | Managed compose services (`forge_llm`, Market Studio) | **[Managed compose services](08-managed-compose-services.md)** |
 
