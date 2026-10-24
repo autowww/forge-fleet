@@ -973,6 +973,12 @@ class FleetHandler(BaseHTTPRequestHandler):
             data_dir_c = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
             self._send(200, capacity.mesh_capacity(data_dir_c))
             return
+        if path == "/v1/mesh/benchmarks":
+            from fleet_server import fmsbench_runs
+
+            data_dir_b = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            self._send(200, fmsbench_runs.comparison(data_dir_b))
+            return
         if path == "/v1/operator/ui-settings":
             data_dir = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
             self._send(200, operator_ui_settings.get_settings(data_dir))
@@ -1661,6 +1667,21 @@ class FleetHandler(BaseHTTPRequestHandler):
             )
             self._send_proxy_body(code, raw, ctype)
             return
+        m_remote_fms = re.match(r"^/v1/remote-peers/([^/]+)/host/profile/fmsbench$", path)
+        if m_remote_fms:
+            data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            peer_id = m_remote_fms.group(1)
+            profile = str(body.get("profile") or "smoke")
+            code, raw, ctype = remote_peers.proxy_json(
+                data_dir_p,
+                peer_id,
+                "/v1/host/profile/fmsbench",
+                method="POST",
+                body=json.dumps({"profile": profile}).encode("utf-8"),
+                timeout_s=60,
+            )
+            self._send_proxy_body(code, raw, ctype)
+            return
         m_remote_bench = re.match(r"^/v1/remote-peers/([^/]+)/host/profile/benchmark$", path)
         if m_remote_bench:
             data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
@@ -1681,6 +1702,14 @@ class FleetHandler(BaseHTTPRequestHandler):
             data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
             out, _err = host_profile.run_benchmark(data_dir_p)
             code = 200 if out.get("ok") else 429 if out.get("error") == "cooldown" else 503
+            self._send(code, out)
+            return
+        if path == "/v1/host/profile/fmsbench":
+            from fleet_server import fmsbench_runs
+
+            data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            profile = str(body.get("profile") or "smoke")
+            out, code = fmsbench_runs.start_run(data_dir_p, profile)
             self._send(code, out)
             return
         if path == "/v1/mesh/offload/advise":

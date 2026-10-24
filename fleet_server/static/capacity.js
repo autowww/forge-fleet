@@ -294,6 +294,11 @@
     return fmtBytes(n * 1e9);
   }
 
+  function rateOrDash(n) {
+    var v = Number(n);
+    return isFinite(v) ? v.toFixed(2) : "—";
+  }
+
   function scoreCell(n) {
     var v = Number(n);
     return isFinite(v) ? String(Math.round(v)) : "—";
@@ -353,9 +358,34 @@
     } else if (!scoresCurrent) {
       html += "<p class=\"mb-2\">Run benchmark again to update the Fleet mark and the memory and disk scores.</p>";
     }
+    html += "<p class=\"small fw-semibold mb-1 mt-3\">Market Studio benchmark</p>";
+    var fms = profile && profile.fmsbench && typeof profile.fmsbench === "object" ? profile.fmsbench : { status: "not_run" };
+    var fmsStatus = fms.status || "not_run";
+    html += "<p class=\"mb-2\">Status: <strong>" + esc(fmsStatus) + "</strong>";
+    if (fms.profile) html += " · profile " + esc(fms.profile);
+    if (fms.finished_at) {
+      try {
+        html += " · finished " + esc(new Date(fms.finished_at * 1000).toLocaleString());
+      } catch (_e2) { /* keep the status line */ }
+    }
+    html += "</p>";
+    if (fms.summary && typeof fms.summary === "object") {
+      var sum = fms.summary;
+      html +=
+        "<dl class=\"row mb-2\">" +
+        "<dt class=\"col-4\">PostgreSQL</dt><dd class=\"col-8\">" + esc(rateOrDash(sum.postgres_jobs_per_second)) + " bundles/s</dd>" +
+        "<dt class=\"col-4\">DuckDB</dt><dd class=\"col-8\">" + esc(rateOrDash(sum.duckdb_jobs_per_second)) + " bundles/s</dd>" +
+        "<dt class=\"col-4\">SQLite</dt><dd class=\"col-8\">" + esc(rateOrDash(sum.sqlite_jobs_per_second)) + " bundles/s</dd>" +
+        "<dt class=\"col-4\">Compute</dt><dd class=\"col-8\">" + esc(rateOrDash(sum.compute_rows_per_second)) + " rows/s</dd>" +
+        "</dl>";
+    } else if (fmsStatus === "not_run") {
+      html += "<p class=\"mb-2\">No Market Studio benchmark yet. Run one on this peer without changing the Fleet mark.</p>";
+    } else if (fms.detail || fms.error) {
+      html += "<p class=\"mb-2\">" + esc(fms.detail || fms.error) + "</p>";
+    }
     if (bench.fleet_mark != null) {
       html +=
-        "<p class=\"small fw-semibold mb-1\">What was measured</p>" +
+        "<p class=\"small fw-semibold mb-1\">What the Fleet mark measured</p>" +
         "<dl class=\"row mb-2\">" +
         "<dt class=\"col-4\">Single-core</dt><dd class=\"col-8\">Score " + esc(scoreCell(bench.cpu_single_mark)) + "</dd>" +
         "<dt class=\"col-4\">All cores</dt><dd class=\"col-8\">Score " + esc(scoreCell(bench.cpu_multi_mark)) + "</dd>" +
@@ -446,6 +476,7 @@
         .then(function (parts) {
           if (activePeerId() !== peer) return;
           renderMesh(parts[0], parts[1]);
+          loadCompare();
         })
         .catch(function (e) {
           if (activePeerId() !== peer) return;
@@ -486,6 +517,7 @@
         renderMemory(parts[1], parts[2]);
         renderMesh(parts[3], parts[4]);
         renderSecurity(parts[5], parts[6]);
+        loadCompare();
       })
       .catch(function (e) {
         setMsg("fleet-capacity-msg", String(e), true);
@@ -585,6 +617,60 @@
       });
   }
 
+  function loadCompare() {
+    var root = document.getElementById("fleet-capacity-compare-body");
+    if (!root) return;
+    fleetApi("/v1/mesh/benchmarks")
+      .then(function (r) {
+        return r.json().then(function (j) {
+          if (!r.ok) throw new Error((j && j.error) || "HTTP " + r.status);
+          return j;
+        });
+      })
+      .then(function (j) {
+        renderCompare(j);
+      })
+      .catch(function (e) {
+        root.textContent = "Could not load the comparison: " + (e && e.message ? e.message : e);
+      });
+  }
+
+  function renderCompare(doc) {
+    var root = document.getElementById("fleet-capacity-compare-body");
+    if (!root) return;
+    var rows = doc && doc.rows ? doc.rows : [];
+    if (!rows.length) {
+      root.textContent = "No peers to compare.";
+      return;
+    }
+    var html = "<table class=\"table table-sm mb-0\"><thead><tr>" +
+      "<th>Peer</th><th>Fleet mark</th><th>Market Studio</th><th>PostgreSQL</th><th>DuckDB</th><th>SQLite</th><th>Compute</th>" +
+      "</tr></thead><tbody>";
+    rows.forEach(function (row) {
+      var fleet = row.fleet || {};
+      var fms = row.fmsbench || {};
+      var sum = fms.summary || {};
+      var who = row.label || row.peer_id || "peer";
+      if (row.node_id && row.node_id !== who) who += " (" + row.node_id + ")";
+      var fmsCell = fms.status || "not_run";
+      if (fms.profile && fms.status === "passed") fmsCell += " · " + fms.profile;
+      if (row.error) fmsCell = row.error;
+      html += "<tr><td>" + esc(who) + "</td><td>" + esc(scoreCell(fleet.fleet_mark)) + "</td><td>" +
+        esc(fmsCell) + "</td><td>" + esc(rateOrDash(sum.postgres_jobs_per_second)) + "</td><td>" +
+        esc(rateOrDash(sum.duckdb_jobs_per_second)) + "</td><td>" + esc(rateOrDash(sum.sqlite_jobs_per_second)) +
+        "</td><td>" + esc(rateOrDash(sum.compute_rows_per_second)) + "</td></tr>";
+    });
+    html += "</tbody></table>";
+    root.innerHTML = html;
+  }
+
+  function setFmsStatus(text, isErr) {
+    var el = document.getElementById("fleet-cap-fms-status");
+    if (!el) return;
+    el.textContent = text || "";
+    el.className = "small mb-0 mt-1 " + (isErr ? "text-danger" : "text-body-secondary");
+  }
+
   function wireCapacityUi() {
     var tabBtn = document.getElementById("fleet-tab-capacity-btn");
     if (tabBtn) {
@@ -635,7 +721,46 @@
           })
           .finally(function () {
             benchBtn.disabled = false;
-            benchBtn.textContent = "Run benchmark";
+            benchBtn.textContent = "Run Fleet mark";
+          });
+      });
+    }
+    var fmsBtn = document.getElementById("fleet-cap-fms-btn");
+    if (fmsBtn) {
+      fmsBtn.addEventListener("click", function () {
+        if (fmsBtn.disabled) return;
+        var peer = activePeerId();
+        var path = peer
+          ? "/v1/remote-peers/" + encodeURIComponent(peer) + "/host/profile/fmsbench"
+          : "/v1/host/profile/fmsbench";
+        var sel = document.getElementById("fleet-cap-fms-profile");
+        var profile = sel && sel.value ? sel.value : "smoke";
+        var who = peer ? scopePeerLabel() : "this host";
+        fmsBtn.disabled = true;
+        fmsBtn.textContent = "Starting Market Studio benchmark…";
+        setFmsStatus("Starting on " + who + " (" + profile + "). The Fleet mark is left unchanged.");
+        fleetApi(path, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ profile: profile }),
+        })
+          .then(function (r) {
+            return r.json().then(function (j) {
+              if (!r.ok) throw new Error((j && (j.detail || j.error)) || r.statusText);
+              return j;
+            });
+          })
+          .then(function (j) {
+            var status = j && j.status ? j.status : "running";
+            setFmsStatus("Market Studio benchmark " + status + " on " + who + ". Fleet mark was not changed.");
+            refreshCapacity();
+          })
+          .catch(function (e) {
+            setFmsStatus(e && e.message ? e.message : String(e), true);
+          })
+          .finally(function () {
+            fmsBtn.disabled = false;
+            fmsBtn.textContent = "Run Market Studio benchmark";
           });
       });
     }

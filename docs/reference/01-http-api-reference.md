@@ -30,8 +30,10 @@ Feature docs (details beyond this table): [CONTAINER-TEMPLATES.md](../build-201/
 | POST | `/v1/auth/session` | bearer | Mint signed session (`session_id`, `session_secret`, scopes). Use `X-Fleet-Session` + `X-Fleet-Sig` on later calls. |
 | GET | `/v1/auth/sessions` | admin | List active sessions. |
 | DELETE | `/v1/auth/session/{id}` | admin | Revoke session. |
-| GET | `/v1/host/profile` | `read:profile` | Hardware snapshot, Fleet mark benchmark, 5m rollup history (`period=1h\|24h\|7d`). |
-| POST | `/v1/host/profile/benchmark` | admin | Run bounded Fleet-mark benchmark (cooldown). |
+| GET | `/v1/host/profile` | `read:profile` | Hardware snapshot, Fleet mark (`benchmark`), Market Studio benchmark (`fmsbench`, separate file), 5m rollup history (`period=1h\|24h\|7d`). |
+| POST | `/v1/host/profile/benchmark` | admin | Run bounded Fleet-mark benchmark (cooldown). Does not write the Market Studio result. |
+| POST | `/v1/host/profile/fmsbench` | admin | Start FMSBench on this host. Body `{"profile":"smoke"\|"micro"\|"standard"\|"large"}`. Returns 202 while the run continues. Result is `etc/fmsbench-result.json`, not the Fleet mark. |
+| GET | `/v1/mesh/benchmarks` | `read:profile` | This host plus each remote peer, with Fleet mark and FMSBench in separate columns. |
 | GET | `/v1/host/link-probe` | `read:links` | Fixed 1 MiB body for throughput probes (`Cache-Control: no-store`). |
 | GET | `/v1/mesh/links` | `read:links` | Peer RTT/throughput samples (1h/24h stats). |
 | POST | `/v1/mesh/offload/advise` | `mesh:advise` | Rank local vs peers for CPU+transfer workload (`cpu_seconds`, `transfer_mb`, `service_id`). |
@@ -94,7 +96,8 @@ Feature docs (details beyond this table): [CONTAINER-TEMPLATES.md](../build-201/
 | GET | `/v1/remote-peers/{id}/capacity` | bearer | Proxy to peer `GET /v1/capacity`. |
 | GET | `/v1/remote-peers/{id}/host/profile` | bearer | Proxy to peer `GET /v1/host/profile`. |
 | GET | `/v1/remote-peers/{id}/mesh/links` | bearer | Proxy to peer `GET /v1/mesh/links`. |
-| POST | `/v1/remote-peers/{id}/host/profile/benchmark` | bearer | Proxy to peer `POST /v1/host/profile/benchmark` (runs on that peer). |
+| POST | `/v1/remote-peers/{id}/host/profile/benchmark` | bearer | Proxy to peer `POST /v1/host/profile/benchmark` (Fleet mark on that peer). |
+| POST | `/v1/remote-peers/{id}/host/profile/fmsbench` | bearer | Proxy to peer `POST /v1/host/profile/fmsbench` (Market Studio benchmark on that peer). |
 | GET | `/v1/admin/snapshot` | bearer | Jobs, integrations, host, **`jobs_recent`** paging (`jobs_limit`, `jobs_offset`), thermal advisory, self-update meta. |
 | GET | `/v1/environments/telemetry` | bearer | Per-environment Postgres **`docker stats`** rows for ready envs (same shape as **`meta.integrations.environment_telemetry`** in snapshot). |
 | GET | `/v1/cooldown-summary` | bearer | Query **`period=`** required (same values as **`/v1/telemetry`**). |

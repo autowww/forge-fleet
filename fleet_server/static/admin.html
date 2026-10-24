@@ -512,8 +512,26 @@
           <div class="card-body">
             <h2 class="h6 text-uppercase text-body-secondary mb-3" id="fleet-cap-profile-title">Host profile &amp; mesh links</h2>
             <div id="fleet-capacity-mesh-body" class="small text-body-secondary">Open this tab to load Fleet mark and peer link stats.</div>
-            <button type="button" class="btn btn-sm btn-outline-primary mt-2" id="fleet-cap-bench-btn">Run benchmark</button>
+            <div class="d-flex flex-wrap gap-2 align-items-center mt-2">
+              <button type="button" class="btn btn-sm btn-outline-primary" id="fleet-cap-bench-btn">Run Fleet mark</button>
+              <button type="button" class="btn btn-sm btn-outline-primary" id="fleet-cap-fms-btn">Run Market Studio benchmark</button>
+              <label class="small mb-0" for="fleet-cap-fms-profile">Profile
+                <select id="fleet-cap-fms-profile" class="form-select form-select-sm d-inline-block w-auto">
+                  <option value="smoke" selected>smoke</option>
+                  <option value="micro">micro</option>
+                  <option value="standard">standard</option>
+                </select>
+              </label>
+            </div>
             <p id="fleet-cap-bench-status" class="small mb-0 mt-2" aria-live="polite"></p>
+            <p id="fleet-cap-fms-status" class="small mb-0 mt-1" aria-live="polite"></p>
+          </div>
+        </section>
+        <section class="card border-secondary-subtle shadow-sm mt-3">
+          <div class="card-body">
+            <h2 class="h6 text-uppercase text-body-secondary mb-2">Peer comparison</h2>
+            <p class="small text-body-secondary mb-2">Fleet mark and the Market Studio benchmark stay in separate columns. Neither score is converted into the other.</p>
+            <div id="fleet-capacity-compare-body" class="small text-body-secondary">Open this tab to load both benchmarks.</div>
           </div>
         </section>
         <section class="card border-secondary-subtle shadow-sm mt-3 fleet-capacity-local-only">

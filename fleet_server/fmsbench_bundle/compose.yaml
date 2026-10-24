@@ -1,0 +1,54 @@
+name: ${FMSBENCH_PROJECT:?run ./run.sh first}
+services:
+  postgres:
+    image: postgres:17
+    restart: "no"
+    environment:
+      POSTGRES_USER: fmsbench
+      POSTGRES_PASSWORD: ${FMSBENCH_PASSWORD:?run ./run.sh first}
+      POSTGRES_DB: fmsbench
+    command:
+      - postgres
+      - -c
+      - fsync=on
+      - -c
+      - full_page_writes=on
+      - -c
+      - synchronous_commit=on
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - max_parallel_workers=16
+      - -c
+      - max_worker_processes=24
+      - -c
+      - max_parallel_workers_per_gather=8
+      - -c
+      - max_connections=100
+    shm_size: '512mb'
+    volumes:
+      - ./work/pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fmsbench -d fmsbench"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+    networks: [bench_private]
+  runner:
+    build: .
+    restart: "no"
+    environment:
+      FMSBENCH_PG_DSN: postgresql://fmsbench:${FMSBENCH_PASSWORD:?run ./run.sh first}@postgres:5432/fmsbench
+      PYTHONUNBUFFERED: '1'
+    volumes:
+      - ./work:/benchwork
+      - ./results:/results
+      - ./baselines:/baselines:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [bench_private]
+    entrypoint: ["python", "bench_v2.py"]
+networks:
+  bench_private:
+    internal: true

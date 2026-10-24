@@ -41,6 +41,8 @@ ROUTE_SPECS: tuple[RouteSpec, ...] = (
     RouteSpec(_p("/v1/auth/session/[^/]+"), frozenset({"DELETE"}), "admin", "mutate", "auth_session_delete"),
     RouteSpec(_p("/v1/host/profile"), frozenset({"GET"}), "read:profile", "read", "host_profile_get"),
     RouteSpec(_p("/v1/host/profile/benchmark"), frozenset({"POST"}), "admin", "heavy", "host_profile_bench"),
+    RouteSpec(_p("/v1/host/profile/fmsbench"), frozenset({"POST"}), "admin", "heavy", "host_profile_fmsbench"),
+    RouteSpec(_p("/v1/mesh/benchmarks"), frozenset({"GET"}), "read:profile", "read", "mesh_benchmarks"),
     RouteSpec(_p("/v1/capacity"), frozenset({"GET"}), "read:capacity", "read", "capacity"),
     RouteSpec(_p("/v1/mesh/capacity"), frozenset({"GET"}), "read:capacity", "read", "mesh_capacity"),
     RouteSpec(_p("/v1/mesh/links"), frozenset({"GET"}), "read:links", "read", "mesh_links"),

@@ -84,11 +84,14 @@ def load_history(db_path: Path, period: str) -> dict[str, Any]:
 
 
 def profile_payload(data_dir: Path, db_path: Path, period: str = "24h") -> dict[str, Any]:
+    from fleet_server import fmsbench_runs
+
     prof = load_profile(data_dir) or {}
     return {
         "ok": True,
         "hardware": static_hardware(),
         "benchmark": prof.get("benchmark"),
+        "fmsbench": fmsbench_runs.public_view(data_dir),
         "measured_at": prof.get("measured_at"),
         "history": load_history(db_path, period),
         "period": period,
@@ -110,11 +113,14 @@ def run_benchmark(data_dir: Path) -> tuple[dict[str, Any], str | None]:
         return {"ok": False, "error": "benchmark_timeout"}, None
     except Exception as exc:  # noqa: BLE001 — return JSON instead of dropping the HTTP connection
         return {"ok": False, "error": "benchmark_failed", "detail": str(exc)[:400]}, None
-    doc = {
-        "measured_at": now,
-        "hardware": static_hardware(),
-        "benchmark": bench,
-    }
+    from fleet_server import fmsbench_runs
+
+    doc = fmsbench_runs.fleet_profile_document(
+        load_profile(data_dir),
+        bench,
+        static_hardware(),
+        now,
+    )
     save_profile(data_dir, doc)
     _last_bench_at = now
     return {"ok": True, "benchmark": bench, "measured_at": now}, None
