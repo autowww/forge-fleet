@@ -111,3 +111,42 @@ def test_summary_ignores_fleet_mark() -> None:
     assert "fleet_mark" not in summary
     assert summary["postgres_jobs_per_second"] == 4.0
     assert summary["compute_rows_per_second"] == 10.0
+
+
+def test_live_phase_follows_the_log() -> None:
+    assert fmsbench_runs.current_phase("") == "Checking the host"
+    assert fmsbench_runs.current_phase("[benchmark] sqlite") == "SQLite SQL and concurrency"
+    assert fmsbench_runs.current_phase("NumPy numerical compute") == "NumPy compute"
+
+
+def test_fleet_progress_stays_out_of_the_fleet_mark(tmp_path: Path) -> None:
+    host_profile.write_benchmark_progress(tmp_path, {
+        "status": "running",
+        "kind": "fleet_mark",
+        "step": "memory",
+        "updated_at": 10**10,
+    })
+    assert host_profile.load_profile(tmp_path) is None
+    seen = host_profile.read_benchmark_progress(tmp_path)
+    assert seen is not None
+    assert seen["step"] == "memory"
+    assert "fmsbench" not in seen
+
+
+def test_stream_publishes_the_current_phase(tmp_path: Path) -> None:
+    import subprocess
+
+    proc = subprocess.Popen(
+        ["python3", "-c", "print('[benchmark] duckdb', flush=True)"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    fmsbench_runs.save_result(tmp_path, {"status": "running", "started_at": 1, "profile": "micro"})
+    log, code = fmsbench_runs._stream_run(tmp_path, "micro", proc, 10)
+    assert code == 0
+    assert "duckdb" in log
+    side = json.loads(fmsbench_runs.result_path(tmp_path).read_text(encoding="utf-8"))
+    assert side["status"] == "running"
+    assert side["phase"] == "DuckDB SQL and concurrency"
+    assert side["started_at"] == 1
+    assert "secret" not in side["log_excerpt"]

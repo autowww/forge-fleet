@@ -71,8 +71,14 @@ def _multi_times(procs: int, *, timeout_s: float = 180.0) -> list[float]:
         pool.join()
 
 
-def run_benchmark(data_dir: Path, *, disk_mb: int = 256, mem_cap_mb: int = 512) -> dict[str, Any]:
+def run_benchmark(data_dir: Path, *, disk_mb: int = 256, mem_cap_mb: int = 512, on_progress=None) -> dict[str, Any]:
+    def note(step: str, detail: str) -> None:
+        if on_progress is not None:
+            on_progress(step, detail)
+
+    note("cpu_single", "Single-core mix")
     single_t = _cpu_mix()
+    note("cpu_multi", "All cores, one process per CPU")
     cpu_single_mark = int((REF_CPU_SINGLE / max(single_t, 1e-6)) * 1000)
 
     procs = max(1, os.cpu_count() or 1)
@@ -80,6 +86,7 @@ def run_benchmark(data_dir: Path, *, disk_mb: int = 256, mem_cap_mb: int = 512) 
     multi_t = sum(multi_ts) / len(multi_ts)
     cpu_multi_mark = int((REF_CPU_MULTI / max(multi_t, 1e-6)) * 1000)
 
+    note("memory", "Memory copy")
     mem_mb = min(mem_cap_mb, 512)
     buf = bytearray(mem_mb * 1024 * 1024)
     times = []
@@ -93,6 +100,7 @@ def run_benchmark(data_dir: Path, *, disk_mb: int = 256, mem_cap_mb: int = 512) 
     mem_mbps = (mem_mb * 2) / max(mem_t, 1e-6)
     memory_mark = int((mem_mbps / REF_MEM_MBPS) * 1000)
 
+    note("disk", "256 MB file read and write")
     disk_path = data_dir / "bench-tmp.dat"
     try:
         t0 = time.perf_counter()
@@ -120,6 +128,7 @@ def run_benchmark(data_dir: Path, *, disk_mb: int = 256, mem_cap_mb: int = 512) 
     finally:
         disk_path.unlink(missing_ok=True)
 
+    note("save", "Saving the Fleet mark")
     fleet_mark = int(
         cpu_multi_mark * WEIGHTS["cpu_multi"]
         + cpu_single_mark * WEIGHTS["cpu_single"]

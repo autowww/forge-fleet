@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import select
 import socket
 import subprocess
 import threading
@@ -80,7 +81,9 @@ def public_view(data_dir: Path) -> dict[str, Any]:
         "detail": doc.get("detail"),
         "result_name": doc.get("result_name"),
         "summary": doc.get("summary") if isinstance(doc.get("summary"), dict) else None,
+        "phase": doc.get("phase"),
         "phases": doc.get("phases") if isinstance(doc.get("phases"), dict) else None,
+        "heartbeat_at": doc.get("heartbeat_at"),
         "log_excerpt": doc.get("log_excerpt"),
     }
     return {k: v for k, v in view.items() if v is not None}
@@ -94,6 +97,37 @@ def redact_log(text: str) -> str:
             continue
         kept.append(line)
     return "\n".join(kept)[-1200:]
+
+
+def current_phase(text: str) -> str:
+    phase = "Checking the host"
+    for line in (text or "").splitlines():
+        low = line.lower()
+        if "preflight" in low:
+            phase = "Checking the host"
+        if "pulling" in low or "pull complete" in low:
+            phase = "Pulling the PostgreSQL image"
+        if "building" in low or "exporting to image" in low or low.startswith("#"):
+            phase = "Building the runner image"
+        if "waiting" in low or "healthy" in low:
+            phase = "Starting PostgreSQL"
+        if "[prepare] postgres" in low:
+            phase = "Loading data into PostgreSQL"
+        if "[benchmark] postgres" in low or "wal-on" in low:
+            phase = "PostgreSQL SQL and concurrency"
+        if "[prepare] duckdb" in low:
+            phase = "Loading DuckDB"
+        if "[benchmark] duckdb" in low:
+            phase = "DuckDB SQL and concurrency"
+        if "[prepare] sqlite" in low:
+            phase = "Loading SQLite"
+        if "[benchmark] sqlite" in low:
+            phase = "SQLite SQL and concurrency"
+        if "numpy numerical" in low:
+            phase = "NumPy compute"
+        if "passed, json" in low:
+            phase = "Saving the result"
+    return phase
 
 
 def phases_from_log(text: str) -> dict[str, bool]:
@@ -315,6 +349,61 @@ def _new_result_file(suite: Path, before: set[str]) -> Path | None:
     return max(fresh, key=lambda p: p.stat().st_mtime)
 
 
+def _update_running(data_dir: Path, profile: str, **fields: Any) -> None:
+    current = load_result(data_dir) or {}
+    current.update({
+        "suite": SUITE,
+        "suite_version": SUITE_VERSION,
+        "status": "running",
+        "profile": profile,
+        "heartbeat_at": time.time(),
+        "node": _safe_label(socket.gethostname()),
+    })
+    current.update(fields)
+    save_result(data_dir, current)
+
+
+def _stream_run(data_dir: Path, profile: str, proc: subprocess.Popen[bytes], timeout_s: float) -> tuple[str, int]:
+    assert proc.stdout is not None
+    fd = proc.stdout.fileno()
+    os.set_blocking(fd, False)
+    raw = bytearray()
+    deadline = time.time() + timeout_s
+    last_phase = ""
+    last_write = 0.0
+    while True:
+        if time.time() >= deadline:
+            proc.kill()
+            raw.extend(b"\nThe run exceeded its time limit.\n")
+            break
+        ready, _, _ = select.select([fd], [], [], 1.0)
+        if ready:
+            try:
+                piece = os.read(fd, 65536)
+            except BlockingIOError:
+                piece = b""
+            if piece == b"":
+                break
+            raw.extend(piece)
+        log = redact_log(raw.decode("utf-8", "replace"))
+        phase = current_phase(log)
+        now = time.time()
+        if phase != last_phase or now - last_write >= 1.0:
+            last_phase = phase
+            last_write = now
+            _update_running(data_dir, profile, phase=phase, phases=phases_from_log(log), log_excerpt=log)
+        if proc.poll() is not None and not ready:
+            break
+    try:
+        rest = os.read(fd, 1024 * 1024)
+    except (BlockingIOError, OSError):
+        rest = b""
+    if rest:
+        raw.extend(rest)
+    code = proc.wait(timeout=15)
+    return redact_log(raw.decode("utf-8", "replace")), int(code)
+
+
 def execute_run(data_dir: Path, profile: str) -> None:
     suite = data_dir / _SUITE_DIR
     try:
@@ -327,15 +416,19 @@ def execute_run(data_dir: Path, profile: str) -> None:
             if "TOKEN" not in k and "PASSWORD" not in k and "SECRET" not in k
         }
         cmd = ["./run.sh", "--label", _safe_label(socket.gethostname()), "--profile", profile, *_FLAGS[profile]]
-        proc = subprocess.run(
+        _update_running(data_dir, profile, phase="Checking the host", log_excerpt="")
+        env["PYTHONUNBUFFERED"] = "1"
+        env["COMPOSE_ANSI"] = "never"
+        env["BUILDKIT_PROGRESS"] = "plain"
+        proc = subprocess.Popen(
             cmd,
             cwd=suite,
             env=env,
-            timeout=_TIMEOUT_S[profile],
-            capture_output=True,
-            text=True,
-            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
         )
+        log, returncode = _stream_run(data_dir, profile, proc, _TIMEOUT_S[profile])
+        _update_running(data_dir, profile, phase="Stopping the benchmark containers", log_excerpt=log)
         subprocess.run(
             ["docker", "compose", "down"],
             cwd=suite,
@@ -344,8 +437,8 @@ def execute_run(data_dir: Path, profile: str) -> None:
             text=True,
             check=False,
         )
-        log = redact_log((proc.stdout or "") + "\n" + (proc.stderr or ""))
         phases = phases_from_log(log)
+        proc = subprocess.CompletedProcess(cmd, returncode, log, "")
         if proc.returncode != 0:
             _finish(data_dir, profile, "failed", error="run_failed", detail=log[-500:], phases=phases, log_excerpt=log)
             return

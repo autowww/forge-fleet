@@ -397,6 +397,12 @@
       });
       html += "</ul>";
     }
+    var whoNow = activePeerId() ? scopePeerLabel() : "this host";
+    if (fmsStatus === "running") {
+      paintFms(fms, whoNow);
+    } else if (profile && profile.benchmark_progress && profile.benchmark_progress.status === "running") {
+      paintFleet(profile.benchmark_progress, whoNow, Number(profile.benchmark_progress.started_at) || Date.now() / 1000);
+    }
     if (bench.fleet_mark != null) {
       html +=
         "<p class=\"small fw-semibold mb-1\">What the Fleet mark measured</p>" +
@@ -678,6 +684,111 @@
     root.innerHTML = html;
   }
 
+  var FLEET_STEPS = [
+    ["cpu_single", "Single-core mix"],
+    ["cpu_multi", "All cores"],
+    ["memory", "Memory copy"],
+    ["disk", "256 MB disk file"],
+    ["save", "Save Fleet mark"]
+  ];
+  var FMS_STEPS = [
+    ["check", "Check the host"],
+    ["image", "Pull or build images"],
+    ["postgres_up", "Start PostgreSQL"],
+    ["load", "Load fixture data"],
+    ["postgres_sql", "PostgreSQL SQL"],
+    ["duckdb_sql", "DuckDB SQL"],
+    ["sqlite_sql", "SQLite SQL"],
+    ["numpy", "NumPy compute"],
+    ["save", "Save the result"]
+  ];
+
+  function fmtElapsed(sec) {
+    var s = Math.max(0, Math.round(Number(sec) || 0));
+    var m = Math.floor(s / 60);
+    return m + ":" + (s % 60 < 10 ? "0" : "") + (s % 60);
+  }
+
+  function stepStates(catalog, activeId, status) {
+    var idx = 0;
+    catalog.forEach(function (pair, i) {
+      if (pair[0] === activeId) idx = i;
+    });
+    if (status === "passed" || status === "finished") idx = catalog.length;
+    return catalog.map(function (pair, i) {
+      var state = "pending";
+      if (status === "failed" || status === "incomplete" || status === "stale") {
+        if (i < idx) state = "done";
+        else if (i === idx) state = "failed";
+      } else if (i < idx) state = "done";
+      else if (i === idx) state = "active";
+      return { label: pair[1], state: state };
+    });
+  }
+
+  function fmsStepId(phase) {
+    var p = String(phase || "").toLowerCase();
+    if (p.indexOf("stopping") >= 0 || p.indexOf("saving") >= 0) return "save";
+    if (p.indexOf("numpy") >= 0) return "numpy";
+    if (p.indexOf("sqlite sql") >= 0) return "sqlite_sql";
+    if (p.indexOf("duckdb") >= 0) return "duckdb_sql";
+    if (p.indexOf("postgresql sql") >= 0 || p.indexOf("upsert") >= 0) return "postgres_sql";
+    if (p.indexOf("loading") >= 0) return "load";
+    if (p.indexOf("starting postgresql") >= 0) return "postgres_up";
+    if (p.indexOf("pulling") >= 0 || p.indexOf("building") >= 0) return "image";
+    return "check";
+  }
+
+  function renderLive(model) {
+    var root = document.getElementById("fleet-cap-live");
+    if (!root || !model) return;
+    var html = "<p class=\"mb-1\"><strong>" + esc(model.title) + "</strong> · " + esc(fmtElapsed(model.elapsed)) + "</p>";
+    if (model.note) html += "<p class=\"text-body-secondary mb-2\">" + esc(model.note) + "</p>";
+    html += "<ol class=\"mb-2\">";
+    (model.steps || []).forEach(function (step) {
+      var mark = step.state === "done" ? "Done" : step.state === "active" ? "Now" : step.state === "failed" ? "Stopped" : "Waiting";
+      var cls = step.state === "active" ? "fw-semibold" : step.state === "failed" ? "text-danger" : "text-body-secondary";
+      html += "<li class=\"" + cls + "\">" + esc(mark) + " — " + esc(step.label) + "</li>";
+    });
+    html += "</ol>";
+    if (model.detail) html += "<p class=\"mb-2\">" + esc(model.detail) + "</p>";
+    if (model.log) {
+      html += "<pre class=\"small mb-0\" style=\"max-height:9rem;overflow:auto;white-space:pre-wrap\">" + esc(model.log) + "</pre>";
+    }
+    root.innerHTML = html;
+  }
+
+  function tailLog(text) {
+    var lines = String(text || "").split("\n").filter(function (line) { return line.trim(); });
+    return lines.slice(-6).join("\n");
+  }
+
+  function paintFleet(progress, who, clickStarted) {
+    var started = Number(progress && progress.started_at) || clickStarted;
+    var status = progress && progress.status === "failed" ? "failed" : "running";
+    renderLive({
+      title: "Fleet mark on " + who,
+      note: "In-process CPU, memory, and disk. No Docker or PostgreSQL.",
+      elapsed: Date.now() / 1000 - started,
+      steps: stepStates(FLEET_STEPS, progress && progress.step, status),
+      detail: progress && progress.detail ? progress.detail : ""
+    });
+  }
+
+  function paintFms(fms, who) {
+    var started = Number(fms && fms.started_at) || Date.now() / 1000;
+    var status = fms && fms.status ? fms.status : "running";
+    var finished = status === "passed" ? "passed" : status === "running" ? "running" : status;
+    renderLive({
+      title: "Market Studio benchmark on " + who,
+      note: "Separate from the Fleet mark. Containers, PostgreSQL, DuckDB, SQLite, and NumPy.",
+      elapsed: Date.now() / 1000 - started,
+      steps: stepStates(FMS_STEPS, fmsStepId(fms && fms.phase), finished),
+      detail: fms && fms.phase ? fms.phase : "Waiting for the first log line.",
+      log: tailLog(fms && fms.log_excerpt)
+    });
+  }
+
   function fmsOutcomeText(fms, who) {
     var status = fms && fms.status ? fms.status : "not_run";
     var phases = fms && fms.phases ? fms.phases : {};
@@ -688,15 +799,25 @@
     if (phases.numpy_compute) bits.push("NumPy");
     var evidence = bits.length ? " Evidence: " + bits.join(", ") + "." : " No engine evidence was recorded.";
     if (status === "passed") return "Market Studio benchmark passed on " + who + "." + evidence;
-    if (status === "running") return "Market Studio benchmark is still running on " + who + ".";
+    if (status === "running") {
+      var phase = fms && fms.phase ? " Current step: " + fms.phase + "." : "";
+      return "Market Studio benchmark is still running on " + who + "." + phase;
+    }
     var why = fms && (fms.detail || fms.error) ? " " + (fms.detail || fms.error) : "";
     return "Market Studio benchmark " + status + " on " + who + "." + evidence + why;
   }
 
   function watchFms(peer, who, fmsBtn) {
     var tries = 0;
+    var inflight = false;
+    var latest = { status: "running", phase: "Checking the host", started_at: Date.now() / 1000 };
+    paintFms(latest, who);
     var timer = setInterval(function () {
       tries += 1;
+      paintFms(latest, who);
+      setFmsStatus(fmsOutcomeText(latest, who));
+      if (inflight) return;
+      inflight = true;
       var path = peer
         ? "/v1/remote-peers/" + encodeURIComponent(peer) + "/host/profile"
         : "/v1/host/profile";
@@ -704,7 +825,9 @@
         .then(function (r) { return r.json(); })
         .then(function (j) {
           var fms = j && j.fmsbench ? j.fmsbench : { status: "not_run" };
-          if (fms.status === "running" && tries < 400) {
+          latest = fms;
+          paintFms(latest, who);
+          if (fms.status === "running" && tries < 16000) {
             setFmsStatus(fmsOutcomeText(fms, who));
             return;
           }
@@ -717,14 +840,17 @@
           refreshCapacity();
         })
         .catch(function () {
-          if (tries < 400) return;
+          if (tries < 16000) return;
           clearInterval(timer);
           if (fmsBtn) {
             fmsBtn.disabled = false;
             fmsBtn.textContent = "Run Market Studio benchmark";
           }
+        })
+        .finally(function () {
+          inflight = false;
         });
-    }, 3000);
+    }, 1000);
   }
 
   function setFmsStatus(text, isErr) {
@@ -752,10 +878,36 @@
           ? "/v1/remote-peers/" + encodeURIComponent(peer) + "/host/profile/benchmark"
           : "/v1/host/profile/benchmark";
         var who = peer ? scopePeerLabel() : "this host";
+        var profilePath = peer
+          ? "/v1/remote-peers/" + encodeURIComponent(peer) + "/host/profile"
+          : "/v1/host/profile";
+        var clickStarted = Date.now() / 1000;
+        var latest = {
+          step: "cpu_single",
+          status: "running",
+          detail: "Single-core mix",
+          started_at: clickStarted
+        };
+        var inflight = false;
         benchBtn.disabled = true;
         benchBtn.textContent = "Running benchmark…";
-        setBenchStatus("Fleet mark running on " + who + ". This is the in-process CPU, memory, and disk test. It usually finishes in under a minute and does not start containers.");
+        paintFleet(latest, who, clickStarted);
+        setBenchStatus("Fleet mark running on " + who + ". Watch the steps above. This does not start containers.");
         setMsg("fleet-capacity-msg", "Fleet mark running on " + who + ".");
+        var liveTimer = setInterval(function () {
+          paintFleet(latest, who, clickStarted);
+          if (inflight) return;
+          inflight = true;
+          fleetApi(profilePath)
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+              if (j && j.benchmark_progress && j.benchmark_progress.kind === "fleet_mark") {
+                latest = j.benchmark_progress;
+              }
+            })
+            .catch(function () {})
+            .finally(function () { inflight = false; });
+        }, 1000);
         fleetApi(benchPath, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -768,19 +920,37 @@
             });
           })
           .then(function (j) {
+            if (liveTimer) clearInterval(liveTimer);
+            liveTimer = null;
             var mark = j && j.benchmark && j.benchmark.fleet_mark != null ? j.benchmark.fleet_mark : null;
             var done = mark != null
               ? "Fleet mark " + mark + " saved. In-process CPU, memory, and disk only. Docker and PostgreSQL were not started."
               : "Fleet mark finished. Docker and PostgreSQL were not started.";
+            renderLive({
+              title: "Fleet mark on " + who,
+              note: "In-process CPU, memory, and disk. No Docker or PostgreSQL.",
+              elapsed: Date.now() / 1000 - clickStarted,
+              steps: stepStates(FLEET_STEPS, "save", "finished"),
+              detail: done
+            });
             setMsg("fleet-capacity-msg", done);
             setBenchStatus(done);
             refreshCapacity();
           })
           .catch(function (e) {
+            if (liveTimer) clearInterval(liveTimer);
+            liveTimer = null;
             var msg = e && e.message ? e.message : String(e);
             if (msg === "Failed to fetch") {
               msg = "The benchmark request did not return. Fleet may still be busy with it.";
             }
+            renderLive({
+              title: "Fleet mark on " + who,
+              note: "In-process CPU, memory, and disk. No Docker or PostgreSQL.",
+              elapsed: Date.now() / 1000 - clickStarted,
+              steps: stepStates(FLEET_STEPS, latest.step || "cpu_single", "failed"),
+              detail: msg
+            });
             setMsg("fleet-capacity-msg", msg, true);
             setBenchStatus(msg, true);
           })
@@ -818,10 +988,12 @@
           .then(function (j) {
             var status = j && j.fmsbench && j.fmsbench.status ? j.fmsbench.status : (j && j.status) || "running";
             if (status === "running") {
-              setFmsStatus("Market Studio benchmark is still running on " + who + ". Waiting for PostgreSQL, DuckDB, SQLite, and NumPy evidence.");
+              fmsBtn.textContent = "Market Studio benchmark running…";
+              setFmsStatus("Market Studio benchmark is still running on " + who + ". The checklist above updates as each engine starts.");
               watchFms(peer, who, fmsBtn);
               return;
             }
+            paintFms(j && j.fmsbench ? j.fmsbench : { status: status, phase: "Checking the host" }, who);
             setFmsStatus(fmsOutcomeText(j && j.fmsbench, who), status !== "passed");
             fmsBtn.disabled = false;
             fmsBtn.textContent = "Run Market Studio benchmark";
