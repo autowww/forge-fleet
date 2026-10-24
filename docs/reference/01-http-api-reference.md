@@ -97,6 +97,7 @@ Feature docs (details beyond this table): [CONTAINER-TEMPLATES.md](../build-201/
 | GET | `/v1/remote-peers/{id}/host/profile` | bearer | Proxy to peer `GET /v1/host/profile`. |
 | GET | `/v1/remote-peers/{id}/mesh/links` | bearer | Proxy to peer `GET /v1/mesh/links`. |
 | POST | `/v1/remote-peers/{id}/host/profile/benchmark` | bearer | Proxy to peer `POST /v1/host/profile/benchmark` (Fleet mark on that peer). |
+| POST | `/v1/remote-peers/{id}/admin/upgrade` | bearer | Proxy to peer `POST /v1/admin/upgrade` using that peer's stored bearer. |
 | POST | `/v1/remote-peers/{id}/host/profile/fmsbench` | bearer | Proxy to peer `POST /v1/host/profile/fmsbench` (Market Studio benchmark on that peer). |
 | GET | `/v1/admin/snapshot` | bearer | Jobs, integrations, host, **`jobs_recent`** paging (`jobs_limit`, `jobs_offset`), thermal advisory, self-update meta. |
 | GET | `/v1/environments/telemetry` | bearer | Per-environment Postgres **`docker stats`** rows for ready envs (same shape as **`meta.integrations.environment_telemetry`** in snapshot). |

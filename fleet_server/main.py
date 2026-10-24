@@ -1667,6 +1667,36 @@ class FleetHandler(BaseHTTPRequestHandler):
             )
             self._send_proxy_body(code, raw, ctype)
             return
+        m_remote_upgrade = re.match(r"^/v1/remote-peers/([^/]+)/admin/upgrade$", path)
+        if m_remote_upgrade:
+            data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            peer_id = m_remote_upgrade.group(1)
+            try:
+                max_wait = int(body.get("max_wait_sec") or 90)
+            except (TypeError, ValueError):
+                max_wait = 90
+            on_timeout = str(body.get("on_timeout") or "abort")
+            if on_timeout not in ("abort", "force"):
+                on_timeout = "abort"
+            forwarded = {
+                "mode": "upgrade",
+                "require_apt_channel": True,
+                "allow_git_fallback": True,
+                "max_wait_sec": max(15, min(max_wait, 180)),
+                "on_timeout": on_timeout,
+            }
+            if body.get("stash_dirty"):
+                forwarded["stash_dirty"] = True
+            code, raw, ctype = remote_peers.proxy_json(
+                data_dir_p,
+                peer_id,
+                "/v1/admin/upgrade",
+                method="POST",
+                body=json.dumps(forwarded).encode("utf-8"),
+                timeout_s=240,
+            )
+            self._send_proxy_body(code, raw, ctype)
+            return
         m_remote_fms = re.match(r"^/v1/remote-peers/([^/]+)/host/profile/fmsbench$", path)
         if m_remote_fms:
             data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
