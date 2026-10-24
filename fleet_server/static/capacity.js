@@ -344,7 +344,7 @@
       "</strong>" +
       (measured ? " <span class=\"text-body-secondary\">measured " + esc(measured) + "</span>" : "") +
       "</p>" +
-      "<p class=\"mb-2\">One score from single-core speed, all-core speed, memory speed, and disk speed. Higher is faster.</p>" +
+      "<p class=\"mb-2\">In-process only: one single-core mix, one process per CPU, a memory copy, and a 256 MB file. No Docker, PostgreSQL, SQL, or NumPy. Higher is faster.</p>" +
       "<p class=\"small fw-semibold mb-1\">" +
       esc(activePeerId() ? "On " + scopePeerLabel() : "On this host") +
       "</p>" +
@@ -382,6 +382,20 @@
       html += "<p class=\"mb-2\">No Market Studio benchmark yet. Run one on this peer without changing the Fleet mark.</p>";
     } else if (fms.detail || fms.error) {
       html += "<p class=\"mb-2\">" + esc(fms.detail || fms.error) + "</p>";
+    }
+    if (fms.phases) {
+      var phaseNames = [
+        ["postgres_prepare", "PostgreSQL load"],
+        ["postgres_sql", "PostgreSQL SQL"],
+        ["duckdb_sql", "DuckDB SQL"],
+        ["sqlite_sql", "SQLite SQL"],
+        ["numpy_compute", "NumPy compute"]
+      ];
+      html += "<ul class=\"mb-2\">";
+      phaseNames.forEach(function (pair) {
+        html += "<li>" + esc(pair[1]) + ": " + (fms.phases[pair[0]] ? "recorded" : "not recorded") + "</li>";
+      });
+      html += "</ul>";
     }
     if (bench.fleet_mark != null) {
       html +=
@@ -664,6 +678,55 @@
     root.innerHTML = html;
   }
 
+  function fmsOutcomeText(fms, who) {
+    var status = fms && fms.status ? fms.status : "not_run";
+    var phases = fms && fms.phases ? fms.phases : {};
+    var bits = [];
+    if (phases.postgres_sql) bits.push("PostgreSQL SQL");
+    if (phases.duckdb_sql) bits.push("DuckDB SQL");
+    if (phases.sqlite_sql) bits.push("SQLite SQL");
+    if (phases.numpy_compute) bits.push("NumPy");
+    var evidence = bits.length ? " Evidence: " + bits.join(", ") + "." : " No engine evidence was recorded.";
+    if (status === "passed") return "Market Studio benchmark passed on " + who + "." + evidence;
+    if (status === "running") return "Market Studio benchmark is still running on " + who + ".";
+    var why = fms && (fms.detail || fms.error) ? " " + (fms.detail || fms.error) : "";
+    return "Market Studio benchmark " + status + " on " + who + "." + evidence + why;
+  }
+
+  function watchFms(peer, who, fmsBtn) {
+    var tries = 0;
+    var timer = setInterval(function () {
+      tries += 1;
+      var path = peer
+        ? "/v1/remote-peers/" + encodeURIComponent(peer) + "/host/profile"
+        : "/v1/host/profile";
+      fleetApi(path)
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          var fms = j && j.fmsbench ? j.fmsbench : { status: "not_run" };
+          if (fms.status === "running" && tries < 400) {
+            setFmsStatus(fmsOutcomeText(fms, who));
+            return;
+          }
+          clearInterval(timer);
+          setFmsStatus(fmsOutcomeText(fms, who), fms.status !== "passed");
+          if (fmsBtn) {
+            fmsBtn.disabled = false;
+            fmsBtn.textContent = "Run Market Studio benchmark";
+          }
+          refreshCapacity();
+        })
+        .catch(function () {
+          if (tries < 400) return;
+          clearInterval(timer);
+          if (fmsBtn) {
+            fmsBtn.disabled = false;
+            fmsBtn.textContent = "Run Market Studio benchmark";
+          }
+        });
+    }, 3000);
+  }
+
   function setFmsStatus(text, isErr) {
     var el = document.getElementById("fleet-cap-fms-status");
     if (!el) return;
@@ -691,8 +754,8 @@
         var who = peer ? scopePeerLabel() : "this host";
         benchBtn.disabled = true;
         benchBtn.textContent = "Running benchmark…";
-        setBenchStatus("Running on " + who + ". This usually takes under a minute. The Fleet mark updates here when it finishes.");
-        setMsg("fleet-capacity-msg", "Benchmark running on " + who + ".");
+        setBenchStatus("Fleet mark running on " + who + ". This is the in-process CPU, memory, and disk test. It usually finishes in under a minute and does not start containers.");
+        setMsg("fleet-capacity-msg", "Fleet mark running on " + who + ".");
         fleetApi(benchPath, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -706,7 +769,9 @@
           })
           .then(function (j) {
             var mark = j && j.benchmark && j.benchmark.fleet_mark != null ? j.benchmark.fleet_mark : null;
-            var done = mark != null ? "Benchmark complete. Fleet mark " + mark + "." : "Benchmark complete.";
+            var done = mark != null
+              ? "Fleet mark " + mark + " saved. In-process CPU, memory, and disk only. Docker and PostgreSQL were not started."
+              : "Fleet mark finished. Docker and PostgreSQL were not started.";
             setMsg("fleet-capacity-msg", done);
             setBenchStatus(done);
             refreshCapacity();
@@ -751,14 +816,19 @@
             });
           })
           .then(function (j) {
-            var status = j && j.status ? j.status : "running";
-            setFmsStatus("Market Studio benchmark " + status + " on " + who + ". Fleet mark was not changed.");
+            var status = j && j.fmsbench && j.fmsbench.status ? j.fmsbench.status : (j && j.status) || "running";
+            if (status === "running") {
+              setFmsStatus("Market Studio benchmark is still running on " + who + ". Waiting for PostgreSQL, DuckDB, SQLite, and NumPy evidence.");
+              watchFms(peer, who, fmsBtn);
+              return;
+            }
+            setFmsStatus(fmsOutcomeText(j && j.fmsbench, who), status !== "passed");
+            fmsBtn.disabled = false;
+            fmsBtn.textContent = "Run Market Studio benchmark";
             refreshCapacity();
           })
           .catch(function (e) {
             setFmsStatus(e && e.message ? e.message : String(e), true);
-          })
-          .finally(function () {
             fmsBtn.disabled = false;
             fmsBtn.textContent = "Run Market Studio benchmark";
           });

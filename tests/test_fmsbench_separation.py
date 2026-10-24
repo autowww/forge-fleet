@@ -68,6 +68,36 @@ def test_compare_rows_keep_columns_separate(tmp_path: Path) -> None:
     assert doc["rows"][1]["fmsbench"]["status"] == "not_run"
 
 
+def test_engine_evidence_requires_sql_and_compute() -> None:
+    from fleet_server.fleet_bench import RUNTIME
+
+    assert RUNTIME["containers"] is False
+    assert RUNTIME["postgresql"] is False
+    assert RUNTIME["sql"] is False
+    bare = {"status": "passed", "fleet_mark": 5669, "timings": {"cpu_single_s": 0.8}}
+    assert fmsbench_runs.report_has_engine_evidence(bare) is False
+    log = "\n".join([
+        "[prepare] postgres",
+        "[benchmark] postgres",
+        "[benchmark] duckdb",
+        "[benchmark] sqlite",
+        "[benchmark] NumPy numerical compute",
+        "postgresql://fmsbench:secret@postgres/fmsbench",
+    ])
+    phases = fmsbench_runs.phases_from_log(log)
+    assert phases["postgres_sql"] and phases["numpy_compute"]
+    assert "secret" not in fmsbench_runs.redact_log(log)
+    full = {
+        "status": "passed",
+        "engines": {
+            name: {"version": "x", "queries": {"market_rollup": {}}}
+            for name in ("postgres", "duckdb", "sqlite")
+        },
+        "compute": {"numpy_version": "2.2.6", "scales": {"1": {}}},
+    }
+    assert fmsbench_runs.report_has_engine_evidence(full) is True
+
+
 def test_summary_ignores_fleet_mark() -> None:
     summary = fmsbench_runs.summarize_fms_report(
         {

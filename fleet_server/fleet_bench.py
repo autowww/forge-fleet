@@ -19,6 +19,14 @@ REF_DISK_WRITE_MBPS = 400.0
 REF_DISK_READ_MBPS = 600.0
 
 WEIGHTS = {"cpu_multi": 0.4, "cpu_single": 0.2, "memory": 0.2, "disk": 0.2}
+# Honest description of this suite. It is not FMSBench and starts no database.
+RUNTIME = {
+    "kind": "in_process",
+    "containers": False,
+    "postgresql": False,
+    "sql": False,
+    "scope": "single-core mix, one spawned process per CPU, a memory copy, and a 256MB file",
+}
 
 
 def _cpu_mix() -> float:
@@ -133,4 +141,5 @@ def run_benchmark(data_dir: Path, *, disk_mb: int = 256, mem_cap_mb: int = 512) 
             "disk_read_mbps": read_mbps,
         },
         "weights": WEIGHTS,
+        "runtime": dict(RUNTIME),
     }

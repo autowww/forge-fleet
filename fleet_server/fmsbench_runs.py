@@ -80,8 +80,45 @@ def public_view(data_dir: Path) -> dict[str, Any]:
         "detail": doc.get("detail"),
         "result_name": doc.get("result_name"),
         "summary": doc.get("summary") if isinstance(doc.get("summary"), dict) else None,
+        "phases": doc.get("phases") if isinstance(doc.get("phases"), dict) else None,
+        "log_excerpt": doc.get("log_excerpt"),
     }
     return {k: v for k, v in view.items() if v is not None}
+
+
+def redact_log(text: str) -> str:
+    kept = []
+    for line in (text or "").splitlines():
+        upper = line.upper()
+        if "PASSWORD" in upper or "POSTGRESQL://" in upper or "SECRET" in upper:
+            continue
+        kept.append(line)
+    return "\n".join(kept)[-1200:]
+
+
+def phases_from_log(text: str) -> dict[str, bool]:
+    log = text or ""
+    return {
+        "compose_build": "compose build" in log.lower() or "[prepare]" in log,
+        "postgres_prepare": "[prepare] postgres" in log,
+        "postgres_sql": "[benchmark] postgres" in log,
+        "duckdb_sql": "[benchmark] duckdb" in log,
+        "sqlite_sql": "[benchmark] sqlite" in log,
+        "numpy_compute": "NumPy numerical compute" in log,
+        "passed_line": "PASSED, JSON:" in log,
+    }
+
+
+def report_has_engine_evidence(doc: dict[str, Any]) -> bool:
+    engines = doc.get("engines") if isinstance(doc.get("engines"), dict) else {}
+    for name in ("postgres", "duckdb", "sqlite"):
+        eng = engines.get(name) if isinstance(engines.get(name), dict) else {}
+        queries = eng.get("queries") if isinstance(eng.get("queries"), dict) else {}
+        if not eng.get("version") or "market_rollup" not in queries:
+            return False
+    compute = doc.get("compute") if isinstance(doc.get("compute"), dict) else {}
+    scales = compute.get("scales") if isinstance(compute.get("scales"), dict) else {}
+    return bool(compute.get("numpy_version") and scales)
 
 
 def fleet_profile_document(
@@ -307,17 +344,37 @@ def execute_run(data_dir: Path, profile: str) -> None:
             text=True,
             check=False,
         )
+        log = redact_log((proc.stdout or "") + "\n" + (proc.stderr or ""))
+        phases = phases_from_log(log)
         if proc.returncode != 0:
-            detail = (proc.stderr or proc.stdout or "run.sh failed").strip()[-500:]
-            _finish(data_dir, profile, "failed", error="run_failed", detail=detail)
+            _finish(data_dir, profile, "failed", error="run_failed", detail=log[-500:], phases=phases, log_excerpt=log)
             return
         picked = _new_result_file(suite, before)
         if picked is None:
-            _finish(data_dir, profile, "failed", error="no_result")
+            _finish(data_dir, profile, "failed", error="no_result", phases=phases, log_excerpt=log)
             return
         report = json.loads(picked.read_text(encoding="utf-8"))
-        if not isinstance(report, dict) or report.get("status") != "passed":
-            _finish(data_dir, profile, "failed", error="result_not_passed", result_name=picked.name)
+        if not isinstance(report, dict) or report.get("status") != "passed" or not report_has_engine_evidence(report):
+            _finish(
+                data_dir,
+                profile,
+                "incomplete",
+                error="missing_engine_evidence",
+                result_name=picked.name if isinstance(report, dict) else None,
+                phases=phases,
+                log_excerpt=log,
+            )
+            return
+        if not (phases["postgres_sql"] and phases["duckdb_sql"] and phases["sqlite_sql"] and phases["numpy_compute"]):
+            _finish(
+                data_dir,
+                profile,
+                "incomplete",
+                error="log_missing_engine_phases",
+                result_name=picked.name,
+                phases=phases,
+                log_excerpt=log,
+            )
             return
         _finish(
             data_dir,
@@ -325,6 +382,8 @@ def execute_run(data_dir: Path, profile: str) -> None:
             "passed",
             result_name=picked.name,
             summary=summarize_fms_report(report),
+            phases=phases,
+            log_excerpt=log,
             error=None,
             detail=None,
         )
