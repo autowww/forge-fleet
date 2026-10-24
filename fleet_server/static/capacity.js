@@ -254,19 +254,92 @@
     }
   }
 
+  function fmtRate(mbps) {
+    var n = Number(mbps);
+    if (!isFinite(n) || n < 0) return "—";
+    if (n >= 1000) return (n / 1000).toFixed(1) + " GB/s";
+    return Math.round(n) + " MB/s";
+  }
+
+  function fmtGb(gb) {
+    var n = Number(gb);
+    if (!isFinite(n) || n < 0) return "—";
+    return fmtBytes(n * 1e9);
+  }
+
+  function scoreCell(n) {
+    var v = Number(n);
+    return isFinite(v) ? String(Math.round(v)) : "—";
+  }
+
   function renderMesh(profile, links) {
     var root = document.getElementById("fleet-capacity-mesh-body");
     if (!root) return;
+    var hw = profile && profile.hardware ? profile.hardware : {};
     var bench = profile && profile.benchmark ? profile.benchmark : {};
+    var timings = bench.timings && typeof bench.timings === "object" ? bench.timings : {};
     var mark = bench.fleet_mark != null ? bench.fleet_mark : "—";
+    var measured = "";
+    if (profile && profile.measured_at) {
+      try {
+        measured = new Date(profile.measured_at * 1000).toLocaleString();
+      } catch (_e) {
+        measured = "";
+      }
+    }
+    var threads = Number(hw.logical_cpus);
+    var cores = Number(hw.physical_cpus);
+    var cpuLine = "—";
+    if (isFinite(cores) && cores > 0 && isFinite(threads) && threads > cores) {
+      cpuLine = cores + " cores, " + threads + " threads";
+    } else if (isFinite(threads) && threads > 0) {
+      cpuLine = threads + (threads === 1 ? " core" : " cores");
+    }
+    var memTotal = hw.memory_total_kb != null ? fmtBytes(Number(hw.memory_total_kb) * 1024) : "—";
+    var memFree = hw.memory_available_kb != null ? fmtBytes(Number(hw.memory_available_kb) * 1024) : "";
+    var memLine = memFree && memTotal !== "—" ? memFree + " free of " + memTotal : memTotal;
+    var disk = hw.disk && typeof hw.disk === "object" ? hw.disk : null;
+    var diskLine = "—";
+    if (disk && disk.total_gb != null) {
+      diskLine = disk.free_gb != null
+        ? fmtGb(disk.free_gb) + " free of " + fmtGb(disk.total_gb)
+        : fmtGb(disk.total_gb);
+    }
+    var scoresCurrent = Number(bench.bench_version) >= 2 && bench.fleet_mark != null;
     var html =
       "<p class=\"mb-1\">Fleet mark: <strong>" +
       esc(mark) +
       "</strong>" +
-      (profile && profile.measured_at
-        ? " (measured " + esc(new Date(profile.measured_at * 1000).toISOString()) + ")"
-        : "") +
-      "</p>";
+      (measured ? " <span class=\"text-body-secondary\">measured " + esc(measured) + "</span>" : "") +
+      "</p>" +
+      "<p class=\"mb-2\">One score from single-core speed, all-core speed, memory speed, and disk speed. Higher is faster.</p>" +
+      "<p class=\"small fw-semibold mb-1\">On this host</p>" +
+      "<dl class=\"row mb-2\">" +
+      "<dt class=\"col-4\">CPU</dt><dd class=\"col-8\">" + esc(cpuLine) + "</dd>" +
+      "<dt class=\"col-4\">Memory</dt><dd class=\"col-8\">" + esc(memLine) + "</dd>" +
+      "<dt class=\"col-4\">Disk</dt><dd class=\"col-8\">" + esc(diskLine) + "</dd>" +
+      "</dl>";
+    if (bench.fleet_mark == null) {
+      html += "<p class=\"mb-2\">No benchmark yet. Run one to score this host.</p>";
+    } else if (!scoresCurrent) {
+      html += "<p class=\"mb-2\">Run benchmark again to update the Fleet mark and the memory and disk scores.</p>";
+    }
+    if (bench.fleet_mark != null) {
+      html +=
+        "<p class=\"small fw-semibold mb-1\">What was measured</p>" +
+        "<dl class=\"row mb-2\">" +
+        "<dt class=\"col-4\">Single-core</dt><dd class=\"col-8\">Score " + esc(scoreCell(bench.cpu_single_mark)) + "</dd>" +
+        "<dt class=\"col-4\">All cores</dt><dd class=\"col-8\">Score " + esc(scoreCell(bench.cpu_multi_mark)) + "</dd>" +
+        "<dt class=\"col-4\">Memory</dt><dd class=\"col-8\">" +
+        (scoresCurrent ? "Score " + esc(scoreCell(bench.memory_mark)) + " · " : "") +
+        esc(fmtRate(timings.memory_mbps)) +
+        "</dd>" +
+        "<dt class=\"col-4\">Disk</dt><dd class=\"col-8\">" +
+        (scoresCurrent ? "Score " + esc(scoreCell(bench.disk_mark)) + " · " : "") +
+        "read " + esc(fmtRate(timings.disk_read_mbps)) +
+        ", write " + esc(fmtRate(timings.disk_write_mbps)) +
+        "</dd></dl>";
+    }
     var edges = links && links.edges ? links.edges : [];
     if (!edges.length) {
       html += "<p class=\"mb-0\">No peer link samples yet.</p>";

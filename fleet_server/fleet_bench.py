@@ -11,7 +11,7 @@ import zlib
 from pathlib import Path
 from typing import Any
 
-BENCH_VERSION = 1
+BENCH_VERSION = 2
 REF_CPU_SINGLE = 2.5
 REF_CPU_MULTI = 8.0
 REF_MEM_MBPS = 8000.0
@@ -83,7 +83,7 @@ def run_benchmark(data_dir: Path, *, disk_mb: int = 256, mem_cap_mb: int = 512) 
         times.append(time.perf_counter() - t0)
     mem_t = sorted(times)[len(times) // 2]
     mem_mbps = (mem_mb * 2) / max(mem_t, 1e-6)
-    memory_mark = int((REF_MEM_MBPS / max(mem_mbps, 1.0)) * 1000)
+    memory_mark = int((mem_mbps / REF_MEM_MBPS) * 1000)
 
     disk_path = data_dir / "bench-tmp.dat"
     try:
@@ -104,8 +104,8 @@ def run_benchmark(data_dir: Path, *, disk_mb: int = 256, mem_cap_mb: int = 512) 
         read_mbps = disk_mb / max(read_t, 1e-6)
         disk_mark = int(
             (
-                (REF_DISK_WRITE_MBPS / max(write_mbps, 1.0)) * 0.5
-                + (REF_DISK_READ_MBPS / max(read_mbps, 1.0)) * 0.5
+                (write_mbps / REF_DISK_WRITE_MBPS) * 0.5
+                + (read_mbps / REF_DISK_READ_MBPS) * 0.5
             )
             * 1000
         )

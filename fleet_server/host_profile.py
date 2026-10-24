@@ -36,6 +36,22 @@ def save_profile(data_dir: Path, doc: dict[str, Any]) -> None:
     p.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
 
 
+def _root_disk() -> dict[str, Any] | None:
+    try:
+        rows = host_stats.disk_space_snapshot()
+    except OSError:
+        return None
+    root = next((r for r in rows if r.get("mount") == "/"), None)
+    if root is None and rows:
+        root = rows[0]
+    if not root:
+        return None
+    return {
+        "total_gb": root.get("total_gb"),
+        "free_gb": root.get("free_gb"),
+    }
+
+
 def static_hardware() -> dict[str, Any]:
     snap = host_stats.snapshot()
     mem = snap.get("memory") if isinstance(snap.get("memory"), dict) else {}
@@ -46,6 +62,8 @@ def static_hardware() -> dict[str, Any]:
         "physical_cpus": snap.get("cpu_cores_physical"),
         "cpufreq": cpufreq,
         "memory_total_kb": mem.get("total_kb"),
+        "memory_available_kb": mem.get("available_kb"),
+        "disk": _root_disk(),
         "platform": snap.get("platform"),
         "machine": snap.get("machine"),
     }
