@@ -96,37 +96,65 @@ def redact_log(text: str) -> str:
         if "PASSWORD" in upper or "POSTGRESQL://" in upper or "SECRET" in upper:
             continue
         kept.append(line)
-    return "\n".join(kept)[-1200:]
+    return "\n".join(kept)
+
+
+def clip_log(text: str, limit: int = 4000) -> str:
+    return (text or "")[-limit:]
+
+
+_PHASE_ORDER = (
+    "Checking the host",
+    "Pulling the PostgreSQL image",
+    "Building the runner image",
+    "Starting PostgreSQL",
+    "Loading data into PostgreSQL",
+    "PostgreSQL SQL and concurrency",
+    "Loading DuckDB",
+    "DuckDB SQL and concurrency",
+    "Loading SQLite",
+    "SQLite SQL and concurrency",
+    "NumPy compute",
+    "Saving the result",
+)
 
 
 def current_phase(text: str) -> str:
-    phase = "Checking the host"
+    phase = _PHASE_ORDER[0]
+    rank = 0
     for line in (text or "").splitlines():
         low = line.lower()
+        nxt = None
         if "preflight" in low:
-            phase = "Checking the host"
+            nxt = "Checking the host"
         if "pulling" in low or "pull complete" in low:
-            phase = "Pulling the PostgreSQL image"
+            nxt = "Pulling the PostgreSQL image"
         if "building" in low or "exporting to image" in low or low.startswith("#"):
-            phase = "Building the runner image"
+            nxt = "Building the runner image"
         if "waiting" in low or "healthy" in low:
-            phase = "Starting PostgreSQL"
+            nxt = "Starting PostgreSQL"
         if "[prepare] postgres" in low:
-            phase = "Loading data into PostgreSQL"
+            nxt = "Loading data into PostgreSQL"
         if "[benchmark] postgres" in low or "wal-on" in low:
-            phase = "PostgreSQL SQL and concurrency"
+            nxt = "PostgreSQL SQL and concurrency"
         if "[prepare] duckdb" in low:
-            phase = "Loading DuckDB"
+            nxt = "Loading DuckDB"
         if "[benchmark] duckdb" in low:
-            phase = "DuckDB SQL and concurrency"
+            nxt = "DuckDB SQL and concurrency"
         if "[prepare] sqlite" in low:
-            phase = "Loading SQLite"
+            nxt = "Loading SQLite"
         if "[benchmark] sqlite" in low:
-            phase = "SQLite SQL and concurrency"
+            nxt = "SQLite SQL and concurrency"
         if "numpy numerical" in low:
-            phase = "NumPy compute"
+            nxt = "NumPy compute"
         if "passed, json" in low:
-            phase = "Saving the result"
+            nxt = "Saving the result"
+        if nxt is None:
+            continue
+        nxt_rank = _PHASE_ORDER.index(nxt)
+        if nxt_rank >= rank:
+            phase = nxt
+            rank = nxt_rank
     return phase
 
 
@@ -391,7 +419,13 @@ def _stream_run(data_dir: Path, profile: str, proc: subprocess.Popen[bytes], tim
         if phase != last_phase or now - last_write >= 1.0:
             last_phase = phase
             last_write = now
-            _update_running(data_dir, profile, phase=phase, phases=phases_from_log(log), log_excerpt=log)
+            _update_running(
+                data_dir,
+                profile,
+                phase=phase,
+                phases=phases_from_log(log),
+                log_excerpt=clip_log(log),
+            )
         if proc.poll() is not None and not ready:
             break
     try:
@@ -428,7 +462,12 @@ def execute_run(data_dir: Path, profile: str) -> None:
             stderr=subprocess.STDOUT,
         )
         log, returncode = _stream_run(data_dir, profile, proc, _TIMEOUT_S[profile])
-        _update_running(data_dir, profile, phase="Stopping the benchmark containers", log_excerpt=log)
+        _update_running(
+            data_dir,
+            profile,
+            phase="Stopping the benchmark containers",
+            log_excerpt=clip_log(log),
+        )
         subprocess.run(
             ["docker", "compose", "down"],
             cwd=suite,
@@ -438,13 +477,14 @@ def execute_run(data_dir: Path, profile: str) -> None:
             check=False,
         )
         phases = phases_from_log(log)
+        excerpt = clip_log(log)
         proc = subprocess.CompletedProcess(cmd, returncode, log, "")
         if proc.returncode != 0:
-            _finish(data_dir, profile, "failed", error="run_failed", detail=log[-500:], phases=phases, log_excerpt=log)
+            _finish(data_dir, profile, "failed", error="run_failed", detail=log[-500:], phases=phases, log_excerpt=excerpt)
             return
         picked = _new_result_file(suite, before)
         if picked is None:
-            _finish(data_dir, profile, "failed", error="no_result", phases=phases, log_excerpt=log)
+            _finish(data_dir, profile, "failed", error="no_result", phases=phases, log_excerpt=excerpt)
             return
         report = json.loads(picked.read_text(encoding="utf-8"))
         if not isinstance(report, dict) or report.get("status") != "passed" or not report_has_engine_evidence(report):
@@ -455,7 +495,7 @@ def execute_run(data_dir: Path, profile: str) -> None:
                 error="missing_engine_evidence",
                 result_name=picked.name if isinstance(report, dict) else None,
                 phases=phases,
-                log_excerpt=log,
+                log_excerpt=excerpt,
             )
             return
         if not (phases["postgres_sql"] and phases["duckdb_sql"] and phases["sqlite_sql"] and phases["numpy_compute"]):
@@ -466,7 +506,7 @@ def execute_run(data_dir: Path, profile: str) -> None:
                 error="log_missing_engine_phases",
                 result_name=picked.name,
                 phases=phases,
-                log_excerpt=log,
+                log_excerpt=excerpt,
             )
             return
         _finish(
@@ -476,7 +516,7 @@ def execute_run(data_dir: Path, profile: str) -> None:
             result_name=picked.name,
             summary=summarize_fms_report(report),
             phases=phases,
-            log_excerpt=log,
+            log_excerpt=excerpt,
             error=None,
             detail=None,
         )

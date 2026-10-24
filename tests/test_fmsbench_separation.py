@@ -113,6 +113,15 @@ def test_summary_ignores_fleet_mark() -> None:
     assert summary["compute_rows_per_second"] == 10.0
 
 
+def test_engine_lines_are_not_lost_under_later_container_status() -> None:
+    text = "[benchmark] postgres SQL + concurrency\n" + ("Container postgres Healthy\n" * 200)
+    redacted = fmsbench_runs.redact_log(text)
+    assert "[benchmark] postgres" in redacted
+    assert fmsbench_runs.phases_from_log(redacted)["postgres_sql"] is True
+    assert fmsbench_runs.current_phase(text) == "PostgreSQL SQL and concurrency"
+    assert len(fmsbench_runs.clip_log(text)) <= 4000
+
+
 def test_live_phase_follows_the_log() -> None:
     assert fmsbench_runs.current_phase("") == "Checking the host"
     assert fmsbench_runs.current_phase("[benchmark] sqlite") == "SQLite SQL and concurrency"
