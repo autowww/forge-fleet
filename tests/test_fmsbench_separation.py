@@ -122,6 +122,26 @@ def test_engine_lines_are_not_lost_under_later_container_status() -> None:
     assert len(fmsbench_runs.clip_log(text)) <= 4000
 
 
+def test_docker_command_uses_the_docker_group_when_needed(monkeypatch) -> None:
+    def fake_run(argv, **_kwargs):
+        class Result:
+            pass
+        out = Result()
+        out.stderr = ""
+        if argv[0] == "docker":
+            out.returncode = 1
+            out.stdout = ""
+        else:
+            out.returncode = 0
+            out.stdout = "29.1.3\n"
+        return out
+
+    monkeypatch.setattr(fmsbench_runs.subprocess, "run", fake_run)
+    launched = fmsbench_runs._docker_command(["./run.sh", "--profile", "standard"])
+    assert launched[:3] == ["sg", "docker", "-c"]
+    assert "run.sh" in launched[3]
+
+
 def test_live_phase_follows_the_log() -> None:
     assert fmsbench_runs.current_phase("") == "Checking the host"
     assert fmsbench_runs.current_phase("[benchmark] sqlite") == "SQLite SQL and concurrency"

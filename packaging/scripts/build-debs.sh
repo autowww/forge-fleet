@@ -73,6 +73,23 @@ if [ "$1" = "configure" ]; then
     systemctl daemon-reload 2>/dev/null || true
     systemctl enable --now forge-fleet-apt-upgrade.timer 2>/dev/null || true
   fi
+  if command -v docker >/dev/null 2>&1 && command -v systemctl >/dev/null 2>&1; then
+    if ! docker info >/dev/null 2>&1; then
+      systemctl enable --now docker.service >/dev/null 2>&1 || systemctl start docker.service >/dev/null 2>&1 || true
+    fi
+    if getent group docker >/dev/null 2>&1; then
+      for u in /home/*; do
+        [ -d "$u" ] || continue
+        name=$(basename "$u")
+        if [ -f "$u/.config/systemd/user/forge-fleet.service" ]; then
+          usermod -aG docker "$name" 2>/dev/null || true
+          if command -v setfacl >/dev/null 2>&1 && [ -S /var/run/docker.sock ]; then
+            setfacl -m "u:${name}:rw" /var/run/docker.sock 2>/dev/null || true
+          fi
+        fi
+      done
+    fi
+  fi
 fi
 EOF
   chmod 0755 "$staging/DEBIAN/postinst"

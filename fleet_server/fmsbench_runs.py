@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import select
+import shlex
 import socket
 import subprocess
 import threading
@@ -438,6 +439,35 @@ def _stream_run(data_dir: Path, profile: str, proc: subprocess.Popen[bytes], tim
     return redact_log(raw.decode("utf-8", "replace")), int(code)
 
 
+def _docker_command(cmd: list[str]) -> list[str]:
+    """Use `sg docker` when the service account is in the group but this process is not."""
+    try:
+        info = subprocess.run(
+            ["docker", "info", "--format", "{{.ServerVersion}}"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        info = None
+    if info is not None and info.returncode == 0 and (info.stdout or "").strip():
+        return cmd
+    try:
+        grouped = subprocess.run(
+            ["sg", "docker", "-c", "docker info --format '{{.ServerVersion}}'"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return cmd
+    if grouped.returncode != 0 or not (grouped.stdout or "").strip():
+        return cmd
+    return ["sg", "docker", "-c", " ".join(shlex.quote(part) for part in cmd)]
+
+
 def execute_run(data_dir: Path, profile: str) -> None:
     suite = data_dir / _SUITE_DIR
     try:
@@ -449,7 +479,9 @@ def execute_run(data_dir: Path, profile: str) -> None:
             for k, v in os.environ.items()
             if "TOKEN" not in k and "PASSWORD" not in k and "SECRET" not in k
         }
-        cmd = ["./run.sh", "--label", _safe_label(socket.gethostname()), "--profile", profile, *_FLAGS[profile]]
+        cmd = _docker_command(
+            ["./run.sh", "--label", _safe_label(socket.gethostname()), "--profile", profile, *_FLAGS[profile]]
+        )
         _update_running(data_dir, profile, phase="Checking the host", log_excerpt="")
         env["PYTHONUNBUFFERED"] = "1"
         env["COMPOSE_ANSI"] = "never"

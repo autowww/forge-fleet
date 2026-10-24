@@ -625,6 +625,12 @@ class FleetHandler(BaseHTTPRequestHandler):
             code, body, ctype = remote_peers.proxy_get(data_dir, peer_id, "/v1/capacity")
             self._send_proxy_body(code, body, ctype)
             return True
+        m_up_status = re.match(r"^/v1/remote-peers/([^/]+)/admin/upgrade/status$", path)
+        if m_up_status:
+            peer_id = m_up_status.group(1)
+            code, body, ctype = remote_peers.proxy_get(data_dir, peer_id, "/v1/admin/upgrade/status")
+            self._send_proxy_body(code, body, ctype)
+            return True
         m_profile = re.match(r"^/v1/remote-peers/([^/]+)/host/profile$", path)
         if m_profile:
             peer_id = m_profile.group(1)
@@ -1664,6 +1670,20 @@ class FleetHandler(BaseHTTPRequestHandler):
                 method="POST",
                 body=b"{}",
                 timeout_s=remote_peers._PROXY_SLOW_TIMEOUT_S,
+            )
+            self._send_proxy_body(code, raw, ctype)
+            return
+        m_remote_resume = re.match(r"^/v1/remote-peers/([^/]+)/lifecycle/resume$", path)
+        if m_remote_resume:
+            data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            peer_id = m_remote_resume.group(1)
+            code, raw, ctype = remote_peers.proxy_json(
+                data_dir_p,
+                peer_id,
+                "/v1/lifecycle/resume",
+                method="POST",
+                body=b"{}",
+                timeout_s=30,
             )
             self._send_proxy_body(code, raw, ctype)
             return

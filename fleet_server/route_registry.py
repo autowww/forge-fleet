@@ -91,6 +91,20 @@ ROUTE_SPECS: tuple[RouteSpec, ...] = (
         "remote_peer_upgrade",
     ),
     RouteSpec(
+        _p("/v1/remote-peers/[^/]+/admin/upgrade/status"),
+        frozenset({"GET"}),
+        "admin",
+        "read",
+        "remote_peer_upgrade_status",
+    ),
+    RouteSpec(
+        _p("/v1/remote-peers/[^/]+/lifecycle/resume"),
+        frozenset({"POST"}),
+        "admin",
+        "mutate",
+        "remote_peer_lifecycle_resume",
+    ),
+    RouteSpec(
         _p("/v1/operator/ui-settings"),
         frozenset({"GET", "PUT"}),
         "admin",
