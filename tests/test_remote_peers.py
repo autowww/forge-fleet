@@ -198,6 +198,21 @@ def test_remote_peers_http_proxy_routes(tmp_path: Path) -> None:
             assert code == 200
             assert mock_req.call_args[0][1] == "/v1/container-types"
 
+            code, payload = req_get("/v1/remote-peers/granite/host/profile")
+            assert code == 200
+            assert mock_req.call_args[0][1] == "/v1/host/profile"
+
+            bench = urllib.request.Request(
+                f"http://127.0.0.1:{port}/v1/remote-peers/granite/host/profile/benchmark",
+                data=b"{}",
+                method="POST",
+                headers={"Content-Type": "application/json", "Accept": "application/json"},
+            )
+            with urllib.request.urlopen(bench, timeout=30) as resp:
+                assert resp.status == 200
+            assert mock_req.call_args[0][1] == "/v1/host/profile/benchmark"
+            assert mock_req.call_args.kwargs.get("method") == "POST"
+
         code, payload = req_get("/v1/remote-peers/missing/jobs/job-1")
         assert code == 404
         assert payload.get("error") == "not_found"

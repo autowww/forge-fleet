@@ -92,6 +92,9 @@ Feature docs (details beyond this table): [CONTAINER-TEMPLATES.md](../build-201/
 | GET | `/v1/remote-peers/{id}/container-templates` | bearer | Proxy to peer `GET /v1/container-templates`. |
 | GET | `/v1/remote-peers/{id}/fleet-apps/{appId}/about` | bearer | Proxy to peer `GET /v1/fleet-apps/{appId}/about`. |
 | GET | `/v1/remote-peers/{id}/capacity` | bearer | Proxy to peer `GET /v1/capacity`. |
+| GET | `/v1/remote-peers/{id}/host/profile` | bearer | Proxy to peer `GET /v1/host/profile`. |
+| GET | `/v1/remote-peers/{id}/mesh/links` | bearer | Proxy to peer `GET /v1/mesh/links`. |
+| POST | `/v1/remote-peers/{id}/host/profile/benchmark` | bearer | Proxy to peer `POST /v1/host/profile/benchmark` (runs on that peer). |
 | GET | `/v1/admin/snapshot` | bearer | Jobs, integrations, host, **`jobs_recent`** paging (`jobs_limit`, `jobs_offset`), thermal advisory, self-update meta. |
 | GET | `/v1/environments/telemetry` | bearer | Per-environment Postgres **`docker stats`** rows for ready envs (same shape as **`meta.integrations.environment_telemetry`** in snapshot). |
 | GET | `/v1/cooldown-summary` | bearer | Query **`period=`** required (same values as **`/v1/telemetry`**). |

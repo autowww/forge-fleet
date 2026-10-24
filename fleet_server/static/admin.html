@@ -478,10 +478,10 @@
         tabindex="0"
       >
         <p id="fleet-capacity-msg" class="fleet-mono small text-body-secondary mb-2" aria-live="polite"></p>
-        <div class="d-flex flex-wrap gap-2 mb-3 fleet-capacity-local-only">
+        <div class="d-flex flex-wrap gap-2 mb-3">
           <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-capacity-refresh-btn">Refresh</button>
         </div>
-        <div class="row g-3">
+        <div class="row g-3 fleet-capacity-local-only">
           <div class="col-lg-6">
             <section class="card border-secondary-subtle shadow-sm h-100">
               <div class="card-body">
@@ -508,9 +508,9 @@
             </section>
           </div>
         </div>
-        <section class="card border-secondary-subtle shadow-sm mt-3 fleet-capacity-local-only">
+        <section class="card border-secondary-subtle shadow-sm mt-3">
           <div class="card-body">
-            <h2 class="h6 text-uppercase text-body-secondary mb-3">Host profile &amp; mesh links</h2>
+            <h2 class="h6 text-uppercase text-body-secondary mb-3" id="fleet-cap-profile-title">Host profile &amp; mesh links</h2>
             <div id="fleet-capacity-mesh-body" class="small text-body-secondary">Open this tab to load Fleet mark and peer link stats.</div>
             <button type="button" class="btn btn-sm btn-outline-primary mt-2" id="fleet-cap-bench-btn">Run benchmark</button>
             <p id="fleet-cap-bench-status" class="small mb-0 mt-2" aria-live="polite"></p>
@@ -4462,7 +4462,9 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         var label =
           sel && sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].textContent : scope.peerId;
         bannerText.textContent =
-          "Viewing " + label + " (read-only) — credentials stored server-side.";
+          "Viewing " +
+          label +
+          ". Capacity shows this peer, and Run benchmark runs there. Other changes stay on this machine.";
       }
       var title = document.querySelector(".fleet-admin-title");
       if (title) {
@@ -4487,6 +4489,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       chartHostIdentity = null;
       __fleetTypesLoaded = false;
       applyFleetScopeChrome();
+      if (typeof window.fleetCapacityRefresh === "function") window.fleetCapacityRefresh();
       fleetSettingsToggleEdgeFields();
       loadSnapshot().then(function () {
         scheduleNext();

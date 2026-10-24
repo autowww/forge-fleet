@@ -21,7 +21,8 @@ try:
         ts = ts[:-1] + "+00:00"
     dt = datetime.fromisoformat(ts)
     age = (datetime.now(timezone.utc) - dt.astimezone(timezone.utc)).total_seconds()
-    sys.exit(0 if age <= max_age else 1)
+    # Exit 0 when the signal is stale so `if _stale` removes it.
+    sys.exit(0 if age > max_age else 1)
 except Exception:
     sys.exit(1)
 PY
@@ -43,8 +44,11 @@ _process_signal() {
   apt-get install -y "$package"
 
   if [[ "$channel" == "apt_user" && -n "$username" ]]; then
-    runuser -u "$username" -- land-fleet setup-user || true
-    runuser -u "$username" -- systemctl --user restart forge-fleet.service || true
+    local uid runtime
+    uid="$(id -u "$username")"
+    runtime="/run/user/${uid}"
+    runuser -u "$username" -- env XDG_RUNTIME_DIR="$runtime" DBUS_SESSION_BUS_ADDRESS="unix:path=${runtime}/bus" land-fleet setup-user || true
+    runuser -u "$username" -- env XDG_RUNTIME_DIR="$runtime" DBUS_SESSION_BUS_ADDRESS="unix:path=${runtime}/bus" systemctl --user restart forge-fleet.service || true
   elif [[ "$channel" == "apt_system" ]]; then
     systemctl restart forge-fleet.service || true
   fi

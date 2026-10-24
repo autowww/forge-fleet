@@ -36,7 +36,34 @@
   }
 
   function isRemoteScope() {
-    return document.body.classList.contains("fleet-scope-remote");
+    return !!activePeerId();
+  }
+
+  function activePeerId() {
+    try {
+      return (localStorage.getItem("forgeFleetActiveRemotePeer") || "").trim();
+    } catch (_e) {
+      return "";
+    }
+  }
+
+  function scopePeerLabel() {
+    var id = activePeerId();
+    var sel = document.getElementById("fleet-scope-select");
+    if (!id || !sel || sel.value !== id) return id;
+    var opt = sel.options[sel.selectedIndex];
+    return ((opt && opt.textContent) || id).trim();
+  }
+
+  function syncCapacityScope() {
+    var remote = !!activePeerId();
+    document.querySelectorAll(".fleet-capacity-local-only").forEach(function (el) {
+      el.classList.toggle("d-none", remote);
+    });
+    var title = document.getElementById("fleet-cap-profile-title");
+    if (title) {
+      title.textContent = remote ? "Host profile — " + scopePeerLabel() : "Host profile & mesh links";
+    }
   }
 
   function fmtBytes(n) {
@@ -313,7 +340,9 @@
       (measured ? " <span class=\"text-body-secondary\">measured " + esc(measured) + "</span>" : "") +
       "</p>" +
       "<p class=\"mb-2\">One score from single-core speed, all-core speed, memory speed, and disk speed. Higher is faster.</p>" +
-      "<p class=\"small fw-semibold mb-1\">On this host</p>" +
+      "<p class=\"small fw-semibold mb-1\">" +
+      esc(activePeerId() ? "On " + scopePeerLabel() : "On this host") +
+      "</p>" +
       "<dl class=\"row mb-2\">" +
       "<dt class=\"col-4\">CPU</dt><dd class=\"col-8\">" + esc(cpuLine) + "</dd>" +
       "<dt class=\"col-4\">Memory</dt><dd class=\"col-8\">" + esc(memLine) + "</dd>" +
@@ -393,6 +422,37 @@
   }
 
   function refreshCapacity() {
+    syncCapacityScope();
+    var peer = activePeerId();
+    if (peer) {
+      var root = document.getElementById("fleet-capacity-mesh-body");
+      if (root) root.textContent = "Loading " + scopePeerLabel() + "…";
+      var base = "/v1/remote-peers/" + encodeURIComponent(peer);
+      Promise.all([
+        fleetApi(base + "/host/profile").then(function (r) {
+          return r.json().then(function (j) {
+            if (!r.ok) throw new Error((j && j.error) || "HTTP " + r.status);
+            return j;
+          });
+        }),
+        fleetApi(base + "/mesh/links")
+          .then(function (r) {
+            return r.json();
+          })
+          .catch(function () {
+            return { edges: [] };
+          }),
+      ])
+        .then(function (parts) {
+          if (activePeerId() !== peer) return;
+          renderMesh(parts[0], parts[1]);
+        })
+        .catch(function (e) {
+          if (activePeerId() !== peer) return;
+          if (root) root.textContent = "Could not load this peer: " + (e && e.message ? e.message : e);
+        });
+      return;
+    }
     var diskBody = document.getElementById("fleet-capacity-disk-body");
     if (!diskBody) return;
     diskBody.textContent = "Loading…";
@@ -537,17 +597,17 @@
     var benchBtn = document.getElementById("fleet-cap-bench-btn");
     if (benchBtn) {
       benchBtn.addEventListener("click", function () {
-        if (isRemoteScope()) {
-          setMsg("fleet-capacity-msg", "Read-only remote scope.", true);
-          setBenchStatus("Read-only remote scope.", true);
-          return;
-        }
         if (benchBtn.disabled) return;
+        var peer = activePeerId();
+        var benchPath = peer
+          ? "/v1/remote-peers/" + encodeURIComponent(peer) + "/host/profile/benchmark"
+          : "/v1/host/profile/benchmark";
+        var who = peer ? scopePeerLabel() : "this host";
         benchBtn.disabled = true;
         benchBtn.textContent = "Running benchmark…";
-        setBenchStatus("Running. This usually takes under a minute. The Fleet mark updates here when it finishes.");
-        setMsg("fleet-capacity-msg", "Benchmark running.");
-        fleetApi("/v1/host/profile/benchmark", {
+        setBenchStatus("Running on " + who + ". This usually takes under a minute. The Fleet mark updates here when it finishes.");
+        setMsg("fleet-capacity-msg", "Benchmark running on " + who + ".");
+        fleetApi(benchPath, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: "{}",
@@ -630,9 +690,7 @@
           });
       });
     }
-    document.querySelectorAll(".fleet-capacity-local-only").forEach(function (el) {
-      if (isRemoteScope()) el.classList.add("d-none");
-    });
+    syncCapacityScope();
   }
 
   if (document.readyState === "loading") {
