@@ -7,13 +7,16 @@ This module writes only ``etc/fmsbench-result.json`` and ``fmsbench-suite/``.
 from __future__ import annotations
 
 import json
+import math
 import os
 import select
 import shlex
 import socket
+import statistics
 import subprocess
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
@@ -35,8 +38,12 @@ _FLAGS = {
     "smoke": ("--threads", "2", "--workers", "2", "--repeats", "1", "--trials", "1", "--duration", "1"),
     "standard": ("--threads", "8", "--workers", "8", "--repeats", "3", "--trials", "3", "--duration", "5"),
     "large": ("--threads", "8", "--workers", "8", "--repeats", "3", "--trials", "3", "--duration", "5"),
+    "stress": ("--stress-only",),
 }
-_TIMEOUT_S = {"micro": 600, "smoke": 1200, "standard": 7200, "large": 14400}
+_TIMEOUT_S = {"micro": 600, "smoke": 1200, "standard": 7200, "large": 14400, "stress": 7200}
+# Overall time and two-thread throughput dominate. One thread is the smaller share.
+COMPOSITE_WEIGHTS = {"overall_time": 0.50, "multithread": 0.35, "singlethread": 0.15}
+STRESS_WEIGHTS = {"overall_time": 0.40, "oversubscribed": 0.60}
 _STALE_S = 4 * 3600
 _lock = threading.Lock()
 
@@ -86,7 +93,17 @@ def public_view(data_dir: Path) -> dict[str, Any]:
         "phases": doc.get("phases") if isinstance(doc.get("phases"), dict) else None,
         "heartbeat_at": doc.get("heartbeat_at"),
         "log_excerpt": doc.get("log_excerpt"),
+        "stress": doc.get("stress") if isinstance(doc.get("stress"), dict) else None,
+        "stress_status": doc.get("stress_status"),
+        "stress_started_at": doc.get("stress_started_at"),
+        "stress_error": doc.get("stress_error"),
     }
+    report = _load_saved_report(data_dir, doc.get("result_name"))
+    if report is not None:
+        view["stages"] = stage_breakdown(report)
+        wall = _wall_seconds(report)
+        if wall is not None:
+            view["wall_seconds"] = wall
     return {k: v for k, v in view.items() if v is not None}
 
 
@@ -146,8 +163,14 @@ def current_phase(text: str) -> str:
             nxt = "Loading SQLite"
         if "[benchmark] sqlite" in low:
             nxt = "SQLite SQL and concurrency"
-        if "numpy numerical" in low:
+        if "numpy numerical" in low or "numpy stress" in low:
             nxt = "NumPy compute"
+        if "stress" in low and "postgres" in low:
+            nxt = "PostgreSQL SQL and concurrency"
+        if "stress" in low and "duckdb" in low:
+            nxt = "DuckDB SQL and concurrency"
+        if "stress" in low and "sqlite" in low:
+            nxt = "SQLite SQL and concurrency"
         if "passed, json" in low:
             nxt = "Saving the result"
         if nxt is None:
@@ -232,6 +255,213 @@ def summarize_fms_report(doc: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def host_capacity(hardware: dict[str, Any] | None) -> dict[str, Any]:
+    hw = hardware if isinstance(hardware, dict) else {}
+    threads = _positive_int(hw.get("logical_cpus"))
+    return {
+        "physical_cores": hw.get("physical_cpus"),
+        "hardware_threads": threads,
+        "multiprocess_max": threads,
+        "stress_threads": threads * 2 if threads else None,
+    }
+
+
+def _positive_int(value: Any) -> int | None:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
+def _positive_float(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 and math.isfinite(number) else None
+
+
+def _wall_seconds(doc: dict[str, Any]) -> float | None:
+    try:
+        start = datetime.fromisoformat(str(doc.get("start_utc")))
+        end = datetime.fromisoformat(str(doc.get("end_utc")))
+    except (TypeError, ValueError):
+        return None
+    span = (end - start).total_seconds()
+    return span if span > 0 else None
+
+
+def _median_elapsed(scale: dict[str, Any] | None) -> float | None:
+    if not isinstance(scale, dict):
+        return None
+    stored = _positive_float(scale.get("elapsed_seconds"))
+    if stored is not None:
+        return stored
+    trials = scale.get("trials") if isinstance(scale.get("trials"), list) else []
+    samples = [_positive_float(item.get("elapsed_seconds")) for item in trials if isinstance(item, dict)]
+    samples = [item for item in samples if item is not None]
+    if not samples:
+        return None
+    return float(statistics.median(samples))
+
+
+def _level(scale: dict[str, Any] | None, rate_key: str) -> dict[str, float] | None:
+    if not isinstance(scale, dict):
+        return None
+    rate = _positive_float(scale.get(rate_key))
+    if rate is None:
+        return None
+    out = {"rate": rate}
+    elapsed = _median_elapsed(scale)
+    if elapsed is not None:
+        out["seconds"] = elapsed
+    return out
+
+
+def _compute_seconds(workers: int, rate: float, loops: int, size: int) -> float | None:
+    if rate <= 0 or workers <= 0 or loops <= 0 or size <= 0:
+        return None
+    return (workers * 3 * loops * size) / rate
+
+
+def stage_breakdown(doc: dict[str, Any]) -> dict[str, Any] | None:
+    engines = doc.get("engines") if isinstance(doc.get("engines"), dict) else {}
+    compute = doc.get("compute") if isinstance(doc.get("compute"), dict) else {}
+    stages: dict[str, Any] = {}
+    for name in ("postgres", "duckdb", "sqlite"):
+        eng = engines.get(name) if isinstance(engines.get(name), dict) else {}
+        scales = (eng.get("concurrency") or {}).get("scales") if isinstance(eng.get("concurrency"), dict) else {}
+        single = _level(scales.get("1") if isinstance(scales, dict) else None, "median_jobs_per_second")
+        double = _level(scales.get("2") if isinstance(scales, dict) else None, "median_jobs_per_second")
+        if single is None and double is None:
+            continue
+        prep = _positive_float(eng.get("prep_seconds"))
+        pieces = [item.get("seconds") for item in (single, double) if isinstance(item, dict)]
+        stage_seconds = sum(piece for piece in pieces if isinstance(piece, (int, float)))
+        if prep is not None:
+            stage_seconds += prep
+        stages[name] = {
+            "prep_seconds": prep,
+            "single": single,
+            "double": double,
+            "stage_seconds": stage_seconds if stage_seconds > 0 else None,
+        }
+    scales = compute.get("scales") if isinstance(compute.get("scales"), dict) else {}
+    loops = _positive_int(compute.get("loops")) or 4
+    size = _positive_int(compute.get("size")) or 200_000
+    single_c = _level(scales.get("1"), "median_rows_per_second")
+    double_c = _level(scales.get("2"), "median_rows_per_second")
+    if single_c is not None or double_c is not None:
+        for workers, level in ((1, single_c), (2, double_c)):
+            if isinstance(level, dict) and "seconds" not in level:
+                derived = _compute_seconds(workers, level["rate"], loops, size)
+                if derived is not None:
+                    level["seconds"] = derived
+        pieces = [item.get("seconds") for item in (single_c, double_c) if isinstance(item, dict)]
+        stage_seconds = sum(piece for piece in pieces if isinstance(piece, (int, float)))
+        stages["compute"] = {
+            "single": single_c,
+            "double": double_c,
+            "stage_seconds": stage_seconds if stage_seconds > 0 else None,
+        }
+    if not stages:
+        return None
+    hardware = doc.get("hardware") if isinstance(doc.get("hardware"), dict) else {}
+    return {
+        "wall_seconds": _wall_seconds(doc),
+        "hardware_threads": _positive_int(hardware.get("host_logical_cpus") or hardware.get("affinity_cpus")),
+        "stages": stages,
+    }
+
+
+def _load_saved_report(data_dir: Path, name: Any) -> dict[str, Any] | None:
+    if not isinstance(name, str) or not name or "/" in name or name.startswith("."):
+        return None
+    path = data_dir / _SUITE_DIR / "results" / name
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return doc if isinstance(doc, dict) else None
+
+
+def _stage_rate(view: dict[str, Any], name: str, width: str) -> float | None:
+    stages = view.get("stages") if isinstance(view.get("stages"), dict) else {}
+    inner = stages.get("stages") if isinstance(stages.get("stages"), dict) else {}
+    stage = inner.get(name) if isinstance(inner.get(name), dict) else {}
+    level = stage.get(width) if isinstance(stage.get(width), dict) else {}
+    return _positive_float(level.get("rate"))
+
+
+def _geometric_speedup(pairs: list[tuple[float, float]]) -> float | None:
+    if not pairs:
+        return None
+    logs = []
+    for candidate, reference in pairs:
+        if candidate <= 0 or reference <= 0:
+            return None
+        logs.append(math.log(candidate / reference))
+    return math.exp(sum(logs) / len(logs))
+
+
+def composite_score(reference: dict[str, Any], candidate: dict[str, Any]) -> float | None:
+    """100 on the reference run. Shorter wall time and two-thread throughput weigh more than one thread."""
+    names = ("postgres", "duckdb", "sqlite", "compute")
+    single_pairs = []
+    multi_pairs = []
+    for name in names:
+        single = _stage_rate(candidate, name, "single")
+        single_ref = _stage_rate(reference, name, "single")
+        multi = _stage_rate(candidate, name, "double")
+        multi_ref = _stage_rate(reference, name, "double")
+        if None in (single, single_ref, multi, multi_ref):
+            return None
+        single_pairs.append((single, single_ref))
+        multi_pairs.append((multi, multi_ref))
+    ref_stages = reference.get("stages") if isinstance(reference.get("stages"), dict) else {}
+    cand_stages = candidate.get("stages") if isinstance(candidate.get("stages"), dict) else {}
+    ref_wall = _positive_float(reference.get("wall_seconds") or ref_stages.get("wall_seconds"))
+    cand_wall = _positive_float(candidate.get("wall_seconds") or cand_stages.get("wall_seconds"))
+    if ref_wall is None or cand_wall is None:
+        return None
+    single = _geometric_speedup(single_pairs)
+    multi = _geometric_speedup(multi_pairs)
+    if single is None or multi is None:
+        return None
+    weighted = (
+        COMPOSITE_WEIGHTS["overall_time"] * math.log(ref_wall / cand_wall)
+        + COMPOSITE_WEIGHTS["multithread"] * math.log(multi)
+        + COMPOSITE_WEIGHTS["singlethread"] * math.log(single)
+    )
+    return 100.0 * math.exp(weighted)
+
+
+def stress_score(reference: dict[str, Any] | None, candidate: dict[str, Any] | None) -> float | None:
+    if not isinstance(reference, dict) or not isinstance(candidate, dict):
+        return None
+    names = ("postgres", "duckdb", "sqlite", "compute")
+    pairs = []
+    for name in names:
+        ref_level = reference.get(name) if isinstance(reference.get(name), dict) else {}
+        cand_level = candidate.get(name) if isinstance(candidate.get(name), dict) else {}
+        ref_rate = _positive_float(ref_level.get("rate"))
+        cand_rate = _positive_float(cand_level.get("rate"))
+        if ref_rate is None or cand_rate is None:
+            return None
+        pairs.append((cand_rate, ref_rate))
+    ref_wall = _positive_float(reference.get("wall_seconds"))
+    cand_wall = _positive_float(candidate.get("wall_seconds"))
+    throughput = _geometric_speedup(pairs)
+    if throughput is None or ref_wall is None or cand_wall is None:
+        return None
+    weighted = (
+        STRESS_WEIGHTS["overall_time"] * math.log(ref_wall / cand_wall)
+        + STRESS_WEIGHTS["oversubscribed"] * math.log(throughput)
+    )
+    return 100.0 * math.exp(weighted)
+
+
 def row_from_profile(peer_id: str, label: str, profile_doc: dict[str, Any] | None) -> dict[str, Any]:
     doc = profile_doc if isinstance(profile_doc, dict) else {}
     bench = doc.get("benchmark") if isinstance(doc.get("benchmark"), dict) else {}
@@ -251,6 +481,7 @@ def row_from_profile(peer_id: str, label: str, profile_doc: dict[str, Any] | Non
         "label": label,
         "node_id": hardware.get("node_id") or sibling.get("node") if sibling else hardware.get("node_id"),
         "fleet": fleet,
+        "capacity": host_capacity(hardware),
         "fmsbench": sibling or {"suite": SUITE, "status": "not_run"},
     }
 
@@ -301,9 +532,25 @@ def comparison(data_dir: Path, *, fetch_peer: Callable[[str], tuple[int, dict[st
             })
             continue
         rows.append(row_from_profile(peer_id, label, payload))
+    reference = next((row for row in rows if row.get("peer_id") == "local"), None)
+    ref_fms = reference.get("fmsbench") if isinstance(reference, dict) else None
+    if isinstance(ref_fms, dict) and ref_fms.get("stages"):
+        for row in rows:
+            fms = row.get("fmsbench")
+            if not isinstance(fms, dict) or not fms.get("stages"):
+                continue
+            scored = composite_score(ref_fms, fms)
+            if scored is not None:
+                fms["composite_score"] = round(scored, 1)
+            stress_scored = stress_score(ref_fms.get("stress"), fms.get("stress"))
+            if stress_scored is not None:
+                fms["stress_score"] = round(stress_scored, 1)
     return {
         "ok": True,
         "separation": "fleet_mark and fmsbench are different measurements",
+        "reference_peer_id": "local",
+        "composite_weights": dict(COMPOSITE_WEIGHTS),
+        "stress_weights": dict(STRESS_WEIGHTS),
         "rows": rows,
     }
 
@@ -335,10 +582,16 @@ def probe_runtime() -> dict[str, Any]:
 
 
 def _running(doc: dict[str, Any] | None, now: float) -> bool:
-    if not doc or doc.get("status") != "running":
+    if not doc:
         return False
-    started = float(doc.get("started_at") or 0)
-    return (now - started) < _STALE_S
+    if doc.get("status") == "running":
+        started = float(doc.get("started_at") or 0)
+        if (now - started) < _STALE_S:
+            return True
+    if doc.get("stress_status") == "running":
+        started = float(doc.get("stress_started_at") or 0)
+        return (now - started) < _STALE_S
+    return False
 
 
 def _finish(data_dir: Path, profile: str, status: str, **extra: Any) -> None:
@@ -380,6 +633,14 @@ def _new_result_file(suite: Path, before: set[str]) -> Path | None:
 
 def _update_running(data_dir: Path, profile: str, **fields: Any) -> None:
     current = load_result(data_dir) or {}
+    if profile == "stress":
+        current["stress_status"] = "running"
+        current["heartbeat_at"] = time.time()
+        for key in ("phase", "phases", "log_excerpt"):
+            if key in fields:
+                current[key] = fields[key]
+        save_result(data_dir, current)
+        return
     current.update({
         "suite": SUITE,
         "suite_version": SUITE_VERSION,
@@ -439,6 +700,36 @@ def _stream_run(data_dir: Path, profile: str, proc: subprocess.Popen[bytes], tim
     return redact_log(raw.decode("utf-8", "replace")), int(code)
 
 
+def stress_thread_count() -> int:
+    """Twice the hardware threads, capped so one host cannot fork without a bound."""
+    threads = os.cpu_count() or 1
+    return max(2, min(64, threads * 2))
+
+
+def _run_command(profile: str) -> list[str]:
+    label = _safe_label(socket.gethostname())
+    if profile == "stress":
+        return [
+            "./run.sh",
+            "--label",
+            label,
+            "--profile",
+            "standard",
+            "--threads",
+            "1",
+            "--workers",
+            str(stress_thread_count()),
+            "--repeats",
+            "1",
+            "--trials",
+            "1",
+            "--duration",
+            "5",
+            "--stress-only",
+        ]
+    return ["./run.sh", "--label", label, "--profile", profile, *_FLAGS[profile]]
+
+
 def _docker_command(cmd: list[str]) -> list[str]:
     """Use `sg docker` when the service account is in the group but this process is not."""
     try:
@@ -479,9 +770,7 @@ def execute_run(data_dir: Path, profile: str) -> None:
             for k, v in os.environ.items()
             if "TOKEN" not in k and "PASSWORD" not in k and "SECRET" not in k
         }
-        cmd = _docker_command(
-            ["./run.sh", "--label", _safe_label(socket.gethostname()), "--profile", profile, *_FLAGS[profile]]
-        )
+        cmd = _docker_command(_run_command(profile))
         _update_running(data_dir, profile, phase="Checking the host", log_excerpt="")
         env["PYTHONUNBUFFERED"] = "1"
         env["COMPOSE_ANSI"] = "never"
@@ -512,13 +801,22 @@ def execute_run(data_dir: Path, profile: str) -> None:
         excerpt = clip_log(log)
         proc = subprocess.CompletedProcess(cmd, returncode, log, "")
         if proc.returncode != 0:
-            _finish(data_dir, profile, "failed", error="run_failed", detail=log[-500:], phases=phases, log_excerpt=excerpt)
+            if profile == "stress":
+                _save_stress(data_dir, {}, log_excerpt=excerpt, error="run_failed")
+            else:
+                _finish(data_dir, profile, "failed", error="run_failed", detail=log[-500:], phases=phases, log_excerpt=excerpt)
             return
         picked = _new_result_file(suite, before)
         if picked is None:
-            _finish(data_dir, profile, "failed", error="no_result", phases=phases, log_excerpt=excerpt)
+            if profile == "stress":
+                _save_stress(data_dir, {}, log_excerpt=excerpt, error="no_result")
+            else:
+                _finish(data_dir, profile, "failed", error="no_result", phases=phases, log_excerpt=excerpt)
             return
         report = json.loads(picked.read_text(encoding="utf-8"))
+        if isinstance(report, dict) and report.get("status") == "stress_only" and isinstance(report.get("stress"), dict):
+            _save_stress(data_dir, report["stress"], log_excerpt=excerpt)
+            return
         if not isinstance(report, dict) or report.get("status") != "passed" or not report_has_engine_evidence(report):
             _finish(
                 data_dir,
@@ -553,7 +851,29 @@ def execute_run(data_dir: Path, profile: str) -> None:
             detail=None,
         )
     except Exception as exc:  # noqa: BLE001 — persist the failure in the FMSBench file only
-        _finish(data_dir, profile, "failed", error="run_failed", detail=str(exc)[:500])
+        if profile == "stress":
+            _save_stress(data_dir, {}, log_excerpt="", error=str(exc)[:240])
+        else:
+            _finish(data_dir, profile, "failed", error="run_failed", detail=str(exc)[:500])
+
+
+def _save_stress(data_dir: Path, stress: dict[str, Any], *, log_excerpt: str, error: str | None = None) -> None:
+    current = load_result(data_dir) or {}
+    current["suite"] = current.get("suite") or SUITE
+    current["suite_version"] = str(current.get("suite_version") or SUITE_VERSION)
+    current["stress_finished_at"] = time.time()
+    if error:
+        current["stress_status"] = "failed"
+        current["stress_error"] = error
+    else:
+        current["stress"] = stress
+        current["stress_status"] = "passed"
+        current["stress_error"] = None
+    if log_excerpt:
+        current["log_excerpt"] = log_excerpt
+    if current.get("status") == "running" and current.get("profile") == "stress":
+        current["status"] = "not_run"
+    save_result(data_dir, current)
 
 
 def start_run(
@@ -567,14 +887,17 @@ def start_run(
         return {"ok": False, "error": "unknown_profile"}, 400
     runtime = (probe or probe_runtime)()
     if not runtime.get("compose"):
-        _finish(
-            data_dir,
-            profile,
-            "failed",
-            error="compose_unavailable",
-            detail=runtime.get("detail"),
-            started_at=time.time(),
-        )
+        if profile == "stress":
+            _save_stress(data_dir, {}, log_excerpt="", error="compose_unavailable")
+        else:
+            _finish(
+                data_dir,
+                profile,
+                "failed",
+                error="compose_unavailable",
+                detail=runtime.get("detail"),
+                started_at=time.time(),
+            )
         return {
             "ok": False,
             "error": "compose_unavailable",
@@ -585,16 +908,27 @@ def start_run(
     with _lock:
         if _running(load_result(data_dir), now):
             return {"ok": False, "error": "busy", "fmsbench": public_view(data_dir)}, 409
-        save_result(data_dir, {
-            "suite": SUITE,
-            "suite_version": SUITE_VERSION,
-            "status": "running",
-            "profile": profile,
-            "started_at": now,
-            "finished_at": None,
-            "node": _safe_label(socket.gethostname()),
-            "error": None,
-        })
+        if profile == "stress":
+            current = load_result(data_dir) or {
+                "suite": SUITE,
+                "suite_version": SUITE_VERSION,
+                "status": "not_run",
+            }
+            current["stress_status"] = "running"
+            current["stress_started_at"] = now
+            current["stress_error"] = None
+            save_result(data_dir, current)
+        else:
+            save_result(data_dir, {
+                "suite": SUITE,
+                "suite_version": SUITE_VERSION,
+                "status": "running",
+                "profile": profile,
+                "started_at": now,
+                "finished_at": None,
+                "node": _safe_label(socket.gethostname()),
+                "error": None,
+            })
     if runner is not None:
         runner(data_dir, profile)
         return {"ok": True, "status": public_view(data_dir).get("status"), "fmsbench": public_view(data_dir)}, 200

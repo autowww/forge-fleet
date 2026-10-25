@@ -521,6 +521,7 @@
                   <option value="smoke" selected>smoke</option>
                   <option value="micro">micro</option>
                   <option value="standard">standard</option>
+                  <option value="stress">stress (2× threads)</option>
                 </select>
               </label>
             </div>
@@ -532,7 +533,7 @@
         <section class="card border-secondary-subtle shadow-sm mt-3">
           <div class="card-body">
             <h2 class="h6 text-uppercase text-body-secondary mb-2">Peer comparison</h2>
-            <p class="small text-body-secondary mb-2">Fleet mark and the Market Studio benchmark stay in separate columns. Neither score is converted into the other.</p>
+            <p class="small text-body-secondary mb-2">Fleet mark stays separate. The Market Studio composite weighs overall time at 50%, two-thread throughput at 35%, and one-thread throughput at 15%, against this server. Stress is a separate score at twice the machine's hardware threads.</p>
             <div id="fleet-capacity-compare-body" class="small text-body-secondary">Open this tab to load both benchmarks.</div>
           </div>
         </section>

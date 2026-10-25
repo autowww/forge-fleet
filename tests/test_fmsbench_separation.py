@@ -142,6 +142,98 @@ def test_docker_command_uses_the_docker_group_when_needed(monkeypatch) -> None:
     assert "run.sh" in launched[3]
 
 
+def _scored_view(wall: float, single: float, double: float) -> dict:
+    stages = {}
+    for name in ("postgres", "duckdb", "sqlite", "compute"):
+        stages[name] = {
+            "single": {"rate": single, "seconds": 1.0},
+            "double": {"rate": double, "seconds": 1.0},
+            "stage_seconds": 2.0,
+        }
+    return {"wall_seconds": wall, "stages": {"wall_seconds": wall, "stages": stages}}
+
+
+def test_stage_breakdown_keeps_one_and_two_threads() -> None:
+    report = {
+        "start_utc": "2026-10-25T00:00:00+00:00",
+        "end_utc": "2026-10-25T00:01:00+00:00",
+        "hardware": {"host_logical_cpus": 12},
+        "engines": {
+            "postgres": {
+                "prep_seconds": 2.0,
+                "concurrency": {"scales": {
+                    "1": {"median_jobs_per_second": 1.5, "trials": [{"elapsed_seconds": 5.0}]},
+                    "2": {"median_jobs_per_second": 3.0, "trials": [{"elapsed_seconds": 5.0}]},
+                }},
+            }
+        },
+        "compute": {"loops": 4, "size": 100, "scales": {
+            "1": {"median_rows_per_second": 1000.0, "elapsed_seconds": 1.2},
+            "2": {"median_rows_per_second": 1800.0, "elapsed_seconds": 1.4},
+        }},
+    }
+    view = fmsbench_runs.stage_breakdown(report)
+    assert view is not None
+    assert view["wall_seconds"] == 60
+    assert view["stages"]["postgres"]["single"]["rate"] == 1.5
+    assert view["stages"]["postgres"]["double"]["seconds"] == 5.0
+    assert view["stages"]["postgres"]["stage_seconds"] == 12.0
+    assert view["stages"]["compute"]["double"]["seconds"] == 1.4
+
+
+def test_composite_reference_is_100_and_favors_shorter_multithreaded_runs() -> None:
+    ref = _scored_view(100, 2, 4)
+    assert fmsbench_runs.composite_score(ref, ref) == 100
+    quicker = fmsbench_runs.composite_score(ref, _scored_view(50, 2, 8))
+    slower = fmsbench_runs.composite_score(ref, _scored_view(200, 2, 4))
+    assert quicker is not None and quicker > 100
+    assert slower is not None and slower < 100
+    incomplete = _scored_view(100, 2, 4)
+    incomplete["stages"]["stages"]["compute"]["double"] = None
+    assert fmsbench_runs.composite_score(ref, incomplete) is None
+
+
+def test_stress_score_is_separate() -> None:
+    def stress(wall: float, rate: float) -> dict:
+        out = {"wall_seconds": wall}
+        for name in ("postgres", "duckdb", "sqlite", "compute"):
+            out[name] = {"rate": rate, "seconds": 5}
+        return out
+
+    assert fmsbench_runs.stress_score(stress(40, 2), stress(40, 2)) == 100
+    assert fmsbench_runs.stress_score(stress(40, 2), stress(40, 4)) > 100
+    assert fmsbench_runs.stress_score(stress(40, 2), {"wall_seconds": 40}) is None
+
+
+def test_stress_result_does_not_replace_the_standard_summary(tmp_path: Path) -> None:
+    fmsbench_runs.save_result(tmp_path, {
+        "status": "passed",
+        "profile": "standard",
+        "summary": {"postgres_jobs_per_second": 3},
+    })
+    fmsbench_runs._save_stress(tmp_path, {
+        "threads": 8,
+        "wall_seconds": 10,
+        "postgres": {"rate": 1},
+        "duckdb": {"rate": 1},
+        "sqlite": {"rate": 1},
+        "compute": {"rate": 1},
+    }, log_excerpt="stress done")
+    saved = json.loads(fmsbench_runs.result_path(tmp_path).read_text(encoding="utf-8"))
+    assert saved["status"] == "passed"
+    assert saved["summary"]["postgres_jobs_per_second"] == 3
+    assert saved["stress_status"] == "passed"
+    assert saved["stress"]["threads"] == 8
+
+
+def test_capacity_reports_cores_threads_and_stress_width() -> None:
+    cap = fmsbench_runs.host_capacity({"physical_cpus": 6, "logical_cpus": 12})
+    assert cap["physical_cores"] == 6
+    assert cap["hardware_threads"] == 12
+    assert cap["multiprocess_max"] == 12
+    assert cap["stress_threads"] == 24
+
+
 def test_live_phase_follows_the_log() -> None:
     assert fmsbench_runs.current_phase("") == "Checking the host"
     assert fmsbench_runs.current_phase("[benchmark] sqlite") == "SQLite SQL and concurrency"

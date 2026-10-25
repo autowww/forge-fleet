@@ -33,7 +33,7 @@ Feature docs (details beyond this table): [CONTAINER-TEMPLATES.md](../build-201/
 | GET | `/v1/host/profile` | `read:profile` | Hardware snapshot, Fleet mark (`benchmark`), Market Studio benchmark (`fmsbench`, separate file), 5m rollup history (`period=1h\|24h\|7d`). |
 | POST | `/v1/host/profile/benchmark` | admin | Run bounded Fleet-mark benchmark (cooldown). Does not write the Market Studio result. |
 | POST | `/v1/host/profile/fmsbench` | admin | Start FMSBench on this host. Body `{"profile":"smoke"\|"micro"\|"standard"\|"large"}`. Returns 202 while the run continues. Result is `etc/fmsbench-result.json`, not the Fleet mark. |
-| GET | `/v1/mesh/benchmarks` | `read:profile` | This host plus each remote peer, with Fleet mark and FMSBench in separate columns. |
+| GET | `/v1/mesh/benchmarks` | `read:profile` | Fleet mark, Market Studio stages, composite score, and a separate stress score. |
 | GET | `/v1/host/link-probe` | `read:links` | Fixed 1 MiB body for throughput probes (`Cache-Control: no-store`). |
 | GET | `/v1/mesh/links` | `read:links` | Peer RTT/throughput samples (1h/24h stats). |
 | POST | `/v1/mesh/offload/advise` | `mesh:advise` | Rank local vs peers for CPU+transfer workload (`cpu_seconds`, `transfer_mb`, `service_id`). |

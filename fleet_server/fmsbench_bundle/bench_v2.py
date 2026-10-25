@@ -454,14 +454,17 @@ def _compute_batch(loops, size):
     return total
 
 
-def measure_compute(max_workers, repeats, size=200_000, loops=4):
+def measure_compute(max_workers, repeats, size=200_000, loops=4, only_workers=None):
     import numpy
     from concurrent.futures import ProcessPoolExecutor
-    stages = {1, max_workers}
-    s = 2
-    while s < max_workers:
-        stages.add(s)
-        s *= 2
+    if only_workers is not None:
+        stages = {int(only_workers)}
+    else:
+        stages = {1, max_workers}
+        s = 2
+        while s < max_workers:
+            stages.add(s)
+            s *= 2
     results = {}
     # Fresh pool per level, process startup and imports EXCLUDED from timing.
     for workers in sorted(stages):
@@ -470,6 +473,7 @@ def measure_compute(max_workers, repeats, size=200_000, loops=4):
             if any(not math.isfinite(x) for x in warmed):
                 raise RuntimeError('Compute warmup invalid')
             times = []
+            elapsed_samples = []
             results_signature = None
             for _ in range(repeats):
                 tasks = workers * 3
@@ -480,7 +484,9 @@ def measure_compute(max_workers, repeats, size=200_000, loops=4):
                     raise RuntimeError('Compute kernel mismatch')
                 results_signature = round(calculated[0], 6)
                 times.append(tasks * loops * size / elapsed)
+                elapsed_samples.append(elapsed)
             results[str(workers)] = {'median_rows_per_second': statistics.median(times),
+                                     'elapsed_seconds': statistics.median(elapsed_samples),
                                      'checksum': results_signature}
     best = max(results, key=lambda k: results[k]['median_rows_per_second'])
     return {'scales': results, 'best_workers': int(best),
@@ -508,7 +514,75 @@ def hardware():
             'platform': platform.platform(), 'python': platform.python_version()}
 
 
+def _one_level(name, folder, schema, workers, duration, repeats, expected):
+    samples = [concurrency_round(name, folder, schema, workers, duration, expected)
+               for _ in range(repeats)]
+    return {
+        'rate': statistics.median(item['jobs_per_second'] for item in samples),
+        'seconds': statistics.median(item['elapsed_seconds'] for item in samples),
+    }
+
+
+def run_stress(args):
+    """Oversubscribed run at the requested worker count. Kept out of the main score."""
+    started_at = time.perf_counter()
+    started = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    folder = args.work / (args.profile + '-' + fixture_id(args.profile))
+    folder.mkdir(parents=True, exist_ok=True)
+    dataset = make_fixture(folder, args.profile)
+    schema = 'fms_' + fixture_id(args.profile)
+    rows = (dataset['dimensions']['bars'], dataset['dimensions']['filings'])
+    print(f"Prepared fixture {args.profile}: {rows[0]:,} OHLCV bars; {rows[1]:,} SEC facts", flush=True)
+    for eng in ENGINES:
+        print(f'[prepare] {eng}', flush=True)
+        if eng == 'postgres':
+            prepare_postgres(folder, schema, rows)
+        elif eng == 'duckdb':
+            prepare_duckdb(folder, rows)
+        else:
+            prepare_sqlite(folder, rows)
+    stress = {'hardware_threads': os.cpu_count(), 'threads': int(args.workers)}
+    canonical = None
+    for eng in ENGINES:
+        print(f'[benchmark] {eng} stress x{args.workers}', flush=True)
+        queries = measure_queries(eng, folder, schema, 1, 1)
+        outputs = {key: value['result'] for key, value in queries.items()}
+        if canonical is None:
+            canonical = outputs
+        else:
+            for key in QUERIES:
+                if not values_equal(canonical[key], outputs[key]):
+                    raise RuntimeError(f'Cross-engine SQL correctness mismatch for {eng}/{key}')
+        stress[eng] = _one_level(eng, folder, schema, args.workers, args.duration, args.trials, outputs)
+    print(f'[benchmark] NumPy stress x{args.workers}', flush=True)
+    compute = measure_compute(args.workers, args.trials, size=args.compute_size, loops=args.compute_loops,
+                              only_workers=args.workers)
+    level = compute['scales'][str(args.workers)]
+    stress['compute'] = {'rate': level['median_rows_per_second'], 'seconds': level['elapsed_seconds']}
+    stress['wall_seconds'] = round(time.perf_counter() - started_at, 3)
+    result = {
+        'suite': 'FMSBench', 'suite_version': SUITE_VERSION, 'data_revision': DATA_REV,
+        'workload_checksum': checksum(), 'node': args.node or socket.gethostname(),
+        'start_utc': started, 'end_utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        'hardware': hardware(), 'config': {'profile': args.profile, 'stress_only': True, 'workers': args.workers},
+        'stress': stress, 'status': 'stress_only',
+    }
+    args.results.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+    node = re.sub(r'[^A-Za-z0-9_-]', '-', result['node'])[:48]
+    final_path = args.results / f'fmsbench-{node}-{stamp}.json'
+    if final_path.exists():
+        raise RuntimeError(f'Refusing to overwrite result: {final_path}')
+    temp_path = final_path.with_suffix('.json.tmp')
+    temp_path.write_text(json.dumps(result, indent=2, allow_nan=False) + '\n')
+    temp_path.replace(final_path)
+    print(f'PASSED, JSON: {final_path}', flush=True)
+    return result
+
+
 def run(args):
+    if getattr(args, 'stress_only', False):
+        return run_stress(args)
     started_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
     folder = args.work / (args.profile + '-' + fixture_id(args.profile))
     folder.mkdir(parents=True, exist_ok=True)
@@ -601,12 +675,14 @@ def main():
     p.add_argument('--work', type=Path, default=Path('/benchwork'))
     p.add_argument('--results', type=Path, default=Path('/results'))
     p.add_argument('--baseline', type=Path)
+    p.add_argument('--stress-only', action='store_true')
     args = p.parse_args()
-    if not (1 <= args.workers <= 32 and 1 <= args.threads <= 16 and
+    worker_limit = 64 if args.stress_only else 32
+    if not (1 <= args.workers <= worker_limit and 1 <= args.threads <= 16 and
             1 <= args.repeats <= 20 and 1 <= args.trials <= 10 and
             .25 <= args.duration <= 120 and 100 <= args.compute_size <= 10_000_000 and
             1 <= args.compute_loops <= 100):
-        p.error('Unsafe test parameters (workers<=32, threads<=16, duration .25–120s)')
+        p.error('Unsafe test parameters (workers<=32, or <=64 for --stress-only; threads<=16; duration .25–120s)')
     run(args)
 
 

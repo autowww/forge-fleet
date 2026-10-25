@@ -327,6 +327,9 @@
     } else if (isFinite(threads) && threads > 0) {
       cpuLine = threads + (threads === 1 ? " core" : " cores");
     }
+    if (isFinite(threads) && threads > 0) {
+      cpuLine += " · multiprocess max " + threads + " · stress width " + (threads * 2);
+    }
     var memTotal = hw.memory_total_kb != null ? fmtBytes(Number(hw.memory_total_kb) * 1024) : "—";
     var memFree = hw.memory_available_kb != null ? fmtBytes(Number(hw.memory_available_kb) * 1024) : "";
     var memLine = memFree && memTotal !== "—" ? memFree + " free of " + memTotal : memTotal;
@@ -655,6 +658,23 @@
       });
   }
 
+  function fmtSeconds(n) {
+    var v = Number(n);
+    return isFinite(v) ? v.toFixed(1) + "s" : "—";
+  }
+
+  function fmtStageRate(name, n) {
+    var v = Number(n);
+    if (!isFinite(v)) return "—";
+    if (name === "compute") return (v / 1000000).toFixed(1) + "M rows/s";
+    return v.toFixed(2) + " bundles/s";
+  }
+
+  function stageLevel(stage, width) {
+    if (!stage || !stage[width]) return { rate: null, seconds: null };
+    return stage[width];
+  }
+
   function renderCompare(doc) {
     var root = document.getElementById("fleet-capacity-compare-body");
     if (!root) return;
@@ -663,22 +683,53 @@
       root.textContent = "No peers to compare.";
       return;
     }
-    var html = "<table class=\"table table-sm mb-0\"><thead><tr>" +
-      "<th>Peer</th><th>Fleet mark</th><th>Market Studio</th><th>PostgreSQL</th><th>DuckDB</th><th>SQLite</th><th>Compute</th>" +
+    var html = "<table class=\"table table-sm mb-3\"><thead><tr>" +
+      "<th>Peer</th><th>Fleet mark</th><th>Cores</th><th>Threads</th><th>Multiprocess max</th>" +
+      "<th>Total time</th><th>Composite</th><th>Stress</th>" +
       "</tr></thead><tbody>";
     rows.forEach(function (row) {
       var fleet = row.fleet || {};
       var fms = row.fmsbench || {};
-      var sum = fms.summary || {};
+      var cap = row.capacity || {};
+      var stages = fms.stages || {};
       var who = row.label || row.peer_id || "peer";
       if (row.node_id && row.node_id !== who) who += " (" + row.node_id + ")";
-      var fmsCell = fms.status || "not_run";
-      if (fms.profile && fms.status === "passed") fmsCell += " · " + fms.profile;
-      if (row.error) fmsCell = row.error;
+      var stressCell = fms.stress_score != null ? scoreCell(fms.stress_score) : (fms.stress_status || "—");
+      if (fms.stress && fms.stress.threads) stressCell += " · " + fms.stress.threads + " threads";
       html += "<tr><td>" + esc(who) + "</td><td>" + esc(scoreCell(fleet.fleet_mark)) + "</td><td>" +
-        esc(fmsCell) + "</td><td>" + esc(rateOrDash(sum.postgres_jobs_per_second)) + "</td><td>" +
-        esc(rateOrDash(sum.duckdb_jobs_per_second)) + "</td><td>" + esc(rateOrDash(sum.sqlite_jobs_per_second)) +
-        "</td><td>" + esc(rateOrDash(sum.compute_rows_per_second)) + "</td></tr>";
+        esc(cap.physical_cores != null ? cap.physical_cores : "—") + "</td><td>" +
+        esc(cap.hardware_threads != null ? cap.hardware_threads : "—") + "</td><td>" +
+        esc(cap.multiprocess_max != null ? cap.multiprocess_max : "—") + "</td><td>" +
+        esc(fmtSeconds(stages.wall_seconds || fms.wall_seconds)) + "</td><td>" +
+        esc(scoreCell(fms.composite_score)) + "</td><td>" + esc(stressCell) + "</td></tr>";
+    });
+    html += "</tbody></table>";
+    html += "<table class=\"table table-sm mb-0\"><thead><tr>" +
+      "<th>Peer</th><th>Stage</th><th>1 thread</th><th>1 thread time</th><th>2 threads</th><th>2 thread time</th><th>Stage time</th>" +
+      "</tr></thead><tbody>";
+    var stageNames = [
+      ["postgres", "PostgreSQL"],
+      ["duckdb", "DuckDB"],
+      ["sqlite", "SQLite"],
+      ["compute", "Compute"]
+    ];
+    rows.forEach(function (row) {
+      var fms = row.fmsbench || {};
+      var who = row.label || row.peer_id || "peer";
+      var inner = fms.stages && fms.stages.stages ? fms.stages.stages : {};
+      if (!fms.stages) {
+        html += "<tr><td>" + esc(who) + "</td><td colspan=\"6\">" + esc(fms.status || "not_run") + "</td></tr>";
+        return;
+      }
+      stageNames.forEach(function (pair) {
+        var stage = inner[pair[0]] || {};
+        var one = stageLevel(stage, "single");
+        var two = stageLevel(stage, "double");
+        html += "<tr><td>" + esc(who) + "</td><td>" + esc(pair[1]) + "</td><td>" +
+          esc(fmtStageRate(pair[0], one.rate)) + "</td><td>" + esc(fmtSeconds(one.seconds)) + "</td><td>" +
+          esc(fmtStageRate(pair[0], two.rate)) + "</td><td>" + esc(fmtSeconds(two.seconds)) + "</td><td>" +
+          esc(fmtSeconds(stage.stage_seconds)) + "</td></tr>";
+      });
     });
     html += "</tbody></table>";
     root.innerHTML = html;
@@ -775,13 +826,20 @@
     });
   }
 
+  function fmsStressLive(fms) {
+    return !!(fms && fms.stress_status === "running");
+  }
+
   function paintFms(fms, who) {
-    var started = Number(fms && fms.started_at) || Date.now() / 1000;
-    var status = fms && fms.status ? fms.status : "running";
+    var stress = fmsStressLive(fms);
+    var started = Number(stress ? fms.stress_started_at : fms && fms.started_at) || Date.now() / 1000;
+    var status = stress ? "running" : (fms && fms.status ? fms.status : "running");
     var finished = status === "passed" ? "passed" : status === "running" ? "running" : status;
     renderLive({
-      title: "Market Studio benchmark on " + who,
-      note: "Separate from the Fleet mark. Containers, PostgreSQL, DuckDB, SQLite, and NumPy.",
+      title: (stress ? "Market Studio stress on " : "Market Studio benchmark on ") + who,
+      note: stress
+        ? "Separate stress score at twice this machine's hardware threads. The standard result stays in place."
+        : "Separate from the Fleet mark. Containers, PostgreSQL, DuckDB, SQLite, and NumPy.",
       elapsed: Date.now() / 1000 - started,
       steps: stepStates(FMS_STEPS, fmsStepId(fms && fms.phase), finished),
       detail: fms && fms.phase ? fms.phase : "Waiting for the first log line.",
@@ -789,7 +847,17 @@
     });
   }
 
-  function fmsOutcomeText(fms, who) {
+  function fmsOutcomeText(fms, who, mode) {
+    if (fmsStressLive(fms) || mode === "stress") {
+      if (fms && fms.stress_status === "passed" && fms.stress && fms.stress.threads) {
+        return "Stress test passed on " + who + " at " + fms.stress.threads + " threads. The standard result is unchanged.";
+      }
+      if (fms && fms.stress_status === "failed") {
+        return "Stress test failed on " + who + ". " + (fms.stress_error || "The standard result is unchanged.");
+      }
+      var phase = fms && fms.phase ? " Current step: " + fms.phase + "." : "";
+      return "Stress test is still running on " + who + "." + phase;
+    }
     var status = fms && fms.status ? fms.status : "not_run";
     var phases = fms && fms.phases ? fms.phases : {};
     var bits = [];
@@ -800,14 +868,14 @@
     var evidence = bits.length ? " Evidence: " + bits.join(", ") + "." : " No engine evidence was recorded.";
     if (status === "passed") return "Market Studio benchmark passed on " + who + "." + evidence;
     if (status === "running") {
-      var phase = fms && fms.phase ? " Current step: " + fms.phase + "." : "";
-      return "Market Studio benchmark is still running on " + who + "." + phase;
+      var runningPhase = fms && fms.phase ? " Current step: " + fms.phase + "." : "";
+      return "Market Studio benchmark is still running on " + who + "." + runningPhase;
     }
     var why = fms && (fms.detail || fms.error) ? " " + (fms.detail || fms.error) : "";
     return "Market Studio benchmark " + status + " on " + who + "." + evidence + why;
   }
 
-  function watchFms(peer, who, fmsBtn) {
+  function watchFms(peer, who, fmsBtn, mode) {
     var tries = 0;
     var inflight = false;
     var latest = { status: "running", phase: "Checking the host", started_at: Date.now() / 1000 };
@@ -827,12 +895,14 @@
           var fms = j && j.fmsbench ? j.fmsbench : { status: "not_run" };
           latest = fms;
           paintFms(latest, who);
-          if (fms.status === "running" && tries < 16000) {
-            setFmsStatus(fmsOutcomeText(fms, who));
+          var still = mode === "stress" ? fmsStressLive(fms) : fms.status === "running";
+          if (still && tries < 16000) {
+            setFmsStatus(fmsOutcomeText(fms, who, mode));
             return;
           }
           clearInterval(timer);
-          setFmsStatus(fmsOutcomeText(fms, who), fms.status !== "passed");
+          var failed = mode === "stress" ? fms.stress_status !== "passed" : fms.status !== "passed";
+          setFmsStatus(fmsOutcomeText(fms, who, mode), failed);
           if (fmsBtn) {
             fmsBtn.disabled = false;
             fmsBtn.textContent = "Run Market Studio benchmark";
@@ -986,11 +1056,15 @@
             });
           })
           .then(function (j) {
-            var status = j && j.fmsbench && j.fmsbench.status ? j.fmsbench.status : (j && j.status) || "running";
-            if (status === "running") {
-              fmsBtn.textContent = "Market Studio benchmark running…";
-              setFmsStatus("Market Studio benchmark is still running on " + who + ". The checklist above updates as each engine starts.");
-              watchFms(peer, who, fmsBtn);
+            var startedDoc = j && j.fmsbench ? j.fmsbench : {};
+            var status = startedDoc.status || (j && j.status) || "running";
+            var mode = profile === "stress" ? "stress" : "standard";
+            if (status === "running" || startedDoc.stress_status === "running" || (j && j.status === "running")) {
+              fmsBtn.textContent = mode === "stress" ? "Stress test running…" : "Market Studio benchmark running…";
+              setFmsStatus(mode === "stress"
+                ? "Stress test is running on " + who + " at twice the hardware threads. The standard result stays in place."
+                : "Market Studio benchmark is still running on " + who + ". The checklist above updates as each engine starts.");
+              watchFms(peer, who, fmsBtn, mode);
               return;
             }
             paintFms(j && j.fmsbench ? j.fmsbench : { status: status, phase: "Checking the host" }, who);
