@@ -1717,6 +1717,20 @@ class FleetHandler(BaseHTTPRequestHandler):
             )
             self._send_proxy_body(code, raw, ctype)
             return
+        m_remote_fms_cleanup = re.match(r"^/v1/remote-peers/([^/]+)/host/profile/fmsbench/cleanup$", path)
+        if m_remote_fms_cleanup:
+            data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            peer_id = m_remote_fms_cleanup.group(1)
+            code, raw, ctype = remote_peers.proxy_json(
+                data_dir_p,
+                peer_id,
+                "/v1/host/profile/fmsbench/cleanup",
+                method="POST",
+                body=b"{}",
+                timeout_s=180,
+            )
+            self._send_proxy_body(code, raw, ctype)
+            return
         m_remote_fms = re.match(r"^/v1/remote-peers/([^/]+)/host/profile/fmsbench$", path)
         if m_remote_fms:
             data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()

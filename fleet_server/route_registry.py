@@ -43,6 +43,7 @@ ROUTE_SPECS: tuple[RouteSpec, ...] = (
     RouteSpec(_p("/v1/host/profile/benchmark"), frozenset({"POST"}), "admin", "heavy", "host_profile_bench"),
     RouteSpec(_p("/v1/host/profile/fmsbench"), frozenset({"POST"}), "admin", "heavy", "host_profile_fmsbench"),
     RouteSpec(_p("/v1/host/profile/fmsbench/cleanup"), frozenset({"POST"}), "admin", "mutate", "host_profile_fmsbench_cleanup"),
+    RouteSpec(_p("/v1/remote-peers/[^/]+/host/profile/fmsbench/cleanup"), frozenset({"POST"}), "admin", "mutate", "remote_fmsbench_cleanup"),
     RouteSpec(_p("/v1/mesh/benchmarks"), frozenset({"GET"}), "read:profile", "read", "mesh_benchmarks"),
     RouteSpec(_p("/v1/mesh/benchmarks/run"), frozenset({"POST"}), "admin", "heavy", "mesh_benchmarks_run"),
     RouteSpec(_p("/v1/capacity"), frozenset({"GET"}), "read:capacity", "read", "capacity"),
