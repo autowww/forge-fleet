@@ -110,6 +110,7 @@
     if (err === "heavy_busy") return "Another heavy Fleet request is still running.";
     if (err === "benchmark_timeout") return "The benchmark did not finish in time.";
     if (err === "benchmark_failed" && j && j.detail) return "Benchmark failed: " + j.detail;
+    if (err === "not_found") return "This peer does not expose the hardware benchmark route. Upgrade it, then launch again.";
     return String(err);
   }
 
@@ -308,17 +309,6 @@
     var root = document.getElementById("fleet-capacity-mesh-body");
     if (!root) return;
     var hw = profile && profile.hardware ? profile.hardware : {};
-    var bench = profile && profile.benchmark ? profile.benchmark : {};
-    var timings = bench.timings && typeof bench.timings === "object" ? bench.timings : {};
-    var mark = bench.fleet_mark != null ? bench.fleet_mark : "—";
-    var measured = "";
-    if (profile && profile.measured_at) {
-      try {
-        measured = new Date(profile.measured_at * 1000).toLocaleString();
-      } catch (_e) {
-        measured = "";
-      }
-    }
     var threads = Number(hw.logical_cpus);
     var cores = Number(hw.physical_cpus);
     var cpuLine = "—";
@@ -327,8 +317,8 @@
     } else if (isFinite(threads) && threads > 0) {
       cpuLine = threads + (threads === 1 ? " core" : " cores");
     }
-    if (isFinite(threads) && threads > 0) {
-      cpuLine += " · multiprocess max " + threads + " · stress width " + (threads * 2);
+    if (isFinite(threads) && threads > 0 && cpuLine.indexOf("threads") < 0) {
+      cpuLine += " · " + threads + " hardware threads";
     }
     var memTotal = hw.memory_total_kb != null ? fmtBytes(Number(hw.memory_total_kb) * 1024) : "—";
     var memFree = hw.memory_available_kb != null ? fmtBytes(Number(hw.memory_available_kb) * 1024) : "";
@@ -340,14 +330,7 @@
         ? fmtGb(disk.free_gb) + " free of " + fmtGb(disk.total_gb)
         : fmtGb(disk.total_gb);
     }
-    var scoresCurrent = Number(bench.bench_version) >= 2 && bench.fleet_mark != null;
     var html =
-      "<p class=\"mb-1\">Hardware: <strong>" +
-      esc(mark) +
-      "</strong>" +
-      (measured ? " <span class=\"text-body-secondary\">measured " + esc(measured) + "</span>" : "") +
-      "</p>" +
-      "<p class=\"mb-2\">In-process only: one single-core mix, one process per CPU, a memory copy, and a 256 MB file. No Docker, PostgreSQL, SQL, or NumPy. Higher is faster.</p>" +
       "<p class=\"small fw-semibold mb-1\">" +
       esc(activePeerId() ? "On " + scopePeerLabel() : "On this host") +
       "</p>" +
@@ -356,72 +339,6 @@
       "<dt class=\"col-4\">Memory</dt><dd class=\"col-8\">" + esc(memLine) + "</dd>" +
       "<dt class=\"col-4\">Disk</dt><dd class=\"col-8\">" + esc(diskLine) + "</dd>" +
       "</dl>";
-    if (bench.fleet_mark == null) {
-      html += "<p class=\"mb-2\">No benchmark yet. Run one to score this host.</p>";
-    } else if (!scoresCurrent) {
-      html += "<p class=\"mb-2\">Run hardware again to update the score and the memory and disk numbers.</p>";
-    }
-    html += "<p class=\"small fw-semibold mb-1 mt-3\">Market Studio</p>";
-    var fms = profile && profile.fmsbench && typeof profile.fmsbench === "object" ? profile.fmsbench : { status: "not_run" };
-    var fmsStatus = fms.status || "not_run";
-    html += "<p class=\"mb-2\">Status: <strong>" + esc(fmsStatus) + "</strong>";
-    if (fms.profile) html += " · profile " + esc(fms.profile);
-    if (fms.finished_at) {
-      try {
-        html += " · finished " + esc(new Date(fms.finished_at * 1000).toLocaleString());
-      } catch (_e2) { /* keep the status line */ }
-    }
-    html += "</p>";
-    if (fms.summary && typeof fms.summary === "object") {
-      var sum = fms.summary;
-      html +=
-        "<dl class=\"row mb-2\">" +
-        "<dt class=\"col-4\">PostgreSQL</dt><dd class=\"col-8\">" + esc(rateOrDash(sum.postgres_jobs_per_second)) + " bundles/s</dd>" +
-        "<dt class=\"col-4\">DuckDB</dt><dd class=\"col-8\">" + esc(rateOrDash(sum.duckdb_jobs_per_second)) + " bundles/s</dd>" +
-        "<dt class=\"col-4\">SQLite</dt><dd class=\"col-8\">" + esc(rateOrDash(sum.sqlite_jobs_per_second)) + " bundles/s</dd>" +
-        "<dt class=\"col-4\">Compute</dt><dd class=\"col-8\">" + esc(rateOrDash(sum.compute_rows_per_second)) + " rows/s</dd>" +
-        "</dl>";
-    } else if (fmsStatus === "not_run") {
-      html += "<p class=\"mb-2\">No Market Studio run yet. Hardware is left unchanged.</p>";
-    } else if (fms.detail || fms.error) {
-      html += "<p class=\"mb-2\">" + esc(fms.detail || fms.error) + "</p>";
-    }
-    if (fms.phases) {
-      var phaseNames = [
-        ["postgres_prepare", "PostgreSQL load"],
-        ["postgres_sql", "PostgreSQL SQL"],
-        ["duckdb_sql", "DuckDB SQL"],
-        ["sqlite_sql", "SQLite SQL"],
-        ["numpy_compute", "NumPy compute"]
-      ];
-      html += "<ul class=\"mb-2\">";
-      phaseNames.forEach(function (pair) {
-        html += "<li>" + esc(pair[1]) + ": " + (fms.phases[pair[0]] ? "recorded" : "not recorded") + "</li>";
-      });
-      html += "</ul>";
-    }
-    var whoNow = activePeerId() ? scopePeerLabel() : "this host";
-    if (fmsStatus === "running") {
-      paintFms(fms, whoNow);
-    } else if (profile && profile.benchmark_progress && profile.benchmark_progress.status === "running") {
-      paintFleet(profile.benchmark_progress, whoNow, Number(profile.benchmark_progress.started_at) || Date.now() / 1000);
-    }
-    if (bench.fleet_mark != null) {
-      html +=
-        "<p class=\"small fw-semibold mb-1\">What the hardware score measured</p>" +
-        "<dl class=\"row mb-2\">" +
-        "<dt class=\"col-4\">Single-core</dt><dd class=\"col-8\">Score " + esc(scoreCell(bench.cpu_single_mark)) + "</dd>" +
-        "<dt class=\"col-4\">All cores</dt><dd class=\"col-8\">Score " + esc(scoreCell(bench.cpu_multi_mark)) + "</dd>" +
-        "<dt class=\"col-4\">Memory</dt><dd class=\"col-8\">" +
-        (scoresCurrent ? "Score " + esc(scoreCell(bench.memory_mark)) + " · " : "") +
-        esc(fmtRate(timings.memory_mbps)) +
-        "</dd>" +
-        "<dt class=\"col-4\">Disk</dt><dd class=\"col-8\">" +
-        (scoresCurrent ? "Score " + esc(scoreCell(bench.disk_mark)) + " · " : "") +
-        "read " + esc(fmtRate(timings.disk_read_mbps)) +
-        ", write " + esc(fmtRate(timings.disk_write_mbps)) +
-        "</dd></dl>";
-    }
     var edges = links && links.edges ? links.edges : [];
     if (!edges.length) {
       html += "<p class=\"mb-0\">No peer link samples yet.</p>";
@@ -441,6 +358,99 @@
           " ms (1h avg)</li>";
       });
       html += "</ul>";
+    }
+    root.innerHTML = html;
+  }
+
+  function renderPeerBench(profile) {
+    var root = document.getElementById("fleet-bench-peer");
+    if (!root) return;
+    var hw = profile && profile.hardware ? profile.hardware : {};
+    var bench = profile && profile.benchmark ? profile.benchmark : {};
+    var timings = bench.timings && typeof bench.timings === "object" ? bench.timings : {};
+    var mark = bench.fleet_mark != null ? bench.fleet_mark : "—";
+    var measured = "";
+    if (profile && profile.measured_at) {
+      try {
+        measured = new Date(profile.measured_at * 1000).toLocaleString();
+      } catch (_e) {
+        measured = "";
+      }
+    }
+    var scoresCurrent = Number(bench.bench_version) >= 2 && bench.fleet_mark != null;
+    var threads = Number(hw.logical_cpus);
+    var who = activePeerId() ? scopePeerLabel() : "this host";
+    var html =
+      "<p class=\"mb-1\">Hardware on " + esc(who) + ": <strong>" + esc(mark) + "</strong>" +
+      (measured ? " <span class=\"text-body-secondary\">measured " + esc(measured) + "</span>" : "") +
+      "</p>" +
+      "<p class=\"mb-2\">In-process only: one single-core mix, one process per CPU, a memory copy, and a 256 MB file. No Docker, PostgreSQL, SQL, or NumPy.</p>";
+    if (bench.fleet_mark == null) {
+      html += "<p class=\"mb-2\">No hardware score yet.</p>";
+    } else if (!scoresCurrent) {
+      html += "<p class=\"mb-2\">Run hardware again to refresh the memory and disk parts of the score.</p>";
+    }
+    if (bench.fleet_mark != null) {
+      html +=
+        "<dl class=\"row mb-2\">" +
+        "<dt class=\"col-4\">Single-core</dt><dd class=\"col-8\">Score " + esc(scoreCell(bench.cpu_single_mark)) + "</dd>" +
+        "<dt class=\"col-4\">All cores</dt><dd class=\"col-8\">Score " + esc(scoreCell(bench.cpu_multi_mark)) + "</dd>" +
+        "<dt class=\"col-4\">Memory</dt><dd class=\"col-8\">" +
+        (scoresCurrent ? "Score " + esc(scoreCell(bench.memory_mark)) + " · " : "") +
+        esc(fmtRate(timings.memory_mbps)) +
+        "</dd>" +
+        "<dt class=\"col-4\">Disk</dt><dd class=\"col-8\">" +
+        (scoresCurrent ? "Score " + esc(scoreCell(bench.disk_mark)) + " · " : "") +
+        "read " + esc(fmtRate(timings.disk_read_mbps)) +
+        ", write " + esc(fmtRate(timings.disk_write_mbps)) +
+        "</dd></dl>";
+    }
+    var fms = profile && profile.fmsbench && typeof profile.fmsbench === "object" ? profile.fmsbench : { status: "not_run" };
+    var fmsStatus = fms.status || "not_run";
+    html += "<p class=\"small fw-semibold mb-1\">Market Studio</p>";
+    html += "<p class=\"mb-2\">Status: <strong>" + esc(fmsStatus) + "</strong>";
+    if (fms.profile) html += " · profile " + esc(fms.profile);
+    if (isFinite(threads) && threads > 0) html += " · stress width " + (threads * 2);
+    if (fms.finished_at) {
+      try {
+        html += " · finished " + esc(new Date(fms.finished_at * 1000).toLocaleString());
+      } catch (_e2) { /* keep the status line */ }
+    }
+    html += "</p>";
+    if (fms.summary && typeof fms.summary === "object") {
+      var sum = fms.summary;
+      html +=
+        "<dl class=\"row mb-2\">" +
+        "<dt class=\"col-4\">PostgreSQL</dt><dd class=\"col-8\">" + esc(rateOrDash(sum.postgres_jobs_per_second)) + " bundles/s</dd>" +
+        "<dt class=\"col-4\">DuckDB</dt><dd class=\"col-8\">" + esc(rateOrDash(sum.duckdb_jobs_per_second)) + " bundles/s</dd>" +
+        "<dt class=\"col-4\">SQLite</dt><dd class=\"col-8\">" + esc(rateOrDash(sum.sqlite_jobs_per_second)) + " bundles/s</dd>" +
+        "<dt class=\"col-4\">Compute</dt><dd class=\"col-8\">" + esc(rateOrDash(sum.compute_rows_per_second)) + " rows/s</dd>" +
+        "<dt class=\"col-4\">NLP</dt><dd class=\"col-8\">" + esc(rateOrDash(sum.nlp_docs_per_second)) + " docs/s</dd>" +
+        "</dl>";
+    } else if (fmsStatus === "not_run") {
+      html += "<p class=\"mb-2\">No Market Studio run yet. The hardware score stays as it is.</p>";
+    } else if (fms.detail || fms.error) {
+      html += "<p class=\"mb-2\">" + esc(fms.detail || fms.error) + "</p>";
+    }
+    if (fms.phases) {
+      var phaseNames = [
+        ["postgres_prepare", "PostgreSQL load"],
+        ["postgres_sql", "PostgreSQL SQL"],
+        ["duckdb_sql", "DuckDB SQL"],
+        ["sqlite_sql", "SQLite SQL"],
+        ["numpy_compute", "NumPy compute"],
+        ["nlp_memory", "NLP 1 GiB"]
+      ];
+      html += "<ul class=\"mb-2\">";
+      phaseNames.forEach(function (pair) {
+        html += "<li>" + esc(pair[1]) + ": " + (fms.phases[pair[0]] ? "recorded" : "not recorded") + "</li>";
+      });
+      html += "</ul>";
+    }
+    if (fmsStatus === "running" || fms.stress_status === "running" || fms.width_status === "running" || fms.full_status === "running") {
+      paintFms(fms, who);
+    } else if (profile && profile.benchmark_progress && profile.benchmark_progress.status === "running") {
+      paintFleet(profile.benchmark_progress, who, Number(profile.benchmark_progress.started_at) || Date.now() / 1000);
     }
     root.innerHTML = html;
   }
@@ -499,6 +509,7 @@
         .then(function (parts) {
           if (activePeerId() !== peer) return;
           renderMesh(parts[0], parts[1]);
+          renderPeerBench(parts[0]);
           loadCompare();
         })
         .catch(function (e) {
@@ -539,6 +550,7 @@
         renderDisk(parts[0]);
         renderMemory(parts[1], parts[2]);
         renderMesh(parts[3], parts[4]);
+        renderPeerBench(parts[3]);
         renderSecurity(parts[5], parts[6]);
         loadCompare();
       })
@@ -653,17 +665,27 @@
 
   function loadCompare() {
     var root = document.getElementById("fleet-capacity-compare-body");
-    if (!root) return;
-    fleetApi("/v1/mesh/benchmarks")
-      .then(function (r) {
+    var measure = document.getElementById("fleet-bench-measure-body");
+    if (!root && !measure) return;
+    Promise.all([
+      fleetApi("/v1/mesh/benchmarks").then(function (r) {
         return r.json().then(function (j) {
           if (!r.ok) throw new Error((j && j.error) || "HTTP " + r.status);
           return j;
         });
-      })
-      .then(function (j) {
-        renderCompare(j);
-        if (comparisonBusy(j) && !compareTimer) {
+      }),
+      fleetApi("/v1/mesh/capacity").then(function (r) {
+        return r.json().then(function (j) {
+          return r.ok && j ? j : { nodes: [] };
+        });
+      }).catch(function () {
+        return { nodes: [] };
+      }),
+    ])
+      .then(function (parts) {
+        renderScoreboard(parts[0], parts[1]);
+        renderMeasurements(parts[0]);
+        if (comparisonBusy(parts[0]) && !compareTimer) {
           compareTimer = setTimeout(function () {
             compareTimer = null;
             loadCompare();
@@ -672,8 +694,36 @@
         }
       })
       .catch(function (e) {
-        root.textContent = "Could not load the comparison: " + (e && e.message ? e.message : e);
+        var message = "Could not load scores: " + (e && e.message ? e.message : e);
+        if (root) root.textContent = message;
+        if (measure) measure.textContent = message;
       });
+  }
+
+  function peerLabel(row) {
+    var who = row.label || row.peer_id || "peer";
+    if (row.node_id && row.node_id !== who) who += " (" + row.node_id + ")";
+    if (row.from_saved) who += " · saved";
+    return who;
+  }
+
+  function headroomFor(row, mesh) {
+    var nodes = mesh && mesh.nodes ? mesh.nodes : [];
+    var id = row && row.peer_id;
+    var found = null;
+    nodes.forEach(function (node) {
+      if (found) return;
+      if (id === "local" && node.scope === "local") found = node;
+      else if (node.peer_id && node.peer_id === id) found = node;
+    });
+    return found && found.capacity ? found.capacity : null;
+  }
+
+  function fmtMb(mb) {
+    var n = Number(mb);
+    if (!isFinite(n) || n < 0) return "—";
+    if (n >= 1024) return (n / 1024).toFixed(1) + " GiB";
+    return Math.round(n) + " MiB";
   }
 
   function fmtSeconds(n) {
@@ -699,36 +749,65 @@
     return stage[width];
   }
 
-  function renderCompare(doc) {
+  function renderScoreboard(doc, mesh) {
     var root = document.getElementById("fleet-capacity-compare-body");
     if (!root) return;
     var rows = doc && doc.rows ? doc.rows : [];
     if (!rows.length) {
-      root.textContent = "No peers to compare.";
+      root.textContent = "No peers to show.";
       return;
     }
-    var batch = doc && doc.batch;
-    var batchHtml = "";
-    if (batch && batch.targets && batch.targets.length) {
-      var bits = batch.targets.map(function (target) {
-        var label = target.label || target.peer_id;
-        return label + " " + (target.status || "queued") + (target.error ? " (" + target.error + ")" : "");
-      });
-      batchHtml = "<p class=\"mb-2\">All-peer " + esc(batch.suite === "hardware" ? "hardware" : "Market Studio") +
-        " · " + esc(batch.status || "") + ": " + esc(bits.join("; ")) + "</p>";
-    }
-    var html = batchHtml + "<table class=\"table table-sm mb-3\"><thead><tr>" +
-      "<th>Peer</th><th>Hardware</th><th>Cores</th><th>Threads</th><th>Multiprocess max</th>" +
-      "<th>Total time</th><th>Composite</th><th>Max cores</th><th>Max threads</th><th>Stress</th>" +
+    var cluster = doc && doc.cluster_score != null ? doc.cluster_score : "—";
+    var html = "<p class=\"h4 mb-1\">Cluster <strong>" + esc(cluster) + "</strong></p>" +
+      "<p class=\"small text-body-secondary mb-2\">Sum of complete composites. Each point is this server's capacity. A partial row drops out once this server has an NLP result.</p>" +
+      "<table class=\"table table-sm mb-0\"><thead><tr>" +
+      "<th>Peer</th><th>Composite</th><th>Hardware</th><th>Cores</th><th>Threads</th><th>CPU free</th><th>RAM free</th>" +
       "</tr></thead><tbody>";
     rows.forEach(function (row) {
       var fleet = row.fleet || {};
       var fms = row.fmsbench || {};
       var cap = row.capacity || {};
+      var live = headroomFor(row, mesh) || {};
+      var cpu = live.cpu || {};
+      var mem = live.memory || {};
+      var composite = scoreCell(fms.composite_score);
+      if (fms.composite_nlp === false && doc.reference_nlp) composite += " partial";
+      else if (composite === "—" && fms.status) composite = fms.status;
+      var cpuFree = cpu.available_cores != null ? cpu.available_cores + (cpu.cores_logical ? " / " + cpu.cores_logical : "") : "—";
+      html += "<tr><td>" + esc(peerLabel(row)) + "</td><td>" + esc(composite) + "</td><td>" +
+        esc(scoreCell(fleet.fleet_mark)) + "</td><td>" +
+        esc(cap.physical_cores != null ? cap.physical_cores : (cpu.cores_physical != null ? cpu.cores_physical : "—")) + "</td><td>" +
+        esc(cap.hardware_threads != null ? cap.hardware_threads : (cpu.cores_logical != null ? cpu.cores_logical : "—")) + "</td><td>" +
+        esc(cpuFree) + "</td><td>" + esc(fmtMb(mem.available_mb)) + "</td></tr>";
+    });
+    html += "</tbody></table>";
+    root.innerHTML = html;
+  }
+
+  function renderMeasurements(doc) {
+    var root = document.getElementById("fleet-bench-measure-body");
+    if (!root) return;
+    var rows = doc && doc.rows ? doc.rows : [];
+    if (!rows.length) {
+      root.textContent = "No measurements yet.";
+      return;
+    }
+    var batch = doc && doc.batch;
+    var html = "";
+    if (batch && batch.targets && batch.targets.length) {
+      var bits = batch.targets.map(function (target) {
+        var label = target.label || target.peer_id;
+        return label + " " + (target.status || "queued") + (target.error ? " (" + target.error + ")" : "");
+      });
+      html += "<p class=\"mb-2\">All-peer " + esc(batch.suite === "hardware" ? "hardware" : "Market Studio") +
+        " · " + esc(batch.status || "") + ": " + esc(bits.join("; ")) + "</p>";
+    }
+    html += "<table class=\"table table-sm mb-3\"><thead><tr>" +
+      "<th>Peer</th><th>Wall</th><th>Max cores</th><th>Max threads</th><th>Stress</th>" +
+      "</tr></thead><tbody>";
+    rows.forEach(function (row) {
+      var fms = row.fmsbench || {};
       var stages = fms.stages || {};
-      var who = row.label || row.peer_id || "peer";
-      if (row.node_id && row.node_id !== who) who += " (" + row.node_id + ")";
-      if (row.from_saved) who += " · saved";
       function widthCell(name, scoreKey) {
         var widths = fms.widths || {};
         var entry = widths[name] || {};
@@ -738,20 +817,12 @@
       }
       var stressCell = fms.stress_score != null ? scoreCell(fms.stress_score) : (fms.stress_status || "—");
       if (fms.stress && fms.stress.threads) stressCell += " · " + fms.stress.threads + " threads";
-      html += "<tr><td>" + esc(who) + "</td><td>" + esc(scoreCell(fleet.fleet_mark)) + "</td><td>" +
-        esc(cap.physical_cores != null ? cap.physical_cores : "—") + "</td><td>" +
-        esc(cap.hardware_threads != null ? cap.hardware_threads : "—") + "</td><td>" +
-        esc(cap.multiprocess_max != null ? cap.multiprocess_max : "—") + "</td><td>" +
+      html += "<tr><td>" + esc(peerLabel(row)) + "</td><td>" +
         esc(fmtSeconds(stages.wall_seconds || fms.wall_seconds)) + "</td><td>" +
-        esc(scoreCell(fms.composite_score)) + (fms.composite_nlp === false && doc.reference_nlp ? " partial" : "") +
-        "</td><td>" + esc(widthCell("host-max-cores", "cores_score")) +
-        "</td><td>" + esc(widthCell("host-max-threads", "threads_score")) + "</td><td>" + esc(stressCell) + "</td></tr>";
+        esc(widthCell("host-max-cores", "cores_score")) + "</td><td>" +
+        esc(widthCell("host-max-threads", "threads_score")) + "</td><td>" + esc(stressCell) + "</td></tr>";
     });
     html += "</tbody></table>";
-    if (doc.cluster_score != null) {
-      html += "<p class=\"small mb-2\">Cluster " + esc(doc.cluster_score) +
-        " — add the composite column. Each point is this server's capacity. Partial rows are omitted once this server has an NLP result.</p>";
-    }
     html += "<table class=\"table table-sm mb-0\"><thead><tr>" +
       "<th>Peer</th><th>Stage</th><th>1 thread</th><th>1 thread time</th><th>2 threads</th><th>2 thread time</th><th>Stage time</th>" +
       "</tr></thead><tbody>";
@@ -764,8 +835,7 @@
     ];
     rows.forEach(function (row) {
       var fms = row.fmsbench || {};
-      var who = row.label || row.peer_id || "peer";
-      if (row.from_saved) who += " · saved";
+      var who = peerLabel(row);
       var inner = fms.stages && fms.stages.stages ? fms.stages.stages : {};
       if (!fms.stages) {
         html += "<tr><td>" + esc(who) + "</td><td colspan=\"6\">" + esc(fms.status || "not_run") + "</td></tr>";
@@ -845,7 +915,10 @@
   function renderLive(model) {
     var root = document.getElementById("fleet-cap-live");
     if (!root || !model) return;
-    var html = "<p class=\"mb-1\"><strong>" + esc(model.title) + "</strong> · " + esc(fmtElapsed(model.elapsed)) + "</p>";
+    var active = (model.steps || []).filter(function (step) { return step.state === "active"; })[0];
+    var html = "<div class=\"border rounded p-2 mb-2\">";
+    html += "<p class=\"mb-1\"><strong>" + esc(model.title) + "</strong> · " + esc(fmtElapsed(model.elapsed)) + "</p>";
+    if (active) html += "<p class=\"mb-1 fw-semibold\">Now: " + esc(active.label) + "</p>";
     if (model.note) html += "<p class=\"text-body-secondary mb-2\">" + esc(model.note) + "</p>";
     html += "<ol class=\"mb-2\">";
     (model.steps || []).forEach(function (step) {
@@ -856,9 +929,15 @@
     html += "</ol>";
     if (model.detail) html += "<p class=\"mb-2\">" + esc(model.detail) + "</p>";
     if (model.log) {
-      html += "<pre class=\"small mb-0\" style=\"max-height:9rem;overflow:auto;white-space:pre-wrap\">" + esc(model.log) + "</pre>";
+      html += "<p class=\"small mb-1 text-body-secondary\">Latest log</p>";
+      html += "<pre class=\"small mb-0\" style=\"max-height:12rem;overflow:auto;white-space:pre-wrap\">" + esc(model.log) + "</pre>";
     }
+    html += "</div>";
     root.innerHTML = html;
+    var pane = document.getElementById("fleet-tab-benchmarks");
+    if (root.scrollIntoView && pane && pane.classList.contains("active")) {
+      root.scrollIntoView({ block: "nearest" });
+    }
   }
 
   function tailLog(text) {
@@ -916,7 +995,8 @@
         return "Stress test failed on " + who + ". " + (fms.stress_error || "The standard result is unchanged.");
       }
       var phase = fms && fms.phase ? " Current step: " + fms.phase + "." : "";
-      return "Stress test is still running on " + who + "." + phase;
+      var stressLog = lastLogLine(fms);
+      return "Stress test is still running on " + who + "." + phase + (stressLog ? " Last log: " + stressLog : "");
     }
     if (mode === "width" || (fms && fms.width_status === "running")) {
       if (fms && fms.width_status === "passed") {
@@ -925,12 +1005,14 @@
       if (fms && fms.width_status === "failed") {
         return (fms.width_profile || "Host max") + " failed on " + who + ". " + (fms.width_error || "The standard result is unchanged.");
       }
-      return (fms && fms.width_profile ? fms.width_profile : "Host max") + " is still running on " + who + ".";
+      var widthLog = lastLogLine(fms);
+      return (fms && fms.width_profile ? fms.width_profile : "Host max") + " is still running on " + who + "." + (fms && fms.phase ? " " + fms.phase + "." : "") + (widthLog ? " Last log: " + widthLog : "");
     }
     if (mode === "full" || (fms && fms.full_status === "running")) {
       if (fms && fms.full_status === "passed") return "Full test passed on " + who + ". Standard, host max, and stress are saved.";
       if (fms && fms.full_status === "failed") return "Full test failed on " + who + ". " + (fms.full_error || "");
-      return "Full test is still running on " + who + ". " + (fms && fms.phase ? fms.phase : "");
+      var logLine = lastLogLine(fms);
+      return "Full test is still running on " + who + ". " + (fms && fms.phase ? fms.phase + "." : "Waiting for the first log line.") + (logLine ? " Last log: " + logLine : "");
     }
     var status = fms && fms.status ? fms.status : "not_run";
     var phases = fms && fms.phases ? fms.phases : {};
@@ -943,8 +1025,9 @@
     var evidence = bits.length ? " Evidence: " + bits.join(", ") + "." : " No engine evidence was recorded.";
     if (status === "passed") return "Market Studio passed on " + who + "." + evidence;
     if (status === "running") {
-      var runningPhase = fms && fms.phase ? " Current step: " + fms.phase + "." : "";
-      return "Market Studio is still running on " + who + "." + runningPhase;
+      var runningPhase = fms && fms.phase ? " Current step: " + fms.phase + "." : " Waiting for the first log line.";
+      var runningLog = lastLogLine(fms);
+      return "Market Studio is still running on " + who + "." + runningPhase + (runningLog ? " Last log: " + runningLog : "");
     }
     var why = fms && (fms.detail || fms.error) ? " " + (fms.detail || fms.error) : "";
     return "Market Studio " + status + " on " + who + "." + evidence + why;
@@ -958,7 +1041,7 @@
     var timer = setInterval(function () {
       tries += 1;
       paintFms(latest, who);
-      setFmsStatus(fmsOutcomeText(latest, who));
+      setFmsStatus(fmsOutcomeText(latest, who, mode) + fmsElapsedText(latest));
       if (inflight) return;
       inflight = true;
       var path = peer
@@ -971,8 +1054,9 @@
           latest = fms;
           paintFms(latest, who);
           var still = mode === "stress" ? fmsStressLive(fms) : mode === "width" ? fms.width_status === "running" : mode === "full" ? fms.full_status === "running" || fms.status === "running" : fms.status === "running";
-          if (still && tries < 16000) {
-            setFmsStatus(fmsOutcomeText(fms, who, mode));
+          var notYet = !fms || fms.status === "not_run" || (mode === "stress" && !fms.stress_status) || (mode === "width" && !fms.width_status) || (mode === "full" && fms.full_status !== "running" && fms.status !== "running" && fms.full_status !== "passed" && fms.full_status !== "failed");
+          if ((still || (notYet && tries < 20)) && tries < 16000) {
+            setFmsStatus(fmsOutcomeText(fms, who, mode) + fmsElapsedText(fms));
             return;
           }
           clearInterval(timer);
@@ -984,8 +1068,11 @@
           }
           refreshCapacity();
         })
-        .catch(function () {
-          if (tries < 16000) return;
+        .catch(function (err) {
+          if (tries < 16000) {
+            setFmsStatus("The run was accepted, but reading progress from " + who + " failed. Retrying. " + (err && err.message ? err.message : ""), true);
+            return;
+          }
           clearInterval(timer);
           if (fmsBtn) {
             fmsBtn.disabled = false;
@@ -996,6 +1083,30 @@
           inflight = false;
         });
     }, 1000);
+  }
+
+  function explainFmsError(message, who) {
+    if (message === "not_found") {
+      return who + " does not expose Forge Benchmarks. That peer is still on an older Fleet build. Upgrade it, then launch again.";
+    }
+    if (message === "compose_unavailable") {
+      return who + " has no Docker Compose, so the Market Studio run cannot start.";
+    }
+    if (message === "unknown_profile") {
+      return who + " does not recognize this profile. Upgrade that peer, then launch again.";
+    }
+    return message || "The run did not start.";
+  }
+
+  function fmsElapsedText(fms) {
+    var started = Number(fms && (fms.started_at || fms.stress_started_at)) || 0;
+    if (!started) return "";
+    return " Elapsed " + fmtElapsed(Date.now() / 1000 - started) + ".";
+  }
+
+  function lastLogLine(fms) {
+    var lines = String(fms && fms.log_excerpt || "").split("\n").filter(function (line) { return line.trim(); });
+    return lines.length ? lines[lines.length - 1] : "";
   }
 
   function setFmsStatus(text, isErr) {
@@ -1010,6 +1121,21 @@
     if (tabBtn) {
       tabBtn.addEventListener("shown.bs.tab", function () {
         refreshCapacity();
+      });
+    }
+    var benchTab = document.getElementById("fleet-tab-benchmarks-btn");
+    if (benchTab) {
+      benchTab.addEventListener("shown.bs.tab", function () {
+        refreshCapacity();
+      });
+    }
+    var openBench = document.getElementById("fleet-open-benchmarks-btn");
+    if (openBench) {
+      openBench.addEventListener("click", function () {
+        var btn = document.getElementById("fleet-tab-benchmarks-btn");
+        if (btn && window.bootstrap && window.bootstrap.Tab) {
+          window.bootstrap.Tab.getOrCreateInstance(btn).show();
+        }
       });
     }
     var ref = document.getElementById("fleet-capacity-refresh-btn");
@@ -1038,9 +1164,10 @@
         benchBtn.textContent = "Running hardware…";
         paintFleet(latest, who, clickStarted);
         setBenchStatus("Hardware running on " + who + ". Watch the steps above. This does not start containers.");
-        setMsg("fleet-capacity-msg", "Hardware running on " + who + ".");
+        setMsg("fleet-bench-msg", "Hardware running on " + who + ".");
         var liveTimer = setInterval(function () {
           paintFleet(latest, who, clickStarted);
+          setBenchStatus("Hardware on " + who + " · " + (latest.detail || latest.step || "starting") + " · elapsed " + fmtElapsed(Date.now() / 1000 - clickStarted) + ".");
           if (inflight) return;
           inflight = true;
           fleetApi(profilePath)
@@ -1078,7 +1205,7 @@
               steps: stepStates(FLEET_STEPS, "save", "finished"),
               detail: done
             });
-            setMsg("fleet-capacity-msg", done);
+            setMsg("fleet-bench-msg", done);
             setBenchStatus(done);
             refreshCapacity();
           })
@@ -1096,7 +1223,7 @@
               steps: stepStates(FLEET_STEPS, latest.step || "cpu_single", "failed"),
               detail: msg
             });
-            setMsg("fleet-capacity-msg", msg, true);
+            setMsg("fleet-bench-msg", msg, true);
             setBenchStatus(msg, true);
           })
           .finally(function () {
@@ -1118,7 +1245,8 @@
         var who = peer ? scopePeerLabel() : "this host";
         fmsBtn.disabled = true;
         fmsBtn.textContent = "Starting Market Studio…";
-        setFmsStatus("Starting on " + who + " (" + profile + "). The hardware score is left unchanged.");
+        paintFms({ status: "running", phase: "Sending the start request", started_at: Date.now() / 1000, profile: profile }, who);
+        setFmsStatus("Sending " + profile + " to " + who + ". The checklist stays on this step until the peer accepts the run.");
         fleetApi(path, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1149,7 +1277,15 @@
             refreshCapacity();
           })
           .catch(function (e) {
-            setFmsStatus(e && e.message ? e.message : String(e), true);
+            var message = explainFmsError(e && e.message ? e.message : String(e), who);
+            renderLive({
+              title: profile + " on " + who,
+              note: "The run did not start. The hardware score is unchanged.",
+              elapsed: 0,
+              steps: stepStates(FMS_STEPS, "check", "failed"),
+              detail: message
+            });
+            setFmsStatus(message, true);
             fmsBtn.disabled = false;
             fmsBtn.textContent = "This peer · Market Studio";
           });
@@ -1173,11 +1309,11 @@
         .then(function (j) {
           var targets = j && j.targets ? j.targets : [];
           var names = targets.map(function (target) { return target.label || target.peer_id; });
-          setMsg("fleet-capacity-msg", "Started " + (suite === "hardware" ? "hardware" : "Market Studio") + " on " + names.join(", ") + ".");
+          setMsg("fleet-bench-msg", "Started " + (suite === "hardware" ? "hardware" : "Market Studio") + " on " + names.join(", ") + ".");
           loadCompare();
         })
         .catch(function (e) {
-          setMsg("fleet-capacity-msg", e && e.message ? e.message : String(e), true);
+          setMsg("fleet-bench-msg", e && e.message ? e.message : String(e), true);
         })
         .finally(function () {
           button.disabled = false;

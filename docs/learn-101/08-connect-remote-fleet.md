@@ -89,6 +89,8 @@ Switch scope in admin (**Fleet scope** dropdown) to read snapshot, telemetry, an
 
 **Settings…** → **Capacity** (or `GET /v1/mesh/capacity` with bearer) lists local and peer CPU/RAM/GPU headroom. Values are **estimates** for planning; job reservations are not enforced yet.
 
+**Forge Benchmarks** are the **Benchmarks** tab on `/admin/`. The **Capacity** tab reads `GET /v1/mesh/benchmarks` and shows the composite and cluster total beside live peer headroom. See **[Forge Benchmarks](11-forge-benchmarks.md)**.
+
 ## Step 4 — Publishing a server through Cloudflare (root)
 
 Only when **this machine** is the public Fleet host. Use **Settings…** → **Edge** for the ordered checklist (same steps as below).

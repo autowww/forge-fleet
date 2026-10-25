@@ -235,6 +235,21 @@
           Capacity
         </button>
       </li>
+      <li class="nav-item" role="presentation">
+        <button
+          class="nav-link"
+          id="fleet-tab-benchmarks-btn"
+          data-bs-toggle="tab"
+          data-bs-target="#fleet-tab-benchmarks"
+          type="button"
+          role="tab"
+          aria-controls="fleet-tab-benchmarks"
+          aria-selected="false"
+          tabindex="-1"
+        >
+          Benchmarks
+        </button>
+      </li>
       <span id="fleet-dynamic-app-tabs" class="d-contents"></span>
     </ul>
 
@@ -510,36 +525,12 @@
         </div>
         <section class="card border-secondary-subtle shadow-sm mt-3">
           <div class="card-body">
-            <h2 class="h6 text-uppercase text-body-secondary mb-3" id="fleet-cap-profile-title">Forge Benchmarks</h2>
-            <p class="small text-body-secondary mb-2">Hardware is the in-process CPU, memory, and disk score. Market Studio is the separate container run. The two scores stay separate. Result files are kept; containers and work files are removed when a Market Studio run finishes.</p>
-            <div id="fleet-capacity-mesh-body" class="small text-body-secondary">Open this tab to load Forge Benchmarks and peer link stats.</div>
-            <div class="d-flex flex-wrap gap-2 align-items-center mt-2">
-              <button type="button" class="btn btn-sm btn-outline-primary" id="fleet-cap-bench-all-btn">Re-run all hardware</button>
-              <button type="button" class="btn btn-sm btn-outline-primary" id="fleet-cap-fms-all-btn">Re-run all Market Studio</button>
-              <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-cap-bench-btn">This peer · hardware</button>
-              <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-cap-fms-btn">This peer · Market Studio</button>
-              <label class="small mb-0" for="fleet-cap-fms-profile">This peer profile
-                <select id="fleet-cap-fms-profile" class="form-select form-select-sm d-inline-block w-auto">
-                  <option value="standard" selected>standard</option>
-                  <option value="host-max-cores">host-max-cores</option>
-                  <option value="host-max-threads">host-max-threads</option>
-                  <option value="stress">stress (2× threads)</option>
-                  <option value="full">full (all capacity tests)</option>
-                  <option value="smoke">smoke</option>
-                  <option value="micro">micro</option>
-                </select>
-              </label>
-            </div>
-            <div id="fleet-cap-live" class="mt-3" aria-live="polite"></div>
-            <p id="fleet-cap-bench-status" class="small mb-0 mt-2" aria-live="polite"></p>
-            <p id="fleet-cap-fms-status" class="small mb-0 mt-1" aria-live="polite"></p>
-          </div>
-        </section>
-        <section class="card border-secondary-subtle shadow-sm mt-3">
-          <div class="card-body">
-            <h2 class="h6 text-uppercase text-body-secondary mb-2">Forge Benchmarks comparison</h2>
-            <p class="small text-body-secondary mb-2">Hardware and Market Studio stay in separate columns. The composite adds two-thread throughput: DuckDB 28, NLP 28, PostgreSQL 22, compute 12, SQLite 10. Adding those scores is the cluster, in units of this server. NLP scores documents against one shared 1 GiB embedding table. Host-max-cores sets threads to the physical core count, and host-max-threads sets threads to the hardware thread count. Full runs standard, both host-max widths, and stress. Re-run all Market Studio still uses standard on every peer.</p>
-            <div id="fleet-capacity-compare-body" class="small text-body-secondary">Open this tab to load both benchmarks.</div>
+            <h2 class="h6 text-uppercase text-body-secondary mb-2">Cluster capacity</h2>
+            <p class="small text-body-secondary mb-2">Composite scores are read from the latest saved benchmarks. Adding them is the cluster, in units of this server. CPU free and RAM free are live headroom estimates. Measurements are launched on Benchmarks.</p>
+            <button type="button" class="btn btn-sm btn-outline-secondary mb-3" id="fleet-open-benchmarks-btn">Open Benchmarks</button>
+            <div id="fleet-capacity-compare-body" class="small text-body-secondary">Open this tab to load composite scores.</div>
+            <h3 class="h6 text-uppercase text-body-secondary mt-3 mb-2">This scope</h3>
+            <div id="fleet-capacity-mesh-body" class="small text-body-secondary">Open this tab to load CPU, memory, disk, and peer links.</div>
           </div>
         </section>
         <section class="card border-secondary-subtle shadow-sm mt-3 fleet-capacity-local-only">
@@ -594,6 +585,49 @@
                 <button type="button" class="btn btn-sm btn-danger" id="fleet-cap-memory-tier2-btn">Stop service</button>
               </div>
             </div>
+          </div>
+        </section>
+      </div>
+      <div
+        class="tab-pane fade"
+        id="fleet-tab-benchmarks"
+        role="tabpanel"
+        aria-labelledby="fleet-tab-benchmarks-btn"
+        tabindex="0"
+      >
+        <p id="fleet-bench-msg" class="fleet-mono small text-body-secondary mb-2" aria-live="polite"></p>
+        <section class="card border-secondary-subtle shadow-sm">
+          <div class="card-body">
+            <h2 class="h6 text-uppercase text-body-secondary mb-3" id="fleet-cap-profile-title">Forge Benchmarks</h2>
+            <p class="small text-body-secondary mb-2">Hardware is the in-process CPU, memory, and disk score. Market Studio is the separate container run. The two scores stay separate. Result files are kept; containers and work files are removed when a Market Studio run finishes. Capacity reads the saved composite and does not start a run.</p>
+            <div id="fleet-bench-peer" class="small text-body-secondary mb-3">Open this tab to load the selected peer.</div>
+            <div class="d-flex flex-wrap gap-2 align-items-center mt-2">
+              <button type="button" class="btn btn-sm btn-outline-primary" id="fleet-cap-bench-all-btn">Re-run all hardware</button>
+              <button type="button" class="btn btn-sm btn-outline-primary" id="fleet-cap-fms-all-btn">Re-run all Market Studio</button>
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-cap-bench-btn">This peer · hardware</button>
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-cap-fms-btn">This peer · Market Studio</button>
+              <label class="small mb-0" for="fleet-cap-fms-profile">This peer profile
+                <select id="fleet-cap-fms-profile" class="form-select form-select-sm d-inline-block w-auto">
+                  <option value="standard" selected>standard</option>
+                  <option value="host-max-cores">host-max-cores</option>
+                  <option value="host-max-threads">host-max-threads</option>
+                  <option value="stress">stress (2× threads)</option>
+                  <option value="full">full (all capacity tests)</option>
+                  <option value="smoke">smoke</option>
+                  <option value="micro">micro</option>
+                </select>
+              </label>
+            </div>
+            <div id="fleet-cap-live" class="mt-3" aria-live="polite"></div>
+            <p id="fleet-cap-bench-status" class="small mb-0 mt-2" aria-live="polite"></p>
+            <p id="fleet-cap-fms-status" class="small mb-0 mt-1" aria-live="polite"></p>
+          </div>
+        </section>
+        <section class="card border-secondary-subtle shadow-sm mt-3">
+          <div class="card-body">
+            <h2 class="h6 text-uppercase text-body-secondary mb-2">Measurements</h2>
+            <p class="small text-body-secondary mb-2">Stage rates, host-max widths, and the stress score. The composite uses two-thread throughput: DuckDB 28, NLP 28, PostgreSQL 22, compute 12, SQLite 10. Host-max-cores sets threads to the physical core count, and host-max-threads sets threads to the hardware thread count. Full runs standard, both host-max widths, and stress. Re-run all Market Studio uses standard on every peer.</p>
+            <div id="fleet-bench-measure-body" class="small text-body-secondary">Open this tab to load measurements.</div>
           </div>
         </section>
       </div>

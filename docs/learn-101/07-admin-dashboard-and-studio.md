@@ -4,7 +4,7 @@
 
 **Audience:** operators and Lenses users. **Time:** ~15 minutes plus optional Playwright run. **Verify:** you can open **`/admin/`** on your Fleet base URL and correlate a job row with **`GET /v1/jobs/{id}`**.
 
-`/admin/` is the operator console for this Fleet host: host metrics, jobs, container swimlanes, Fleet Apps, capacity guardians, and cooperative upgrade actions. It polls **`GET /v1/admin/snapshot`** and related admin APIs (never runs root shell commands from the browser).
+`/admin/` is the operator console for this Fleet host: host metrics, jobs, container swimlanes, Fleet Apps, capacity guardians, Forge Benchmarks, and cooperative upgrade actions. It polls **`GET /v1/admin/snapshot`** and related admin APIs (never runs root shell commands from the browser).
 
 ## Main tabs
 
@@ -15,7 +15,8 @@
 | **Containers** | Container-type swimlanes from **`GET /v1/container-types`** |
 | **Jobs** | Deeper job list and filters |
 | **Apps** | Installed FAEP apps and catalog install actions |
-| **Capacity** | **Space Guardian** (disk tiers, orphan volumes) and **Memory Guardian** (RAM pressure, idle parking, policy) |
+| **Capacity** | Composite scores, the cluster total, and live peer headroom, plus **Space Guardian** and **Memory Guardian** |
+| **Benchmarks** | Launch hardware and Market Studio runs, watch the live checklist, and read stage measurements |
 
 Use **Settings…** in the scope bar (offcanvas) for connection, machine role, edge checklist, mesh capacity, and generated command recipes.
 
@@ -24,7 +25,7 @@ Use **Settings…** in the scope bar (offcanvas) for connection, machine role, e
 1. **Connection** — peer id, URL, bearer; **Save connection** (API only); probe and view remote dashboard.
 2. **Machine** — laptop vs public server; edge hostname and Caddy port when publishing.
 3. **Edge** (public server only) — Cloudflare tunnel + unified Caddy checklist; **Verify public health** via **`POST /v1/operator/verify-public-health`**.
-4. **Capacity** — mesh headroom table (`GET /v1/mesh/capacity`) for CPU, RAM, and GPU/VRAM planning estimates.
+4. **Capacity** — mesh headroom table (`GET /v1/mesh/capacity`) for CPU, RAM, and GPU/VRAM planning estimates. The main **Capacity** tab shows those headroom numbers beside composite scores. Runs are launched on **Benchmarks**. See **[Forge Benchmarks](11-forge-benchmarks.md)**.
 5. **Commands** — generated recipes tagged **web UI** / **user** / **root**; copy shell blocks only when needed.
 
 **Manage peers…** opens the advanced peer editor (same **`PUT /v1/remote-peers/*`** API). When editing, leave bearer empty to keep the stored token.
@@ -76,4 +77,5 @@ Do **not** store bearer tokens inside Markdown copies—prefer env files (**`for
 | Caddy/TLS façade | **[Caddy systemd](../build-201/03-caddy-systemd.md)** · **[Unified Granite](../build-201/04-caddy-unified-granite.md)** |
 | Admin tile design | **[Maintainers · Admin KPI design](../maintainers/01-admin-status-overview-design.md)** |
 | Release operations | **[Upgrade & remote self-update](../operate-301/05-upgrade-release-and-remote-update.md)** |
+| Forge Benchmarks | **[Forge Benchmarks](11-forge-benchmarks.md)** |
 | Capacity guardians | **[Space Guardian](../maintainers/06-space-guardian.md)** · **[Memory Guardian](../maintainers/07-memory-guardian.md)** |
