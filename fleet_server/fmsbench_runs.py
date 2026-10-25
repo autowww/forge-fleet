@@ -58,8 +58,10 @@ _TIMEOUT_S = {
     "host-max-threads": 7200,
     "full": 21600,
 }
-# Overall time and two-thread throughput dominate. One thread is the smaller share.
-COMPOSITE_WEIGHTS = {"overall_time": 0.50, "multithread": 0.35, "singlethread": 0.15}
+# Additive capacity, parts of 100. Two-thread throughput versus the reference host.
+# DuckDB and NLP are the analytical and narrative share. PostgreSQL is the system of record.
+# Compute and SQLite are smaller. Summing host scores is the cluster, in reference-host units.
+COMPOSITE_WEIGHTS = {"postgres": 22, "duckdb": 28, "sqlite": 10, "compute": 12, "nlp": 28}
 STRESS_WEIGHTS = {"overall_time": 0.40, "oversubscribed": 0.60}
 _STALE_S = 4 * 3600
 _lock = threading.Lock()
@@ -207,6 +209,7 @@ _PHASE_ORDER = (
     "Loading SQLite",
     "SQLite SQL and concurrency",
     "NumPy compute",
+    "NLP memory",
     "Saving the result",
 )
 
@@ -239,6 +242,8 @@ def current_phase(text: str) -> str:
             nxt = "SQLite SQL and concurrency"
         if "numpy numerical" in low or "numpy stress" in low:
             nxt = "NumPy compute"
+        if "nlp memory" in low:
+            nxt = "NLP memory"
         if "stress" in low and "postgres" in low:
             nxt = "PostgreSQL SQL and concurrency"
         if "stress" in low and "duckdb" in low:
@@ -265,6 +270,7 @@ def phases_from_log(text: str) -> dict[str, bool]:
         "duckdb_sql": "[benchmark] duckdb" in log,
         "sqlite_sql": "[benchmark] sqlite" in log,
         "numpy_compute": "NumPy numerical compute" in log,
+        "nlp_memory": "NLP memory" in log,
         "passed_line": "PASSED, JSON:" in log,
     }
 
@@ -279,6 +285,16 @@ def report_has_engine_evidence(doc: dict[str, Any]) -> bool:
     compute = doc.get("compute") if isinstance(doc.get("compute"), dict) else {}
     scales = compute.get("scales") if isinstance(compute.get("scales"), dict) else {}
     return bool(compute.get("numpy_version") and scales)
+
+
+def report_has_nlp_evidence(doc: dict[str, Any]) -> bool:
+    nlp = doc.get("nlp") if isinstance(doc.get("nlp"), dict) else {}
+    if _positive_int(nlp.get("planned_bytes")) != 1024 ** 3:
+        return False
+    scales = nlp.get("scales") if isinstance(nlp.get("scales"), dict) else {}
+    one = scales.get("1") if isinstance(scales.get("1"), dict) else {}
+    two = scales.get("2") if isinstance(scales.get("2"), dict) else {}
+    return _positive_float(one.get("median_docs_per_second")) is not None and _positive_float(two.get("median_docs_per_second")) is not None
 
 
 def fleet_profile_document(
@@ -325,6 +341,8 @@ def summarize_fms_report(doc: dict[str, Any]) -> dict[str, Any]:
         "sqlite_jobs_per_second": bundles("sqlite"),
         "postgres_ingest_rows_per_second": ingest.get("rows_per_second"),
         "compute_rows_per_second": compute.get("best_rows_per_second"),
+        "nlp_docs_per_second": (doc.get("nlp") or {}).get("best_docs_per_second") if isinstance(doc.get("nlp"), dict) else None,
+        "nlp_planned_bytes": (doc.get("nlp") or {}).get("planned_bytes") if isinstance(doc.get("nlp"), dict) else None,
         "status": doc.get("status"),
     }
 
@@ -439,6 +457,24 @@ def stage_breakdown(doc: dict[str, Any]) -> dict[str, Any] | None:
             "double": double_c,
             "stage_seconds": stage_seconds if stage_seconds > 0 else None,
         }
+    nlp = doc.get("nlp") if isinstance(doc.get("nlp"), dict) else {}
+    nlp_scales = nlp.get("scales") if isinstance(nlp.get("scales"), dict) else {}
+    single_n = _level(nlp_scales.get("1"), "median_docs_per_second")
+    double_n = _level(nlp_scales.get("2"), "median_docs_per_second")
+    if single_n is not None or double_n is not None:
+        for key, level in (("1", single_n), ("2", double_n)):
+            raw = nlp_scales.get(key) if isinstance(nlp_scales.get(key), dict) else {}
+            gib = _positive_float(raw.get("median_gib_per_second"))
+            if isinstance(level, dict) and gib is not None:
+                level["gib_per_second"] = gib
+        pieces = [item.get("seconds") for item in (single_n, double_n) if isinstance(item, dict)]
+        stage_seconds = sum(piece for piece in pieces if isinstance(piece, (int, float)))
+        stages["nlp"] = {
+            "single": single_n,
+            "double": double_n,
+            "stage_seconds": stage_seconds if stage_seconds > 0 else None,
+            "planned_bytes": _positive_int(nlp.get("planned_bytes")),
+        }
     if not stages:
         return None
     hardware = doc.get("hardware") if isinstance(doc.get("hardware"), dict) else {}
@@ -485,36 +521,43 @@ def _geometric_speedup(pairs: list[tuple[float, float]]) -> float | None:
     return math.exp(sum(logs) / len(logs))
 
 
-def composite_score(reference: dict[str, Any], candidate: dict[str, Any]) -> float | None:
-    """100 on the reference run. Shorter wall time and two-thread throughput weigh more than one thread."""
-    names = ("postgres", "duckdb", "sqlite", "compute")
-    single_pairs = []
-    multi_pairs = []
-    for name in names:
-        single = _stage_rate(candidate, name, "single")
-        single_ref = _stage_rate(reference, name, "single")
-        multi = _stage_rate(candidate, name, "double")
-        multi_ref = _stage_rate(reference, name, "double")
-        if None in (single, single_ref, multi, multi_ref):
+def composite_parts(reference: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any] | None:
+    """100 on the reference. Each stage contributes its weight times the two-thread rate ratio.
+
+    NLP is included only when both sides measured it. Otherwise the other weights are
+    renormalized to 100 and ``nlp_included`` is false, so that partial must not be added
+    to a complete cluster total.
+    """
+    used: list[tuple[int, float]] = []
+    nlp_included = False
+    for name, weight in COMPOSITE_WEIGHTS.items():
+        cand = _stage_rate(candidate, name, "double")
+        ref = _stage_rate(reference, name, "double")
+        if cand is None or ref is None:
+            if name == "nlp":
+                continue
             return None
-        single_pairs.append((single, single_ref))
-        multi_pairs.append((multi, multi_ref))
-    ref_stages = reference.get("stages") if isinstance(reference.get("stages"), dict) else {}
-    cand_stages = candidate.get("stages") if isinstance(candidate.get("stages"), dict) else {}
-    ref_wall = _positive_float(reference.get("wall_seconds") or ref_stages.get("wall_seconds"))
-    cand_wall = _positive_float(candidate.get("wall_seconds") or cand_stages.get("wall_seconds"))
-    if ref_wall is None or cand_wall is None:
+        if name == "nlp":
+            nlp_included = True
+        used.append((int(weight), cand / ref))
+    weight_sum = sum(weight for weight, _ratio in used)
+    if weight_sum <= 0:
         return None
-    single = _geometric_speedup(single_pairs)
-    multi = _geometric_speedup(multi_pairs)
-    if single is None or multi is None:
+    score = 100.0 * sum(weight * ratio for weight, ratio in used) / weight_sum
+    return {"score": score, "nlp_included": nlp_included}
+
+
+def composite_score(reference: dict[str, Any], candidate: dict[str, Any]) -> float | None:
+    parts = composite_parts(reference, candidate)
+    if parts is None:
         return None
-    weighted = (
-        COMPOSITE_WEIGHTS["overall_time"] * math.log(ref_wall / cand_wall)
-        + COMPOSITE_WEIGHTS["multithread"] * math.log(multi)
-        + COMPOSITE_WEIGHTS["singlethread"] * math.log(single)
-    )
-    return 100.0 * math.exp(weighted)
+    return float(parts["score"])
+
+
+def cluster_total(parts: list[tuple[float, bool]], *, reference_nlp: bool) -> float:
+    """Sum reference-equivalents. Once the reference has NLP, skip hosts that do not."""
+    chosen = [score for score, nlp in parts if nlp or not reference_nlp]
+    return float(sum(chosen))
 
 
 def stress_score(reference: dict[str, Any] | None, candidate: dict[str, Any] | None) -> float | None:
@@ -693,14 +736,20 @@ def comparison(data_dir: Path, *, fetch_peer: Callable[[str], tuple[int, dict[st
     rows = _merge_saved_rows(data_dir, rows)
     reference = next((row for row in rows if row.get("peer_id") == "local"), None)
     ref_fms = reference.get("fmsbench") if isinstance(reference, dict) else None
+    capacity_parts: list[tuple[float, bool]] = []
+    reference_nlp = False
     if isinstance(ref_fms, dict) and ref_fms.get("stages"):
+        reference_parts = composite_parts(ref_fms, ref_fms)
+        reference_nlp = bool(reference_parts and reference_parts.get("nlp_included"))
         for row in rows:
             fms = row.get("fmsbench")
             if not isinstance(fms, dict) or not fms.get("stages"):
                 continue
-            scored = composite_score(ref_fms, fms)
-            if scored is not None:
-                fms["composite_score"] = round(scored, 1)
+            parts = composite_parts(ref_fms, fms)
+            if parts is not None:
+                fms["composite_score"] = round(float(parts["score"]), 1)
+                fms["composite_nlp"] = bool(parts["nlp_included"])
+                capacity_parts.append((float(parts["score"]), bool(parts["nlp_included"])))
             stress_scored = stress_score(ref_fms.get("stress"), fms.get("stress"))
             if stress_scored is not None:
                 fms["stress_score"] = round(stress_scored, 1)
@@ -724,6 +773,9 @@ def comparison(data_dir: Path, *, fetch_peer: Callable[[str], tuple[int, dict[st
         "reference_peer_id": "local",
         "batch": batch_status(data_dir),
         "composite_weights": dict(COMPOSITE_WEIGHTS),
+        "composite_model": "additive_two_thread",
+        "reference_nlp": reference_nlp,
+        "cluster_score": round(cluster_total(capacity_parts, reference_nlp=reference_nlp), 1) if capacity_parts else None,
         "stress_weights": dict(STRESS_WEIGHTS),
         "rows": rows,
     }
@@ -1164,8 +1216,11 @@ def _record_step(data_dir: Path, profile: str, outcome: dict[str, Any]) -> bool:
     if report is not None and report.get("status") == "stress_only" and isinstance(report.get("stress"), dict):
         _save_stress(data_dir, report["stress"], log_excerpt=excerpt, result_name=result_name)
         return True
-    evidence = bool(report) and report.get("status") == "passed" and report_has_engine_evidence(report)
-    phases_ok = bool(phases.get("postgres_sql") and phases.get("duckdb_sql") and phases.get("sqlite_sql") and phases.get("numpy_compute"))
+    evidence = bool(report) and report.get("status") == "passed" and report_has_engine_evidence(report) and report_has_nlp_evidence(report)
+    phases_ok = bool(
+        phases.get("postgres_sql") and phases.get("duckdb_sql") and phases.get("sqlite_sql")
+        and phases.get("numpy_compute") and phases.get("nlp_memory")
+    )
     if not evidence or not phases_ok:
         reason = "missing_engine_evidence" if not evidence else "log_missing_engine_phases"
         if profile in _WIDTH_PROFILES:

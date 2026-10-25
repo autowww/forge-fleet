@@ -538,7 +538,7 @@
         <section class="card border-secondary-subtle shadow-sm mt-3">
           <div class="card-body">
             <h2 class="h6 text-uppercase text-body-secondary mb-2">Forge Benchmarks comparison</h2>
-            <p class="small text-body-secondary mb-2">Hardware and Market Studio stay in separate columns. The composite uses the standard run. Host-max-cores sets threads to the physical core count, and host-max-threads sets threads to the hardware thread count. Full runs standard, both host-max widths, and stress. Re-run all Market Studio still uses standard on every peer.</p>
+            <p class="small text-body-secondary mb-2">Hardware and Market Studio stay in separate columns. The composite adds two-thread throughput: DuckDB 28, NLP 28, PostgreSQL 22, compute 12, SQLite 10. Adding those scores is the cluster, in units of this server. NLP scores documents against one shared 1 GiB embedding table. Host-max-cores sets threads to the physical core count, and host-max-threads sets threads to the hardware thread count. Full runs standard, both host-max widths, and stress. Re-run all Market Studio still uses standard on every peer.</p>
             <div id="fleet-capacity-compare-body" class="small text-body-secondary">Open this tab to load both benchmarks.</div>
           </div>
         </section>

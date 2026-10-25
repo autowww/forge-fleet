@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from fleet_server import fmsbench_runs, host_profile
 
 
@@ -181,16 +183,74 @@ def test_stage_breakdown_keeps_one_and_two_threads() -> None:
     assert view["stages"]["compute"]["double"]["seconds"] == 1.4
 
 
-def test_composite_reference_is_100_and_favors_shorter_multithreaded_runs() -> None:
+def test_composite_adds_two_thread_rates() -> None:
     ref = _scored_view(100, 2, 4)
     assert fmsbench_runs.composite_score(ref, ref) == 100
-    quicker = fmsbench_runs.composite_score(ref, _scored_view(50, 2, 8))
-    slower = fmsbench_runs.composite_score(ref, _scored_view(200, 2, 4))
-    assert quicker is not None and quicker > 100
-    assert slower is not None and slower < 100
+    assert fmsbench_runs.composite_score(ref, _scored_view(5, 2, 4)) == 100
+    assert fmsbench_runs.composite_score(ref, _scored_view(500, 2, 8)) == 200
+    assert fmsbench_runs.composite_score(ref, _scored_view(10, 2, 2)) == 50
     incomplete = _scored_view(100, 2, 4)
     incomplete["stages"]["stages"]["compute"]["double"] = None
     assert fmsbench_runs.composite_score(ref, incomplete) is None
+
+
+def _with_nlp(view: dict, rate: float) -> dict:
+    view["stages"]["stages"]["nlp"] = {
+        "single": {"rate": rate, "seconds": 1.0},
+        "double": {"rate": rate, "seconds": 1.0},
+    }
+    return view
+
+
+def test_nlp_weight_adds_and_cluster_skips_partials() -> None:
+    ref = _with_nlp(_scored_view(100, 2, 4), 10)
+    cand = _with_nlp(_scored_view(100, 2, 8), 10)
+    assert fmsbench_runs.composite_score(ref, cand) == 172
+    assert fmsbench_runs.composite_parts(ref, cand)["nlp_included"] is True
+    partial = fmsbench_runs.composite_parts(ref, _scored_view(100, 2, 4))
+    assert partial is not None
+    assert partial["nlp_included"] is False
+    assert partial["score"] == 100
+    assert fmsbench_runs.cluster_total([(100.0, True), (172.0, True), (80.0, False)], reference_nlp=True) == 272
+    assert fmsbench_runs.cluster_total([(100.0, False), (80.0, False)], reference_nlp=False) == 180
+
+
+def test_nlp_kernel_checksum_is_stable() -> None:
+    numpy = pytest.importorskip("numpy")
+    import importlib.util
+
+    path = Path(__file__).resolve().parents[1] / "fleet_server" / "fmsbench_bundle" / "bench_v2.py"
+    spec = importlib.util.spec_from_file_location("fms_bench_v2_nlp", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    rng = numpy.random.Generator(numpy.random.PCG64(1))
+    embeddings = rng.standard_normal((64, 8), dtype=numpy.float32)
+    tokens = rng.integers(0, 64, size=(8, 4), dtype=numpy.int32)
+    first = module._nlp_once(embeddings, tokens, embeddings[0], 2)
+    second = module._nlp_once(embeddings, tokens, embeddings[0], 2)
+    assert first == second
+
+
+def test_stage_breakdown_reads_the_one_gibibyte_nlp_stage() -> None:
+    report = {
+        "start_utc": "2026-10-25T00:00:00+00:00",
+        "end_utc": "2026-10-25T00:00:02+00:00",
+        "nlp": {
+            "planned_bytes": 1024 ** 3,
+            "scales": {
+                "1": {"median_docs_per_second": 1000, "median_gib_per_second": 2.5, "elapsed_seconds": 0.4},
+                "2": {"median_docs_per_second": 1800, "median_gib_per_second": 4.0, "elapsed_seconds": 0.3},
+            },
+        },
+    }
+    view = fmsbench_runs.stage_breakdown(report)
+    assert view is not None
+    assert view["stages"]["nlp"]["double"]["rate"] == 1800
+    assert view["stages"]["nlp"]["double"]["gib_per_second"] == 4.0
+    assert view["stages"]["nlp"]["planned_bytes"] == 1024 ** 3
+    assert fmsbench_runs.report_has_nlp_evidence(report) is True
+    assert 262_144 * 1_024 * 4 == 1024 ** 3
 
 
 def test_stress_score_is_separate() -> None:

@@ -37,6 +37,12 @@ SQL_WEIGHT = {'market_rollup': .12, 'rolling_features': .18, 'pit_join': .20,
               'concurrent_jobs': .20}
 ENGINE_WEIGHT = {'postgres': .45, 'duckdb': .25, 'sqlite': .10, 'compute': .20}
 JOB = ('market_rollup', 'pit_join', 'numeric_features')
+# One shared embedding table: 262144 x 1024 float32 = 1 GiB. Threads read it; they do not copy it.
+NLP_VOCAB = 262_144
+NLP_DIM = 1_024
+NLP_DOCS = 4_096
+NLP_TOKENS = 48
+NLP_PLANNED_BYTES = NLP_VOCAB * NLP_DIM * 4
 BARS_FIELDS = 'bar_id,ticker_id,day_id,open_price,close_price,volume,sector_id'
 FACT_FIELDS = 'fact_id,ticker_id,day_id,known_day,metric_id,kind,accession_id,sentiment,impact'
 
@@ -454,6 +460,110 @@ def _compute_batch(loops, size):
     return total
 
 
+def nlp_widths(max_workers):
+    widths = {1, 2}
+    if max_workers and int(max_workers) > 0:
+        widths.add(int(max_workers))
+    return sorted(width for width in widths if 1 <= width <= 64)
+
+
+def _nlp_checksum(scores, energy):
+    import numpy as np
+    rounded = np.round(np.asarray(scores, dtype=np.float64), 5)
+    payload = f'{float(energy):.5f}|'.encode() + rounded.tobytes()
+    return hashlib.sha256(payload).hexdigest()[:16]
+
+
+def _nlp_once(embeddings, tokens, axis, threads):
+    """Read the shared table, then score a document slice. Peak extra memory stays a small chunk."""
+    import numpy as np
+    threads = max(1, min(int(threads), embeddings.shape[0], max(1, tokens.shape[0])))
+    vocab = embeddings.shape[0]
+    docs = tokens.shape[0]
+    row_bounds = [int(i * vocab / threads) for i in range(threads + 1)]
+    doc_bounds = [int(i * docs / threads) for i in range(threads + 1)]
+
+    def scan(index):
+        block = embeddings[row_bounds[index]:row_bounds[index + 1]]
+        return float(np.sum(block, dtype=np.float64))
+
+    def score_docs(index):
+        lo = doc_bounds[index]
+        hi = doc_bounds[index + 1]
+        acc = np.empty(hi - lo, dtype=np.float64)
+        cursor = 0
+        for start in range(lo, hi, 32):
+            stop = min(start + 32, hi)
+            pooled = embeddings[tokens[start:stop]].mean(axis=1, dtype=np.float32)
+            acc[cursor:cursor + (stop - start)] = pooled @ axis
+            cursor += stop - start
+        return acc
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as pool:
+        energy = sum(pool.map(scan, range(threads)))
+        parts = list(pool.map(score_docs, range(threads)))
+    scores = np.concatenate(parts) if parts else np.empty(0, dtype=np.float64)
+    return _nlp_checksum(scores, energy)
+
+
+def measure_nlp(repeats, max_workers):
+    import numpy as np
+    os.environ['OMP_NUM_THREADS'] = '1'
+    os.environ['OPENBLAS_NUM_THREADS'] = '1'
+    os.environ['MKL_NUM_THREADS'] = '1'
+    rng = np.random.Generator(np.random.PCG64(0xF05E))
+    embeddings = rng.standard_normal((NLP_VOCAB, NLP_DIM), dtype=np.float32)
+    if int(embeddings.nbytes) != NLP_PLANNED_BYTES:
+        raise RuntimeError(f'NLP table is {embeddings.nbytes} bytes, planned {NLP_PLANNED_BYTES}')
+    tokens = rng.integers(0, NLP_VOCAB, size=(NLP_DOCS, NLP_TOKENS), dtype=np.int32)
+    axis = np.ascontiguousarray(embeddings[0])
+    rss = None
+    try:
+        for line in Path('/proc/self/status').read_text().splitlines():
+            if line.startswith('VmRSS:'):
+                rss = int(line.split()[1]) * 1024
+                break
+    except OSError:
+        rss = None
+    widths = nlp_widths(max_workers)
+    if not isinstance(_nlp_once(embeddings, tokens, axis, 1), str):
+        raise RuntimeError('NLP warmup invalid')
+    scales = {}
+    for width in widths:
+        stamps = []
+        elapsed_samples = []
+        for _ in range(repeats):
+            started = time.perf_counter()
+            stamps.append(_nlp_once(embeddings, tokens, axis, width))
+            elapsed_samples.append(time.perf_counter() - started)
+        if any(item != stamps[0] for item in stamps):
+            raise RuntimeError('NLP kernel mismatch')
+        elapsed = statistics.median(elapsed_samples)
+        if elapsed <= 0:
+            raise RuntimeError('NLP elapsed invalid')
+        scales[str(width)] = {
+            'median_docs_per_second': NLP_DOCS / elapsed,
+            'median_gib_per_second': (NLP_PLANNED_BYTES / elapsed) / (1024 ** 3),
+            'elapsed_seconds': elapsed,
+            'checksum': stamps[0],
+        }
+    best = max(scales, key=lambda key: scales[key]['median_docs_per_second'])
+    chunk_bytes = 32 * NLP_TOKENS * NLP_DIM * 4
+    return {
+        'planned_bytes': NLP_PLANNED_BYTES,
+        'planned_peak_bytes': int(embeddings.nbytes + tokens.nbytes + axis.nbytes + max(widths) * chunk_bytes),
+        'rss_bytes': rss,
+        'vocab': NLP_VOCAB,
+        'dim': NLP_DIM,
+        'docs': NLP_DOCS,
+        'tokens_per_doc': NLP_TOKENS,
+        'scales': scales,
+        'best_threads': int(best),
+        'best_docs_per_second': scales[best]['median_docs_per_second'],
+        'numpy_version': np.__version__,
+    }
+
+
 def measure_compute(max_workers, repeats, size=200_000, loops=4, only_workers=None):
     import numpy
     from concurrent.futures import ProcessPoolExecutor
@@ -625,6 +735,8 @@ def run(args):
         print(f"  {eng}: {concurrency['best_jobs_per_second']:.3f} completed bundles/s ", flush=True)
     print('[benchmark] NumPy numerical compute', flush=True)
     compute = measure_compute(args.workers, args.trials, size=args.compute_size, loops=args.compute_loops)
+    print('[benchmark] NLP memory', flush=True)
+    nlp = measure_nlp(args.trials, args.workers)
     result = {'suite': 'FMSBench', 'suite_version': SUITE_VERSION, 'data_revision': DATA_REV,
               'workload_checksum': checksum(), 'node': args.node or socket.gethostname(),
               'start_utc': started_at, 'end_utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -632,7 +744,7 @@ def run(args):
               'config': {'profile': args.profile, 'threads': args.threads, 'workers': args.workers,
                          'repeats': args.repeats, 'trials': args.trials, 'duration': args.duration,
                          'compute_size': args.compute_size, 'compute_loops': args.compute_loops},
-              'engines': engines, 'compute': compute,
+              'engines': engines, 'compute': compute, 'nlp': nlp,
               'sql_weights': SQL_WEIGHT, 'engine_weights': ENGINE_WEIGHT,
               'status': 'passed'}
     args.results.mkdir(parents=True, exist_ok=True)

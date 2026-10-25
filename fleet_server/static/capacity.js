@@ -681,10 +681,16 @@
     return isFinite(v) ? v.toFixed(1) + "s" : "—";
   }
 
+  function nlpBandwidth(name, level) {
+    if (name !== "nlp" || !level || !isFinite(Number(level.gib_per_second))) return "";
+    return " · " + Number(level.gib_per_second).toFixed(1) + " GiB/s";
+  }
+
   function fmtStageRate(name, n) {
     var v = Number(n);
     if (!isFinite(v)) return "—";
     if (name === "compute") return (v / 1000000).toFixed(1) + "M rows/s";
+    if (name === "nlp") return v.toFixed(0) + " docs/s";
     return v.toFixed(2) + " bundles/s";
   }
 
@@ -737,10 +743,15 @@
         esc(cap.hardware_threads != null ? cap.hardware_threads : "—") + "</td><td>" +
         esc(cap.multiprocess_max != null ? cap.multiprocess_max : "—") + "</td><td>" +
         esc(fmtSeconds(stages.wall_seconds || fms.wall_seconds)) + "</td><td>" +
-        esc(scoreCell(fms.composite_score)) + "</td><td>" + esc(widthCell("host-max-cores", "cores_score")) +
+        esc(scoreCell(fms.composite_score)) + (fms.composite_nlp === false && doc.reference_nlp ? " partial" : "") +
+        "</td><td>" + esc(widthCell("host-max-cores", "cores_score")) +
         "</td><td>" + esc(widthCell("host-max-threads", "threads_score")) + "</td><td>" + esc(stressCell) + "</td></tr>";
     });
     html += "</tbody></table>";
+    if (doc.cluster_score != null) {
+      html += "<p class=\"small mb-2\">Cluster " + esc(doc.cluster_score) +
+        " — add the composite column. Each point is this server's capacity. Partial rows are omitted once this server has an NLP result.</p>";
+    }
     html += "<table class=\"table table-sm mb-0\"><thead><tr>" +
       "<th>Peer</th><th>Stage</th><th>1 thread</th><th>1 thread time</th><th>2 threads</th><th>2 thread time</th><th>Stage time</th>" +
       "</tr></thead><tbody>";
@@ -748,7 +759,8 @@
       ["postgres", "PostgreSQL"],
       ["duckdb", "DuckDB"],
       ["sqlite", "SQLite"],
-      ["compute", "Compute"]
+      ["compute", "Compute"],
+      ["nlp", "NLP 1 GiB"]
     ];
     rows.forEach(function (row) {
       var fms = row.fmsbench || {};
@@ -764,8 +776,8 @@
         var one = stageLevel(stage, "single");
         var two = stageLevel(stage, "double");
         html += "<tr><td>" + esc(who) + "</td><td>" + esc(pair[1]) + "</td><td>" +
-          esc(fmtStageRate(pair[0], one.rate)) + "</td><td>" + esc(fmtSeconds(one.seconds)) + "</td><td>" +
-          esc(fmtStageRate(pair[0], two.rate)) + "</td><td>" + esc(fmtSeconds(two.seconds)) + "</td><td>" +
+          esc(fmtStageRate(pair[0], one.rate)) + esc(nlpBandwidth(pair[0], one)) + "</td><td>" + esc(fmtSeconds(one.seconds)) + "</td><td>" +
+          esc(fmtStageRate(pair[0], two.rate)) + esc(nlpBandwidth(pair[0], two)) + "</td><td>" + esc(fmtSeconds(two.seconds)) + "</td><td>" +
           esc(fmtSeconds(stage.stage_seconds)) + "</td></tr>";
       });
     });
@@ -789,6 +801,7 @@
     ["duckdb_sql", "DuckDB SQL"],
     ["sqlite_sql", "SQLite SQL"],
     ["numpy", "NumPy compute"],
+    ["nlp", "NLP 1 GiB"],
     ["save", "Save the result"]
   ];
 
@@ -818,6 +831,7 @@
   function fmsStepId(phase) {
     var p = String(phase || "").toLowerCase();
     if (p.indexOf("stopping") >= 0 || p.indexOf("saving") >= 0) return "save";
+    if (p.indexOf("nlp") >= 0) return "nlp";
     if (p.indexOf("numpy") >= 0) return "numpy";
     if (p.indexOf("sqlite sql") >= 0) return "sqlite_sql";
     if (p.indexOf("duckdb") >= 0) return "duckdb_sql";
@@ -925,6 +939,7 @@
     if (phases.duckdb_sql) bits.push("DuckDB SQL");
     if (phases.sqlite_sql) bits.push("SQLite SQL");
     if (phases.numpy_compute) bits.push("NumPy");
+    if (phases.nlp_memory) bits.push("NLP");
     var evidence = bits.length ? " Evidence: " + bits.join(", ") + "." : " No engine evidence was recorded.";
     if (status === "passed") return "Market Studio passed on " + who + "." + evidence;
     if (status === "running") {
