@@ -683,11 +683,18 @@
       }).catch(function () {
         return { nodes: [] };
       }),
+      fleetApi("/v1/remote-peers").then(function (r) {
+        return r.json().then(function (j) {
+          return r.ok && j ? j : { peers: [] };
+        });
+      }).catch(function () {
+        return { peers: [] };
+      }),
     ])
       .then(function (parts) {
         renderScoreboard(parts[0], parts[1]);
         if (window.forgeFleetBenchmarksView && typeof window.forgeFleetBenchmarksView.render === "function") {
-          window.forgeFleetBenchmarksView.render(parts[0]);
+          window.forgeFleetBenchmarksView.render(parts[0], { peers: (parts[2] && parts[2].peers) || [] });
         }
         if (comparisonBusy(parts[0]) && !compareTimer) {
           compareTimer = setTimeout(function () {
@@ -1031,7 +1038,20 @@
     el.className = "small mb-0 mt-1 " + (isErr ? "text-danger" : "text-body-secondary");
   }
 
+  function openBenchmarksTab() {
+    var btn = document.getElementById("fleet-tab-benchmarks-btn");
+    if (btn && window.bootstrap && window.bootstrap.Tab) {
+      window.bootstrap.Tab.getOrCreateInstance(btn).show();
+    }
+  }
+
   function wireCapacityUi() {
+    if (window.location.hash === "#benchmarks") {
+      openBenchmarksTab();
+    }
+    window.addEventListener("hashchange", function () {
+      if (window.location.hash === "#benchmarks") openBenchmarksTab();
+    });
     var tabBtn = document.getElementById("fleet-tab-capacity-btn");
     if (tabBtn) {
       tabBtn.addEventListener("shown.bs.tab", function () {
@@ -1047,10 +1067,10 @@
     var openBench = document.getElementById("fleet-open-benchmarks-btn");
     if (openBench) {
       openBench.addEventListener("click", function () {
-        var btn = document.getElementById("fleet-tab-benchmarks-btn");
-        if (btn && window.bootstrap && window.bootstrap.Tab) {
-          window.bootstrap.Tab.getOrCreateInstance(btn).show();
+        if (window.location.hash !== "#benchmarks") {
+          window.location.hash = "benchmarks";
         }
+        openBenchmarksTab();
       });
     }
     var ref = document.getElementById("fleet-capacity-refresh-btn");

@@ -363,9 +363,38 @@
     hint.textContent = PROFILE_HINTS[v] || PROFILE_HINTS.standard;
   }
 
-  function render(doc) {
+  function adminBenchmarksUrl(base) {
+    var root = String(base || "").replace(/\/+$/, "");
+    if (!root) return "";
+    return root + "/admin/#benchmarks";
+  }
+
+  function renderFleetConsoles(peers) {
+    var root = document.getElementById("fleet-bench-consoles");
+    if (!root) return;
+    var here = window.location.origin + "/admin/#benchmarks";
+    var links = [
+      '<span class="me-2"><strong>This console</strong> <a href="' + esc(here) + '">' + esc(here) + "</a></span>",
+    ];
+    (peers || []).forEach(function (peer) {
+      var url = adminBenchmarksUrl(peer.base_url);
+      if (!url) return;
+      var label = peer.label || peer.id || "peer";
+      links.push(
+        '<span class="me-2"><strong>' + esc(label) + "</strong> " +
+        '<a href="' + esc(url) + '" rel="noopener noreferrer">' + esc(url) + "</a></span>"
+      );
+    });
+    root.innerHTML =
+      "<p class=\"mb-1\"><strong>Fleet consoles</strong> — open Benchmarks on each Fleet host (sign in when that host requires a bearer token).</p>" +
+      '<p class="mb-0">' + links.join(" · ") + "</p>";
+  }
+
+  function render(doc, opts) {
     if (!doc || !doc.ok) return;
+    opts = opts || {};
     syncPageTitle();
+    renderFleetConsoles(opts.peers);
     renderAnswers(doc);
     renderWorkloads(doc);
     renderNodes(doc);
