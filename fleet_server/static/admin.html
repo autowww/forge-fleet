@@ -510,18 +510,20 @@
         </div>
         <section class="card border-secondary-subtle shadow-sm mt-3">
           <div class="card-body">
-            <h2 class="h6 text-uppercase text-body-secondary mb-3" id="fleet-cap-profile-title">Host profile &amp; mesh links</h2>
-            <p class="small text-body-secondary mb-2">Fleet mark is an in-process CPU, memory, and disk score. It does not start Docker or PostgreSQL. Market Studio benchmark is the separate container run.</p>
-            <div id="fleet-capacity-mesh-body" class="small text-body-secondary">Open this tab to load Fleet mark and peer link stats.</div>
+            <h2 class="h6 text-uppercase text-body-secondary mb-3" id="fleet-cap-profile-title">Forge Benchmarks</h2>
+            <p class="small text-body-secondary mb-2">Hardware is the in-process CPU, memory, and disk score. Market Studio is the separate container run. The two scores stay separate. Result files are kept; containers and work files are removed when a Market Studio run finishes.</p>
+            <div id="fleet-capacity-mesh-body" class="small text-body-secondary">Open this tab to load Forge Benchmarks and peer link stats.</div>
             <div class="d-flex flex-wrap gap-2 align-items-center mt-2">
-              <button type="button" class="btn btn-sm btn-outline-primary" id="fleet-cap-bench-btn">Run Fleet mark</button>
-              <button type="button" class="btn btn-sm btn-outline-primary" id="fleet-cap-fms-btn">Run Market Studio benchmark</button>
-              <label class="small mb-0" for="fleet-cap-fms-profile">Profile
+              <button type="button" class="btn btn-sm btn-outline-primary" id="fleet-cap-bench-all-btn">Re-run all hardware</button>
+              <button type="button" class="btn btn-sm btn-outline-primary" id="fleet-cap-fms-all-btn">Re-run all Market Studio</button>
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-cap-bench-btn">This peer · hardware</button>
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-cap-fms-btn">This peer · Market Studio</button>
+              <label class="small mb-0" for="fleet-cap-fms-profile">This peer profile
                 <select id="fleet-cap-fms-profile" class="form-select form-select-sm d-inline-block w-auto">
-                  <option value="smoke" selected>smoke</option>
-                  <option value="micro">micro</option>
-                  <option value="standard">standard</option>
+                  <option value="standard" selected>standard</option>
                   <option value="stress">stress (2× threads)</option>
+                  <option value="smoke">smoke</option>
+                  <option value="micro">micro</option>
                 </select>
               </label>
             </div>
@@ -532,8 +534,8 @@
         </section>
         <section class="card border-secondary-subtle shadow-sm mt-3">
           <div class="card-body">
-            <h2 class="h6 text-uppercase text-body-secondary mb-2">Peer comparison</h2>
-            <p class="small text-body-secondary mb-2">Fleet mark stays separate. The Market Studio composite weighs overall time at 50%, two-thread throughput at 35%, and one-thread throughput at 15%, against this server. Stress is a separate score at twice the machine's hardware threads.</p>
+            <h2 class="h6 text-uppercase text-body-secondary mb-2">Forge Benchmarks comparison</h2>
+            <p class="small text-body-secondary mb-2">Hardware and Market Studio stay in separate columns. The Market Studio composite weighs overall time at 50%, two-thread throughput at 35%, and one-thread throughput at 15%, against this server. Stress is a separate score at twice the machine's hardware threads. Re-run all Market Studio uses the standard profile on every peer.</p>
             <div id="fleet-capacity-compare-body" class="small text-body-secondary">Open this tab to load both benchmarks.</div>
           </div>
         </section>

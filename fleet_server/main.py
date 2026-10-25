@@ -1762,6 +1762,22 @@ class FleetHandler(BaseHTTPRequestHandler):
             out, code = fmsbench_runs.start_run(data_dir_p, profile)
             self._send(code, out)
             return
+        if path == "/v1/mesh/benchmarks/run":
+            from fleet_server import fmsbench_runs
+
+            data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            suite = str(body.get("suite") or "")
+            profile = str(body.get("profile") or "standard")
+            out, code = fmsbench_runs.start_batch(data_dir_p, suite, profile=profile)
+            self._send(code, out)
+            return
+        if path == "/v1/host/profile/fmsbench/cleanup":
+            from fleet_server import fmsbench_runs
+
+            data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            out, code = fmsbench_runs.cleanup_saved_run(data_dir_p)
+            self._send(code, out)
+            return
         if path == "/v1/mesh/offload/advise":
             from fleet_server import mesh_advise
 

@@ -234,6 +234,101 @@ def test_capacity_reports_cores_threads_and_stress_width() -> None:
     assert cap["stress_threads"] == 24
 
 
+def test_cleanup_keeps_result_json_and_removes_work_files(tmp_path: Path) -> None:
+    suite = tmp_path / "fmsbench-suite"
+    work = suite / "work" / "standard-x"
+    work.mkdir(parents=True)
+    (work / "bars.csv").write_text("id\n", encoding="utf-8")
+    (suite / ".env").write_text("FMSBENCH_PASSWORD=secret\n", encoding="utf-8")
+    results = suite / "results"
+    results.mkdir()
+    (results / "fmsbench-node.json").write_text("{}\n", encoding="utf-8")
+    (results / "preflight-last.json").write_text("{}\n", encoding="utf-8")
+    seen: list[list[str]] = []
+
+    def run_cmd(argv: list[str]) -> tuple[int, str]:
+        seen.append(argv)
+        return 0, ""
+
+    report = fmsbench_runs.cleanup_runtime(suite, run_cmd=run_cmd)
+    assert report["ok"] is True
+    assert report["kept_results"] == ["fmsbench-node.json"]
+    assert not work.exists()
+    assert not (suite / ".env").exists()
+    assert not (results / "preflight-last.json").exists()
+    assert (results / "fmsbench-node.json").is_file()
+    assert seen and seen[0][:4] == ["docker", "compose", "-p", report["project"]]
+
+
+def test_market_result_is_archived_and_missing_peer_uses_the_saved_row(tmp_path: Path) -> None:
+    suite_results = tmp_path / "fmsbench-suite" / "results"
+    suite_results.mkdir(parents=True)
+    (suite_results / "fmsbench-node.json").write_text('{"status":"passed"}\n', encoding="utf-8")
+    fmsbench_runs._finish(
+        tmp_path,
+        "standard",
+        "passed",
+        result_name="fmsbench-node.json",
+        summary={"postgres_jobs_per_second": 3},
+    )
+    archived = tmp_path / "etc" / "forge-benchmarks" / "reports" / "fmsbench-node.json"
+    assert archived.is_file()
+    history = (tmp_path / "etc" / "forge-benchmarks" / "market-studio.jsonl").read_text(encoding="utf-8")
+    assert "standard" in history
+    saved = {
+        "peer_id": "mercury",
+        "label": "Mercury",
+        "fleet": {"fleet_mark": 10},
+        "fmsbench": {"status": "passed", "summary": {"postgres_jobs_per_second": 2}},
+    }
+    etc = tmp_path / "etc"
+    etc.mkdir(parents=True, exist_ok=True)
+    (etc / "remote-peers.json").write_text(json.dumps({"peers": [
+        {"id": "mercury", "label": "Mercury", "base_url": "https://example.invalid", "bearer_token": "x"},
+    ]}), encoding="utf-8")
+    (tmp_path / "etc" / "forge-benchmarks").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "etc" / "forge-benchmarks" / "mesh-snapshot.json").write_text(
+        json.dumps({"mercury": {"saved_at": 1, "row": saved}}),
+        encoding="utf-8",
+    )
+
+    def fetch(_peer_id: str) -> tuple[int, dict | None]:
+        return 502, None
+
+    doc = fmsbench_runs.comparison(tmp_path, fetch_peer=fetch)
+    mercury = next(row for row in doc["rows"] if row["peer_id"] == "mercury")
+    assert mercury["from_saved"] is True
+    assert mercury["fleet"]["fleet_mark"] == 10
+    assert mercury["fmsbench"]["status"] == "passed"
+    assert mercury["live_error"] == "http_502"
+
+
+def test_batch_starts_every_peer_without_replacing_scores(tmp_path: Path) -> None:
+    peers = tmp_path / "etc"
+    peers.mkdir()
+    (peers / "remote-peers.json").write_text(json.dumps({"peers": [
+        {"id": "mercury", "label": "Mercury", "base_url": "https://example.invalid", "bearer_token": "x"},
+    ]}), encoding="utf-8")
+    host_profile.save_profile(tmp_path, {"benchmark": {"fleet_mark": 42, "bench_version": 2}})
+    launched: list[str] = []
+
+    def launch(_data: Path, peer_id: str, suite: str, profile: str) -> dict:
+        launched.append(f"{suite}:{profile}:{peer_id}")
+        return {"ok": True}
+
+    def spawn(job) -> None:
+        job()
+
+    out, code = fmsbench_runs.start_batch(
+        tmp_path, "market_studio", profile="standard", launch=launch, spawn=spawn,
+    )
+    assert code == 202
+    assert out["status"] == "finished"
+    assert launched == ["market_studio:standard:local", "market_studio:standard:mercury"]
+    saved = host_profile.load_profile(tmp_path)
+    assert saved["benchmark"]["fleet_mark"] == 42
+
+
 def test_live_phase_follows_the_log() -> None:
     assert fmsbench_runs.current_phase("") == "Checking the host"
     assert fmsbench_runs.current_phase("[benchmark] sqlite") == "SQLite SQL and concurrency"

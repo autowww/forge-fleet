@@ -342,7 +342,7 @@
     }
     var scoresCurrent = Number(bench.bench_version) >= 2 && bench.fleet_mark != null;
     var html =
-      "<p class=\"mb-1\">Fleet mark: <strong>" +
+      "<p class=\"mb-1\">Hardware: <strong>" +
       esc(mark) +
       "</strong>" +
       (measured ? " <span class=\"text-body-secondary\">measured " + esc(measured) + "</span>" : "") +
@@ -359,9 +359,9 @@
     if (bench.fleet_mark == null) {
       html += "<p class=\"mb-2\">No benchmark yet. Run one to score this host.</p>";
     } else if (!scoresCurrent) {
-      html += "<p class=\"mb-2\">Run benchmark again to update the Fleet mark and the memory and disk scores.</p>";
+      html += "<p class=\"mb-2\">Run hardware again to update the score and the memory and disk numbers.</p>";
     }
-    html += "<p class=\"small fw-semibold mb-1 mt-3\">Market Studio benchmark</p>";
+    html += "<p class=\"small fw-semibold mb-1 mt-3\">Market Studio</p>";
     var fms = profile && profile.fmsbench && typeof profile.fmsbench === "object" ? profile.fmsbench : { status: "not_run" };
     var fmsStatus = fms.status || "not_run";
     html += "<p class=\"mb-2\">Status: <strong>" + esc(fmsStatus) + "</strong>";
@@ -382,7 +382,7 @@
         "<dt class=\"col-4\">Compute</dt><dd class=\"col-8\">" + esc(rateOrDash(sum.compute_rows_per_second)) + " rows/s</dd>" +
         "</dl>";
     } else if (fmsStatus === "not_run") {
-      html += "<p class=\"mb-2\">No Market Studio benchmark yet. Run one on this peer without changing the Fleet mark.</p>";
+      html += "<p class=\"mb-2\">No Market Studio run yet. Hardware is left unchanged.</p>";
     } else if (fms.detail || fms.error) {
       html += "<p class=\"mb-2\">" + esc(fms.detail || fms.error) + "</p>";
     }
@@ -408,7 +408,7 @@
     }
     if (bench.fleet_mark != null) {
       html +=
-        "<p class=\"small fw-semibold mb-1\">What the Fleet mark measured</p>" +
+        "<p class=\"small fw-semibold mb-1\">What the hardware score measured</p>" +
         "<dl class=\"row mb-2\">" +
         "<dt class=\"col-4\">Single-core</dt><dd class=\"col-8\">Score " + esc(scoreCell(bench.cpu_single_mark)) + "</dd>" +
         "<dt class=\"col-4\">All cores</dt><dd class=\"col-8\">Score " + esc(scoreCell(bench.cpu_multi_mark)) + "</dd>" +
@@ -640,6 +640,17 @@
       });
   }
 
+  var compareTimer = null;
+
+  function comparisonBusy(doc) {
+    if (doc && doc.batch && doc.batch.status === "running") return true;
+    var rows = doc && doc.rows ? doc.rows : [];
+    return rows.some(function (row) {
+      var fms = row.fmsbench || {};
+      return fms.status === "running" || fms.stress_status === "running";
+    });
+  }
+
   function loadCompare() {
     var root = document.getElementById("fleet-capacity-compare-body");
     if (!root) return;
@@ -652,6 +663,13 @@
       })
       .then(function (j) {
         renderCompare(j);
+        if (comparisonBusy(j) && !compareTimer) {
+          compareTimer = setTimeout(function () {
+            compareTimer = null;
+            loadCompare();
+            refreshCapacity();
+          }, 5000);
+        }
       })
       .catch(function (e) {
         root.textContent = "Could not load the comparison: " + (e && e.message ? e.message : e);
@@ -683,8 +701,18 @@
       root.textContent = "No peers to compare.";
       return;
     }
-    var html = "<table class=\"table table-sm mb-3\"><thead><tr>" +
-      "<th>Peer</th><th>Fleet mark</th><th>Cores</th><th>Threads</th><th>Multiprocess max</th>" +
+    var batch = doc && doc.batch;
+    var batchHtml = "";
+    if (batch && batch.targets && batch.targets.length) {
+      var bits = batch.targets.map(function (target) {
+        var label = target.label || target.peer_id;
+        return label + " " + (target.status || "queued") + (target.error ? " (" + target.error + ")" : "");
+      });
+      batchHtml = "<p class=\"mb-2\">All-peer " + esc(batch.suite === "hardware" ? "hardware" : "Market Studio") +
+        " · " + esc(batch.status || "") + ": " + esc(bits.join("; ")) + "</p>";
+    }
+    var html = batchHtml + "<table class=\"table table-sm mb-3\"><thead><tr>" +
+      "<th>Peer</th><th>Hardware</th><th>Cores</th><th>Threads</th><th>Multiprocess max</th>" +
       "<th>Total time</th><th>Composite</th><th>Stress</th>" +
       "</tr></thead><tbody>";
     rows.forEach(function (row) {
@@ -694,6 +722,7 @@
       var stages = fms.stages || {};
       var who = row.label || row.peer_id || "peer";
       if (row.node_id && row.node_id !== who) who += " (" + row.node_id + ")";
+      if (row.from_saved) who += " · saved";
       var stressCell = fms.stress_score != null ? scoreCell(fms.stress_score) : (fms.stress_status || "—");
       if (fms.stress && fms.stress.threads) stressCell += " · " + fms.stress.threads + " threads";
       html += "<tr><td>" + esc(who) + "</td><td>" + esc(scoreCell(fleet.fleet_mark)) + "</td><td>" +
@@ -716,6 +745,7 @@
     rows.forEach(function (row) {
       var fms = row.fmsbench || {};
       var who = row.label || row.peer_id || "peer";
+      if (row.from_saved) who += " · saved";
       var inner = fms.stages && fms.stages.stages ? fms.stages.stages : {};
       if (!fms.stages) {
         html += "<tr><td>" + esc(who) + "</td><td colspan=\"6\">" + esc(fms.status || "not_run") + "</td></tr>";
@@ -740,7 +770,7 @@
     ["cpu_multi", "All cores"],
     ["memory", "Memory copy"],
     ["disk", "256 MB disk file"],
-    ["save", "Save Fleet mark"]
+    ["save", "Save hardware score"]
   ];
   var FMS_STEPS = [
     ["check", "Check the host"],
@@ -818,7 +848,7 @@
     var started = Number(progress && progress.started_at) || clickStarted;
     var status = progress && progress.status === "failed" ? "failed" : "running";
     renderLive({
-      title: "Fleet mark on " + who,
+      title: "Hardware on " + who,
       note: "In-process CPU, memory, and disk. No Docker or PostgreSQL.",
       elapsed: Date.now() / 1000 - started,
       steps: stepStates(FLEET_STEPS, progress && progress.step, status),
@@ -836,10 +866,10 @@
     var status = stress ? "running" : (fms && fms.status ? fms.status : "running");
     var finished = status === "passed" ? "passed" : status === "running" ? "running" : status;
     renderLive({
-      title: (stress ? "Market Studio stress on " : "Market Studio benchmark on ") + who,
+      title: (stress ? "Market Studio stress on " : "Market Studio on ") + who,
       note: stress
         ? "Separate stress score at twice this machine's hardware threads. The standard result stays in place."
-        : "Separate from the Fleet mark. Containers, PostgreSQL, DuckDB, SQLite, and NumPy.",
+        : "Forge Benchmarks Market Studio. Containers, PostgreSQL, DuckDB, SQLite, and NumPy. Work files are removed after the result is saved.",
       elapsed: Date.now() / 1000 - started,
       steps: stepStates(FMS_STEPS, fmsStepId(fms && fms.phase), finished),
       detail: fms && fms.phase ? fms.phase : "Waiting for the first log line.",
@@ -866,13 +896,13 @@
     if (phases.sqlite_sql) bits.push("SQLite SQL");
     if (phases.numpy_compute) bits.push("NumPy");
     var evidence = bits.length ? " Evidence: " + bits.join(", ") + "." : " No engine evidence was recorded.";
-    if (status === "passed") return "Market Studio benchmark passed on " + who + "." + evidence;
+    if (status === "passed") return "Market Studio passed on " + who + "." + evidence;
     if (status === "running") {
       var runningPhase = fms && fms.phase ? " Current step: " + fms.phase + "." : "";
-      return "Market Studio benchmark is still running on " + who + "." + runningPhase;
+      return "Market Studio is still running on " + who + "." + runningPhase;
     }
     var why = fms && (fms.detail || fms.error) ? " " + (fms.detail || fms.error) : "";
-    return "Market Studio benchmark " + status + " on " + who + "." + evidence + why;
+    return "Market Studio " + status + " on " + who + "." + evidence + why;
   }
 
   function watchFms(peer, who, fmsBtn, mode) {
@@ -905,7 +935,7 @@
           setFmsStatus(fmsOutcomeText(fms, who, mode), failed);
           if (fmsBtn) {
             fmsBtn.disabled = false;
-            fmsBtn.textContent = "Run Market Studio benchmark";
+            fmsBtn.textContent = "This peer · Market Studio";
           }
           refreshCapacity();
         })
@@ -914,7 +944,7 @@
           clearInterval(timer);
           if (fmsBtn) {
             fmsBtn.disabled = false;
-            fmsBtn.textContent = "Run Market Studio benchmark";
+            fmsBtn.textContent = "This peer · Market Studio";
           }
         })
         .finally(function () {
@@ -960,10 +990,10 @@
         };
         var inflight = false;
         benchBtn.disabled = true;
-        benchBtn.textContent = "Running benchmark…";
+        benchBtn.textContent = "Running hardware…";
         paintFleet(latest, who, clickStarted);
-        setBenchStatus("Fleet mark running on " + who + ". Watch the steps above. This does not start containers.");
-        setMsg("fleet-capacity-msg", "Fleet mark running on " + who + ".");
+        setBenchStatus("Hardware running on " + who + ". Watch the steps above. This does not start containers.");
+        setMsg("fleet-capacity-msg", "Hardware running on " + who + ".");
         var liveTimer = setInterval(function () {
           paintFleet(latest, who, clickStarted);
           if (inflight) return;
@@ -994,10 +1024,10 @@
             liveTimer = null;
             var mark = j && j.benchmark && j.benchmark.fleet_mark != null ? j.benchmark.fleet_mark : null;
             var done = mark != null
-              ? "Fleet mark " + mark + " saved. In-process CPU, memory, and disk only. Docker and PostgreSQL were not started."
-              : "Fleet mark finished. Docker and PostgreSQL were not started.";
+              ? "Hardware score " + mark + " saved. In-process CPU, memory, and disk only. Docker and PostgreSQL were not started."
+              : "Hardware finished. Docker and PostgreSQL were not started.";
             renderLive({
-              title: "Fleet mark on " + who,
+              title: "Hardware on " + who,
               note: "In-process CPU, memory, and disk. No Docker or PostgreSQL.",
               elapsed: Date.now() / 1000 - clickStarted,
               steps: stepStates(FLEET_STEPS, "save", "finished"),
@@ -1015,7 +1045,7 @@
               msg = "The benchmark request did not return. Fleet may still be busy with it.";
             }
             renderLive({
-              title: "Fleet mark on " + who,
+              title: "Hardware on " + who,
               note: "In-process CPU, memory, and disk. No Docker or PostgreSQL.",
               elapsed: Date.now() / 1000 - clickStarted,
               steps: stepStates(FLEET_STEPS, latest.step || "cpu_single", "failed"),
@@ -1026,7 +1056,7 @@
           })
           .finally(function () {
             benchBtn.disabled = false;
-            benchBtn.textContent = "Run Fleet mark";
+            benchBtn.textContent = "This peer · hardware";
           });
       });
     }
@@ -1042,8 +1072,8 @@
         var profile = sel && sel.value ? sel.value : "smoke";
         var who = peer ? scopePeerLabel() : "this host";
         fmsBtn.disabled = true;
-        fmsBtn.textContent = "Starting Market Studio benchmark…";
-        setFmsStatus("Starting on " + who + " (" + profile + "). The Fleet mark is left unchanged.");
+        fmsBtn.textContent = "Starting Market Studio…";
+        setFmsStatus("Starting on " + who + " (" + profile + "). The hardware score is left unchanged.");
         fleetApi(path, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1060,24 +1090,65 @@
             var status = startedDoc.status || (j && j.status) || "running";
             var mode = profile === "stress" ? "stress" : "standard";
             if (status === "running" || startedDoc.stress_status === "running" || (j && j.status === "running")) {
-              fmsBtn.textContent = mode === "stress" ? "Stress test running…" : "Market Studio benchmark running…";
+              fmsBtn.textContent = mode === "stress" ? "Stress test running…" : "Market Studio running…";
               setFmsStatus(mode === "stress"
                 ? "Stress test is running on " + who + " at twice the hardware threads. The standard result stays in place."
-                : "Market Studio benchmark is still running on " + who + ". The checklist above updates as each engine starts.");
+                : "Market Studio is still running on " + who + ". The checklist above updates as each engine starts.");
               watchFms(peer, who, fmsBtn, mode);
               return;
             }
             paintFms(j && j.fmsbench ? j.fmsbench : { status: status, phase: "Checking the host" }, who);
             setFmsStatus(fmsOutcomeText(j && j.fmsbench, who), status !== "passed");
             fmsBtn.disabled = false;
-            fmsBtn.textContent = "Run Market Studio benchmark";
+            fmsBtn.textContent = "This peer · Market Studio";
             refreshCapacity();
           })
           .catch(function (e) {
             setFmsStatus(e && e.message ? e.message : String(e), true);
             fmsBtn.disabled = false;
-            fmsBtn.textContent = "Run Market Studio benchmark";
+            fmsBtn.textContent = "This peer · Market Studio";
           });
+      });
+    }
+    function runAll(suite, button, idleLabel) {
+      if (!button || button.disabled) return;
+      button.disabled = true;
+      button.textContent = "Starting…";
+      fleetApi("/v1/mesh/benchmarks/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ suite: suite, profile: "standard" }),
+      })
+        .then(function (r) {
+          return r.json().then(function (j) {
+            if (!r.ok) throw new Error((j && (j.detail || j.error)) || r.statusText);
+            return j;
+          });
+        })
+        .then(function (j) {
+          var targets = j && j.targets ? j.targets : [];
+          var names = targets.map(function (target) { return target.label || target.peer_id; });
+          setMsg("fleet-capacity-msg", "Started " + (suite === "hardware" ? "hardware" : "Market Studio") + " on " + names.join(", ") + ".");
+          loadCompare();
+        })
+        .catch(function (e) {
+          setMsg("fleet-capacity-msg", e && e.message ? e.message : String(e), true);
+        })
+        .finally(function () {
+          button.disabled = false;
+          button.textContent = idleLabel;
+        });
+    }
+    var benchAll = document.getElementById("fleet-cap-bench-all-btn");
+    if (benchAll) {
+      benchAll.addEventListener("click", function () {
+        runAll("hardware", benchAll, "Re-run all hardware");
+      });
+    }
+    var fmsAll = document.getElementById("fleet-cap-fms-all-btn");
+    if (fmsAll) {
+      fmsAll.addEventListener("click", function () {
+        runAll("market_studio", fmsAll, "Re-run all Market Studio");
       });
     }
     var diskDry = document.getElementById("fleet-cap-disk-dry-btn");

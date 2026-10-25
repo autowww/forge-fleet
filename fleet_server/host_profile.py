@@ -179,6 +179,7 @@ def run_benchmark(data_dir: Path) -> tuple[dict[str, Any], str | None]:
         now,
     )
     save_profile(data_dir, doc)
+    fmsbench_runs.record_hardware(data_dir, bench, now)
     clear_benchmark_progress(data_dir)
     _last_bench_at = now
     return {"ok": True, "benchmark": bench, "measured_at": now}, None

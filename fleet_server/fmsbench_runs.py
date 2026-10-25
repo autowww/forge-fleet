@@ -6,11 +6,13 @@ This module writes only ``etc/fmsbench-result.json`` and ``fmsbench-suite/``.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
 import select
 import shlex
+import shutil
 import socket
 import statistics
 import subprocess
@@ -72,6 +74,45 @@ def save_result(data_dir: Path, doc: dict[str, Any]) -> None:
     path = result_path(data_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
+
+
+def _benchmarks_dir(data_dir: Path) -> Path:
+    path = data_dir / "etc" / "forge-benchmarks"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _append_history(data_dir: Path, kind: str, record: dict[str, Any]) -> None:
+    path = _benchmarks_dir(data_dir) / f"{kind}.jsonl"
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, sort_keys=True) + "\n")
+
+
+def record_hardware(data_dir: Path, bench: dict[str, Any], measured_at: float) -> None:
+    """Keep every hardware score. The host profile still stores only the latest."""
+    _append_history(data_dir, "hardware", {
+        "saved_at": measured_at,
+        "fleet_mark": bench.get("fleet_mark"),
+        "cpu_single_mark": bench.get("cpu_single_mark"),
+        "cpu_multi_mark": bench.get("cpu_multi_mark"),
+        "memory_mark": bench.get("memory_mark"),
+        "disk_mark": bench.get("disk_mark"),
+        "bench_version": bench.get("bench_version"),
+        "timings": bench.get("timings"),
+    })
+
+
+def _archive_report(data_dir: Path, name: Any) -> None:
+    if not isinstance(name, str) or not name or "/" in name or name.startswith("."):
+        return
+    src = data_dir / _SUITE_DIR / "results" / name
+    if not src.is_file():
+        return
+    dest = _benchmarks_dir(data_dir) / "reports" / name
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    data = src.read_bytes()
+    if not dest.is_file() or dest.read_bytes() != data:
+        dest.write_bytes(data)
 
 
 def public_view(data_dir: Path) -> dict[str, Any]:
@@ -379,12 +420,18 @@ def stage_breakdown(doc: dict[str, Any]) -> dict[str, Any] | None:
 def _load_saved_report(data_dir: Path, name: Any) -> dict[str, Any] | None:
     if not isinstance(name, str) or not name or "/" in name or name.startswith("."):
         return None
-    path = data_dir / _SUITE_DIR / "results" / name
-    try:
-        doc = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    return doc if isinstance(doc, dict) else None
+    candidates = (
+        data_dir / _SUITE_DIR / "results" / name,
+        data_dir / "etc" / "forge-benchmarks" / "reports" / name,
+    )
+    for path in candidates:
+        try:
+            doc = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if isinstance(doc, dict):
+            return doc
+    return None
 
 
 def _stage_rate(view: dict[str, Any], name: str, width: str) -> float | None:
@@ -487,6 +534,74 @@ def row_from_profile(peer_id: str, label: str, profile_doc: dict[str, Any] | Non
     }
 
 
+def _snapshot_path(data_dir: Path) -> Path:
+    return _benchmarks_dir(data_dir) / "mesh-snapshot.json"
+
+
+def _load_snapshot(data_dir: Path) -> dict[str, Any]:
+    path = data_dir / "etc" / "forge-benchmarks" / "mesh-snapshot.json"
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return doc if isinstance(doc, dict) else {}
+
+
+def _row_measured(row: dict[str, Any]) -> bool:
+    if row.get("error"):
+        return False
+    fleet = row.get("fleet") if isinstance(row.get("fleet"), dict) else {}
+    fms = row.get("fmsbench") if isinstance(row.get("fmsbench"), dict) else {}
+    if fleet.get("fleet_mark") is not None:
+        return True
+    if fms.get("status") in {"passed", "failed", "incomplete", "running"}:
+        return True
+    return fms.get("stress_status") in {"passed", "failed", "running"}
+
+
+def _slim_row(row: dict[str, Any]) -> dict[str, Any]:
+    copied = json.loads(json.dumps(row))
+    fms = copied.get("fmsbench")
+    if isinstance(fms, dict):
+        fms.pop("log_excerpt", None)
+    return copied
+
+
+def _merge_saved_rows(data_dir: Path, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep the last measured row when a peer cannot be read right now."""
+    snapshot = _load_snapshot(data_dir)
+    merged: list[dict[str, Any]] = []
+    for row in rows:
+        peer_id = str(row.get("peer_id") or "")
+        if peer_id and _row_measured(row):
+            snapshot[peer_id] = {"saved_at": time.time(), "row": _slim_row(row)}
+            merged.append(row)
+            continue
+        saved = snapshot.get(peer_id) if peer_id else None
+        saved_row = saved.get("row") if isinstance(saved, dict) else None
+        if isinstance(saved_row, dict):
+            restored = _slim_row(saved_row)
+            restored["from_saved"] = True
+            restored["saved_at"] = saved.get("saved_at")
+            if row.get("error"):
+                restored["live_error"] = row.get("error")
+            merged.append(restored)
+            continue
+        merged.append(row)
+    path = _snapshot_path(data_dir)
+    path.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
+    return merged
+
+
+def batch_status(data_dir: Path) -> dict[str, Any] | None:
+    path = data_dir / "etc" / "forge-benchmarks" / "batch.json"
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return doc if isinstance(doc, dict) else None
+
+
 def comparison(data_dir: Path, *, fetch_peer: Callable[[str], tuple[int, dict[str, Any] | None]] | None = None) -> dict[str, Any]:
     from fleet_server import host_profile, remote_peers
 
@@ -533,6 +648,7 @@ def comparison(data_dir: Path, *, fetch_peer: Callable[[str], tuple[int, dict[st
             })
             continue
         rows.append(row_from_profile(peer_id, label, payload))
+    rows = _merge_saved_rows(data_dir, rows)
     reference = next((row for row in rows if row.get("peer_id") == "local"), None)
     ref_fms = reference.get("fmsbench") if isinstance(reference, dict) else None
     if isinstance(ref_fms, dict) and ref_fms.get("stages"):
@@ -548,8 +664,10 @@ def comparison(data_dir: Path, *, fetch_peer: Callable[[str], tuple[int, dict[st
                 fms["stress_score"] = round(stress_scored, 1)
     return {
         "ok": True,
-        "separation": "fleet_mark and fmsbench are different measurements",
+        "name": "Forge Benchmarks",
+        "separation": "hardware and Market Studio are different measurements",
         "reference_peer_id": "local",
+        "batch": batch_status(data_dir),
         "composite_weights": dict(COMPOSITE_WEIGHTS),
         "stress_weights": dict(STRESS_WEIGHTS),
         "rows": rows,
@@ -597,16 +715,27 @@ def _running(doc: dict[str, Any] | None, now: float) -> bool:
 
 def _finish(data_dir: Path, profile: str, status: str, **extra: Any) -> None:
     current = load_result(data_dir) or {}
+    finished = time.time()
     current.update({
         "suite": SUITE,
         "suite_version": SUITE_VERSION,
         "status": status,
         "profile": profile,
-        "finished_at": time.time(),
+        "finished_at": finished,
         "node": _safe_label(socket.gethostname()),
     })
     current.update(extra)
     save_result(data_dir, current)
+    _archive_report(data_dir, extra.get("result_name"))
+    summary = extra.get("summary") if isinstance(extra.get("summary"), dict) else None
+    _append_history(data_dir, "market-studio", {
+        "saved_at": finished,
+        "profile": profile,
+        "status": status,
+        "result_name": extra.get("result_name"),
+        "error": extra.get("error"),
+        "summary": summary,
+    })
 
 
 def materialize_suite(dest: Path) -> None:
@@ -760,6 +889,79 @@ def _docker_command(cmd: list[str]) -> list[str]:
     return ["sg", "docker", "-c", " ".join(shlex.quote(part) for part in cmd)]
 
 
+def _compose_project(suite: Path) -> str:
+    digest = hashlib.sha256(str(suite.resolve()).encode()).hexdigest()[:8]
+    return "fmsbench-" + digest
+
+
+def cleanup_runtime(suite: Path, *, run_cmd: Callable[..., tuple[int, str]] | None = None) -> dict[str, Any]:
+    """Remove containers, volumes, the runner image, and work files. Keep result JSON."""
+    suite.mkdir(parents=True, exist_ok=True)
+    project = _compose_project(suite)
+    env = {k: v for k, v in os.environ.items() if "TOKEN" not in k and "PASSWORD" not in k and "SECRET" not in k}
+    env["FMSBENCH_PROJECT"] = project
+    env["FMSBENCH_PASSWORD"] = "cleanup"
+    notes: list[str] = []
+
+    def invoke(argv: list[str]) -> tuple[int, str]:
+        if run_cmd is not None:
+            return run_cmd(argv)
+        try:
+            proc = subprocess.run(
+                argv,
+                cwd=suite,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=180,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return 1, str(exc)[:240]
+        return proc.returncode, ((proc.stderr or proc.stdout or "").strip())[-400:]
+
+    code, detail = invoke(["docker", "compose", "-p", project, "down", "-v", "--remove-orphans", "--rmi", "local"])
+    if code != 0 and detail:
+        notes.append(detail)
+
+    work = suite / "work"
+    if work.exists():
+        try:
+            shutil.rmtree(work)
+        except OSError:
+            wipe_code, wipe_detail = invoke([
+                "docker", "run", "--rm",
+                "-v", f"{work.resolve()}:/target",
+                "--entrypoint", "sh",
+                "postgres:17",
+                "-c", "rm -rf /target/* /target/.[!.]* /target/..?*",
+            ])
+            if wipe_code != 0 and wipe_detail:
+                notes.append(wipe_detail)
+            try:
+                shutil.rmtree(work)
+            except OSError:
+                pass
+    for relative in (".env", "results/preflight-last.json"):
+        target = suite / relative
+        try:
+            target.unlink(missing_ok=True)
+        except OSError:
+            pass
+    cache = suite / "__pycache__"
+    if cache.is_dir():
+        shutil.rmtree(cache, ignore_errors=True)
+    results = suite / "results"
+    if results.is_dir():
+        for tmp in results.glob("*.tmp"):
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+    kept = sorted(p.name for p in results.glob("fmsbench-*.json")) if results.is_dir() else []
+    return {"ok": not notes, "project": project, "kept_results": kept, "detail": "; ".join(notes)[:500]}
+
+
 def execute_run(data_dir: Path, profile: str) -> None:
     suite = data_dir / _SUITE_DIR
     try:
@@ -816,7 +1018,7 @@ def execute_run(data_dir: Path, profile: str) -> None:
             return
         report = json.loads(picked.read_text(encoding="utf-8"))
         if isinstance(report, dict) and report.get("status") == "stress_only" and isinstance(report.get("stress"), dict):
-            _save_stress(data_dir, report["stress"], log_excerpt=excerpt)
+            _save_stress(data_dir, report["stress"], log_excerpt=excerpt, result_name=picked.name)
             return
         if not isinstance(report, dict) or report.get("status") != "passed" or not report_has_engine_evidence(report):
             _finish(
@@ -856,13 +1058,23 @@ def execute_run(data_dir: Path, profile: str) -> None:
             _save_stress(data_dir, {}, log_excerpt="", error=str(exc)[:240])
         else:
             _finish(data_dir, profile, "failed", error="run_failed", detail=str(exc)[:500])
+    finally:
+        cleanup_runtime(suite)
 
 
-def _save_stress(data_dir: Path, stress: dict[str, Any], *, log_excerpt: str, error: str | None = None) -> None:
+def _save_stress(
+    data_dir: Path,
+    stress: dict[str, Any],
+    *,
+    log_excerpt: str,
+    error: str | None = None,
+    result_name: str | None = None,
+) -> None:
     current = load_result(data_dir) or {}
+    finished = time.time()
     current["suite"] = current.get("suite") or SUITE
     current["suite_version"] = str(current.get("suite_version") or SUITE_VERSION)
-    current["stress_finished_at"] = time.time()
+    current["stress_finished_at"] = finished
     if error:
         current["stress_status"] = "failed"
         current["stress_error"] = error
@@ -875,6 +1087,16 @@ def _save_stress(data_dir: Path, stress: dict[str, Any], *, log_excerpt: str, er
     if current.get("status") == "running" and current.get("profile") == "stress":
         current["status"] = "not_run"
     save_result(data_dir, current)
+    if result_name:
+        _archive_report(data_dir, result_name)
+    _append_history(data_dir, "market-studio-stress", {
+        "saved_at": finished,
+        "status": current.get("stress_status"),
+        "error": error,
+        "result_name": result_name,
+        "threads": stress.get("threads") if isinstance(stress, dict) else None,
+        "wall_seconds": stress.get("wall_seconds") if isinstance(stress, dict) else None,
+    })
 
 
 def start_run(
@@ -935,3 +1157,132 @@ def start_run(
         return {"ok": True, "status": public_view(data_dir).get("status"), "fmsbench": public_view(data_dir)}, 200
     threading.Thread(target=execute_run, args=(data_dir, profile), daemon=True).start()
     return {"ok": True, "status": "running", "profile": profile, "fmsbench": public_view(data_dir)}, 202
+
+
+def cleanup_saved_run(data_dir: Path) -> tuple[dict[str, Any], int]:
+    if _running(load_result(data_dir), time.time()):
+        return {"ok": False, "error": "busy", "fmsbench": public_view(data_dir)}, 409
+    report = cleanup_runtime(data_dir / _SUITE_DIR)
+    code = 200 if report.get("ok") else 500
+    return {"ok": bool(report.get("ok")), **report}, code
+
+
+def _write_batch(data_dir: Path, doc: dict[str, Any]) -> None:
+    path = _benchmarks_dir(data_dir) / "batch.json"
+    path.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
+
+
+def _launch_peer(data_dir: Path, peer_id: str, suite: str, profile: str) -> dict[str, Any]:
+    from fleet_server import host_profile, remote_peers
+
+    if suite == "hardware":
+        if peer_id == "local":
+            out, _err = host_profile.run_benchmark(data_dir)
+            return out if isinstance(out, dict) else {"ok": False, "error": "benchmark_failed"}
+        code, raw, _ctype = remote_peers.proxy_json(
+            data_dir,
+            peer_id,
+            "/v1/host/profile/benchmark",
+            method="POST",
+            body=b"{}",
+            timeout_s=900,
+        )
+    else:
+        if peer_id == "local":
+            out, code = start_run(data_dir, profile)
+            out = dict(out)
+            out["ok"] = code in {200, 202}
+            return out
+        code, raw, _ctype = remote_peers.proxy_json(
+            data_dir,
+            peer_id,
+            "/v1/host/profile/fmsbench",
+            method="POST",
+            body=json.dumps({"profile": profile}).encode("utf-8"),
+            timeout_s=90,
+        )
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        payload = {"ok": False, "error": "bad_response"}
+    if not isinstance(payload, dict):
+        payload = {"ok": False, "error": "bad_response"}
+    payload["ok"] = bool(payload.get("ok")) and code in {200, 202}
+    if code not in {200, 202} and not payload.get("error"):
+        payload["error"] = "http_%s" % code
+    return payload
+
+
+def start_batch(
+    data_dir: Path,
+    suite: str,
+    *,
+    profile: str = "standard",
+    launch: Callable[[Path, str, str, str], dict[str, Any]] | None = None,
+    spawn: Callable[[Callable[[], None]], None] | None = None,
+) -> tuple[dict[str, Any], int]:
+    """Start one suite on this host and every configured peer."""
+    from fleet_server import remote_peers
+
+    if suite not in {"hardware", "market_studio"}:
+        return {"ok": False, "error": "unknown_suite"}, 400
+    if suite == "market_studio" and profile not in _FLAGS:
+        return {"ok": False, "error": "unknown_profile"}, 400
+    current = batch_status(data_dir)
+    if isinstance(current, dict) and current.get("status") == "running":
+        started = float(current.get("started_at") or 0)
+        if time.time() - started < _STALE_S:
+            return {"ok": False, "error": "busy", "batch": current}, 409
+    targets = [{"peer_id": "local", "label": socket.gethostname(), "status": "queued", "error": None}]
+    for peer in remote_peers.list_peers(data_dir).get("peers") or []:
+        peer_id = str(peer.get("id") or "")
+        if not peer_id:
+            continue
+        targets.append({
+            "peer_id": peer_id,
+            "label": str(peer.get("label") or peer_id),
+            "status": "queued",
+            "error": None,
+        })
+    doc: dict[str, Any] = {
+        "ok": True,
+        "status": "running",
+        "suite": suite,
+        "profile": profile if suite == "market_studio" else None,
+        "started_at": time.time(),
+        "targets": targets,
+    }
+    _write_batch(data_dir, doc)
+    starter = launch or _launch_peer
+
+    def job() -> None:
+        threads: list[threading.Thread] = []
+
+        def one(target: dict[str, Any]) -> None:
+            try:
+                result = starter(data_dir, str(target["peer_id"]), suite, profile)
+                status = "started" if result.get("ok") else "failed"
+                error = None if result.get("ok") else str(result.get("error") or "failed")[:200]
+            except Exception as exc:  # noqa: BLE001 — one peer must not cancel the others
+                status = "failed"
+                error = str(exc)[:200]
+            with _lock:
+                target["status"] = status
+                target["error"] = error
+                _write_batch(data_dir, doc)
+
+        for target in targets:
+            threads.append(threading.Thread(target=one, args=(target,), daemon=True))
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        doc["status"] = "finished"
+        doc["finished_at"] = time.time()
+        _write_batch(data_dir, doc)
+
+    if spawn is not None:
+        spawn(job)
+    else:
+        threading.Thread(target=job, daemon=True).start()
+    return doc, 202
