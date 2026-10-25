@@ -32,7 +32,7 @@ Feature docs (details beyond this table): [CONTAINER-TEMPLATES.md](../build-201/
 | DELETE | `/v1/auth/session/{id}` | admin | Revoke session. |
 | GET | `/v1/host/profile` | `read:profile` | Hardware snapshot, Fleet mark (`benchmark`), Market Studio benchmark (`fmsbench`, separate file), 5m rollup history (`period=1h\|24h\|7d`). |
 | POST | `/v1/host/profile/benchmark` | admin | Run bounded Fleet-mark benchmark (cooldown). Does not write the Market Studio result. |
-| POST | `/v1/host/profile/fmsbench` | admin | Start FMSBench on this host. Body `{"profile":"smoke"\|"micro"\|"standard"\|"large"}`. Returns 202 while the run continues. Result is `etc/fmsbench-result.json`, not the Fleet mark. |
+| POST | `/v1/host/profile/fmsbench` | admin | Start a Forge Benchmarks Market Studio run. Profiles: `micro`, `smoke`, `standard`, `large`, `host-max-cores`, `host-max-threads`, `stress`, `full`. `full` runs standard, both host-max widths, and stress. Result is `etc/fmsbench-result.json`, separate from the hardware score. |
 | GET | `/v1/mesh/benchmarks` | `read:profile` | Forge Benchmarks: hardware score, Market Studio stages, composite, and a separate stress score. A peer that cannot be reached keeps its last saved row. |
 | POST | `/v1/mesh/benchmarks/run` | admin | Body `{"suite":"hardware"}` or `{"suite":"market_studio","profile":"standard"}`. Starts that suite on this host and every peer. |
 | POST | `/v1/host/profile/fmsbench/cleanup` | admin | Remove Market Studio containers, volumes, the runner image, and work files. Result JSON is kept. |

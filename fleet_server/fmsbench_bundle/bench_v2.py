@@ -677,12 +677,11 @@ def main():
     p.add_argument('--baseline', type=Path)
     p.add_argument('--stress-only', action='store_true')
     args = p.parse_args()
-    worker_limit = 64 if args.stress_only else 32
-    if not (1 <= args.workers <= worker_limit and 1 <= args.threads <= 16 and
+    if not (1 <= args.workers <= 64 and 1 <= args.threads <= 64 and
             1 <= args.repeats <= 20 and 1 <= args.trials <= 10 and
             .25 <= args.duration <= 120 and 100 <= args.compute_size <= 10_000_000 and
             1 <= args.compute_loops <= 100):
-        p.error('Unsafe test parameters (workers<=32, or <=64 for --stress-only; threads<=16; duration .25–120s)')
+        p.error('Unsafe test parameters (workers<=64, threads<=64, duration .25–120s)')
     run(args)
 
 

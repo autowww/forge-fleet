@@ -42,8 +42,22 @@ _FLAGS = {
     "standard": ("--threads", "8", "--workers", "8", "--repeats", "3", "--trials", "3", "--duration", "5"),
     "large": ("--threads", "8", "--workers", "8", "--repeats", "3", "--trials", "3", "--duration", "5"),
     "stress": ("--stress-only",),
+    "host-max-cores": (),
+    "host-max-threads": (),
+    "full": (),
 }
-_TIMEOUT_S = {"micro": 600, "smoke": 1200, "standard": 7200, "large": 14400, "stress": 7200}
+_WIDTH_PROFILES = frozenset({"host-max-cores", "host-max-threads"})
+_FULL_STEPS = ("standard", "host-max-cores", "host-max-threads", "stress")
+_TIMEOUT_S = {
+    "micro": 600,
+    "smoke": 1200,
+    "standard": 7200,
+    "large": 14400,
+    "stress": 7200,
+    "host-max-cores": 7200,
+    "host-max-threads": 7200,
+    "full": 21600,
+}
 # Overall time and two-thread throughput dominate. One thread is the smaller share.
 COMPOSITE_WEIGHTS = {"overall_time": 0.50, "multithread": 0.35, "singlethread": 0.15}
 STRESS_WEIGHTS = {"overall_time": 0.40, "oversubscribed": 0.60}
@@ -139,7 +153,25 @@ def public_view(data_dir: Path) -> dict[str, Any]:
         "stress_status": doc.get("stress_status"),
         "stress_started_at": doc.get("stress_started_at"),
         "stress_error": doc.get("stress_error"),
+        "width_status": doc.get("width_status"),
+        "width_profile": doc.get("width_profile"),
+        "full_status": doc.get("full_status"),
     }
+    raw_widths = doc.get("widths") if isinstance(doc.get("widths"), dict) else {}
+    widths_out: dict[str, Any] = {}
+    for name, entry in raw_widths.items():
+        if not isinstance(entry, dict):
+            continue
+        shown = dict(entry)
+        width_report = _load_saved_report(data_dir, entry.get("result_name"))
+        if width_report is not None:
+            shown["stages"] = stage_breakdown(width_report)
+            width_wall = _wall_seconds(width_report)
+            if width_wall is not None:
+                shown["wall_seconds"] = width_wall
+        widths_out[name] = {k: v for k, v in shown.items() if v is not None}
+    if widths_out:
+        view["widths"] = widths_out
     report = _load_saved_report(data_dir, doc.get("result_name"))
     if report is not None:
         view["stages"] = stage_breakdown(report)
@@ -593,6 +625,16 @@ def _merge_saved_rows(data_dir: Path, rows: list[dict[str, Any]]) -> list[dict[s
     return merged
 
 
+def _width_score_view(fms: dict[str, Any], name: str) -> dict[str, Any] | None:
+    widths = fms.get("widths") if isinstance(fms.get("widths"), dict) else {}
+    entry = widths.get(name) if isinstance(widths.get(name), dict) else None
+    if not isinstance(entry, dict) or not isinstance(entry.get("stages"), dict):
+        return None
+    if not entry.get("wall_seconds"):
+        return None
+    return {"wall_seconds": entry.get("wall_seconds"), "stages": entry.get("stages")}
+
+
 def batch_status(data_dir: Path) -> dict[str, Any] | None:
     path = data_dir / "etc" / "forge-benchmarks" / "batch.json"
     try:
@@ -662,6 +704,19 @@ def comparison(data_dir: Path, *, fetch_peer: Callable[[str], tuple[int, dict[st
             stress_scored = stress_score(ref_fms.get("stress"), fms.get("stress"))
             if stress_scored is not None:
                 fms["stress_score"] = round(stress_scored, 1)
+    if isinstance(ref_fms, dict):
+        for row in rows:
+            fms = row.get("fmsbench")
+            if not isinstance(fms, dict):
+                continue
+            for name, field in (("host-max-cores", "cores_score"), ("host-max-threads", "threads_score")):
+                reference_width = _width_score_view(ref_fms, name)
+                candidate_width = _width_score_view(fms, name)
+                if reference_width is None or candidate_width is None:
+                    continue
+                width_scored = composite_score(reference_width, candidate_width)
+                if width_scored is not None:
+                    fms[field] = round(width_scored, 1)
     return {
         "ok": True,
         "name": "Forge Benchmarks",
@@ -709,7 +764,12 @@ def _running(doc: dict[str, Any] | None, now: float) -> bool:
             return True
     if doc.get("stress_status") == "running":
         started = float(doc.get("stress_started_at") or 0)
-        return (now - started) < _STALE_S
+        if (now - started) < _STALE_S:
+            return True
+    if doc.get("width_status") == "running":
+        started = float(doc.get("width_started_at") or 0)
+        if (now - started) < _STALE_S:
+            return True
     return False
 
 
@@ -763,8 +823,12 @@ def _new_result_file(suite: Path, before: set[str]) -> Path | None:
 
 def _update_running(data_dir: Path, profile: str, **fields: Any) -> None:
     current = load_result(data_dir) or {}
-    if profile == "stress":
-        current["stress_status"] = "running"
+    if profile == "stress" or profile in _WIDTH_PROFILES:
+        if profile == "stress":
+            current["stress_status"] = "running"
+        else:
+            current["width_status"] = "running"
+            current["width_profile"] = profile
         current["heartbeat_at"] = time.time()
         for key in ("phase", "phases", "log_excerpt"):
             if key in fields:
@@ -832,8 +896,18 @@ def _stream_run(data_dir: Path, profile: str, proc: subprocess.Popen[bytes], tim
 
 def stress_thread_count() -> int:
     """Twice the hardware threads, capped so one host cannot fork without a bound."""
-    threads = os.cpu_count() or 1
-    return max(2, min(64, threads * 2))
+    return max(2, min(64, host_width("threads") * 2))
+
+
+def host_width(kind: str) -> int:
+    """Physical cores, or hardware threads, bounded to the suite's thread cap."""
+    from fleet_server import host_profile
+
+    hw = host_profile.static_hardware()
+    logical = _positive_int(hw.get("logical_cpus")) or os.cpu_count() or 1
+    physical = _positive_int(hw.get("physical_cpus")) or logical
+    width = physical if kind == "cores" else logical
+    return max(1, min(64, width))
 
 
 def _run_command(profile: str) -> list[str]:
@@ -856,6 +930,26 @@ def _run_command(profile: str) -> list[str]:
             "--duration",
             "5",
             "--stress-only",
+        ]
+    if profile in _WIDTH_PROFILES:
+        kind = "cores" if profile == "host-max-cores" else "threads"
+        width = str(host_width(kind))
+        return [
+            "./run.sh",
+            "--label",
+            label,
+            "--profile",
+            "standard",
+            "--threads",
+            width,
+            "--workers",
+            width,
+            "--repeats",
+            "3",
+            "--trials",
+            "3",
+            "--duration",
+            "5",
         ]
     return ["./run.sh", "--label", label, "--profile", profile, *_FLAGS[profile]]
 
@@ -962,102 +1056,199 @@ def cleanup_runtime(suite: Path, *, run_cmd: Callable[..., tuple[int, str]] | No
     return {"ok": not notes, "project": project, "kept_results": kept, "detail": "; ".join(notes)[:500]}
 
 
+def _run_once(data_dir: Path, suite: Path, profile: str, env: dict[str, str]) -> dict[str, Any]:
+    results = suite / "results"
+    before = {p.name for p in results.glob("fmsbench-*.json")} if results.is_dir() else set()
+    cmd = _docker_command(_run_command(profile))
+    proc = subprocess.Popen(
+        cmd,
+        cwd=suite,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    log, returncode = _stream_run(data_dir, profile, proc, _TIMEOUT_S.get(profile, 7200))
+    phases = phases_from_log(log)
+    excerpt = clip_log(log)
+    if returncode != 0:
+        return {"error": "run_failed", "excerpt": excerpt, "phases": phases, "detail": log[-500:]}
+    picked = _new_result_file(suite, before)
+    if picked is None:
+        return {"error": "no_result", "excerpt": excerpt, "phases": phases}
+    try:
+        report = json.loads(picked.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {"error": "bad_json", "excerpt": excerpt, "phases": phases}
+    if not isinstance(report, dict):
+        return {"error": "bad_json", "excerpt": excerpt, "phases": phases}
+    return {
+        "error": None,
+        "excerpt": excerpt,
+        "phases": phases,
+        "report": report,
+        "result_name": picked.name,
+    }
+
+
+def _save_width(
+    data_dir: Path,
+    profile: str,
+    report: dict[str, Any] | None,
+    *,
+    log_excerpt: str,
+    error: str | None = None,
+    result_name: str | None = None,
+) -> None:
+    current = load_result(data_dir) or {}
+    finished = time.time()
+    widths = current.get("widths") if isinstance(current.get("widths"), dict) else {}
+    entry: dict[str, Any] = {
+        "status": "failed" if error else "passed",
+        "finished_at": finished,
+        "error": error,
+        "result_name": result_name,
+    }
+    if isinstance(report, dict):
+        config = report.get("config") if isinstance(report.get("config"), dict) else {}
+        entry["threads"] = config.get("threads")
+        entry["workers"] = config.get("workers")
+        entry["wall_seconds"] = _wall_seconds(report)
+        entry["summary"] = summarize_fms_report(report)
+    widths[profile] = entry
+    current["suite"] = current.get("suite") or SUITE
+    current["suite_version"] = str(current.get("suite_version") or SUITE_VERSION)
+    current["widths"] = widths
+    current["width_status"] = "failed" if error else "passed"
+    current["width_profile"] = profile
+    current["width_error"] = error
+    if log_excerpt:
+        current["log_excerpt"] = log_excerpt
+    if current.get("status") == "running" and current.get("profile") == profile:
+        current["status"] = "not_run"
+    save_result(data_dir, current)
+    if result_name:
+        _archive_report(data_dir, result_name)
+    _append_history(data_dir, "market-studio-width", {
+        "saved_at": finished,
+        "profile": profile,
+        "status": entry["status"],
+        "threads": entry.get("threads"),
+        "workers": entry.get("workers"),
+        "result_name": result_name,
+        "error": error,
+    })
+
+
+def _record_step(data_dir: Path, profile: str, outcome: dict[str, Any]) -> bool:
+    excerpt = str(outcome.get("excerpt") or "")
+    phases = outcome.get("phases") if isinstance(outcome.get("phases"), dict) else {}
+    error = outcome.get("error")
+    report = outcome.get("report") if isinstance(outcome.get("report"), dict) else None
+    result_name = outcome.get("result_name") if isinstance(outcome.get("result_name"), str) else None
+    if error:
+        if profile == "stress":
+            _save_stress(data_dir, {}, log_excerpt=excerpt, error=error)
+        elif profile in _WIDTH_PROFILES:
+            _save_width(data_dir, profile, None, log_excerpt=excerpt, error=error)
+        else:
+            _finish(
+                data_dir,
+                profile,
+                "failed",
+                error=error,
+                detail=outcome.get("detail"),
+                phases=phases,
+                log_excerpt=excerpt,
+            )
+        return False
+    if report is not None and report.get("status") == "stress_only" and isinstance(report.get("stress"), dict):
+        _save_stress(data_dir, report["stress"], log_excerpt=excerpt, result_name=result_name)
+        return True
+    evidence = bool(report) and report.get("status") == "passed" and report_has_engine_evidence(report)
+    phases_ok = bool(phases.get("postgres_sql") and phases.get("duckdb_sql") and phases.get("sqlite_sql") and phases.get("numpy_compute"))
+    if not evidence or not phases_ok:
+        reason = "missing_engine_evidence" if not evidence else "log_missing_engine_phases"
+        if profile in _WIDTH_PROFILES:
+            _save_width(data_dir, profile, report, log_excerpt=excerpt, error=reason, result_name=result_name)
+        else:
+            _finish(
+                data_dir,
+                profile,
+                "incomplete",
+                error=reason,
+                result_name=result_name,
+                phases=phases,
+                log_excerpt=excerpt,
+            )
+        return False
+    if profile in _WIDTH_PROFILES:
+        _save_width(data_dir, profile, report, log_excerpt=excerpt, result_name=result_name)
+        return True
+    _finish(
+        data_dir,
+        profile,
+        "passed",
+        result_name=result_name,
+        summary=summarize_fms_report(report or {}),
+        phases=phases,
+        log_excerpt=excerpt,
+        error=None,
+        detail=None,
+    )
+    return True
+
+
+def _mark_full(data_dir: Path, status: str, error: str | None = None) -> None:
+    current = load_result(data_dir) or {}
+    current["full_status"] = status
+    current["full_error"] = error
+    current["full_finished_at"] = time.time()
+    if current.get("status") == "running" and current.get("profile") == "full":
+        current["status"] = "passed" if current.get("summary") else "not_run"
+        if current.get("summary"):
+            current["profile"] = "standard"
+    save_result(data_dir, current)
+
+
 def execute_run(data_dir: Path, profile: str) -> None:
     suite = data_dir / _SUITE_DIR
+    steps = _FULL_STEPS if profile == "full" else (profile,)
+    failed: list[str] = []
     try:
         materialize_suite(suite)
-        results = suite / "results"
-        before = {p.name for p in results.glob("fmsbench-*.json")} if results.is_dir() else set()
         env = {
             k: v
             for k, v in os.environ.items()
             if "TOKEN" not in k and "PASSWORD" not in k and "SECRET" not in k
         }
-        cmd = _docker_command(_run_command(profile))
-        _update_running(data_dir, profile, phase="Checking the host", log_excerpt="")
         env["PYTHONUNBUFFERED"] = "1"
         env["COMPOSE_ANSI"] = "never"
         env["BUILDKIT_PROGRESS"] = "plain"
-        proc = subprocess.Popen(
-            cmd,
-            cwd=suite,
-            env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-        )
-        log, returncode = _stream_run(data_dir, profile, proc, _TIMEOUT_S[profile])
-        _update_running(
-            data_dir,
-            profile,
-            phase="Stopping the benchmark containers",
-            log_excerpt=clip_log(log),
-        )
-        subprocess.run(
-            ["docker", "compose", "down"],
-            cwd=suite,
-            timeout=180,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        phases = phases_from_log(log)
-        excerpt = clip_log(log)
-        proc = subprocess.CompletedProcess(cmd, returncode, log, "")
-        if proc.returncode != 0:
-            if profile == "stress":
-                _save_stress(data_dir, {}, log_excerpt=excerpt, error="run_failed")
-            else:
-                _finish(data_dir, profile, "failed", error="run_failed", detail=log[-500:], phases=phases, log_excerpt=excerpt)
-            return
-        picked = _new_result_file(suite, before)
-        if picked is None:
-            if profile == "stress":
-                _save_stress(data_dir, {}, log_excerpt=excerpt, error="no_result")
-            else:
-                _finish(data_dir, profile, "failed", error="no_result", phases=phases, log_excerpt=excerpt)
-            return
-        report = json.loads(picked.read_text(encoding="utf-8"))
-        if isinstance(report, dict) and report.get("status") == "stress_only" and isinstance(report.get("stress"), dict):
-            _save_stress(data_dir, report["stress"], log_excerpt=excerpt, result_name=picked.name)
-            return
-        if not isinstance(report, dict) or report.get("status") != "passed" or not report_has_engine_evidence(report):
-            _finish(
-                data_dir,
-                profile,
-                "incomplete",
-                error="missing_engine_evidence",
-                result_name=picked.name if isinstance(report, dict) else None,
-                phases=phases,
-                log_excerpt=excerpt,
-            )
-            return
-        if not (phases["postgres_sql"] and phases["duckdb_sql"] and phases["sqlite_sql"] and phases["numpy_compute"]):
-            _finish(
-                data_dir,
-                profile,
-                "incomplete",
-                error="log_missing_engine_phases",
-                result_name=picked.name,
-                phases=phases,
-                log_excerpt=excerpt,
-            )
-            return
-        _finish(
-            data_dir,
-            profile,
-            "passed",
-            result_name=picked.name,
-            summary=summarize_fms_report(report),
-            phases=phases,
-            log_excerpt=excerpt,
-            error=None,
-            detail=None,
-        )
+        for step in steps:
+            label = {
+                "standard": "Standard capacity run",
+                "host-max-cores": "Host max cores",
+                "host-max-threads": "Host max threads",
+                "stress": "Stress at 2× threads",
+            }.get(step, "Checking the host")
+            _update_running(data_dir, step if profile == "full" else profile, phase=label, log_excerpt="")
+            outcome = _run_once(data_dir, suite, step, env)
+            if not _record_step(data_dir, step, outcome):
+                failed.append(step)
+                if profile != "full":
+                    return
+        if profile == "full":
+            _mark_full(data_dir, "failed" if failed else "passed", ",".join(failed) or None)
     except Exception as exc:  # noqa: BLE001 — persist the failure in the FMSBench file only
+        detail = str(exc)[:240]
         if profile == "stress":
-            _save_stress(data_dir, {}, log_excerpt="", error=str(exc)[:240])
+            _save_stress(data_dir, {}, log_excerpt="", error=detail)
+        elif profile in _WIDTH_PROFILES:
+            _save_width(data_dir, profile, None, log_excerpt="", error=detail)
+        elif profile == "full":
+            _mark_full(data_dir, "failed", detail)
         else:
-            _finish(data_dir, profile, "failed", error="run_failed", detail=str(exc)[:500])
+            _finish(data_dir, profile, "failed", error="run_failed", detail=detail)
     finally:
         cleanup_runtime(suite)
 
@@ -1112,6 +1303,10 @@ def start_run(
     if not runtime.get("compose"):
         if profile == "stress":
             _save_stress(data_dir, {}, log_excerpt="", error="compose_unavailable")
+        elif profile == "full":
+            _mark_full(data_dir, "failed", "compose_unavailable")
+        elif profile in _WIDTH_PROFILES:
+            _save_width(data_dir, profile, None, log_excerpt="", error="compose_unavailable")
         else:
             _finish(
                 data_dir,
@@ -1140,6 +1335,24 @@ def start_run(
             current["stress_status"] = "running"
             current["stress_started_at"] = now
             current["stress_error"] = None
+            save_result(data_dir, current)
+        elif profile in _WIDTH_PROFILES or profile == "full":
+            current = load_result(data_dir) or {
+                "suite": SUITE,
+                "suite_version": SUITE_VERSION,
+                "status": "not_run",
+            }
+            if profile == "full":
+                current["status"] = "running"
+                current["profile"] = "full"
+                current["full_status"] = "running"
+                current["full_error"] = None
+                current["started_at"] = now
+            else:
+                current["width_status"] = "running"
+                current["width_profile"] = profile
+                current["width_started_at"] = now
+                current["width_error"] = None
             save_result(data_dir, current)
         else:
             save_result(data_dir, {

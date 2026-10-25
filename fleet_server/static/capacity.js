@@ -647,7 +647,7 @@
     var rows = doc && doc.rows ? doc.rows : [];
     return rows.some(function (row) {
       var fms = row.fmsbench || {};
-      return fms.status === "running" || fms.stress_status === "running";
+      return fms.status === "running" || fms.stress_status === "running" || fms.width_status === "running" || fms.full_status === "running";
     });
   }
 
@@ -713,7 +713,7 @@
     }
     var html = batchHtml + "<table class=\"table table-sm mb-3\"><thead><tr>" +
       "<th>Peer</th><th>Hardware</th><th>Cores</th><th>Threads</th><th>Multiprocess max</th>" +
-      "<th>Total time</th><th>Composite</th><th>Stress</th>" +
+      "<th>Total time</th><th>Composite</th><th>Max cores</th><th>Max threads</th><th>Stress</th>" +
       "</tr></thead><tbody>";
     rows.forEach(function (row) {
       var fleet = row.fleet || {};
@@ -723,6 +723,13 @@
       var who = row.label || row.peer_id || "peer";
       if (row.node_id && row.node_id !== who) who += " (" + row.node_id + ")";
       if (row.from_saved) who += " · saved";
+      function widthCell(name, scoreKey) {
+        var widths = fms.widths || {};
+        var entry = widths[name] || {};
+        if (fms[scoreKey] != null) return scoreCell(fms[scoreKey]) + (entry.threads != null ? " · " + entry.threads : "");
+        if (entry.status) return entry.status + (entry.threads != null ? " · " + entry.threads : "");
+        return "—";
+      }
       var stressCell = fms.stress_score != null ? scoreCell(fms.stress_score) : (fms.stress_status || "—");
       if (fms.stress && fms.stress.threads) stressCell += " · " + fms.stress.threads + " threads";
       html += "<tr><td>" + esc(who) + "</td><td>" + esc(scoreCell(fleet.fleet_mark)) + "</td><td>" +
@@ -730,7 +737,8 @@
         esc(cap.hardware_threads != null ? cap.hardware_threads : "—") + "</td><td>" +
         esc(cap.multiprocess_max != null ? cap.multiprocess_max : "—") + "</td><td>" +
         esc(fmtSeconds(stages.wall_seconds || fms.wall_seconds)) + "</td><td>" +
-        esc(scoreCell(fms.composite_score)) + "</td><td>" + esc(stressCell) + "</td></tr>";
+        esc(scoreCell(fms.composite_score)) + "</td><td>" + esc(widthCell("host-max-cores", "cores_score")) +
+        "</td><td>" + esc(widthCell("host-max-threads", "threads_score")) + "</td><td>" + esc(stressCell) + "</td></tr>";
     });
     html += "</tbody></table>";
     html += "<table class=\"table table-sm mb-0\"><thead><tr>" +
@@ -860,15 +868,23 @@
     return !!(fms && fms.stress_status === "running");
   }
 
+  function fmsSideLive(fms) {
+    return !!(fms && (fms.stress_status === "running" || fms.width_status === "running" || fms.full_status === "running"));
+  }
+
   function paintFms(fms, who) {
-    var stress = fmsStressLive(fms);
-    var started = Number(stress ? fms.stress_started_at : fms && fms.started_at) || Date.now() / 1000;
-    var status = stress ? "running" : (fms && fms.status ? fms.status : "running");
+    var side = fmsSideLive(fms);
+    var started = Number(side && fms.stress_status === "running" ? fms.stress_started_at : fms && fms.started_at) || Date.now() / 1000;
+    var status = side ? "running" : (fms && fms.status ? fms.status : "running");
     var finished = status === "passed" ? "passed" : status === "running" ? "running" : status;
+    var title = "Market Studio on " + who;
+    if (fms && fms.stress_status === "running") title = "Market Studio stress on " + who;
+    if (fms && fms.width_status === "running") title = (fms.width_profile || "Host max") + " on " + who;
+    if (fms && fms.full_status === "running") title = "Full Market Studio on " + who;
     renderLive({
-      title: (stress ? "Market Studio stress on " : "Market Studio on ") + who,
-      note: stress
-        ? "Separate stress score at twice this machine's hardware threads. The standard result stays in place."
+      title: title,
+      note: side
+        ? "The saved standard result stays in place until a standard or full run replaces it."
         : "Forge Benchmarks Market Studio. Containers, PostgreSQL, DuckDB, SQLite, and NumPy. Work files are removed after the result is saved.",
       elapsed: Date.now() / 1000 - started,
       steps: stepStates(FMS_STEPS, fmsStepId(fms && fms.phase), finished),
@@ -887,6 +903,20 @@
       }
       var phase = fms && fms.phase ? " Current step: " + fms.phase + "." : "";
       return "Stress test is still running on " + who + "." + phase;
+    }
+    if (mode === "width" || (fms && fms.width_status === "running")) {
+      if (fms && fms.width_status === "passed") {
+        return (fms.width_profile || "Host max") + " passed on " + who + ". The standard result is unchanged.";
+      }
+      if (fms && fms.width_status === "failed") {
+        return (fms.width_profile || "Host max") + " failed on " + who + ". " + (fms.width_error || "The standard result is unchanged.");
+      }
+      return (fms && fms.width_profile ? fms.width_profile : "Host max") + " is still running on " + who + ".";
+    }
+    if (mode === "full" || (fms && fms.full_status === "running")) {
+      if (fms && fms.full_status === "passed") return "Full test passed on " + who + ". Standard, host max, and stress are saved.";
+      if (fms && fms.full_status === "failed") return "Full test failed on " + who + ". " + (fms.full_error || "");
+      return "Full test is still running on " + who + ". " + (fms && fms.phase ? fms.phase : "");
     }
     var status = fms && fms.status ? fms.status : "not_run";
     var phases = fms && fms.phases ? fms.phases : {};
@@ -925,13 +955,13 @@
           var fms = j && j.fmsbench ? j.fmsbench : { status: "not_run" };
           latest = fms;
           paintFms(latest, who);
-          var still = mode === "stress" ? fmsStressLive(fms) : fms.status === "running";
+          var still = mode === "stress" ? fmsStressLive(fms) : mode === "width" ? fms.width_status === "running" : mode === "full" ? fms.full_status === "running" || fms.status === "running" : fms.status === "running";
           if (still && tries < 16000) {
             setFmsStatus(fmsOutcomeText(fms, who, mode));
             return;
           }
           clearInterval(timer);
-          var failed = mode === "stress" ? fms.stress_status !== "passed" : fms.status !== "passed";
+          var failed = mode === "stress" ? fms.stress_status !== "passed" : mode === "width" ? fms.width_status !== "passed" : mode === "full" ? fms.full_status !== "passed" : fms.status !== "passed";
           setFmsStatus(fmsOutcomeText(fms, who, mode), failed);
           if (fmsBtn) {
             fmsBtn.disabled = false;
@@ -1088,8 +1118,8 @@
           .then(function (j) {
             var startedDoc = j && j.fmsbench ? j.fmsbench : {};
             var status = startedDoc.status || (j && j.status) || "running";
-            var mode = profile === "stress" ? "stress" : "standard";
-            if (status === "running" || startedDoc.stress_status === "running" || (j && j.status === "running")) {
+            var mode = profile === "stress" ? "stress" : profile === "full" ? "full" : profile.indexOf("host-max") === 0 ? "width" : "standard";
+            if (status === "running" || startedDoc.stress_status === "running" || startedDoc.width_status === "running" || startedDoc.full_status === "running" || (j && j.status === "running")) {
               fmsBtn.textContent = mode === "stress" ? "Stress test running…" : "Market Studio running…";
               setFmsStatus(mode === "stress"
                 ? "Stress test is running on " + who + " at twice the hardware threads. The standard result stays in place."

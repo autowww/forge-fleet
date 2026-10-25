@@ -329,6 +329,48 @@ def test_batch_starts_every_peer_without_replacing_scores(tmp_path: Path) -> Non
     assert saved["benchmark"]["fleet_mark"] == 42
 
 
+def test_host_max_uses_physical_cores_and_hardware_threads(monkeypatch) -> None:
+    monkeypatch.setattr(
+        host_profile,
+        "static_hardware",
+        lambda: {"physical_cpus": 8, "logical_cpus": 16},
+    )
+    cores = fmsbench_runs._run_command("host-max-cores")
+    threads = fmsbench_runs._run_command("host-max-threads")
+    assert cores[cores.index("--threads") + 1] == "8"
+    assert cores[cores.index("--workers") + 1] == "8"
+    assert threads[threads.index("--threads") + 1] == "16"
+    assert threads[threads.index("--workers") + 1] == "16"
+    assert cores[cores.index("--profile") + 1] == "standard"
+    assert fmsbench_runs._FULL_STEPS == ("standard", "host-max-cores", "host-max-threads", "stress")
+
+
+def test_host_max_result_keeps_the_standard_summary(tmp_path: Path) -> None:
+    fmsbench_runs.save_result(tmp_path, {
+        "status": "passed",
+        "profile": "standard",
+        "summary": {"postgres_jobs_per_second": 4},
+    })
+    fmsbench_runs._save_width(
+        tmp_path,
+        "host-max-cores",
+        {
+            "status": "passed",
+            "config": {"threads": 8, "workers": 8},
+            "start_utc": "2026-10-25T00:00:00+00:00",
+            "end_utc": "2026-10-25T00:01:00+00:00",
+            "engines": {},
+            "compute": {},
+        },
+        log_excerpt="host cores done",
+    )
+    saved = json.loads(fmsbench_runs.result_path(tmp_path).read_text(encoding="utf-8"))
+    assert saved["status"] == "passed"
+    assert saved["summary"]["postgres_jobs_per_second"] == 4
+    assert saved["widths"]["host-max-cores"]["threads"] == 8
+    assert saved["width_status"] == "passed"
+
+
 def test_live_phase_follows_the_log() -> None:
     assert fmsbench_runs.current_phase("") == "Checking the host"
     assert fmsbench_runs.current_phase("[benchmark] sqlite") == "SQLite SQL and concurrency"
