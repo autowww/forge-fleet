@@ -730,6 +730,14 @@ class FleetHandler(BaseHTTPRequestHandler):
                 return
             self._send_raw(200, cap_js, "application/javascript; charset=utf-8")
             return
+        if path == "/admin/benchmarks-view.js":
+            try:
+                bench_js = resources.files("fleet_server").joinpath("static/benchmarks-view.js").read_bytes()
+            except OSError:
+                self._send_raw(404, b"", "text/plain; charset=utf-8")
+                return
+            self._send_raw(200, bench_js, "application/javascript; charset=utf-8")
+            return
         if path == "/admin/theme.css":
             self._serve_theme_css()
             return

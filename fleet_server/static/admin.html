@@ -596,12 +596,35 @@
         tabindex="0"
       >
         <p id="fleet-bench-msg" class="fleet-mono small text-body-secondary mb-2" aria-live="polite"></p>
+        <h2 class="h6 text-uppercase text-body-secondary mb-2" id="fleet-bench-page-title">Forge Benchmarks</h2>
+        <p class="small text-body-secondary mb-3">One page: what was measured, how scores are defined, and how to run again. Hardware and Market Studio stay separate measurements. Capacity tab shows a short summary only.</p>
+        <div id="fleet-bench-answers" class="row g-3 mb-3" aria-live="polite">
+          <div class="col-12 small text-body-secondary">Open this tab to load cluster answers.</div>
+        </div>
         <section class="card border-secondary-subtle shadow-sm">
           <div class="card-body">
-            <h2 class="h6 text-uppercase text-body-secondary mb-3" id="fleet-cap-profile-title">Forge Benchmarks</h2>
-            <p class="small text-body-secondary mb-2">Hardware is the in-process CPU, memory, and disk score. Market Studio is the separate container run. The two scores stay separate. Result files are kept; containers and work files are removed when a Market Studio run finishes. Capacity reads the saved composite and does not start a run.</p>
+            <h3 class="h6 text-uppercase text-body-secondary mb-2">Two-thread throughput by workload</h3>
+            <p class="small text-body-secondary mb-3">Synthetic Market Studio stages at two threads. Relative bar length only; not predicted production throughput.</p>
+            <div id="fleet-bench-workloads" class="small text-body-secondary">Loading workloads…</div>
+          </div>
+        </section>
+        <section class="card border-secondary-subtle shadow-sm mt-3">
+          <div class="card-body">
+            <h3 class="h6 text-uppercase text-body-secondary mb-2">Node inventory</h3>
+            <div id="fleet-bench-nodes" class="table-responsive small text-body-secondary">Loading nodes…</div>
+            <p id="fleet-bench-thread-cap-note" class="small text-body-secondary mt-2 mb-0 d-none"></p>
+          </div>
+        </section>
+        <section class="card border-secondary-subtle shadow-sm mt-3">
+          <div class="card-body">
+            <h3 class="h6 text-uppercase text-body-secondary mb-2">Run benchmarks</h3>
+            <p class="small text-body-secondary mb-2"><strong>Re-run all hardware</strong> — in-process CPU, memory, and 256&nbsp;MB disk on this host and every peer. No containers.</p>
+            <p class="small text-body-secondary mb-2"><strong>Re-run all Market Studio</strong> — <code class="fleet-mono">standard</code> profile on every peer (composite source).</p>
+            <p class="small text-body-secondary mb-2"><strong>This peer · hardware</strong> — hardware mark on the scope selected in the admin bar (local or one remote peer).</p>
+            <p class="small text-body-secondary mb-2"><strong>This peer · Market Studio</strong> — runs the profile chosen below on that same scope.</p>
+            <p id="fleet-bench-profile-hint" class="small text-body-secondary mb-3">Profile <code class="fleet-mono">standard</code>: full fixture, two-thread composite source. Smoke and micro are short checks and are not the comparison profile.</p>
             <div id="fleet-bench-peer" class="small text-body-secondary mb-3">Open this tab to load the selected peer.</div>
-            <div class="d-flex flex-wrap gap-2 align-items-center mt-2">
+            <div class="d-flex flex-wrap gap-2 align-items-center">
               <button type="button" class="btn btn-sm btn-outline-primary" id="fleet-cap-bench-all-btn">Re-run all hardware</button>
               <button type="button" class="btn btn-sm btn-outline-primary" id="fleet-cap-fms-all-btn">Re-run all Market Studio</button>
               <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-cap-bench-btn">This peer · hardware</button>
@@ -625,9 +648,21 @@
         </section>
         <section class="card border-secondary-subtle shadow-sm mt-3">
           <div class="card-body">
-            <h2 class="h6 text-uppercase text-body-secondary mb-2">Measurements</h2>
-            <p class="small text-body-secondary mb-2">Stage rates, host-max widths, and the stress score. The composite uses two-thread throughput: DuckDB 28, NLP 28, PostgreSQL 22, compute 12, SQLite 10. Host-max-cores sets threads to the physical core count, and host-max-threads sets threads to the hardware thread count. Full runs standard, both host-max widths, and stress. Re-run all Market Studio uses standard on every peer.</p>
+            <h3 class="h6 text-uppercase text-body-secondary mb-2">Stage detail</h3>
+            <p class="small text-body-secondary mb-2">1-thread and 2-thread rates, host-max widths, and stress. Composite weights: DuckDB 28, NLP 28, PostgreSQL 22, compute 12, SQLite 10.</p>
             <div id="fleet-bench-measure-body" class="small text-body-secondary">Open this tab to load measurements.</div>
+          </div>
+        </section>
+        <section class="card border-secondary-subtle shadow-sm mt-3">
+          <div class="card-body">
+            <h3 class="h6 text-uppercase text-body-secondary mb-2">Not in this suite</h3>
+            <ul class="small text-body-secondary mb-2">
+              <li>Random NVMe IOPS / latency — <strong>Not measured</strong></li>
+              <li>GPU inference — <strong>Not measured</strong></li>
+              <li>Controlled inter-node transfer — <strong>Not measured</strong></li>
+              <li>Verified distributed cluster throughput — <strong>Not measured</strong></li>
+            </ul>
+            <p class="small text-body-secondary mb-0">History on disk (JSONL) is not listed here yet; this view shows the latest saved result per node.</p>
           </div>
         </section>
       </div>
@@ -1204,6 +1239,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
   <script src="/admin/ks/js/forge-theme.js"></script>
   <script src="/admin/ks/js/forge-fleet-app-ui.js"></script>
+  <script src="/admin/benchmarks-view.js"></script>
   <script src="/admin/capacity.js"></script>
   <script>
   /* forge-theme.js only registers DOMContentLoaded; if that event already fired, theme + clicks never wire — fix here. */

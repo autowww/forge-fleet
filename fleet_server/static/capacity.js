@@ -60,10 +60,6 @@
     document.querySelectorAll(".fleet-capacity-local-only").forEach(function (el) {
       el.classList.toggle("d-none", remote);
     });
-    var title = document.getElementById("fleet-cap-profile-title");
-    if (title) {
-      title.textContent = remote ? "Host profile — " + scopePeerLabel() : "Host profile & mesh links";
-    }
   }
 
   function fmtBytes(n) {
@@ -295,14 +291,20 @@
     return fmtBytes(n * 1e9);
   }
 
+  function hasNumeric(v) {
+    if (v === null || v === undefined || v === "") return false;
+    var n = Number(v);
+    return isFinite(n);
+  }
+
   function rateOrDash(n) {
-    var v = Number(n);
-    return isFinite(v) ? v.toFixed(2) : "—";
+    if (!hasNumeric(n)) return "—";
+    return Number(n).toFixed(2);
   }
 
   function scoreCell(n) {
-    var v = Number(n);
-    return isFinite(v) ? String(Math.round(v)) : "—";
+    if (!hasNumeric(n)) return "—";
+    return String(Math.round(Number(n)));
   }
 
   function renderMesh(profile, links) {
@@ -684,7 +686,9 @@
     ])
       .then(function (parts) {
         renderScoreboard(parts[0], parts[1]);
-        renderMeasurements(parts[0]);
+        if (window.forgeFleetBenchmarksView && typeof window.forgeFleetBenchmarksView.render === "function") {
+          window.forgeFleetBenchmarksView.render(parts[0]);
+        }
         if (comparisonBusy(parts[0]) && !compareTimer) {
           compareTimer = setTimeout(function () {
             compareTimer = null;
@@ -727,26 +731,8 @@
   }
 
   function fmtSeconds(n) {
-    var v = Number(n);
-    return isFinite(v) ? v.toFixed(1) + "s" : "—";
-  }
-
-  function nlpBandwidth(name, level) {
-    if (name !== "nlp" || !level || !isFinite(Number(level.gib_per_second))) return "";
-    return " · " + Number(level.gib_per_second).toFixed(1) + " GiB/s";
-  }
-
-  function fmtStageRate(name, n) {
-    var v = Number(n);
-    if (!isFinite(v)) return "—";
-    if (name === "compute") return (v / 1000000).toFixed(1) + "M rows/s";
-    if (name === "nlp") return v.toFixed(0) + " docs/s";
-    return v.toFixed(2) + " bundles/s";
-  }
-
-  function stageLevel(stage, width) {
-    if (!stage || !stage[width]) return { rate: null, seconds: null };
-    return stage[width];
+    if (!hasNumeric(n)) return "—";
+    return Number(n).toFixed(1) + "s";
   }
 
   function renderScoreboard(doc, mesh) {
@@ -779,77 +765,6 @@
         esc(cap.physical_cores != null ? cap.physical_cores : (cpu.cores_physical != null ? cpu.cores_physical : "—")) + "</td><td>" +
         esc(cap.hardware_threads != null ? cap.hardware_threads : (cpu.cores_logical != null ? cpu.cores_logical : "—")) + "</td><td>" +
         esc(cpuFree) + "</td><td>" + esc(fmtMb(mem.available_mb)) + "</td></tr>";
-    });
-    html += "</tbody></table>";
-    root.innerHTML = html;
-  }
-
-  function renderMeasurements(doc) {
-    var root = document.getElementById("fleet-bench-measure-body");
-    if (!root) return;
-    var rows = doc && doc.rows ? doc.rows : [];
-    if (!rows.length) {
-      root.textContent = "No measurements yet.";
-      return;
-    }
-    var batch = doc && doc.batch;
-    var html = "";
-    if (batch && batch.targets && batch.targets.length) {
-      var bits = batch.targets.map(function (target) {
-        var label = target.label || target.peer_id;
-        return label + " " + (target.status || "queued") + (target.error ? " (" + target.error + ")" : "");
-      });
-      html += "<p class=\"mb-2\">All-peer " + esc(batch.suite === "hardware" ? "hardware" : "Market Studio") +
-        " · " + esc(batch.status || "") + ": " + esc(bits.join("; ")) + "</p>";
-    }
-    html += "<table class=\"table table-sm mb-3\"><thead><tr>" +
-      "<th>Peer</th><th>Wall</th><th>Max cores</th><th>Max threads</th><th>Stress</th>" +
-      "</tr></thead><tbody>";
-    rows.forEach(function (row) {
-      var fms = row.fmsbench || {};
-      var stages = fms.stages || {};
-      function widthCell(name, scoreKey) {
-        var widths = fms.widths || {};
-        var entry = widths[name] || {};
-        if (fms[scoreKey] != null) return scoreCell(fms[scoreKey]) + (entry.threads != null ? " · " + entry.threads : "");
-        if (entry.status) return entry.status + (entry.threads != null ? " · " + entry.threads : "");
-        return "—";
-      }
-      var stressCell = fms.stress_score != null ? scoreCell(fms.stress_score) : (fms.stress_status || "—");
-      if (fms.stress && fms.stress.threads) stressCell += " · " + fms.stress.threads + " threads";
-      html += "<tr><td>" + esc(peerLabel(row)) + "</td><td>" +
-        esc(fmtSeconds(stages.wall_seconds || fms.wall_seconds)) + "</td><td>" +
-        esc(widthCell("host-max-cores", "cores_score")) + "</td><td>" +
-        esc(widthCell("host-max-threads", "threads_score")) + "</td><td>" + esc(stressCell) + "</td></tr>";
-    });
-    html += "</tbody></table>";
-    html += "<table class=\"table table-sm mb-0\"><thead><tr>" +
-      "<th>Peer</th><th>Stage</th><th>1 thread</th><th>1 thread time</th><th>2 threads</th><th>2 thread time</th><th>Stage time</th>" +
-      "</tr></thead><tbody>";
-    var stageNames = [
-      ["postgres", "PostgreSQL"],
-      ["duckdb", "DuckDB"],
-      ["sqlite", "SQLite"],
-      ["compute", "Compute"],
-      ["nlp", "NLP 1 GiB"]
-    ];
-    rows.forEach(function (row) {
-      var fms = row.fmsbench || {};
-      var who = peerLabel(row);
-      var inner = fms.stages && fms.stages.stages ? fms.stages.stages : {};
-      if (!fms.stages) {
-        html += "<tr><td>" + esc(who) + "</td><td colspan=\"6\">" + esc(fms.status || "not_run") + "</td></tr>";
-        return;
-      }
-      stageNames.forEach(function (pair) {
-        var stage = inner[pair[0]] || {};
-        var one = stageLevel(stage, "single");
-        var two = stageLevel(stage, "double");
-        html += "<tr><td>" + esc(who) + "</td><td>" + esc(pair[1]) + "</td><td>" +
-          esc(fmtStageRate(pair[0], one.rate)) + esc(nlpBandwidth(pair[0], one)) + "</td><td>" + esc(fmtSeconds(one.seconds)) + "</td><td>" +
-          esc(fmtStageRate(pair[0], two.rate)) + esc(nlpBandwidth(pair[0], two)) + "</td><td>" + esc(fmtSeconds(two.seconds)) + "</td><td>" +
-          esc(fmtSeconds(stage.stage_seconds)) + "</td></tr>";
-      });
     });
     html += "</tbody></table>";
     root.innerHTML = html;

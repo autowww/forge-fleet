@@ -1,10 +1,10 @@
 # Learn 101 — Forge Benchmarks
 
-**Outcome:** you can launch a measurement on the Benchmarks tab, then read the composite and cluster total on the Capacity tab.
+**Outcome:** you can read cluster answers, per-workload rates, and stage detail on one Benchmarks page, launch a run from the same tab, and see a short composite summary on Capacity.
 
 **Audience:** operators comparing Fleet hosts. **Time:** ~15 minutes. **Verify:** **`GET /v1/mesh/benchmarks`** returns `composite_model: additive_two_thread` and a `cluster_score`.
 
-Forge Benchmarks live on **`/admin/` → Benchmarks**. **Capacity** reads the saved composite scores and shows them next to live peer headroom. It does not start a run. Two measurements stay in different columns and different files.
+Forge Benchmarks live on **`/admin/` → Benchmarks** as a single scroll: answer cards (what 100 means, additive index, coverage), all five workload bar groups, a node table, run controls, and the full stage grid. **Capacity** keeps guardians and a compact composite table next to live headroom; it does not start a run. Two measurements stay in different columns and different files.
 
 | Measurement | What it is | Where it is stored |
 | --- | --- | --- |
@@ -45,7 +45,7 @@ The composite uses **two-thread throughput** from the standard run. Each stage i
 | Compute | 12 | NumPy rows per second |
 | SQLite | 10 | Completed bundles per second |
 
-**Cluster** is the sum of those composites, in units of this server. Two hosts at 100 and 80 are a cluster of 180: together they can do 1.8 times this server's weighted two-thread work.
+**Cluster** (`cluster_score` on the API) is an **additive capacity index**: the sum of comparable composites, in units of this server. Two hosts at 100 and 80 add to 180 index points. That sum is not verified distributed throughput and does not prove 1.8× end-to-end parallel speedup across the mesh.
 
 NLP is included only when both this server and the peer have a measured NLP stage. Until then the other four weights are scaled back to 100. Once this server has NLP, a peer without it is marked **partial** and left out of the cluster total.
 
