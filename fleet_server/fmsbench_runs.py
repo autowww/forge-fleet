@@ -32,6 +32,7 @@ _BUNDLE_FILES = (
     "compose.yaml",
     "Dockerfile",
     "requirements.txt",
+    ".dockerignore",
 )
 _FLAGS = {
     "micro": ("--threads", "2", "--workers", "2", "--repeats", "1", "--trials", "1", "--duration", "1"),
