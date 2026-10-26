@@ -33,6 +33,22 @@ else
 fi
 
 SHA_OUT="$(git -C "$ABS" rev-parse --short HEAD 2>/dev/null || true)"
+PYPROJECT="$ABS/pyproject.toml"
+SEMVER=""
+if [[ -f "$PYPROJECT" ]]; then
+  SEMVER="$(grep -E '^[[:space:]]*version[[:space:]]*=' "$PYPROJECT" | head -1 | sed -E 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/')"
+fi
+if [[ -n "$SEMVER" ]]; then
+  TMP="$(mktemp "${TMPDIR:-/tmp}/fleet-env-semver.XXXXXX")"
+  if grep -q '^[[:space:]]*FLEET_PACKAGE_SEMVER=' "$ENV_FILE" 2>/dev/null; then
+    grep -v '^[[:space:]]*FLEET_PACKAGE_SEMVER=' "$ENV_FILE" >"$TMP" || true
+    mv "$TMP" "$ENV_FILE"
+  else
+    rm -f "$TMP"
+  fi
+  echo "FLEET_PACKAGE_SEMVER=$SEMVER" >>"$ENV_FILE"
+  echo "[fleet-install] FLEET_PACKAGE_SEMVER -> $SEMVER (from pyproject.toml)"
+fi
 echo "FLEET_GIT_ROOT=$ABS" >>"$ENV_FILE"
 if [[ -n "$SHA_OUT" ]]; then
   echo "FLEET_GIT_SHA=$SHA_OUT" >>"$ENV_FILE"
