@@ -450,6 +450,7 @@
       html += "</ul>";
     }
     if (fmsStatus === "running" || fms.stress_status === "running" || fms.width_status === "running" || fms.full_status === "running") {
+      if (!_fmsRunTimer) beginFmsLiveRun();
       paintFms(fms, who);
     } else if (profile && profile.benchmark_progress && profile.benchmark_progress.status === "running") {
       paintFleet(profile.benchmark_progress, who, Number(profile.benchmark_progress.started_at) || Date.now() / 1000);
@@ -742,6 +743,76 @@
     return Number(n).toFixed(1) + "s";
   }
 
+  function numericCore(row, mesh) {
+    var cap = row.capacity || {};
+    var live = headroomFor(row, mesh) || {};
+    var cpu = live.cpu || {};
+    if (hasNumeric(cap.physical_cores)) return Number(cap.physical_cores);
+    if (hasNumeric(cpu.cores_physical)) return Number(cpu.cores_physical);
+    return null;
+  }
+
+  function numericThreads(row, mesh) {
+    var cap = row.capacity || {};
+    var live = headroomFor(row, mesh) || {};
+    var cpu = live.cpu || {};
+    if (hasNumeric(cap.hardware_threads)) return Number(cap.hardware_threads);
+    if (hasNumeric(cpu.cores_logical)) return Number(cpu.cores_logical);
+    return null;
+  }
+
+  function clusterResourceTotals(rows, mesh, doc) {
+    var nodes = mesh && mesh.nodes ? mesh.nodes : [];
+    var liveOk = nodes.filter(function (n) { return n && n.ok; }).length;
+    var totals = {
+      peersListed: rows.length,
+      liveHeadroom: 0,
+      cores: 0,
+      threads: 0,
+      coresCounted: 0,
+      threadsCounted: 0,
+      cpuAvail: 0,
+      cpuLogical: 0,
+      ramAvailMb: 0,
+      ramTotalMb: 0,
+      hardwareSum: 0,
+      hardwareCounted: 0,
+    };
+    rows.forEach(function (row) {
+      var cores = numericCore(row, mesh);
+      var threads = numericThreads(row, mesh);
+      if (cores != null) {
+        totals.cores += cores;
+        totals.coresCounted += 1;
+      }
+      if (threads != null) {
+        totals.threads += threads;
+        totals.threadsCounted += 1;
+      }
+      var live = headroomFor(row, mesh) || {};
+      var cpu = live.cpu || {};
+      var mem = live.memory || {};
+      if (hasNumeric(cpu.available_cores) && hasNumeric(cpu.cores_logical)) {
+        totals.cpuAvail += Number(cpu.available_cores);
+        totals.cpuLogical += Number(cpu.cores_logical);
+        totals.liveHeadroom += 1;
+      }
+      if (hasNumeric(mem.available_mb)) {
+        totals.ramAvailMb += Number(mem.available_mb);
+        if (hasNumeric(mem.total_mb)) totals.ramTotalMb += Number(mem.total_mb);
+      }
+      var mark = row.fleet && row.fleet.fleet_mark;
+      if (hasNumeric(mark)) {
+        totals.hardwareSum += Number(mark);
+        totals.hardwareCounted += 1;
+      }
+    });
+    totals.clusterIndex = doc && doc.cluster_score != null ? doc.cluster_score : null;
+    totals.meshNodes = nodes.length;
+    totals.meshLive = liveOk;
+    return totals;
+  }
+
   function renderScoreboard(doc, mesh) {
     var root = document.getElementById("fleet-capacity-compare-body");
     if (!root) return;
@@ -750,9 +821,23 @@
       root.textContent = "No peers to show.";
       return;
     }
-    var cluster = doc && doc.cluster_score != null ? doc.cluster_score : "—";
-    var html = "<p class=\"h4 mb-1\">Cluster <strong>" + esc(cluster) + "</strong></p>" +
-      "<p class=\"small text-body-secondary mb-2\">Sum of complete composites. Each point is this server's capacity. A partial row drops out once this server has an NLP result.</p>" +
+    var totals = clusterResourceTotals(rows, mesh, doc);
+    var cluster = totals.clusterIndex != null ? totals.clusterIndex : "—";
+    var cpuTotal = totals.cpuLogical > 0
+      ? totals.cpuAvail.toFixed(2) + " / " + totals.cpuLogical
+      : "—";
+    var ramTotal = totals.ramAvailMb > 0
+      ? fmtMb(totals.ramAvailMb) + (totals.ramTotalMb > 0 ? " free of " + fmtMb(totals.ramTotalMb) : "")
+      : "—";
+    var html =
+      "<div class=\"row g-2 mb-3\">" +
+      "<div class=\"col-sm-6 col-lg-3\"><div class=\"border rounded p-2 h-100\"><div class=\"small text-uppercase text-body-secondary\">Additive index</div><div class=\"fw-semibold\">" + esc(String(cluster)) + "</div><div class=\"small text-body-secondary\">Benchmark composite sum</div></div></div>" +
+      "<div class=\"col-sm-6 col-lg-3\"><div class=\"border rounded p-2 h-100\"><div class=\"small text-uppercase text-body-secondary\">CPU</div><div class=\"fw-semibold\">" + esc(String(totals.coresCounted ? totals.cores : "—")) + " cores · " + esc(String(totals.threadsCounted ? totals.threads : "—")) + " threads</div><div class=\"small text-body-secondary\">Across " + esc(String(totals.peersListed)) + " listed peers</div></div></div>" +
+      "<div class=\"col-sm-6 col-lg-3\"><div class=\"border rounded p-2 h-100\"><div class=\"small text-uppercase text-body-secondary\">CPU free (live)</div><div class=\"fw-semibold\">" + esc(cpuTotal) + "</div><div class=\"small text-body-secondary\">" + esc(String(totals.liveHeadroom)) + " peers reporting headroom</div></div></div>" +
+      "<div class=\"col-sm-6 col-lg-3\"><div class=\"border rounded p-2 h-100\"><div class=\"small text-uppercase text-body-secondary\">RAM free (live)</div><div class=\"fw-semibold\">" + esc(ramTotal) + "</div><div class=\"small text-body-secondary\">Mesh probes " + esc(String(totals.meshLive)) + " / " + esc(String(totals.meshNodes || totals.peersListed)) + " ok</div></div></div>" +
+      "</div>" +
+      "<p class=\"h4 mb-1\">Cluster <strong>" + esc(String(cluster)) + "</strong></p>" +
+      "<p class=\"small text-body-secondary mb-2\">Sum of complete composites. Live CPU and RAM are planning estimates summed from reachable peers. Partial benchmark rows may be excluded from the index.</p>" +
       "<table class=\"table table-sm mb-0\"><thead><tr>" +
       "<th>Peer</th><th>Composite</th><th>Hardware</th><th>Cores</th><th>Threads</th><th>CPU free</th><th>RAM free</th>" +
       "</tr></thead><tbody>";
@@ -773,6 +858,14 @@
         esc(cap.hardware_threads != null ? cap.hardware_threads : (cpu.cores_logical != null ? cpu.cores_logical : "—")) + "</td><td>" +
         esc(cpuFree) + "</td><td>" + esc(fmtMb(mem.available_mb)) + "</td></tr>";
     });
+    var footHardware = totals.hardwareCounted
+      ? String(Math.round(totals.hardwareSum))
+      : "—";
+    html += "<tr class=\"table-secondary fw-semibold\"><td>Cluster totals</td><td>" + esc(String(cluster)) + "</td><td>" +
+      esc(footHardware) + "</td><td>" + esc(totals.coresCounted ? String(totals.cores) : "—") + "</td><td>" +
+      esc(totals.threadsCounted ? String(totals.threads) : "—") + "</td><td>" + esc(cpuTotal) + "</td><td>" +
+      esc(totals.ramAvailMb > 0 ? fmtMb(totals.ramAvailMb) + (totals.ramTotalMb > 0 ? " / " + fmtMb(totals.ramTotalMb) : "") : "—") +
+      "</td></tr>";
     html += "</tbody></table>";
     root.innerHTML = html;
   }
@@ -797,6 +890,126 @@
     ["save", "Save the result"]
   ];
 
+  var FMS_BENCH_STAGE = {
+    postgres_sql: "postgres",
+    duckdb_sql: "duckdb",
+    sqlite_sql: "sqlite",
+    numpy: "compute",
+    nlp: "nlp",
+  };
+
+  var _fmsRunTimer = null;
+  var _fmsClusterBests = {};
+
+  function beginFmsLiveRun() {
+    _fmsRunTimer = createFmsRunTimer();
+    _fmsClusterBests = {};
+    fleetApi("/v1/mesh/benchmarks")
+      .then(function (r) {
+        return r.json().then(function (j) {
+          if (r.ok && j && j.ok) _fmsClusterBests = buildMeshStageBests(j);
+        });
+      })
+      .catch(function () {});
+  }
+
+  function endFmsLiveRun() {
+    _fmsRunTimer = null;
+  }
+
+  function createFmsRunTimer() {
+    var activeId = null;
+    var startedAt = null;
+    var completed = {};
+    return {
+      tick: function (stepId, now) {
+        if (!stepId) return;
+        now = now || Date.now() / 1000;
+        if (activeId && activeId !== stepId && startedAt != null) {
+          completed[activeId] = (completed[activeId] || 0) + (now - startedAt);
+        }
+        if (activeId !== stepId) {
+          activeId = stepId;
+          startedAt = now;
+        }
+      },
+      completedSeconds: function (stepId) {
+        return completed[stepId];
+      },
+      elapsedFor: function (stepId, now) {
+        now = now || Date.now() / 1000;
+        if (activeId === stepId && startedAt != null) {
+          return (completed[stepId] || 0) + (now - startedAt);
+        }
+        return completed[stepId];
+      },
+    };
+  }
+
+  function buildMeshStageBests(doc) {
+    var map = {};
+    Object.keys(FMS_BENCH_STAGE).forEach(function (stepId) {
+      var stageName = FMS_BENCH_STAGE[stepId];
+      var best = null;
+      (doc.rows || []).forEach(function (row) {
+        var fms = row.fmsbench || {};
+        var inner = fms.stages && fms.stages.stages ? fms.stages.stages : {};
+        var stage = inner[stageName] || {};
+        var sec = stage.stage_seconds;
+        if (sec === null || sec === undefined || sec === "") return;
+        var n = Number(sec);
+        if (!isFinite(n) || n <= 0) return;
+        var label = row.label || row.peer_id || "peer";
+        if (!best || n < best.seconds) best = { seconds: n, label: label };
+      });
+      if (best) map[stepId] = best;
+    });
+    return map;
+  }
+
+  function fmtStageDuration(sec) {
+    var n = Number(sec);
+    if (!isFinite(n) || n < 0) return "";
+    if (n < 120) return (n < 10 ? n.toFixed(1) : String(Math.round(n))) + "s";
+    return fmtElapsed(n);
+  }
+
+  function stageTimingHtml(step) {
+    if (step.state === "pending") return "";
+    var host = step.hostSeconds;
+    var bits = [];
+    if (host != null && isFinite(host)) bits.push("this host " + fmtStageDuration(host));
+    if (step.best) {
+      bits.push("best " + step.best.label + " " + fmtStageDuration(step.best.seconds));
+      if (host != null && isFinite(host)) {
+        var delta = host - step.best.seconds;
+        if (delta > 0.5) bits.push("+" + fmtStageDuration(delta) + " vs fastest");
+        else if (delta < -0.5) bits.push(fmtStageDuration(-delta) + " ahead of prior best");
+      }
+    }
+    if (!bits.length) return "";
+    return ' <span class="text-body-secondary small">(' + esc(bits.join(" · ")) + ")</span>";
+  }
+
+  function fmsStepsWithTiming(catalog, activeId, status, timer, bests, now) {
+    var base = stepStates(catalog, activeId, status);
+    return base.map(function (step) {
+      var hostSeconds = null;
+      if (timer && (step.state === "done" || step.state === "active")) {
+        hostSeconds = step.state === "active"
+          ? timer.elapsedFor(step.id, now)
+          : timer.completedSeconds(step.id);
+      }
+      return {
+        id: step.id,
+        label: step.label,
+        state: step.state,
+        hostSeconds: hostSeconds,
+        best: bests && bests[step.id] ? bests[step.id] : null,
+      };
+    });
+  }
+
   function fmtElapsed(sec) {
     var s = Math.max(0, Math.round(Number(sec) || 0));
     var m = Math.floor(s / 60);
@@ -814,9 +1027,9 @@
       if (status === "failed" || status === "incomplete" || status === "stale") {
         if (i < idx) state = "done";
         else if (i === idx) state = "failed";
-      } else if (i < idx) state = "done";
+      }       else if (i < idx) state = "done";
       else if (i === idx) state = "active";
-      return { label: pair[1], state: state };
+      return { id: pair[0], label: pair[1], state: state };
     });
   }
 
@@ -846,7 +1059,7 @@
     (model.steps || []).forEach(function (step) {
       var mark = step.state === "done" ? "Done" : step.state === "active" ? "Now" : step.state === "failed" ? "Stopped" : "Waiting";
       var cls = step.state === "active" ? "fw-semibold" : step.state === "failed" ? "text-danger" : "text-body-secondary";
-      html += "<li class=\"" + cls + "\">" + esc(mark) + " — " + esc(step.label) + "</li>";
+      html += "<li class=\"" + cls + "\">" + esc(mark) + " — " + esc(step.label) + stageTimingHtml(step) + "</li>";
     });
     html += "</ol>";
     if (model.detail) html += "<p class=\"mb-2\">" + esc(model.detail) + "</p>";
@@ -896,13 +1109,16 @@
     if (fms && fms.stress_status === "running") title = "Market Studio stress on " + who;
     if (fms && fms.width_status === "running") title = (fms.width_profile || "Host max") + " on " + who;
     if (fms && fms.full_status === "running") title = "Full Market Studio on " + who;
+    var now = Date.now() / 1000;
+    var liveStep = fmsStepId(fms && fms.phase);
+    if (_fmsRunTimer) _fmsRunTimer.tick(liveStep, now);
     renderLive({
       title: title,
       note: side
-        ? "The saved standard result stays in place until a standard or full run replaces it."
+        ? "The saved standard result stays in place until a standard or full run replaces it. Stage times compare to the fastest saved run in this mesh (SQL / NumPy / NLP stages)."
         : "Forge Benchmarks Market Studio. Containers, PostgreSQL, DuckDB, SQLite, and NumPy. Work files are removed after the result is saved.",
-      elapsed: Date.now() / 1000 - started,
-      steps: stepStates(FMS_STEPS, fmsStepId(fms && fms.phase), finished),
+      elapsed: now - started,
+      steps: fmsStepsWithTiming(FMS_STEPS, liveStep, finished, _fmsRunTimer, _fmsClusterBests, now),
       detail: fms && fms.phase ? fms.phase : "Waiting for the first log line.",
       log: tailLog(fms && fms.log_excerpt)
     });
@@ -956,6 +1172,7 @@
   }
 
   function watchFms(peer, who, fmsBtn, mode) {
+    beginFmsLiveRun();
     var tries = 0;
     var inflight = false;
     var latest = { status: "running", phase: "Checking the host", started_at: Date.now() / 1000 };
@@ -982,6 +1199,8 @@
             return;
           }
           clearInterval(timer);
+          paintFms(latest, who);
+          endFmsLiveRun();
           var failed = mode === "stress" ? fms.stress_status !== "passed" : mode === "width" ? fms.width_status !== "passed" : mode === "full" ? fms.full_status !== "passed" : fms.status !== "passed";
           setFmsStatus(fmsOutcomeText(fms, who, mode), failed);
           if (fmsBtn) {
