@@ -175,6 +175,42 @@ def verify_extracted_workspace_manifest(
     return None, verified, 1
 
 
+_SOURCE_SUFFIXES = (".py", ".ts", ".tsx", ".js", ".mjs", ".go", ".rs", ".java", ".kt", ".cs", ".rb")
+_PROJECT_ROOT_FILES = ("pyproject.toml", "package.json", "setup.py", "cargo.toml", "go.mod", "pom.xml")
+
+
+def source_bundle_violation(member_names: list[str]) -> str | None:
+    """Git is the only code carrier to Fleet hosts (roadrunner-agentic-dev invariant 1).
+
+    Job workspace bundles carry data, profiles, and configuration. A bundle that
+    looks like a source tree — a ``.git`` directory, a project manifest at the
+    root, or more than ``FLEET_BUNDLE_SOURCE_FILE_LIMIT`` source files — is
+    rejected with ``source_bundle_rejected``. ``FLEET_BUNDLE_ALLOW_SOURCE=1``
+    disables the guard for a host that knowingly needs legacy behavior.
+    """
+    if str(os.environ.get("FLEET_BUNDLE_ALLOW_SOURCE") or "").strip().lower() in ("1", "true", "yes", "on"):
+        return None
+    try:
+        limit = int(os.environ.get("FLEET_BUNDLE_SOURCE_FILE_LIMIT") or 20)
+    except ValueError:
+        limit = 20
+    source_files = 0
+    for raw in member_names:
+        name = raw.replace("\\", "/").strip("/")
+        if not name:
+            continue
+        parts = name.split("/")
+        if ".git" in parts:
+            return "source_bundle_rejected:git_dir"
+        if len(parts) == 1 and parts[0].lower() in _PROJECT_ROOT_FILES:
+            return "source_bundle_rejected:project_manifest"
+        if name.lower().endswith(_SOURCE_SUFFIXES):
+            source_files += 1
+            if source_files > limit:
+                return "source_bundle_rejected:source_file_limit"
+    return None
+
+
 def extract_archive_simple(
     data: bytes,
     *,
@@ -212,6 +248,11 @@ def extract_archive_simple(
     n_files = 0
     try:
         members = tf.getmembers()
+        violation = source_bundle_violation([m.name for m in members])
+        if violation:
+            tf.close()
+            shutil.rmtree(jdir, ignore_errors=True)
+            return 0, sha_body, violation, 0, None
         for m in members:
             name = m.name.replace("\\", "/").strip("/")
             if not name:

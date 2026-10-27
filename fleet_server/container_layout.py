@@ -103,6 +103,13 @@ DEFAULT_TYPES: dict[str, Any] = {
             "title": "Forge Market Studio (Compose)",
             "notes": "Docker Compose stack for Market Studio; register under etc/services/*.json or rollout API.",
         },
+        {
+            "id": "agentic_dev",
+            "category_id": "job",
+            "container_class": "agentic_dev",
+            "title": "Agentic dev task (ephemeral)",
+            "notes": "One approved repo task per container via POST /v1/admin/agentic-dev-task; image built from deploy/agentic-dev. Capacity: FLEET_AGENTIC_DEV_MAX_RUNNING.",
+        },
     ],
 }
 
@@ -111,6 +118,7 @@ _DEFAULT_TYPE_TO_CATEGORY: dict[str, str] = {
     "host_cpu_probe": "job",
     "forge_llm": "service",
     "forge_market_studio": "service",
+    "agentic_dev": "job",
 }
 
 

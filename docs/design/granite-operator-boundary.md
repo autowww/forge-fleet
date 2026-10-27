@@ -15,6 +15,7 @@ Hard rule for **ff-granite-hosting-pdca**: Granite SSH is **only** for upgrading
 | Rollback | `POST …/stop`, re-run restore migration steps from same bundle |
 | Debug | Read-only `journalctl`, `docker ps` **only when Fleet API status is insufficient** — no mutating commands |
 | Granite host edge bootstrap (once) | Documented scripts in [granite-market-edge-plane.md](../operate/granite-market-edge-plane.md) — Edge CDP + scheduler; **not** IB Gateway; **not** laptop profile copy |
+| Agentic repo work (Roadrunner) | `POST /v1/admin/agentic-dev-task` → ephemeral container clones from GitHub, pushes an `agent/*` branch, opens a PR; review and merge via `POST /v1/admin/code-review-task`. Source code reaches Granite **only** through `git clone`/`git fetch`; job bundles reject source trees |
 
 ## Forbidden on Granite SSH
 
@@ -25,6 +26,7 @@ Hard rule for **ff-granite-hosting-pdca**: Granite SSH is **only** for upgrading
 - Manual Caddy / edge config edits for Market Studio routes
 - Manual image build or registry push outside Fleet jobs
 - Any mutating deploy or data command for Market Studio cutover
+- Copying a source tree from the laptop to Granite by any channel other than `git push` to the GitHub remote (no bundles, no `scp`, no SSHFS) — the agentic dev rail clones from GitHub
 
 ## Enforcement
 

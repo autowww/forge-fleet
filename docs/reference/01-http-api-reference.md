@@ -239,6 +239,28 @@ When **`FLEET_INJECT_HOST_METRICS_ENV_IN_DOCKER`** is truthy **and** **`FLEET_HO
 
 Admin bearer required. Runs the Cursor CLI from **`FLEET_CURSOR_AGENT_BIN`** when that absolute path is set. When it is unset, Fleet uses `/usr/local/bin/cursor-agent`, `/usr/bin/cursor-agent`, or the service user's `~/.local/bin/cursor-agent`. The request field **`credential`** is the localhost `CURSOR_API_KEY`, copied into the child environment only. It is not written to the job row, argv, or logs. `--api-key` in `args` is rejected. The response is **202** `{"ok": true, "id", "status": "queued"}`.
 
+## Agentic dev rail (`/v1/admin/agentic-dev-task`)
+
+Admin bearer required. One approved repo task runs in an **ephemeral container** built on this host from `deploy/agentic-dev/` (git, python3, node, pinned `cursor-agent`). The container clones `https://github.com/<repo>` at `origin/<base_ref>`, records `base_sha`, works on an `agent/<agent-id>/<task-id>-<slug>` branch, runs the Cursor CLI with the goal, applies the path guard and secret scan, runs `verify[]`, rebases on current `origin/<base_ref>`, pushes the branch, and opens a pull request. No host path is mounted; **git is the only code carrier**. Any guard failure returns `status: held` with `hold_reason` (`path_violation`, `secret_pattern`, `verify_failed`, `stale_conflict`, `no_changes`, …) and nothing is pushed.
+
+| Route | Purpose |
+|---|---|
+| `POST /v1/admin/agentic-dev-task` | Submit `forge.agentic_dev_task.v1`: `task_id` (`req_task_<8 hex>`), `repo` (`owner/name`, must match `FLEET_AGENTIC_REPO_ALLOWLIST`, default `autowww/*`), `base_ref`, `branch` (agent lane, must contain `task_id`), `goal`, `verify[]`, `allow_paths[]`, `deny_paths[]`, `model`, `timeout_s` (60–3600), `approval{request_id,digest,event_id}`, `report{room_id,thread_root}`, `node` (`local` default, `auto`, or a remote peer id), and **either** `credential` (Cursor key) **or** `credential_ref: "courier"`. Response **202** with `id`, `status` (`queued` or `queued_waiting_credential`), `digest`, `node`. **409** `approval_digest_mismatch` when the bound digest differs from `canonical_digest(envelope)`. |
+| `POST /v1/admin/agentic-dev-task/{id}/credential` | Courier attaches `{"credential": …}` once; **409** when already attached or started. |
+| `GET /v1/admin/agentic-dev/pending-credentials` | Jobs in `queued_waiting_credential`: `id`, `kind`, `task_id`, `repo`, `branch`, `digest`, `approval`, `age_s`, `expired` (older than 1h). No goal text, no secrets. |
+| `GET /v1/admin/agentic-dev-task/{id}` | Status, envelope, redacted `result` (`base_sha`, `head_sha`, `pr_url`, `verify[]`, `test_instructions[]`, `hold_reason`), `stderr_tail`. |
+| `POST /v1/admin/code-review-task` | Same envelope plus `pr_number` and `head_sha`; runs the review worker in the same image (kind `code_review_task`). |
+| `GET /v1/admin/agentic-dev/capacity` | `max_running` (`FLEET_AGENTIC_DEV_MAX_RUNNING`, default 2), `running`, `free`, `agentic_dev` label. Used by peers for `node: auto`. |
+| `GET /v1/admin/cursor-cli/status` | Host binary and version, runner mode (`docker`/`host`), image tag, deploy dir presence, whether the git token is configured. No credential needed. |
+| `GET /v1/admin/git-identity` | `login`, `token_kind`, expiry hint for `FLEET_AGENTIC_GIT_TOKEN`. The token is never echoed. |
+| `POST /v1/admin/agentic-dev/branch-gc` | `{"dry_run": true, "repos": ["owner/name"]}` — lists (and with `dry_run: false` deletes) `agent/*` branches with no open PR older than `FLEET_AGENTIC_BRANCH_TTL_DAYS` (14). |
+
+Credentials: the git token lives only in the Fleet host environment (`FLEET_AGENTIC_GIT_TOKEN`, fine-grained PAT scoped to the allowlisted repos: Contents read/write, Pull requests read/write, Metadata read). The Cursor key is supplied per task from localhost. Neither is stored in a job row; stdout/stderr/result are redacted. Secret-looking strings in the envelope are rejected (`credential_in_request`).
+
+Job workspace bundles (`PUT …/workspace`) reject source trees (`.git/`, a root project manifest, or more than `FLEET_BUNDLE_SOURCE_FILE_LIMIT` source files) with `source_bundle_rejected:*`; `FLEET_BUNDLE_ALLOW_SOURCE=1` opts out on a host that knowingly needs legacy behavior.
+
+Maintainer guide: [08-agentic-dev-rail](../maintainers/08-agentic-dev-rail.md).
+
 ## Admin self-update and cooperative upgrade
 
 ### `POST /v1/admin/git-self-update`

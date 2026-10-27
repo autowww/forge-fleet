@@ -81,3 +81,49 @@ def advise(
 
     ranked = sorted(candidates, key=lambda r: r["total_seconds"])
     return {"ok": True, "service_id": service_id, "ranked": ranked, "best": ranked[0] if ranked else None}
+
+
+def advise_agentic_dev(data_dir: Path, db_path: Path) -> dict[str, Any]:
+    """Capacity-based placement for ``agentic_dev`` containers (no transfer: git is the carrier).
+
+    Ranks local then peers by free slots; only nodes advertising ``agentic_dev: true`` qualify.
+    """
+    from fleet_server import agentic_dev_job, remote_peers
+
+    local = agentic_dev_job.local_capacity(db_path)
+    candidates: list[dict[str, Any]] = [
+        {
+            "node_id": "local",
+            "scope": "local",
+            "agentic_dev": bool(local.get("agentic_dev")),
+            "free": int(local.get("free") or 0),
+            "max_running": int(local.get("max_running") or 0),
+            "reason": "Local node; clone from GitHub, no bundle transfer.",
+        }
+    ]
+    for peer in remote_peers.list_peers(data_dir).get("peers") or []:
+        pid = str(peer.get("id") or "")
+        if not pid:
+            continue
+        cap = agentic_dev_job.peer_capacity(data_dir, pid)
+        if cap.get("http") != 200:
+            continue
+        candidates.append(
+            {
+                "node_id": pid,
+                "scope": "peer",
+                "agentic_dev": bool(cap.get("agentic_dev")),
+                "free": int(cap.get("free") or 0),
+                "max_running": int(cap.get("max_running") or 0),
+                "reason": "Peer capacity via /v1/admin/agentic-dev/capacity.",
+            }
+        )
+    eligible = [c for c in candidates if c["agentic_dev"] and c["free"] > 0]
+    ranked = sorted(eligible, key=lambda c: (c["scope"] != "local", -c["free"]))
+    return {
+        "ok": True,
+        "workload": "agentic_dev",
+        "ranked": ranked,
+        "best": ranked[0] if ranked else None,
+        "candidates": candidates,
+    }

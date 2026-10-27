@@ -43,6 +43,7 @@ from fleet_server import (
     service_rollout,
     service_source_overlay,
     cursor_cli_job,
+    agentic_dev_job,
     runner,
     self_update,
     store,
@@ -1110,6 +1111,40 @@ class FleetHandler(BaseHTTPRequestHandler):
             out = space_guardian.space_status(self._data_dir(), self.server.db_path)
             self._send(200, out)
             return
+        if path == "/v1/admin/cursor-cli/status":
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+            self._send(200, agentic_dev_job.cursor_cli_status())
+            return
+        if path == "/v1/admin/git-identity":
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+            out = agentic_dev_job.git_identity()
+            self._send(200 if out.get("ok") else 400, out)
+            return
+        if path == "/v1/admin/agentic-dev/capacity":
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+            self._send(200, agentic_dev_job.local_capacity(Path(self.server.db_path)))
+            return
+        if path == "/v1/admin/agentic-dev/pending-credentials":
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+            self._send(200, agentic_dev_job.list_pending_credentials(Path(self.server.db_path)))
+            return
+        m_adt = re.match(r"^/v1/admin/agentic-dev-task/([^/]+)$", path)
+        if m_adt:
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+            result = agentic_dev_job.get(Path(self.server.db_path), m_adt.group(1))
+            http = int(result.pop("http"))
+            self._send(http, result)
+            return
         if path == "/v1/admin/memory":
             if not self._auth_ok():
                 self._send_unauthorized()
@@ -1805,6 +1840,10 @@ class FleetHandler(BaseHTTPRequestHandler):
             from fleet_server import mesh_advise
 
             data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            if str(body.get("workload") or "") == "agentic_dev":
+                out = mesh_advise.advise_agentic_dev(data_dir_p, Path(self.server.db_path))
+                self._send(200, out)
+                return
             try:
                 cpu_s = float(body.get("cpu_seconds") or 0)
                 xfer = float(body.get("transfer_mb") or 0)
@@ -1999,6 +2038,38 @@ class FleetHandler(BaseHTTPRequestHandler):
                 self._send_unauthorized()
                 return
             result = cursor_cli_job.submit(Path(self.server.db_path), body if isinstance(body, dict) else {})
+            http = int(result.pop("http"))
+            self._send(http, result)
+            return
+        if path == "/v1/admin/agentic-dev/branch-gc":
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+            from fleet_server import branch_gc_job
+
+            result = branch_gc_job.run(body)
+            http = int(result.pop("http"))
+            self._send(http, result)
+            return
+        if path in ("/v1/admin/agentic-dev-task", "/v1/admin/code-review-task"):
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+            kind = agentic_dev_job.JOB_KIND if path.endswith("agentic-dev-task") else agentic_dev_job.REVIEW_KIND
+            result = agentic_dev_job.submit(
+                Path(self.server.db_path), self._data_dir(), body if isinstance(body, dict) else {}, kind=kind
+            )
+            http = int(result.pop("http"))
+            self._send(http, result)
+            return
+        m_cred = re.match(r"^/v1/admin/agentic-dev-task/([^/]+)/credential$", path)
+        if m_cred:
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+            result = agentic_dev_job.attach_credential(
+                Path(self.server.db_path), self._data_dir(), m_cred.group(1), body if isinstance(body, dict) else {}
+            )
             http = int(result.pop("http"))
             self._send(http, result)
             return
