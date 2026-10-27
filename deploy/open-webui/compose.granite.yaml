@@ -1,0 +1,17 @@
+# Granite overlay — loopback only. Pair with unified Caddy OPEN_WEBUI_SITE_ADDRESS.
+volumes:
+  pgdata:
+    name: ${OPEN_WEBUI_PGDATA_VOLUME:-forge_open_webui_pgdata}
+    external: true
+  webui_data:
+    name: ${OPEN_WEBUI_DATA_VOLUME:-forge_open_webui_data}
+    external: true
+
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:${OPEN_WEBUI_POSTGRES_HOST_PORT:-15433}:5432"
+
+  open-webui:
+    ports:
+      - "127.0.0.1:${OPEN_WEBUI_HOST_PORT:-19808}:8080"

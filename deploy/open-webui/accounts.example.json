@@ -1,0 +1,20 @@
+{
+  "accounts": [
+    {
+      "slug": "chatgpt-primary",
+      "provider": "chatgpt",
+      "cdp_port": 9230,
+      "bridge_port": 9240,
+      "profile_dir": "chromium-granite-chatgpt-primary",
+      "open_webui_model_id": "granite-chatgpt-primary"
+    },
+    {
+      "slug": "gemini-primary",
+      "provider": "gemini",
+      "cdp_port": 9231,
+      "bridge_port": 9241,
+      "profile_dir": "chromium-granite-gemini-primary",
+      "open_webui_model_id": "granite-gemini-primary"
+    }
+  ]
+}

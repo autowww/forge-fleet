@@ -18,3 +18,7 @@ ember-logs/
 .cursor/
 .forge/
 forge/
+
+# Open WebUI account plane — never commit live config
+deploy/open-webui/.env
+deploy/open-webui/accounts.json

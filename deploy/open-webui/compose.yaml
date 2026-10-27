@@ -1,0 +1,68 @@
+# Open WebUI on Granite — base compose (no host ports; use compose.granite.yaml overlay).
+name: ${OPEN_WEBUI_COMPOSE_PROJECT:-forge-open-webui}
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: ${OPEN_WEBUI_PG_CONTAINER:-forge-open-webui-postgres}
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-open_webui}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-open_webui_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-open_webui}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-open_webui} -d ${POSTGRES_DB:-open_webui}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:v0.12.3
+    container_name: ${OPEN_WEBUI_CONTAINER:-forge-open-webui}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY:?set WEBUI_SECRET_KEY in .env}
+      WEBUI_URL: ${WEBUI_URL:-http://127.0.0.1:19808}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://open_webui:open_webui_dev@postgres:5432/open_webui}
+      VECTOR_DB: pgvector
+      PGVECTOR_DB_URL: ${PGVECTOR_DB_URL:-postgresql://open_webui:open_webui_dev@postgres:5432/open_webui}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      ENABLE_SIGNUP: ${ENABLE_SIGNUP:-false}
+      ENABLE_OPENAI_API: "true"
+      OPENAI_API_BASE_URLS: ${OPENAI_API_BASE_URLS:-}
+      OPENAI_API_KEYS: ${OPENAI_API_KEYS:-}
+      ENABLE_CODE_EXECUTION: ${ENABLE_CODE_EXECUTION:-false}
+      ENABLE_CODE_INTERPRETER: ${ENABLE_CODE_INTERPRETER:-false}
+      ENABLE_FUNCTIONS: ${ENABLE_FUNCTIONS:-false}
+      ENABLE_TOOLS: ${ENABLE_TOOLS:-false}
+    volumes:
+      - webui_data:/app/backend/data
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/health >/dev/null"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+volumes:
+  pgdata:
+    name: ${OPEN_WEBUI_PGDATA_VOLUME:-forge_open_webui_pgdata}
+  webui_data:
+    name: ${OPEN_WEBUI_DATA_VOLUME:-forge_open_webui_data}

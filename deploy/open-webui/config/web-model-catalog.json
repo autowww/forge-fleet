@@ -1,0 +1,15 @@
+{
+  "chatgpt": [
+    { "slug": "auto", "label": "Auto", "match": ["Auto", "ChatGPT"] },
+    { "slug": "gpt-4o", "label": "GPT-4o", "match": ["GPT-4o", "4o"] },
+    { "slug": "gpt-4-1", "label": "GPT-4.1", "match": ["GPT-4.1", "4.1"] },
+    { "slug": "o3", "label": "o3", "match": ["o3"] },
+    { "slug": "o4-mini", "label": "o4-mini", "match": ["o4-mini", "o4 mini"] }
+  ],
+  "gemini": [
+    { "slug": "fast", "label": "Fast", "match": ["Fast", "2.0 Flash", "Flash"] },
+    { "slug": "thinking", "label": "Thinking", "match": ["Thinking", "2.0 Flash Thinking"] },
+    { "slug": "pro", "label": "Pro", "match": ["Pro", "1.5 Pro", "Advanced"] }
+  ],
+  "_note": "Labels follow chatgpt.com / gemini.google.com pickers; your plan may show a subset. Bridge merges live CDP scrape with this list."
+}
