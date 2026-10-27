@@ -8,7 +8,9 @@ ACCOUNTS_FILE="${1:-$ROOT/accounts.json}"
 [[ -f "$ACCOUNTS_FILE" ]] || { echo "missing accounts.json" >&2; exit 1; }
 
 UNIT_DIR="${HOME}/.config/systemd/user"
+BEARER_DIR="${FORGE_OPEN_WEBUI_BEARER_DIR:-${HOME}/.config/forge-open-webui}"
 mkdir -p "$UNIT_DIR"
+mkdir -p "$BEARER_DIR" && chmod 700 "$BEARER_DIR"
 ENSURE="${ROOT}/scripts/ensure-account-edge-cdp.sh"
 BRIDGE_MODULE="forge_web_bridge"
 
@@ -65,6 +67,17 @@ ExecStart=${ENSURE}
 WantedBy=default.target
 EOF
 
+  # Per-account bearer (bridge binds 0.0.0.0 for Docker; bearer is required by default).
+  # Generated once into a 0600 file; never printed, never committed. Paste it into the
+  # Open WebUI connection for this bridge (Admin → Settings → Connections → API key).
+  bearer_env="${BEARER_DIR}/bridge-${slug}.env"
+  if [[ ! -s "$bearer_env" ]]; then
+    umask 077
+    printf 'FORGE_WEB_BRIDGE_BEARER=%s\n' "$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')" >"$bearer_env"
+    umask 022
+    echo "bearer created: ${bearer_env} (0600)"
+  fi
+
   cat >"${UNIT_DIR}/${bridge_unit}" <<EOF
 [Unit]
 Description=Open WebUI web bridge (${slug} / ${provider})
@@ -75,6 +88,10 @@ Requires=forge-open-webui-edge-${slug}.service
 Type=simple
 Restart=on-failure
 RestartSec=5
+EnvironmentFile=${bearer_env}
+Environment=FORGE_WEB_BRIDGE_REQUIRE_BEARER=1
+Environment=FORGE_WEB_BRIDGE_MAX_QUEUE=${FORGE_WEB_BRIDGE_MAX_QUEUE:-4}
+Environment=FORGE_WEB_BRIDGE_TIMEOUT_S=${FORGE_WEB_BRIDGE_TIMEOUT_S:-180}
 Environment=FORGE_WEB_BRIDGE_PROVIDER=${provider}
 Environment=FORGE_WEB_BRIDGE_CDP_URL=http://127.0.0.1:${cdp_port}
 # 0.0.0.0 so forge-open-webui (Docker) can reach bridges via host.docker.internal

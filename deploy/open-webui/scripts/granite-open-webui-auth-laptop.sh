@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # Tunnel Granite headless Chromium CDP to this laptop and open Playwright Inspector for sign-in.
 #
+# BOOTSTRAP ONLY — operator-granted SSH. This script opens an SSH tunnel to Granite and is
+# NOT part of any production agentic workflow (granite-no-ssh-without-permission.mdc).
+# Preferred path: Fleet CDP stream sign-in (docs/operate/granite-market-edge-plane.md) once it
+# targets the Open WebUI account ports :9230/:9231 — tracked as a Fleet capability follow-up in
+# docs/operate/granite-open-webui.md. Refuses to run unless FORGE_OPERATOR_GRANTED_SSH=1.
+#
 # Usage (from forge-fleet/):
 #   ./deploy/open-webui/scripts/granite-open-webui-auth-laptop.sh chatgpt-primary
 #   ./deploy/open-webui/scripts/granite-open-webui-auth-laptop.sh gemini-primary
@@ -9,6 +15,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ACCOUNT="${1:?usage: $0 chatgpt-primary|gemini-primary}"
+if [[ "${FORGE_OPERATOR_GRANTED_SSH:-0}" != "1" ]]; then
+  echo "refusing: bootstrap-only SSH path. Re-run with FORGE_OPERATOR_GRANTED_SSH=1 only when the operator granted SSH for this step." >&2
+  exit 3
+fi
 SSH_HOST="${GRANITE_SSH_HOST:-granite}"
 
 case "$ACCOUNT" in

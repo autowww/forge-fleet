@@ -13,8 +13,18 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from forge_web_bridge.catalog import catalog_row_for_slug, openai_models_payload
+from forge_web_bridge.guard import (
+    REQUEST_ID_HEADER,
+    InflightGate,
+    ProviderTimeout,
+    QueueFull,
+    env_flag,
+    request_id_from,
+)
 
-app = FastAPI(title="forge-web-bridge", version="0.1.0")
+app = FastAPI(title="forge-web-bridge", version="0.2.0")
+
+_gate = InflightGate.from_env()
 
 _models_cache: dict[str, tuple[float, list[str]]] = {}
 _MODELS_CACHE_TTL = float(os.getenv("FORGE_WEB_BRIDGE_MODELS_CACHE_TTL", "120"))
@@ -40,9 +50,19 @@ def _settings() -> dict[str, str]:
     }
 
 
+def _bearer_required() -> bool:
+    """Fail closed by default: the bridge binds 0.0.0.0 on Granite so Docker can reach it."""
+    return env_flag("FORGE_WEB_BRIDGE_REQUIRE_BEARER", True)
+
+
 def _check_bearer(authorization: str | None) -> None:
     expected = _settings()["bearer"]
     if not expected:
+        if _bearer_required():
+            raise HTTPException(
+                status_code=503,
+                detail="bearer_not_configured: set FORGE_WEB_BRIDGE_BEARER (or FORGE_WEB_BRIDGE_REQUIRE_BEARER=0 for loopback dev)",
+            )
         return
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="missing bearer")
@@ -207,10 +227,10 @@ def _run_provider(prompt: str, *, model: str) -> str:
     raise HTTPException(status_code=400, detail=f"unsupported provider: {provider}")
 
 
-def _completion_payload(text: str, model: str) -> dict[str, Any]:
+def _completion_payload(text: str, model: str, *, request_id: str | None = None) -> dict[str, Any]:
     now = int(time.time())
     return {
-        "id": f"chatcmpl-{uuid.uuid4().hex}",
+        "id": f"chatcmpl-{request_id or uuid.uuid4().hex}",
         "object": "chat.completion",
         "created": now,
         "model": model,
@@ -224,8 +244,8 @@ def _completion_payload(text: str, model: str) -> dict[str, Any]:
     }
 
 
-def _stream_chunks(text: str, model: str):
-    chunk_id = f"chatcmpl-{uuid.uuid4().hex}"
+def _stream_chunks(text: str, model: str, *, request_id: str | None = None):
+    chunk_id = f"chatcmpl-{request_id or uuid.uuid4().hex}"
     created = int(time.time())
     first = {
         "id": chunk_id,
@@ -257,7 +277,19 @@ def _stream_chunks(text: str, model: str):
 @app.get("/health")
 def health() -> dict[str, Any]:
     cfg = _settings()
-    return {"ok": True, "provider": cfg["provider"], "model": cfg["model_id"], "cdp_url": cfg["cdp_url"]}
+    st = _gate.stats()
+    return {
+        "ok": True,
+        "provider": cfg["provider"],
+        "model": cfg["model_id"],
+        "cdp_url": cfg["cdp_url"],
+        "bearer_configured": bool(cfg["bearer"]),
+        "bearer_required": _bearer_required(),
+        "inflight": st.inflight,
+        "waiting": st.waiting,
+        "max_queue": st.max_queue,
+        "timeout_s": st.timeout_s,
+    }
 
 
 @app.get("/v1/models")
@@ -272,16 +304,31 @@ def models(authorization: str | None = Header(default=None)) -> dict[str, Any]:
 def chat_completions(
     body: ChatCompletionRequest,
     authorization: str | None = Header(default=None),
+    x_forge_request_id: str | None = Header(default=None, alias=REQUEST_ID_HEADER),
 ):
     _check_bearer(authorization)
+    request_id = request_id_from(x_forge_request_id)
+    headers = {REQUEST_ID_HEADER: request_id}
     prompt = _last_user_text(body.messages)
     if not prompt:
-        raise HTTPException(status_code=400, detail="messages must include a user prompt")
+        raise HTTPException(status_code=400, detail="messages must include a user prompt", headers=headers)
     model = body.model or _settings()["model_id"]
-    text = _run_provider(prompt, model=model)
+    try:
+        text = _gate.run(lambda: _run_provider(prompt, model=model))
+    except QueueFull as exc:
+        raise HTTPException(status_code=429, detail=str(exc), headers={**headers, "Retry-After": "5"})
+    except ProviderTimeout as exc:
+        raise HTTPException(status_code=504, detail=str(exc), headers=headers)
+    except HTTPException as exc:
+        exc.headers = {**(exc.headers or {}), **headers}
+        raise
     if body.stream:
-        return StreamingResponse(_stream_chunks(text, model), media_type="text/event-stream")
-    return JSONResponse(_completion_payload(text, model))
+        return StreamingResponse(
+            _stream_chunks(text, model, request_id=request_id),
+            media_type="text/event-stream",
+            headers=headers,
+        )
+    return JSONResponse(_completion_payload(text, model, request_id=request_id), headers=headers)
 
 
 def main() -> None:
