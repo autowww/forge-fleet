@@ -235,6 +235,10 @@ Gateway **`control_plane`** is fetched with **`since_epoch`** aligned to Fleet s
 
 When **`FLEET_INJECT_HOST_METRICS_ENV_IN_DOCKER`** is truthy **and** **`FLEET_HOST_METRICS_BASE_URL`** is set, the runner injects **`FLEET_HOST_METRICS_URL`** and **`FLEET_HOST_METRICS_TOKEN`** (copy of bearer when set) into `docker_argv` jobs. See **[EXAMPLES.md](../build-201/05-examples-and-recipes.md)** and README — **this exposes the admin token inside containers** when enabled.
 
+## Host Cursor CLI (`POST /v1/admin/cursor-cli`)
+
+Admin bearer required. Runs the Cursor CLI from **`FLEET_CURSOR_AGENT_BIN`** when that absolute path is set. When it is unset, Fleet uses `/usr/local/bin/cursor-agent`, `/usr/bin/cursor-agent`, or the service user's `~/.local/bin/cursor-agent`. The request field **`credential`** is the localhost `CURSOR_API_KEY`, copied into the child environment only. It is not written to the job row, argv, or logs. `--api-key` in `args` is rejected. The response is **202** `{"ok": true, "id", "status": "queued"}`.
+
 ## Admin self-update and cooperative upgrade
 
 ### `POST /v1/admin/git-self-update`

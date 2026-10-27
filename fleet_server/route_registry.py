@@ -85,6 +85,7 @@ ROUTE_SPECS: tuple[RouteSpec, ...] = (
         "security_agent_test",
     ),
     RouteSpec(_p("/v1/jobs"), frozenset({"POST"}), "admin", "mutate", "jobs_create"),
+    RouteSpec(_p("/v1/admin/cursor-cli"), frozenset({"POST"}), "admin", "heavy", "admin_cursor_cli"),
     RouteSpec(_p("/v1/admin/upgrade"), frozenset({"POST"}), "admin", "heavy", "admin_upgrade"),
     RouteSpec(
         _p("/v1/remote-peers/[^/]+/admin/upgrade"),

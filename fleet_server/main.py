@@ -42,6 +42,7 @@ from fleet_server import (
     rollout_status,
     service_rollout,
     service_source_overlay,
+    cursor_cli_job,
     runner,
     self_update,
     store,
@@ -1992,6 +1993,14 @@ class FleetHandler(BaseHTTPRequestHandler):
         if path == "/v1/lifecycle/resume":
             lifecycle.resume()
             self._send(200, {"ok": True, "resumed": True})
+            return
+        if path == "/v1/admin/cursor-cli":
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+            result = cursor_cli_job.submit(Path(self.server.db_path), body if isinstance(body, dict) else {})
+            http = int(result.pop("http"))
+            self._send(http, result)
             return
         if path == "/v1/admin/upgrade":
             if not self._auth_ok():
