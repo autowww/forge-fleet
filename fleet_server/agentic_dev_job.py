@@ -257,6 +257,22 @@ def validate_envelope(body: dict[str, Any], *, kind: str = JOB_KIND) -> tuple[di
             return None, "invalid_review_target"
         envelope["pr_number"] = pr
         envelope["head_sha"] = head
+        base_sha = str(body.get("base_sha") or "")
+        envelope["base_sha"] = base_sha if re.match(r"^[0-9a-f]{40}$", base_sha) else ""
+        envelope["confirmed_by"] = str(body.get("confirmed_by") or "")[:200]
+        envelope["confirm_event_id"] = str(body.get("confirm_event_id") or "")[:200]
+        envelope["use_llm"] = bool(body.get("use_llm", False))
+        mo = body.get("merge_override")
+        if isinstance(mo, dict):
+            mo_digest = str(mo.get("digest") or "")
+            if not _DIGEST_RE.match(mo_digest) or not str(mo.get("request_id") or "").strip():
+                return None, "invalid_merge_override"
+            envelope["merge_override"] = {
+                "request_id": str(mo.get("request_id")),
+                "digest": mo_digest,
+                "event_id": str(mo.get("event_id") or ""),
+                "approver": str(mo.get("approver") or "")[:200],
+            }
     return envelope, None
 
 
@@ -295,7 +311,13 @@ def submit(db_path: Path, data_dir: Path, body: object, *, inline: bool = False,
     envelope, err = validate_envelope(body, kind=kind)
     if err or envelope is None:
         return _reject(400, err or "invalid_envelope")
-    secret, cerr = _credential_from(body)
+    if kind == REVIEW_KIND:
+        # Reviewer runs without a Cursor key: git token only, never the implementing job's credential.
+        secret, cerr = "", None
+        if isinstance(body.get("credential"), str) and body.get("credential"):
+            return _reject(400, "credential_not_allowed_for_review")
+    else:
+        secret, cerr = _credential_from(body)
     if cerr or secret is None:
         return _reject(400, cerr or "credential_required")
     if _secret_leaks(secret, body):
@@ -330,16 +352,16 @@ def submit(db_path: Path, data_dir: Path, body: object, *, inline: bool = False,
                 "container_class": CONTAINER_CLASS,
                 "envelope": envelope,
                 "digest": digest,
-                "credential_attached": bool(secret),
+                "credential_attached": bool(secret) or kind == REVIEW_KIND,
                 "timeout_s": envelope["timeout_s"],
                 "node": envelope["node"],
             },
         )
-        if not secret:
+        if not secret and kind != REVIEW_KIND:
             store.update_job(conn, job_id, status=STATUS_WAITING)
     finally:
         conn.close()
-    if secret:
+    if secret or kind == REVIEW_KIND:
         _start(db_path, data_dir, job_id, envelope, secret, inline=inline)
         return {"http": 202, "ok": True, "id": job_id, "status": "queued", "digest": digest, "node": envelope["node"]}
     return {"http": 202, "ok": True, "id": job_id, "status": STATUS_WAITING, "digest": digest, "node": envelope["node"]}
@@ -506,7 +528,7 @@ def image_tag() -> str:
         return override
     deploy = deploy_dir()
     h = hashlib.sha256()
-    for name in ("Dockerfile", "run_task.py"):
+    for name in ("Dockerfile", "run_task.py", "run_review.py"):
         p = deploy / name
         if p.is_file():
             h.update(p.read_bytes())

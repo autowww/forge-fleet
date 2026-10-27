@@ -93,6 +93,8 @@ ROUTE_SPECS: tuple[RouteSpec, ...] = (
     RouteSpec(_p("/v1/admin/agentic-dev/capacity"), frozenset({"GET"}), "admin", "read", "admin_agentic_dev_capacity"),
     RouteSpec(_p("/v1/admin/agentic-dev/branch-gc"), frozenset({"POST"}), "admin", "mutate", "admin_agentic_dev_branch_gc"),
     RouteSpec(_p("/v1/admin/agentic-dev/pending-credentials"), frozenset({"GET"}), "admin", "read", "admin_agentic_dev_pending"),
+    RouteSpec(_p("/v1/admin/forge-agents-roadrunner-rollout"), frozenset({"POST"}), "admin", "heavy", "admin_forge_agents_rollout"),
+    RouteSpec(_p("/v1/admin/forge-agents-roadrunner-rollout-log"), frozenset({"GET"}), "admin", "read", "admin_forge_agents_rollout_log"),
     RouteSpec(_p("/v1/admin/cursor-cli/status"), frozenset({"GET"}), "admin", "read", "admin_cursor_cli_status"),
     RouteSpec(_p("/v1/admin/git-identity"), frozenset({"GET"}), "admin", "read", "admin_git_identity"),
     RouteSpec(_p("/v1/admin/upgrade"), frozenset({"POST"}), "admin", "heavy", "admin_upgrade"),

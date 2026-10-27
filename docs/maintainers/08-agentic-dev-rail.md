@@ -68,6 +68,14 @@ The pipeline never force-pushes, never pushes to `base_ref`, and never resolves 
 
 `node: auto` picks local when `free > 0`, else the first registered peer whose `GET /v1/admin/agentic-dev/capacity` reports `agentic_dev: true` and `free > 0`. `node: <peer_id>` forwards directly (409 `peer_unavailable` when unknown). Forwarding posts the same envelope with `node: local` through the remote-peer proxy; the credential is attached on that hop only. Each node needs its own token and builds its own image from the same `deploy/agentic-dev` at the same Fleet version.
 
+## Review kind (R08)
+
+`POST /v1/admin/code-review-task` runs `deploy/agentic-dev/run_review.py` (dispatched by `run_task.py` on `schema == forge.code_review_task.v1`) in a fresh container with **no Cursor key** — submit rejects a `credential` field and the job never waits in `queued_waiting_credential`. Steps: clone `base_ref`, fetch the branch, require tip == `head_sha` (`head_pinned`), checkout detached, merge-base diff, `Forge-Task` trailer, `git merge-tree --write-tree` conflict probe, independent `verify[]`, deterministic checks (`path_guard`, `secret_scan` → fail; `lockfile_diff`, `protected_paths`, `conflict_probe`, `change_size` → critical), verdict, then squash merge via the GitHub API only when `verdict == pass && !critical`, or when `merge_override` is present, `verdict != fail`, and the head still matches. Job status mapping: `pass` → `completed`, `hold` → `held`, otherwise `failed`. Tests: `fleet_server/test_agentic_dev_job.py::ReviewTests`.
+
+## Roadrunner service rollout (R06)
+
+`fleet_server/forge_agents_rollout.py` is the only Granite deploy path for the Matrix bot: `POST /v1/admin/forge-agents-roadrunner-rollout {"ref": "main"}` git-syncs `FLEET_FORGE_AGENTS_ROOT` (default `~/forge-agents`), requires an operator-written `<root>/.env.roadrunner` (Matrix token, Fleet bearer — never committed), writes `deploy/roadrunner/.env` with `ROADRUNNER_GIT_SHA`, builds and `compose up -d`s `forge-agents-roadrunner` (type `forge_agents_roadrunner`, category `service`), and polls `127.0.0.1:9788/health`. `forge-agents/scripts/install-granite.sh` is a thin client of this route. No SSH, no source bundles.
+
 ## Smoke on a host
 
 ```bash

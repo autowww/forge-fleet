@@ -203,5 +203,74 @@ class RunTaskGuardTests(unittest.TestCase):
             self.assertEqual(rt.secret_scan(root, ["ok.txt", "bad.txt"]), ["bad.txt"])
 
 
+def _load_run_review():
+    import sys
+
+    deploy = str(adj.deploy_dir())
+    if deploy not in sys.path:
+        sys.path.insert(0, deploy)
+    path = adj.deploy_dir() / "run_review.py"
+    spec = importlib.util.spec_from_file_location("run_review", path)
+    mod = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class ReviewTests(_Base):
+    def test_review_submit_needs_no_cursor_key_and_rejects_one(self) -> None:
+        body = _envelope(credential_ref="courier", pr_number=7, head_sha="a" * 40)
+        out = adj.submit(self.db, self.data_dir, body, inline=True, kind=adj.REVIEW_KIND)
+        self.assertEqual(out["http"], 202)
+        self.assertEqual(out["status"], "queued")
+        job = self._job(out["id"])
+        self.assertEqual(job["kind"], adj.REVIEW_KIND)
+        self.assertTrue(job["meta"]["credential_attached"])
+        self.assertEqual(job["meta"]["envelope"]["pr_number"], 7)
+        bad = adj.submit(self.db, self.data_dir, _envelope(credential=_SECRET, pr_number=7, head_sha="a" * 40), kind=adj.REVIEW_KIND)
+        self.assertEqual(bad["error"], "credential_not_allowed_for_review")
+        bad = adj.submit(self.db, self.data_dir, _envelope(credential_ref="courier", pr_number=0, head_sha="zz"), kind=adj.REVIEW_KIND)
+        self.assertEqual(bad["error"], "invalid_review_target")
+        bad = adj.submit(self.db, self.data_dir, _envelope(credential_ref="courier", pr_number=7, head_sha="a" * 40, merge_override={"request_id": "x", "digest": "nope"}), kind=adj.REVIEW_KIND)
+        self.assertEqual(bad["error"], "invalid_merge_override")
+
+    def test_review_result_status_mapping(self) -> None:
+        def fake_run(task_dir: Path, out_dir: Path, envelope: dict, secret: str, token: str) -> tuple[int, str]:
+            self.assertEqual(secret, "")
+            (out_dir / "result.json").write_text(json.dumps({"schema": "forge.review_result.v1", "status": "hold", "verdict": "hold", "critical": True,
+                                                              "checks": [{"id": "lockfile_diff", "status": "critical", "detail": "poetry.lock"}]}), encoding="utf-8")
+            return 0, ""
+
+        self.runner.stop()
+        with mock.patch.object(adj, "_run_host", side_effect=fake_run):
+            out = adj.submit(self.db, self.data_dir, _envelope(credential_ref="courier", pr_number=7, head_sha="a" * 40), inline=True, kind=adj.REVIEW_KIND)
+        self.runner.start()
+        view = adj.get(self.db, out["id"])
+        self.assertEqual(view["status"], "held")
+        self.assertEqual(view["result"]["verdict"], "hold")
+
+    def test_deterministic_checks_and_verdict(self) -> None:
+        rr = _load_run_review()
+        base = dict(allow=["**"], deny=[".github/**"], secret_hits=[], conflict=False, diff_lines=10, trailer_ok=True, head_matches=True)
+        checks = rr.deterministic_checks(changed=["src/calc.py"], **base)
+        self.assertEqual(rr.verdict_for(checks, True), ("pass", False))
+        self.assertEqual(rr.verdict_for(checks, False), ("fail", False))
+        checks = rr.deterministic_checks(changed=["src/calc.py", "poetry.lock"], **base)
+        self.assertEqual(rr.verdict_for(checks, True), ("hold", True))
+        self.assertIn(("lockfile_diff", "critical"), [(c["id"], c["status"]) for c in checks])
+        checks = rr.deterministic_checks(changed=[".github/workflows/ci.yml"], **base)
+        self.assertEqual(rr.verdict_for(checks, True)[0], "fail")  # deny path → fail, even though protected → critical too
+        checks = rr.deterministic_checks(changed=["deploy/x/compose.yaml"], **base)
+        self.assertEqual(rr.verdict_for(checks, True), ("hold", True))
+        checks = rr.deterministic_checks(changed=["src/a.py"], **{**base, "conflict": True})
+        self.assertIn(("conflict_probe", "critical"), [(c["id"], c["status"]) for c in checks])
+        checks = rr.deterministic_checks(changed=["src/a.py"], **{**base, "head_matches": False})
+        self.assertEqual(rr.verdict_for(checks, True)[0], "fail")
+        checks = rr.deterministic_checks(changed=["src/a.py"], **{**base, "secret_hits": ["src/a.py"]})
+        self.assertEqual(rr.verdict_for(checks, True)[0], "fail")
+        checks = rr.deterministic_checks(changed=["src/a.py"], **{**base, "diff_lines": 5000})
+        self.assertEqual(rr.verdict_for(checks, True), ("hold", True))
+
+
 if __name__ == "__main__":
     unittest.main()

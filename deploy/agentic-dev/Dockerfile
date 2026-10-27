@@ -30,6 +30,7 @@ RUN curl -fsSL https://cursor.com/install | bash \
  && /home/forge/.local/bin/cursor-agent --version > /home/forge/.cursor-agent-version 2>&1 || true
 
 COPY --chown=forge:forge run_task.py /opt/forge/run_task.py
+COPY --chown=forge:forge run_review.py /opt/forge/run_review.py
 
 LABEL org.forgesdlc.template="forge_agentic_dev" \
       org.forgesdlc.cursor_agent_version="${CURSOR_AGENT_VERSION}"

@@ -1136,6 +1136,14 @@ class FleetHandler(BaseHTTPRequestHandler):
                 return
             self._send(200, agentic_dev_job.list_pending_credentials(Path(self.server.db_path)))
             return
+        if path == "/v1/admin/forge-agents-roadrunner-rollout-log":
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+            from fleet_server import forge_agents_rollout
+
+            self._send(200, forge_agents_rollout.status(self._data_dir()))
+            return
         m_adt = re.match(r"^/v1/admin/agentic-dev-task/([^/]+)$", path)
         if m_adt:
             if not self._auth_ok():
@@ -2038,6 +2046,17 @@ class FleetHandler(BaseHTTPRequestHandler):
                 self._send_unauthorized()
                 return
             result = cursor_cli_job.submit(Path(self.server.db_path), body if isinstance(body, dict) else {})
+            http = int(result.pop("http"))
+            self._send(http, result)
+            return
+        if path == "/v1/admin/forge-agents-roadrunner-rollout":
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+            from fleet_server import forge_agents_rollout
+
+            sync = str(body.get("sync") or "").strip().lower() in ("1", "true", "yes")
+            result = forge_agents_rollout.schedule(self._data_dir(), body if isinstance(body, dict) else {}, sync=sync)
             http = int(result.pop("http"))
             self._send(http, result)
             return

@@ -104,6 +104,13 @@ DEFAULT_TYPES: dict[str, Any] = {
             "notes": "Docker Compose stack for Market Studio; register under etc/services/*.json or rollout API.",
         },
         {
+            "id": "forge_agents_roadrunner",
+            "category_id": "service",
+            "container_class": "forge_agents_roadrunner",
+            "title": "Forge Agents Roadrunner (Compose)",
+            "notes": "Matrix bot that brokers !agent task into the agentic dev rail; compose under a host git clone of autowww/forge-agents (docker/compose.roadrunner.yaml).",
+        },
+        {
             "id": "agentic_dev",
             "category_id": "job",
             "container_class": "agentic_dev",
@@ -118,6 +125,7 @@ _DEFAULT_TYPE_TO_CATEGORY: dict[str, str] = {
     "host_cpu_probe": "job",
     "forge_llm": "service",
     "forge_market_studio": "service",
+    "forge_agents_roadrunner": "service",
     "agentic_dev": "job",
 }
 

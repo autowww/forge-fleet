@@ -141,6 +141,15 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     rec = Recorder(out_dir)
     task = json.loads(task_file.read_text(encoding="utf-8"))
+    if str(task.get("schema") or "") == "forge.code_review_task.v1":
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from run_review import review_main
+
+        review = review_main(task, out_dir, rec)
+        review["steps"] = rec.steps
+        (out_dir / "result.json").write_text(json.dumps(review, indent=2, default=str) + "\n", encoding="utf-8")
+        rec.log.close()
+        return 0 if review.get("status") in ("pass", "hold") else 2
     result: dict[str, Any] = {
         "task_id": task.get("task_id"), "repo": task.get("repo"), "branch": task.get("branch"),
         "base_ref": task.get("base_ref") or "main", "base_sha": None, "head_sha": None,
