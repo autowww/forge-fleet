@@ -46,6 +46,7 @@ Fleet exposes JSON under **`/v1/`** and a browser dashboard at **`/admin/`**:
 - **Migrations API** — `POST /v1/migrations`, chunked data-bundle upload, per-step run (Granite cutover)
 - **Container catalog and managed services** — `GET /v1/container-types`, `/v1/container-services/*`, managed-service rollouts, legacy `/v1/services/forge-llm/*`
 - **Fleet Apps (FAEP)** — catalog, install, upgrade, UI/data/actions handlers
+- **Agentic dev rail** — `POST /v1/admin/agentic-dev-task` / `code-review-task` (one approved repo task or PR review per ephemeral container; git is the only carrier; Cursor key via courier, never on argv), `GET …/pending-credentials`, `…/capacity`, `…/branch-gc`, `GET /v1/admin/cursor-cli/status`, `GET /v1/admin/git-identity`, `POST /v1/admin/forge-agents-roadrunner-rollout`. See `docs/maintainers/08-agentic-dev-rail.md`.
 - **Cooperative upgrade** — lifecycle drain + `POST /v1/admin/upgrade` (apt or git channel). **`POST /v1/admin/git-self-update`** is **deprecated** (returns 400). Remote bumps: **`update-fleet.sh --remote-upgrade --publish-apt-cdn`** ([HTTP API reference](docs/reference/01-http-api-reference.md)).
 
 Detailed tables—including static **`/admin/…`** asset routes and host-metrics injection—live in **`[docs/reference/01-http-api-reference.md](docs/reference/01-http-api-reference.md)`**.
