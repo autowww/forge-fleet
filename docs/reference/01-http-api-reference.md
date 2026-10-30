@@ -239,6 +239,18 @@ When **`FLEET_INJECT_HOST_METRICS_ENV_IN_DOCKER`** is truthy **and** **`FLEET_HO
 
 Admin bearer required. Runs the Cursor CLI from **`FLEET_CURSOR_AGENT_BIN`** when that absolute path is set. When it is unset, Fleet uses `/usr/local/bin/cursor-agent`, `/usr/bin/cursor-agent`, or the service user's `~/.local/bin/cursor-agent`. The request field **`credential`** is the localhost `CURSOR_API_KEY`, copied into the child environment only. It is not written to the job row, argv, or logs. `--api-key` in `args` is rejected. The response is **202** `{"ok": true, "id", "status": "queued"}`.
 
+## Temporary host jobs (`/v1/admin/temp-jobs`)
+
+Admin bearer required. A temp job runs on the Fleet host and returns a JSON summary. It does not accept a source archive and it refuses a result that contains filing HTML.
+
+| Route | Purpose |
+|---|---|
+| `POST /v1/admin/temp-jobs` | Body `recipe` is `probe` or `python_module`. `python_module` also needs `module` under `forge_market.analysis.sec_fic.financial_facts`. Optional `args` object and `timeout_s` (1–900). Response **202** `{ok, id, status, recipe}`. |
+| `GET /v1/admin/temp-jobs/{id}` | Status only: `queued`, `completed`, or `failed`. |
+| `GET /v1/admin/temp-jobs/{id}/result` | JSON `result` when completed. **409** `not_ready` otherwise. |
+
+Cursor calls this through `forge-fleet/scripts/fleet-temp-job.py` with `FORGE_FLEET_BASE_URL` and `FORGE_FLEET_BEARER_TOKEN`. Filing bytes stay on the host.
+
 ## Agentic dev rail (`/v1/admin/agentic-dev-task`)
 
 Admin bearer required. One approved repo task runs in an **ephemeral container** built on this host from `deploy/agentic-dev/` (git, python3, node, pinned `cursor-agent`). The container clones `https://github.com/<repo>` at `origin/<base_ref>`, records `base_sha`, works on an `agent/<agent-id>/<task-id>-<slug>` branch, runs the Cursor CLI with the goal, applies the path guard and secret scan, runs `verify[]`, rebases on current `origin/<base_ref>`, pushes the branch, and opens a pull request. No host path is mounted; **git is the only code carrier**. Any guard failure returns `status: held` with `hold_reason` (`path_violation`, `secret_pattern`, `verify_failed`, `stale_conflict`, `no_changes`, …) and nothing is pushed.

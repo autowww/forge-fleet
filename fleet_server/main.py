@@ -1117,6 +1117,19 @@ class FleetHandler(BaseHTTPRequestHandler):
                 return
             self._send(200, agentic_dev_job.cursor_cli_status())
             return
+        temp_result = re.match(r"^/v1/admin/temp-jobs/([^/]+)/result$", path)
+        temp_status = re.match(r"^/v1/admin/temp-jobs/([^/]+)$", path)
+        if temp_result or temp_status:
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+            from fleet_server import temp_jobs
+
+            job_id = (temp_result or temp_status).group(1)
+            payload = temp_jobs.result(Path(self.server.db_path), job_id) if temp_result else temp_jobs.status(Path(self.server.db_path), job_id)
+            http = int(payload.pop("http"))
+            self._send(http, payload)
+            return
         if path == "/v1/admin/git-identity":
             if not self._auth_ok():
                 self._send_unauthorized()
@@ -2046,6 +2059,16 @@ class FleetHandler(BaseHTTPRequestHandler):
                 self._send_unauthorized()
                 return
             result = cursor_cli_job.submit(Path(self.server.db_path), body if isinstance(body, dict) else {})
+            http = int(result.pop("http"))
+            self._send(http, result)
+            return
+        if path == "/v1/admin/temp-jobs":
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+            from fleet_server import temp_jobs
+
+            result = temp_jobs.submit(Path(self.server.db_path), body if isinstance(body, dict) else {})
             http = int(result.pop("http"))
             self._send(http, result)
             return
