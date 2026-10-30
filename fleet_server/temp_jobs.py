@@ -17,6 +17,7 @@ _DEFAULT_TIMEOUT = 60
 _MAX_TIMEOUT = 900
 _MODULE_PREFIXES = ("forge_market.analysis.sec_fic.financial_facts",)
 _SOURCE_MARKERS = ("<ix:nonfraction", "<html", "original.html")
+_MARKET_CONTAINERS = ("forge-market-app", "forge-market-app-dev")
 
 
 def _reject(http: int, error: str) -> dict[str, Any]:
@@ -82,18 +83,55 @@ def submit(db_path: Path, body: object, *, inline: bool = False) -> dict[str, An
     return {"http": 202, "ok": True, "id": job_id, "status": "queued", "recipe": recipe}
 
 
+def _running_market_container() -> str | None:
+    for name in _MARKET_CONTAINERS:
+        try:
+            proc = subprocess.run(
+                ["docker", "inspect", "-f", "{{.State.Running}}", name],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        if proc.returncode == 0 and proc.stdout.strip() == "true":
+            return name
+    return None
+
+
+def module_command(module: str) -> list[str]:
+    """Run the allowlisted module on the host, or inside Market Studio when that container is running."""
+    override = (os.environ.get("FLEET_TEMP_JOB_PYTHON") or "").strip()
+    if override:
+        return [override, "-m", module]
+    selected = (os.environ.get("FLEET_TEMP_JOB_CONTAINER") or "").strip()
+    if selected == "0" or (selected and selected not in _MARKET_CONTAINERS):
+        return [sys.executable, "-m", module]
+    container = selected or _running_market_container()
+    if container:
+        return ["docker", "exec", "-i", "-e", "FLEET_TEMP_JOB_ARGS", container, "python", "-m", module]
+    return [sys.executable, "-m", module]
+
+
+def _redact(text: str) -> str:
+    lowered = text.lower()
+    if any(marker in lowered for marker in _SOURCE_MARKERS):
+        return "redacted"
+    return text[-2000:]
+
+
 def _execute(db_path: Path, job_id: str, recipe: str, module: str, args: dict[str, Any], timeout: int) -> None:
     if recipe == "probe":
         _store(db_path, job_id, 0, json.dumps({"ok": True, "recipe": "probe", "args": args}), "")
         return
-    python = os.environ.get("FLEET_TEMP_JOB_PYTHON") or sys.executable
     env = {"PATH": "/usr/local/bin:/usr/bin:/bin", "LANG": "C.UTF-8", "FLEET_TEMP_JOB_ARGS": json.dumps(args)}
     code = 1
     stdout = ""
     stderr = ""
     try:
         proc = subprocess.run(
-            [python, "-m", module],
+            module_command(module),
             env=env,
             capture_output=True,
             text=True,
@@ -108,10 +146,11 @@ def _execute(db_path: Path, job_id: str, recipe: str, module: str, args: dict[st
         code = -1
     except OSError as exc:
         stderr = type(exc).__name__
+    stderr = _redact(stderr)
     if code != 0 or _accept_result(stdout) is None:
-        _store(db_path, job_id, 1 if code == 0 else code, json.dumps({"ok": False, "error": "result_rejected"}), stderr[-2000:])
+        _store(db_path, job_id, 1 if code == 0 else code, json.dumps({"ok": False, "error": "result_rejected"}), stderr)
         return
-    _store(db_path, job_id, 0, stdout, stderr[-2000:])
+    _store(db_path, job_id, 0, stdout, stderr)
 
 
 def _store(db_path: Path, job_id: str, code: int, stdout: str, stderr: str) -> None:

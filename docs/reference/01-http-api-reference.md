@@ -241,7 +241,7 @@ Admin bearer required. Runs the Cursor CLI from **`FLEET_CURSOR_AGENT_BIN`** whe
 
 ## Temporary host jobs (`/v1/admin/temp-jobs`)
 
-Admin bearer required. A temp job runs on the Fleet host and returns a JSON summary. It does not accept a source archive and it refuses a result that contains filing HTML.
+Admin bearer required. A temp job returns a JSON summary. `probe` runs on the Fleet host. `python_module` runs inside the Market Studio container `forge-market-app` when that container is running, so it can read the host corpus without copying filing bytes. It does not accept a source archive and it refuses a result that contains filing HTML.
 
 | Route | Purpose |
 |---|---|

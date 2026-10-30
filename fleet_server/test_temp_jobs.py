@@ -45,6 +45,29 @@ class TempJobTests(unittest.TestCase):
             self.assertEqual(body["http"], 409)
             self.assertNotIn("us-gaap:Revenues", json.dumps(body))
 
+    def test_market_container_command_is_exec_not_shell(self) -> None:
+        os.environ["FLEET_TEMP_JOB_CONTAINER"] = "forge-market-app"
+        os.environ.pop("FLEET_TEMP_JOB_PYTHON", None)
+        try:
+            argv = temp_jobs.module_command("forge_market.analysis.sec_fic.financial_facts.remote")
+        finally:
+            os.environ.pop("FLEET_TEMP_JOB_CONTAINER", None)
+        self.assertEqual(argv[:4], ["docker", "exec", "-i", "-e"])
+        self.assertIn("forge-market-app", argv)
+        self.assertNotIn("bash", argv)
+        self.assertNotIn("sh", argv)
+
+    def test_unknown_container_is_not_used(self) -> None:
+        os.environ["FLEET_TEMP_JOB_CONTAINER"] = "other-container"
+        os.environ["FLEET_TEMP_JOB_PYTHON"] = ""
+        try:
+            argv = temp_jobs.module_command("forge_market.analysis.sec_fic.financial_facts.remote")
+        finally:
+            os.environ.pop("FLEET_TEMP_JOB_CONTAINER", None)
+            os.environ.pop("FLEET_TEMP_JOB_PYTHON", None)
+        self.assertNotIn("other-container", argv)
+        self.assertNotIn("docker", argv)
+
     def test_unknown_module_is_rejected_before_insert(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "fleet.sqlite"
