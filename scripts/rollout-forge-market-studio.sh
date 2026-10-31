@@ -561,6 +561,8 @@ _rsync_forge_market_tree() {
     --exclude studio-ui/node_modules/ \
     --exclude desktop/node_modules/ \
     --exclude studio-server/static/studio/ \
+    --exclude '__pycache__/' \
+    --exclude '*.pyc' \
     "${src}/" "${dst}/"
 }
 
