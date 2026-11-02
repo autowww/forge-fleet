@@ -60,6 +60,37 @@ def test_compute_and_finalize_bucket(tmp_path: Path) -> None:
         conn.close()
 
 
+def test_list_samples_truncates_on_limit(tmp_path: Path) -> None:
+    db = tmp_path / "lim.sqlite"
+    conn = store.connect(db)
+    try:
+        for i in range(5):
+            _insert_sample(conn, db, 2_000.0 + i, float(i))
+        rows, trunc = store.list_telemetry_samples(conn, t0=1_000.0, t1=3_000.0, limit=2)
+        assert trunc is True
+        assert len(rows) == 2
+        assert rows[0]["ts"] < rows[1]["ts"]
+    finally:
+        conn.close()
+
+
+def test_run_full_backfill_stops_when_gaps_close(tmp_path: Path) -> None:
+    db = tmp_path / "full.sqlite"
+    t0 = time.time() - 2_000.0
+    conn = store.connect(db)
+    try:
+        _insert_sample(conn, db, t0, 5.0)
+        _insert_sample(conn, db, t0 + 900, 30.0)
+        n = telemetry_rollup.run_full_backfill(conn, batch_size=1, pause_s=0)
+        assert n >= 1
+        rows = telemetry_rollup.list_5m_buckets(conn, t0=t0 - 300, t1=t0 + 1_200)
+        assert len(rows) == 2
+        assert telemetry_rollup.run_full_backfill(conn, pause_s=0) == 0
+        assert not telemetry_rollup.gaps_remain(conn, now=t0 + 2_000)
+    finally:
+        conn.close()
+
+
 def test_backfill_gaps(tmp_path: Path) -> None:
     db = tmp_path / "g.sqlite"
     t0 = 10_000.0

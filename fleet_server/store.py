@@ -783,25 +783,34 @@ def list_telemetry_samples(
     Returns ``(rows, truncated)`` where ``truncated`` is True when more rows existed than ``limit``.
     """
     lim = max(1, min(int(limit), 500_000))
+    # LIMIT+1 detects truncation. COUNT(*) over the same window table-scans
+    # payload pages when the planner skips idx_telemetry_samples_ts, which
+    # pegs a core during 5m rollup backfill on a large fleet.sqlite.
+    params = (t0, t1, lim + 1)
+    indexed = """
+        SELECT ts, payload_json FROM telemetry_samples
+        INDEXED BY idx_telemetry_samples_ts
+        WHERE ts >= ? AND ts <= ?
+        ORDER BY ts ASC
+        LIMIT ?
+    """
+    plain = """
+        SELECT ts, payload_json FROM telemetry_samples
+        WHERE ts >= ? AND ts <= ?
+        ORDER BY ts ASC
+        LIMIT ?
+    """
     try:
-        cur = conn.execute(
-            "SELECT COUNT(*) AS c FROM telemetry_samples WHERE ts >= ? AND ts <= ?",
-            (t0, t1),
-        )
-        total = int(cur.fetchone()["c"])
-        cur = conn.execute(
-            """
-            SELECT ts, payload_json FROM telemetry_samples
-            WHERE ts >= ? AND ts <= ?
-            ORDER BY ts ASC
-            LIMIT ?
-            """,
-            (t0, t1, lim),
-        )
+        try:
+            cur = conn.execute(indexed, params)
+        except sqlite3.OperationalError:
+            cur = conn.execute(plain, params)
+        fetched = cur.fetchall()
     except sqlite3.OperationalError:
         return [], False
+    truncated = len(fetched) > lim
     rows: list[dict[str, Any]] = []
-    for r in cur.fetchall():
+    for r in fetched[:lim]:
         try:
             raw = json.loads(r["payload_json"] or "{}")
         except json.JSONDecodeError:
@@ -816,7 +825,6 @@ def list_telemetry_samples(
             host_payload = raw
             orch_out = {}
         rows.append({"ts": float(r["ts"]), "host": host_payload, "orchestration": orch_out})
-    truncated = total > len(rows)
     return rows, truncated
 
 

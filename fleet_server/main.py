@@ -3181,7 +3181,7 @@ def main() -> None:
             c = store.connect(db_path)
             try:
                 if telemetry_rollup.gaps_remain(c):
-                    telemetry_rollup.run_full_backfill(c)
+                    telemetry_rollup.run_full_backfill(c, batch_size=100, pause_s=0.25)
             finally:
                 c.close()
         except (OSError, RuntimeError, sqlite3.Error) as ex:

@@ -279,6 +279,24 @@ def materialize_5m_bucket(conn: sqlite3.Connection, bucket_start: float, *, now:
     return compute_5m_bucket(conn, bucket_start)
 
 
+def _next_sample_ts(conn: sqlite3.Connection, t0: float, t1: float) -> float | None:
+    """Earliest sample timestamp in ``[t0, t1)``, using the ts index."""
+    try:
+        row = conn.execute(
+            """
+            SELECT MIN(ts) AS m FROM telemetry_samples
+            INDEXED BY idx_telemetry_samples_ts
+            WHERE ts >= ? AND ts < ?
+            """,
+            (float(t0), float(t1)),
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return None
+    if row is None or row["m"] is None:
+        return None
+    return float(row["m"])
+
+
 def _last_closed_bucket_start(now: float) -> float:
     """Latest fully elapsed 5m bucket start."""
     return align_bucket_start(now - BUCKET_5M_S)
@@ -303,7 +321,16 @@ def finalize_closed_buckets(conn: sqlite3.Connection, *, now: float | None = Non
     written = 0
     lim = max(1, int(max_buckets))
     bs = start
+    # Empty 5m slots must not be probed one-by-one: a long quiet gap would
+    # call compute_5m_bucket for every slot and keep a core busy.
     while bs <= closed_end and written < lim:
+        nxt = _next_sample_ts(conn, bs, closed_end + BUCKET_5M_S)
+        if nxt is None:
+            break
+        sample_bs = align_bucket_start(nxt)
+        if sample_bs > closed_end:
+            break
+        bs = max(bs, sample_bs)
         bucket = materialize_5m_bucket(conn, bs, now=now_f)
         if bucket is not None:
             upsert_5m_bucket(conn, bucket)
@@ -322,12 +349,16 @@ def _missing_bucket_starts_sql(
     conn: sqlite3.Connection, *, t0: float, t1: float, closed_end: float, limit: int
 ) -> list[float]:
     """Bucket starts that have raw samples but no rollup row (SQL, bounded)."""
+    # Rollup rows are stored on the bucket boundary, which is <= the first
+    # sample ts. Comparing stored rows to the raw sample ts hides that first
+    # bucket, so backfill rewrites it forever.
+    stored_from = align_bucket_start(float(t0))
     try:
         cur = conn.execute(
             f"""
             WITH needed AS (
                 SELECT DISTINCT {_BUCKET_START_SQL} AS bucket_start
-                FROM telemetry_samples
+                FROM telemetry_samples INDEXED BY idx_telemetry_samples_ts
                 WHERE ts >= ? AND ts <= ?
             )
             SELECT bucket_start FROM needed
@@ -339,7 +370,14 @@ def _missing_bucket_starts_sql(
             ORDER BY bucket_start ASC
             LIMIT ?
             """,
-            (float(t0), float(t1), float(closed_end), float(t0), float(closed_end), max(1, int(limit))),
+            (
+                float(t0),
+                float(t1),
+                float(closed_end),
+                stored_from,
+                float(closed_end),
+                max(1, int(limit)),
+            ),
         )
     except sqlite3.OperationalError:
         return []
@@ -358,7 +396,7 @@ def _rollup_gaps_remain(conn: sqlite3.Connection, *, now: float | None = None) -
         row = conn.execute(
             f"""
             SELECT 1
-            FROM telemetry_samples s
+            FROM telemetry_samples s INDEXED BY idx_telemetry_samples_ts
             WHERE s.ts >= ? AND s.ts <= ?
               AND {_BUCKET_START_SQL} <= ?
               AND NOT EXISTS (
@@ -444,7 +482,7 @@ def request_background_backfill(db_path: Path | str | None, *, batch_size: int =
                 return
             conn = store.connect(Path(db_path))
             try:
-                run_full_backfill(conn, batch_size=batch_size)
+                run_full_backfill(conn, batch_size=batch_size, pause_s=0.25)
             finally:
                 conn.close()
         except (OSError, RuntimeError, sqlite3.Error):
@@ -461,19 +499,54 @@ def request_background_backfill(db_path: Path | str | None, *, batch_size: int =
     return True
 
 
-def run_full_backfill(conn: sqlite3.Connection, *, batch_size: int = 500) -> int:
-    """Backfill until no gaps remain (CLI / startup)."""
+def run_full_backfill(
+    conn: sqlite3.Connection,
+    *,
+    batch_size: int = 500,
+    pause_s: float = 0.0,
+) -> int:
+    """Backfill until no gaps remain (CLI / startup).
+
+    ``pause_s`` yields between batches so a large history cannot hold a core.
+    Stops if the oldest missing bucket does not move, so a bucket that cannot
+    be stored is not retried in a tight loop.
+    """
     ensure_rollup_tables(conn)
     total = 0
+    stalls = 0
     while True:
+        pending = _missing_head(conn)
         n = backfill_missing_buckets(conn, max_buckets=batch_size)
         finalize_closed_buckets(conn, max_buckets=batch_size)
-        if n <= 0 and not _rollup_gaps_remain(conn):
-            break
         total += n
-        if n <= 0:
+        if n <= 0 or not _rollup_gaps_remain(conn):
             break
+        nxt = _missing_head(conn)
+        if pending is not None and nxt == pending:
+            stalls += 1
+            if stalls >= 2:
+                break
+        else:
+            stalls = 0
+        if pause_s > 0:
+            time.sleep(pause_s)
     return total
+
+
+def _missing_head(conn: sqlite3.Connection) -> float | None:
+    now_f = time.time()
+    t_min, t_max, n = store.telemetry_time_bounds(conn)
+    if t_min is None or n <= 0:
+        return None
+    last = _last_closed_bucket_start(now_f)
+    found = _missing_bucket_starts_sql(
+        conn,
+        t0=float(t_min),
+        t1=min(float(t_max), last + BUCKET_5M_S),
+        closed_end=last,
+        limit=1,
+    )
+    return found[0] if found else None
 
 
 def prune_old_buckets(conn: sqlite3.Connection) -> None:
