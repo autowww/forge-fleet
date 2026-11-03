@@ -11,15 +11,37 @@ from typing import Any
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse, Response
 
-from control_plane.classifier import resolve_mode
 from control_plane.config import DEFAULT_HOLD_TIMEOUT_SEC, QUARANTINED_MODELS
 from control_plane.context import ForgeContext
+from control_plane.external_lane import openai_chat_via_openwebui
 from control_plane.modes import DEFAULT_WAIT_BY_MODE, ModeId, needs_think_false
 from control_plane.queue_manager import inference_queue
+from control_plane.route_select import header_task_from_request, plan_route
 from control_plane.slot_manager import active_snapshot, ensure_model
 from control_plane.store import insert_request
+from control_plane.task_resolve import resolve_task
 from runners.base import NativeApiUnsupported
 from runners.factory import get_adapter
+
+
+def _forge_route_headers(
+    *,
+    task_id: str,
+    lane: str,
+    model: str,
+    mode: ModeId,
+    mode_source: str,
+    resident: str | None,
+) -> dict[str, str]:
+    return {
+        "X-Forge-Llm-Mode": mode,
+        "X-Forge-Task": task_id,
+        "X-Forge-Lane": lane,
+        "X-Forge-Served-Model": model,
+        "X-Forge-Queue-Model": model,
+        "X-Forge-Mode-Source": mode_source,
+        "X-Forge-Resident-Model": resident or "",
+    }
 
 
 def fingerprint_body(body: dict[str, Any]) -> str:
@@ -67,37 +89,59 @@ async def run_openai_inference(
     body: dict[str, Any],
     ctx: ForgeContext,
     timeout: float | None = None,
+    request_headers: dict[str, str] | None = None,
 ) -> Response:
-    res = await resolve_mode(
-        header_mode=ctx.mode or ("embed" if path.rstrip("/") == "/v1/embeddings" else None),
-        body_mode=body.get("forge_mode"),
-        path=path,
-        body=body,
-        consumer=ctx.consumer,
-    )
-    model = res.model
+    headers = request_headers or {}
+    try:
+        task = resolve_task(
+            header_task=header_task_from_request(headers) or None,
+            body_task=body.get("forge_task") or body.get("task_id"),
+            header_mode=ctx.mode or ("embed" if path.rstrip("/") == "/v1/embeddings" else None),
+            body_mode=body.get("forge_mode"),
+            path=path,
+            body=body,
+        )
+        route = await plan_route(task=task, body=body, ctx=ctx)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    model = route.model
+    res_mode = task.mode
     if model in QUARANTINED_MODELS:
         raise HTTPException(status_code=400, detail=f"Model quarantined: {model}")
 
-    wait = ctx.wait or DEFAULT_WAIT_BY_MODE.get(res.mode, "bounce")
+    wait = ctx.wait or DEFAULT_WAIT_BY_MODE.get(res_mode, "bounce")
     ticket = str(uuid.uuid4())
+    resident = active_snapshot().get("active_model")
     q = await inference_queue.acquire(
-        ticket, hold=(wait == "hold"), timeout_sec=float(DEFAULT_HOLD_TIMEOUT_SEC)
+        ticket,
+        model=model,
+        lane=route.lane,
+        hold=(wait == "hold"),
+        timeout_sec=float(DEFAULT_HOLD_TIMEOUT_SEC),
     )
     if not q.get("ok"):
+        retry = q.get("retry_after_sec", 30)
+        if wait == "bounce":
+            retry = inference_queue.estimate_wait_sec(target_model=model, lane=route.lane)
         insert_request(
             {
                 "ts": time.time(),
                 "consumer": ctx.consumer,
                 "consumer_class": ctx.consumer_class,
-                "mode": res.mode,
+                "mode": res_mode,
                 "requested_model": body.get("model"),
                 "served_model": model,
                 "http_status": 503,
                 "ok": False,
                 "error_class": q.get("reason"),
                 "trace_id": ctx.trace_id,
-                "meta": {"bounced": True, "queue_position": q.get("queue_position")},
+                "meta": {
+                    "bounced": True,
+                    "queue_position": q.get("queue_position"),
+                    "task": task.task_id,
+                    "lane": route.lane,
+                },
             }
         )
         return JSONResponse(
@@ -107,31 +151,49 @@ async def run_openai_inference(
                     "type": "queue_busy",
                     "code": q.get("reason"),
                     "queue_position": q.get("queue_position"),
+                    "suggested_wait_sec": retry,
                 }
             },
             status_code=503,
             headers={
-                "Retry-After": str(q.get("retry_after_sec", 30)),
+                "Retry-After": str(retry),
+                "X-Forge-Suggested-Wait-Sec": str(retry),
                 "X-Forge-Queue-Position": str(q.get("queue_position", 0)),
                 "X-Forge-Wait": wait,
+                **_forge_route_headers(
+                    task_id=task.task_id,
+                    lane=route.lane,
+                    model=model,
+                    mode=res_mode,
+                    mode_source=route.mode_source,
+                    resident=resident,
+                ),
             },
         )
 
     t0 = time.perf_counter()
     infer_t0 = t0
+    swapped = False
     try:
-        ready, swapped, err = await ensure_model(model, res.mode)
-        if not ready:
-            raise HTTPException(status_code=503, detail=err or "model unavailable")
-        proxied = inject_think_false({**body, "model": model}, model)
-        infer_t0 = time.perf_counter()
-        to = float(timeout or body.get("timeout") or DEFAULT_HOLD_TIMEOUT_SEC)
-        status, content, hdrs = await adapter_openai(
-            "POST",
-            path,
-            json.dumps(proxied).encode(),
-            timeout=to,
-        )
+        if route.lane == "external":
+            proxied = {**body, "model": model}
+            to = float(timeout or body.get("timeout") or DEFAULT_HOLD_TIMEOUT_SEC)
+            status, content, hdrs = await openai_chat_via_openwebui(
+                model=model, body=proxied, timeout=to
+            )
+        else:
+            ready, swapped, err = await ensure_model(model, res_mode)
+            if not ready:
+                raise HTTPException(status_code=503, detail=err or "model unavailable")
+            proxied = inject_think_false({**body, "model": model}, model)
+            infer_t0 = time.perf_counter()
+            to = float(timeout or body.get("timeout") or DEFAULT_HOLD_TIMEOUT_SEC)
+            status, content, hdrs = await adapter_openai(
+                "POST",
+                path,
+                json.dumps(proxied).encode(),
+                timeout=to,
+            )
         media = hdrs.get("content-type", "application/json")
         tin = tout = 0
         if media.startswith("application/json"):
@@ -142,17 +204,19 @@ async def run_openai_inference(
                 tout = int(usage.get("completion_tokens") or 0)
             except json.JSONDecodeError:
                 pass
+        infer_ms = int((time.perf_counter() - infer_t0) * 1000)
+        inference_queue.record_infer_ms(infer_ms)
         insert_request(
             {
                 "ts": time.time(),
                 "consumer": ctx.consumer,
                 "consumer_class": ctx.consumer_class,
-                "mode": res.mode,
+                "mode": res_mode,
                 "requested_model": body.get("model"),
                 "served_model": model,
                 "swap": swapped,
                 "queue_wait_ms": q.get("queue_wait_ms", 0),
-                "infer_ms": int((time.perf_counter() - infer_t0) * 1000),
+                "infer_ms": infer_ms,
                 "total_ms": int((time.perf_counter() - t0) * 1000),
                 "prompt_tokens": tin,
                 "completion_tokens": tout,
@@ -160,21 +224,29 @@ async def run_openai_inference(
                 "ok": status < 400,
                 "trace_id": ctx.trace_id,
                 "prompt_fingerprint": fingerprint_body(body),
-                "meta": {"mode_source": res.source, "path": path},
+                "meta": {
+                    "mode_source": route.mode_source,
+                    "task": task.task_id,
+                    "lane": route.lane,
+                    "path": path,
+                },
             }
         )
         return Response(
             content=content,
             status_code=status,
             media_type=media,
-            headers={
-                "X-Forge-Llm-Mode": res.mode,
-                "X-Forge-Served-Model": model,
-                "X-Forge-Mode-Source": res.source,
-            },
+            headers=_forge_route_headers(
+                task_id=task.task_id,
+                lane=route.lane,
+                model=model,
+                mode=res_mode,
+                mode_source=route.mode_source,
+                resident=active_snapshot().get("active_model"),
+            ),
         )
     finally:
-        await inference_queue.release()
+        await inference_queue.release(lane=route.lane)
 
 
 def _native_body_for_mode(body: dict[str, Any], model: str) -> dict[str, Any]:
@@ -210,21 +282,32 @@ async def run_native_inference(
             "model": body.get("model"),
         }
 
-    res = await resolve_mode(
-        header_mode=ctx.mode,
-        body_mode=body.get("forge_mode"),
-        path=pseudo_path,
-        body=pseudo_body,
-        consumer=ctx.consumer,
-    )
-    model = res.model
+    wait = ctx.wait or DEFAULT_WAIT_BY_MODE.get(res_mode, "bounce")
+    ticket = str(uuid.uuid4())
+    try:
+        task = resolve_task(
+            header_task=None,
+            body_task=body.get("forge_task") or body.get("task_id"),
+            header_mode=ctx.mode,
+            body_mode=body.get("forge_mode"),
+            path=pseudo_path,
+            body=pseudo_body,
+        )
+        route = await plan_route(task=task, body=pseudo_body, ctx=ctx)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    model = route.model
+    res_mode = task.mode
     if model in QUARANTINED_MODELS:
         raise HTTPException(status_code=400, detail=f"Model quarantined: {model}")
 
-    wait = ctx.wait or DEFAULT_WAIT_BY_MODE.get(res.mode, "bounce")
-    ticket = str(uuid.uuid4())
     q = await inference_queue.acquire(
-        ticket, hold=(wait == "hold"), timeout_sec=float(DEFAULT_HOLD_TIMEOUT_SEC)
+        ticket,
+        model=model,
+        lane=route.lane,
+        hold=(wait == "hold"),
+        timeout_sec=float(DEFAULT_HOLD_TIMEOUT_SEC),
     )
     if not q.get("ok"):
         return JSONResponse(
@@ -241,7 +324,7 @@ async def run_native_inference(
 
     t0 = time.perf_counter()
     try:
-        ready, swapped, err = await ensure_model(model, res.mode)
+        ready, swapped, err = await ensure_model(model, res_mode)
         if not ready:
             raise HTTPException(status_code=503, detail=err or "model unavailable")
         proxied = _native_body_for_mode(body, model)
@@ -256,7 +339,7 @@ async def run_native_inference(
                 "ts": time.time(),
                 "consumer": ctx.consumer,
                 "consumer_class": ctx.consumer_class,
-                "mode": res.mode,
+                "mode": res_mode,
                 "requested_model": body.get("model"),
                 "served_model": model,
                 "swap": swapped,
@@ -264,7 +347,7 @@ async def run_native_inference(
                 "http_status": status,
                 "ok": status < 400,
                 "trace_id": ctx.trace_id,
-                "meta": {"mode_source": res.source, "path": path},
+                "meta": {"mode_source": route.mode_source, "task": task.task_id, "path": path},
             }
         )
         return Response(
@@ -272,9 +355,10 @@ async def run_native_inference(
             status_code=status,
             media_type=hdrs.get("content-type", "application/json"),
             headers={
-                "X-Forge-Llm-Mode": res.mode,
+                "X-Forge-Llm-Mode": res_mode,
+                "X-Forge-Task": task.task_id,
                 "X-Forge-Served-Model": model,
             },
         )
     finally:
-        await inference_queue.release()
+        await inference_queue.release(lane=route.lane)

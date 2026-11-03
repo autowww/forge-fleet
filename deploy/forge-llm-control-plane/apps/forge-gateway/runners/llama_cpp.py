@@ -26,6 +26,10 @@ class LlamaCppAdapter(OllamaAdapter):
             return {"ok": False, "error": str(exc)[:200]}
         return {"ok": False, "status_code": r.status_code}
 
+    async def resident_models(self) -> list[str]:
+        names = await self.list_models()
+        return names[:1] if names else []
+
     async def warm(self, model: str) -> tuple[bool, str | None]:
         body = {
             "model": model,

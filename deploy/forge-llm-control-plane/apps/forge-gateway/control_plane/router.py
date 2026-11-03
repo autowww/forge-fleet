@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 import time
 import uuid
 from typing import Any
@@ -20,6 +21,7 @@ from control_plane.config import (
     QUARANTINED_MODELS,
 )
 from control_plane.context import ForgeContext
+from control_plane.external_lane import openai_chat_via_openwebui
 from control_plane.finops import suggestions
 from control_plane.modes import (
     DEFAULT_WAIT_BY_MODE,
@@ -28,7 +30,9 @@ from control_plane.modes import (
     normalize_mode,
 )
 from control_plane.queue_manager import inference_queue
+from control_plane.route_select import header_task_from_request, plan_route
 from control_plane.slot_manager import active_snapshot, ensure_model
+from control_plane.task_resolve import resolve_task
 from control_plane.store import (
     get_job,
     insert_feedback,
@@ -51,18 +55,26 @@ async def _run_chat_job(
     ctx: ForgeContext,
     resolution_mode: ModeId,
     model: str,
+    *,
+    lane: str = "local",
+    task_id: str = "chat",
 ) -> None:
     update_job(job_id, status="running")
     t0 = time.perf_counter()
+    swapped = False
     try:
-        ready, swapped, err = await ensure_model(model, resolution_mode)
-        if not ready:
-            update_job(job_id, status="failed", error=err or "model_unavailable")
-            return
-        proxied = inject_think_false({**body, "model": model}, model)
-        status, content, hdrs = await adapter_openai(
-            "POST", "/v1/chat/completions", json.dumps(proxied).encode()
-        )
+        if lane == "external":
+            proxied = {**body, "model": model}
+            status, content, hdrs = await openai_chat_via_openwebui(model=model, body=proxied)
+        else:
+            ready, swapped, err = await ensure_model(model, resolution_mode)
+            if not ready:
+                update_job(job_id, status="failed", error=err or "model_unavailable")
+                return
+            proxied = inject_think_false({**body, "model": model}, model)
+            status, content, hdrs = await adapter_openai(
+                "POST", "/v1/chat/completions", json.dumps(proxied).encode()
+            )
         data = json.loads(content) if hdrs.get("content-type", "").startswith("application/json") else {}
         if status >= 400:
             update_job(job_id, status="failed", error=content.decode()[:500], completed_ts=time.time())
@@ -97,7 +109,7 @@ async def _run_chat_job(
                 "ok": status < 400,
                 "trace_id": ctx.trace_id,
                 "prompt_fingerprint": fingerprint_body(body),
-                "meta": {"async": True, "job_id": job_id},
+                "meta": {"async": True, "job_id": job_id, "lane": lane, "task": task_id},
             }
         )
     except Exception as exc:  # noqa: BLE001
@@ -197,7 +209,29 @@ async def openai_models() -> dict[str, Any]:
     status, content, hdrs = await adapter_openai("GET", "/v1/models", b"")
     if status >= 400:
         raise HTTPException(status_code=status, detail=content.decode()[:500])
-    return json.loads(content)
+    data = json.loads(content)
+    if os.environ.get("FORGE_LLM_EXPOSE_PINNED_MODELS_ONLY", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    ):
+        allowed: set[str] = set()
+        try:
+            from control_plane.catalog_select import enabled_pins
+
+            allowed = {p[0] for p in enabled_pins()}
+        except ImportError:
+            from runners.loader import load_runner_config
+
+            cfg = load_runner_config()
+            pins = getattr(cfg, "artifact_pins", ()) or ()
+            allowed = set(cfg.models) | {
+                p.runner_model_id for p in pins if getattr(p, "enabled", True)
+            }
+        models = data.get("data") or []
+        if allowed and isinstance(models, list):
+            data["data"] = [m for m in models if isinstance(m, dict) and m.get("id") in allowed]
+    return data
 
 
 @router.post("/v1/embeddings")
@@ -212,6 +246,7 @@ async def openai_embeddings(request: Request) -> Response:
         path="/v1/embeddings",
         body=body,
         ctx=ctx,
+        request_headers=dict(request.headers),
     )
 
 
@@ -221,20 +256,28 @@ async def openai_chat_completions(
     background_tasks: BackgroundTasks,
 ) -> Response:
     body_bytes = await request.body()
-    ctx = ForgeContext.from_headers(dict(request.headers))
+    hdrs = dict(request.headers)
+    ctx = ForgeContext.from_headers(hdrs)
     try:
         body = json.loads(body_bytes) if body_bytes else {}
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=400, detail="Invalid JSON") from exc
 
-    res = await resolve_mode(
-        header_mode=ctx.mode,
-        body_mode=body.get("forge_mode"),
-        path="/v1/chat/completions",
-        body=body,
-        consumer=ctx.consumer,
-    )
-    model = res.model
+    try:
+        task = resolve_task(
+            header_task=header_task_from_request(hdrs),
+            body_task=body.get("forge_task") or body.get("task_id"),
+            header_mode=ctx.mode,
+            body_mode=body.get("forge_mode"),
+            path="/v1/chat/completions",
+            body=body,
+        )
+        route = await plan_route(task=task, body=body, ctx=ctx)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    model = route.model
+    res_mode = task.mode
     if model in QUARANTINED_MODELS:
         raise HTTPException(status_code=400, detail=f"Model quarantined: {model}")
 
@@ -247,7 +290,7 @@ async def openai_chat_completions(
         job_id = insert_job(
             {
                 "consumer": ctx.consumer,
-                "mode": res.mode,
+                "mode": res_mode,
                 "model": model,
                 "webhook_url": ctx.webhook_url,
                 "webhook_secret": ctx.webhook_secret,
@@ -255,7 +298,14 @@ async def openai_chat_completions(
             }
         )
         background_tasks.add_task(
-            _run_chat_job, job_id, body, ctx, res.mode, model
+            _run_chat_job,
+            job_id,
+            body,
+            ctx,
+            res_mode,
+            model,
+            lane=route.lane,
+            task_id=task.task_id,
         )
         return JSONResponse(
             {"job_id": job_id, "status": "queued"},
@@ -268,4 +318,5 @@ async def openai_chat_completions(
         body=body,
         ctx=ctx,
         timeout=float(body.get("timeout") or DEFAULT_HOLD_TIMEOUT_SEC),
+        request_headers=hdrs,
     )

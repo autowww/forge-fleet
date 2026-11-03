@@ -40,6 +40,23 @@ class OllamaAdapter:
                     out.append(str(m["name"]))
             return out
 
+    async def resident_models(self) -> list[str]:
+        url = f"{self.base_url}/api/ps"
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                r = await client.get(url)
+                if r.status_code >= 400:
+                    return []
+                data = r.json()
+        except httpx.RequestError:
+            return []
+        models = data.get("models") or []
+        out: list[str] = []
+        for m in models:
+            if isinstance(m, dict) and m.get("name"):
+                out.append(str(m["name"]))
+        return out
+
     async def warm(self, model: str) -> tuple[bool, str | None]:
         url = f"{self.base_url}/api/generate"
         payload: dict[str, Any] = {

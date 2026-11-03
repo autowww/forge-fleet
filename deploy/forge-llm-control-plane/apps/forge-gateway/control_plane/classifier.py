@@ -108,7 +108,17 @@ async def resolve_mode(
         text = " ".join(
             str(m.get("content", "")) for m in body["messages"] if isinstance(m, dict)
         )
-    llm = await classify_by_llm(consumer=consumer, text=text)
+    llm = None
+    try:
+        from control_plane.residency import resident_models
+        from runners.loader import load_runner_config
+
+        cfg = load_runner_config()
+        residents = await resident_models()
+        if cfg.classifier_model in residents:
+            llm = await classify_by_llm(consumer=consumer, text=text)
+    except (ImportError, OSError, ValueError):
+        llm = None
     if llm:
         return llm
     return ModeResolution("interactive", model_for_mode("interactive"), "default")

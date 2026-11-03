@@ -17,6 +17,9 @@ rsync -a --delete \
 
 mkdir -p "$DEST/configs" "$DEST/scripts"
 rsync -a "$SRC/configs/runner.granite.yaml" "$SRC/configs/runner.example.yaml" "$DEST/configs/"
+if [[ -d "$SRC/configs/catalog" ]]; then
+  rsync -a --delete "$SRC/configs/catalog/" "$DEST/configs/catalog/"
+fi
 rsync -a "$SRC/scripts/apply-runner-host.sh" "$DEST/scripts/"
 chmod +x "$DEST/scripts/apply-runner-host.sh"
 

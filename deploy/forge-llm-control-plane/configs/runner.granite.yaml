@@ -4,9 +4,31 @@ bind: 127.0.0.1:11434
 runtime: {}
 exclusive_slot: false
 classifier_model: ibm/granite4:tiny-h
+free_vram_gb: 4
+catalog_path: catalog/forge_llm_catalog_2026-11-03.json
+coalesce_sec: 3
+starve_sec: 120
+external:
+  openwebui_base_url: http://127.0.0.1:19808
+  chatgpt_model: granite-chatgpt-primary
+  gemini_model: granite-gemini-primary
+  max_concurrent: 4
 quarantined_models:
   - ctx-unlim-qwen25-coder-7b:latest
   - qwen2.5-coder:7b
+artifact_pins:
+  - runner_model_id: ctx-unlim-qwen3-8b:latest
+    enabled: true
+  - runner_model_id: qwen3:30b-a3b
+    enabled: true
+  - runner_model_id: ctx-unlim-qwen3-14b:latest
+    enabled: true
+  - runner_model_id: ctx-unlim-granite41-8b:latest
+    enabled: true
+  - runner_model_id: nomic-embed-text:latest
+    enabled: true
+  - runner_model_id: ibm/granite4:tiny-h
+    enabled: true
 models:
   - qwen3:30b-a3b
   - ctx-unlim-qwen3-8b:latest

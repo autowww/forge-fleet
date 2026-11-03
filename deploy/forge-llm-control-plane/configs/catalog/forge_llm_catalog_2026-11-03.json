@@ -1,0 +1,5930 @@
+{
+  "schema": "forge-llm.model-catalog.v0.2",
+  "date": "2026-11-03",
+  "scope": "local-inference and separately marked adaptation",
+  "purpose": "Discovery shortlist, NOT benchmark or approval for production",
+  "vram_tiers_gb": [
+    2,
+    4,
+    8,
+    16,
+    24,
+    32,
+    48,
+    64,
+    96
+  ],
+  "status_legend": {
+    "candidate": "qualitative short-list, fit is not guaranteed",
+    "tight_or_offload": "requires aggressive quantization, resource reductions, or offload; not auto-schedulable",
+    "low_quality_fallback": "expected insufficient quality for difficult production tasks"
+  },
+  "fit_policy": {
+    "basis": "conservative nominal VRAM tiers for one request and short contexts; NOT memory measurement",
+    "quantization": "Q4 for generative LLM unless reference_precision overrides; no implicit BF16 or Q8 substitution",
+    "minimum_host_free_vram_ratio": 0.15,
+    "default_context_tokens": 4096,
+    "default_active_requests": 1,
+    "extra_kv_headroom_required": true,
+    "moe_memory_based_on_total_parameters": true,
+    "multimodal_requires_separate_measured_pipeline_profile": true,
+    "no_model_is_deployable_until_hardware_runtime_probe": true,
+    "never_combine_gpu_vram_without_explicit_sharding": true
+  },
+  "metrics_required_for_promotion": [
+    "model_revision",
+    "weight_file_sha256",
+    "quantization_file_revision",
+    "runtime_version",
+    "gpu_uuid",
+    "compute_capability",
+    "gpu_count",
+    "actual_free_vram_mib",
+    "measured_peak_vram_mib",
+    "context_length",
+    "active_requests",
+    "prompt_tokens",
+    "output_tokens",
+    "prefill_tokens_per_second",
+    "decode_tokens_per_second",
+    "p50_latency_ms",
+    "p95_latency_ms",
+    "task_quality_score",
+    "oom_rate",
+    "error_rate",
+    "license_approval",
+    "pass_fail_evidence"
+  ],
+  "models": [
+    {
+      "alias": "Q08",
+      "model_id": "Qwen/Qwen3.5-0.8B",
+      "source_url": "https://huggingface.co/Qwen/Qwen3.5-0.8B",
+      "total_parameters_b": 0.8,
+      "architecture": "dense",
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "capabilities": [
+        "routing",
+        "classify",
+        "extract",
+        "reason",
+        "tool",
+        "summary"
+      ],
+      "estimated_min_vram_tier_gb": 2,
+      "reference_precision": "Q4",
+      "candidate_runtimes": [
+        "llama.cpp",
+        "vLLM",
+        "SGLang"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "Q2",
+      "model_id": "Qwen/Qwen3.5-2B",
+      "source_url": "https://huggingface.co/Qwen/Qwen3.5-2B",
+      "total_parameters_b": 2,
+      "architecture": "dense",
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "capabilities": [
+        "routing",
+        "classify",
+        "extract",
+        "reason",
+        "tool",
+        "summary",
+        "translate"
+      ],
+      "estimated_min_vram_tier_gb": 4,
+      "reference_precision": "Q4",
+      "candidate_runtimes": [
+        "llama.cpp",
+        "vLLM",
+        "SGLang"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "Q4",
+      "model_id": "Qwen/Qwen3.5-4B",
+      "source_url": "https://huggingface.co/Qwen/Qwen3.5-4B",
+      "total_parameters_b": 4,
+      "architecture": "dense",
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "capabilities": [
+        "classify",
+        "extract",
+        "reason",
+        "tool",
+        "summary",
+        "translate",
+        "vision"
+      ],
+      "estimated_min_vram_tier_gb": 8,
+      "reference_precision": "Q4",
+      "candidate_runtimes": [
+        "llama.cpp",
+        "vLLM",
+        "SGLang"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "4GB needs a separately validated aggressive profile",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "Q9",
+      "model_id": "Qwen/Qwen3.5-9B",
+      "source_url": "https://huggingface.co/Qwen/Qwen3.5-9B",
+      "total_parameters_b": 9,
+      "architecture": "dense",
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "capabilities": [
+        "classify",
+        "extract",
+        "reason",
+        "tool",
+        "summary",
+        "translate",
+        "vision",
+        "code"
+      ],
+      "estimated_min_vram_tier_gb": 8,
+      "reference_precision": "Q4",
+      "candidate_runtimes": [
+        "llama.cpp",
+        "vLLM",
+        "SGLang"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "8GB Q4 tight; 16GB recommended",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "Q27",
+      "model_id": "Qwen/Qwen3.5-27B",
+      "source_url": "https://huggingface.co/Qwen/Qwen3.5-27B",
+      "total_parameters_b": 27,
+      "architecture": "dense",
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "capabilities": [
+        "extract",
+        "reason",
+        "tool",
+        "summary",
+        "translate",
+        "vision",
+        "code"
+      ],
+      "estimated_min_vram_tier_gb": 24,
+      "reference_precision": "Q4",
+      "candidate_runtimes": [
+        "llama.cpp",
+        "vLLM",
+        "SGLang"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "Q35",
+      "model_id": "Qwen/Qwen3.5-35B-A3B",
+      "source_url": "https://huggingface.co/Qwen/Qwen3.5-35B-A3B",
+      "total_parameters_b": 35,
+      "architecture": "moe-3b-active",
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "capabilities": [
+        "extract",
+        "reason",
+        "tool",
+        "summary",
+        "vision",
+        "code"
+      ],
+      "estimated_min_vram_tier_gb": 24,
+      "reference_precision": "Q4",
+      "candidate_runtimes": [
+        "llama.cpp",
+        "vLLM",
+        "SGLang"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "24GB tight for short context",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "Q36",
+      "model_id": "Qwen/Qwen3.6-35B-A3B",
+      "source_url": "https://huggingface.co/Qwen/Qwen3.6-35B-A3B",
+      "total_parameters_b": 35,
+      "architecture": "moe-3b-active",
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "capabilities": [
+        "extract",
+        "reason",
+        "tool",
+        "summary",
+        "vision",
+        "code"
+      ],
+      "estimated_min_vram_tier_gb": 24,
+      "reference_precision": "Q4",
+      "candidate_runtimes": [
+        "llama.cpp",
+        "vLLM",
+        "SGLang"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "24GB tight; coding focused",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "Q38",
+      "model_id": "Qwen/Qwen3.8-27B",
+      "source_url": "https://huggingface.co/Qwen/Qwen3.8-27B",
+      "total_parameters_b": 27,
+      "architecture": "dense",
+      "input_modalities": [
+        "text",
+        "image",
+        "video"
+      ],
+      "capabilities": [
+        "extract",
+        "reason",
+        "tool",
+        "summary",
+        "vision",
+        "code"
+      ],
+      "estimated_min_vram_tier_gb": 24,
+      "reference_precision": "Q4",
+      "candidate_runtimes": [
+        "llama.cpp",
+        "vLLM",
+        "SGLang"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "Q122",
+      "model_id": "Qwen/Qwen3.5-122B-A10B",
+      "source_url": "https://huggingface.co/Qwen/Qwen3.5-122B-A10B",
+      "total_parameters_b": 122,
+      "architecture": "moe-10b-active",
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "capabilities": [
+        "reason",
+        "tool",
+        "summary",
+        "vision",
+        "code"
+      ],
+      "estimated_min_vram_tier_gb": 96,
+      "reference_precision": "Q4",
+      "candidate_runtimes": [
+        "llama.cpp",
+        "vLLM",
+        "SGLang"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "Q4 may be tight at 96 with multimodal/long context",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "GN2",
+      "model_id": "google/gemma-4-E2B-it",
+      "source_url": "https://huggingface.co/google/gemma-4-E2B-it",
+      "total_parameters_b": 5,
+      "architecture": "dense-ple",
+      "input_modalities": [
+        "text",
+        "image",
+        "audio"
+      ],
+      "capabilities": [
+        "classify",
+        "reason",
+        "tool",
+        "vision",
+        "asr",
+        "translate"
+      ],
+      "estimated_min_vram_tier_gb": 4,
+      "reference_precision": "Q4",
+      "candidate_runtimes": [
+        "llama.cpp",
+        "vLLM",
+        "transformers"
+      ],
+      "license_gate": "gemma-license",
+      "notes": "E2B is effective size, not actual total parameter count",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "GN4",
+      "model_id": "google/gemma-4-E4B-it",
+      "source_url": "https://huggingface.co/google/gemma-4-E4B-it",
+      "total_parameters_b": 8,
+      "architecture": "dense-ple",
+      "input_modalities": [
+        "text",
+        "image",
+        "audio"
+      ],
+      "capabilities": [
+        "classify",
+        "reason",
+        "tool",
+        "vision",
+        "asr",
+        "translate"
+      ],
+      "estimated_min_vram_tier_gb": 8,
+      "reference_precision": "Q4",
+      "candidate_runtimes": [
+        "llama.cpp",
+        "vLLM",
+        "transformers"
+      ],
+      "license_gate": "gemma-license",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "G12",
+      "model_id": "google/gemma-4-12B-it",
+      "source_url": "https://huggingface.co/google/gemma-4-12B-it",
+      "total_parameters_b": 12,
+      "architecture": "dense",
+      "input_modalities": [
+        "text",
+        "image",
+        "audio"
+      ],
+      "capabilities": [
+        "reason",
+        "tool",
+        "summary",
+        "vision",
+        "asr",
+        "translate",
+        "code"
+      ],
+      "estimated_min_vram_tier_gb": 16,
+      "reference_precision": "Q4",
+      "candidate_runtimes": [
+        "llama.cpp",
+        "vLLM",
+        "transformers"
+      ],
+      "license_gate": "gemma-license",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "G26",
+      "model_id": "google/gemma-4-26B-A4B-it",
+      "source_url": "https://huggingface.co/google/gemma-4-26B-A4B-it",
+      "total_parameters_b": 26,
+      "architecture": "moe-4b-active",
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "capabilities": [
+        "reason",
+        "tool",
+        "summary",
+        "vision",
+        "code"
+      ],
+      "estimated_min_vram_tier_gb": 24,
+      "reference_precision": "Q4",
+      "candidate_runtimes": [
+        "llama.cpp",
+        "vLLM",
+        "transformers"
+      ],
+      "license_gate": "gemma-license",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "G31",
+      "model_id": "google/gemma-4-31B-it",
+      "source_url": "https://huggingface.co/google/gemma-4-31B-it",
+      "total_parameters_b": 31,
+      "architecture": "dense",
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "capabilities": [
+        "reason",
+        "tool",
+        "summary",
+        "vision",
+        "code"
+      ],
+      "estimated_min_vram_tier_gb": 24,
+      "reference_precision": "Q4",
+      "candidate_runtimes": [
+        "llama.cpp",
+        "vLLM",
+        "transformers"
+      ],
+      "license_gate": "gemma-license",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "OSS20",
+      "model_id": "openai/gpt-oss-20b",
+      "source_url": "https://huggingface.co/openai/gpt-oss-20b",
+      "total_parameters_b": 21,
+      "architecture": "moe-3.6b-active",
+      "input_modalities": [
+        "text"
+      ],
+      "capabilities": [
+        "reason",
+        "tool",
+        "code",
+        "summary"
+      ],
+      "estimated_min_vram_tier_gb": 16,
+      "reference_precision": "MXFP4",
+      "candidate_runtimes": [
+        "vLLM",
+        "SGLang",
+        "llama.cpp"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "Harmony format is required; MXFP4 hardware performance varies",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "OSS120",
+      "model_id": "openai/gpt-oss-120b",
+      "source_url": "https://huggingface.co/openai/gpt-oss-120b",
+      "total_parameters_b": 117,
+      "architecture": "moe-5.1b-active",
+      "input_modalities": [
+        "text"
+      ],
+      "capabilities": [
+        "reason",
+        "tool",
+        "code",
+        "summary"
+      ],
+      "estimated_min_vram_tier_gb": 96,
+      "reference_precision": "MXFP4",
+      "candidate_runtimes": [
+        "vLLM",
+        "SGLang",
+        "llama.cpp"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "Intended for 80GB-class deployment; 64GB unsupported without special offload",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "NEXT80",
+      "model_id": "Qwen/Qwen3-Next-80B-A3B-Thinking",
+      "source_url": "https://huggingface.co/Qwen/Qwen3-Next-80B-A3B-Thinking",
+      "total_parameters_b": 80,
+      "architecture": "moe-3b-active",
+      "input_modalities": [
+        "text"
+      ],
+      "capabilities": [
+        "reason",
+        "tool",
+        "summary"
+      ],
+      "estimated_min_vram_tier_gb": 48,
+      "reference_precision": "Q3",
+      "candidate_runtimes": [
+        "vLLM",
+        "SGLang",
+        "llama.cpp"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "48GB only a tight Q3 candidate",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "LC1",
+      "model_id": "meta-llama/Llama-3.2-1B-Instruct",
+      "source_url": "https://huggingface.co/meta-llama/Llama-3.2-1B-Instruct",
+      "total_parameters_b": 1,
+      "architecture": "dense",
+      "input_modalities": [
+        "text"
+      ],
+      "capabilities": [
+        "classify",
+        "summary",
+        "tool"
+      ],
+      "estimated_min_vram_tier_gb": 2,
+      "reference_precision": "Q4",
+      "candidate_runtimes": [
+        "llama.cpp",
+        "vLLM",
+        "SGLang"
+      ],
+      "license_gate": "llama-community-license",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "LC3",
+      "model_id": "meta-llama/Llama-3.2-3B-Instruct",
+      "source_url": "https://huggingface.co/meta-llama/Llama-3.2-3B-Instruct",
+      "total_parameters_b": 3,
+      "architecture": "dense",
+      "input_modalities": [
+        "text"
+      ],
+      "capabilities": [
+        "classify",
+        "summary",
+        "tool"
+      ],
+      "estimated_min_vram_tier_gb": 4,
+      "reference_precision": "Q4",
+      "candidate_runtimes": [
+        "llama.cpp",
+        "vLLM",
+        "SGLang"
+      ],
+      "license_gate": "llama-community-license",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "L70",
+      "model_id": "meta-llama/Llama-3.3-70B-Instruct",
+      "source_url": "https://huggingface.co/meta-llama/Llama-3.3-70B-Instruct",
+      "total_parameters_b": 70,
+      "architecture": "dense",
+      "input_modalities": [
+        "text"
+      ],
+      "capabilities": [
+        "reason",
+        "summary",
+        "code"
+      ],
+      "estimated_min_vram_tier_gb": 48,
+      "reference_precision": "Q4",
+      "candidate_runtimes": [
+        "llama.cpp",
+        "vLLM",
+        "SGLang"
+      ],
+      "license_gate": "llama-community-license",
+      "notes": "48GB tight, 64GB safer",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "MIN3",
+      "model_id": "mistralai/Ministral-3-3B-Instruct-2512",
+      "source_url": "https://huggingface.co/mistralai/Ministral-3-3B-Instruct-2512",
+      "total_parameters_b": 3,
+      "architecture": "dense",
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "capabilities": [
+        "classify",
+        "tool",
+        "summary",
+        "vision"
+      ],
+      "estimated_min_vram_tier_gb": 4,
+      "reference_precision": "Q4",
+      "candidate_runtimes": [
+        "llama.cpp",
+        "vLLM",
+        "SGLang"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "MIN8",
+      "model_id": "mistralai/Ministral-3-8B-Instruct-2512",
+      "source_url": "https://huggingface.co/mistralai/Ministral-3-8B-Instruct-2512",
+      "total_parameters_b": 8,
+      "architecture": "dense",
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "capabilities": [
+        "reason",
+        "tool",
+        "summary",
+        "vision"
+      ],
+      "estimated_min_vram_tier_gb": 8,
+      "reference_precision": "Q4",
+      "candidate_runtimes": [
+        "llama.cpp",
+        "vLLM",
+        "SGLang"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "MIN14",
+      "model_id": "mistralai/Ministral-3-14B-Instruct-2512",
+      "source_url": "https://huggingface.co/mistralai/Ministral-3-14B-Instruct-2512",
+      "total_parameters_b": 14,
+      "architecture": "dense",
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "capabilities": [
+        "reason",
+        "tool",
+        "summary",
+        "vision",
+        "code"
+      ],
+      "estimated_min_vram_tier_gb": 16,
+      "reference_precision": "Q4",
+      "candidate_runtimes": [
+        "llama.cpp",
+        "vLLM",
+        "SGLang"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "C05",
+      "model_id": "Qwen/Qwen2.5-Coder-0.5B-Instruct",
+      "source_url": "https://huggingface.co/Qwen/Qwen2.5-Coder-0.5B-Instruct",
+      "total_parameters_b": 0.5,
+      "architecture": "dense",
+      "input_modalities": [
+        "text"
+      ],
+      "capabilities": [
+        "code"
+      ],
+      "estimated_min_vram_tier_gb": 2,
+      "reference_precision": "Q4",
+      "candidate_runtimes": [
+        "llama.cpp",
+        "vLLM",
+        "SGLang"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "C15",
+      "model_id": "Qwen/Qwen2.5-Coder-1.5B-Instruct",
+      "source_url": "https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct",
+      "total_parameters_b": 1.5,
+      "architecture": "dense",
+      "input_modalities": [
+        "text"
+      ],
+      "capabilities": [
+        "code"
+      ],
+      "estimated_min_vram_tier_gb": 4,
+      "reference_precision": "Q4",
+      "candidate_runtimes": [
+        "llama.cpp",
+        "vLLM",
+        "SGLang"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "C3",
+      "model_id": "Qwen/Qwen2.5-Coder-3B-Instruct",
+      "source_url": "https://huggingface.co/Qwen/Qwen2.5-Coder-3B-Instruct",
+      "total_parameters_b": 3,
+      "architecture": "dense",
+      "input_modalities": [
+        "text"
+      ],
+      "capabilities": [
+        "code"
+      ],
+      "estimated_min_vram_tier_gb": 4,
+      "reference_precision": "Q4",
+      "candidate_runtimes": [
+        "llama.cpp",
+        "vLLM",
+        "SGLang"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "C7",
+      "model_id": "Qwen/Qwen2.5-Coder-7B-Instruct",
+      "source_url": "https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct",
+      "total_parameters_b": 7,
+      "architecture": "dense",
+      "input_modalities": [
+        "text"
+      ],
+      "capabilities": [
+        "code"
+      ],
+      "estimated_min_vram_tier_gb": 8,
+      "reference_precision": "Q4",
+      "candidate_runtimes": [
+        "llama.cpp",
+        "vLLM",
+        "SGLang"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "C14",
+      "model_id": "Qwen/Qwen2.5-Coder-14B-Instruct",
+      "source_url": "https://huggingface.co/Qwen/Qwen2.5-Coder-14B-Instruct",
+      "total_parameters_b": 14,
+      "architecture": "dense",
+      "input_modalities": [
+        "text"
+      ],
+      "capabilities": [
+        "code"
+      ],
+      "estimated_min_vram_tier_gb": 16,
+      "reference_precision": "Q4",
+      "candidate_runtimes": [
+        "llama.cpp",
+        "vLLM",
+        "SGLang"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "C32",
+      "model_id": "Qwen/Qwen2.5-Coder-32B-Instruct",
+      "source_url": "https://huggingface.co/Qwen/Qwen2.5-Coder-32B-Instruct",
+      "total_parameters_b": 32,
+      "architecture": "dense",
+      "input_modalities": [
+        "text"
+      ],
+      "capabilities": [
+        "code"
+      ],
+      "estimated_min_vram_tier_gb": 24,
+      "reference_precision": "Q4",
+      "candidate_runtimes": [
+        "llama.cpp",
+        "vLLM",
+        "SGLang"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "C30",
+      "model_id": "Qwen/Qwen3-Coder-30B-A3B-Instruct",
+      "source_url": "https://huggingface.co/Qwen/Qwen3-Coder-30B-A3B-Instruct",
+      "total_parameters_b": 30,
+      "architecture": "moe-3b-active",
+      "input_modalities": [
+        "text"
+      ],
+      "capabilities": [
+        "code",
+        "tool",
+        "reason"
+      ],
+      "estimated_min_vram_tier_gb": 24,
+      "reference_precision": "Q4",
+      "candidate_runtimes": [
+        "llama.cpp",
+        "vLLM",
+        "SGLang"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "24GB tight; 32GB recommended",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "CN80",
+      "model_id": "Qwen/Qwen3-Coder-Next",
+      "source_url": "https://huggingface.co/Qwen/Qwen3-Coder-Next",
+      "total_parameters_b": 80,
+      "architecture": "moe-3b-active",
+      "input_modalities": [
+        "text"
+      ],
+      "capabilities": [
+        "code",
+        "tool"
+      ],
+      "estimated_min_vram_tier_gb": 48,
+      "reference_precision": "Q3",
+      "candidate_runtimes": [
+        "llama.cpp",
+        "vLLM",
+        "SGLang"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "Non-thinking; Q3 needed for 48GB; Q4 generally 64GB",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "EG300",
+      "model_id": "google/embeddinggemma-300m",
+      "source_url": "https://huggingface.co/google/embeddinggemma-300m",
+      "total_parameters_b": 0.3,
+      "architecture": "encoder",
+      "input_modalities": [
+        "text"
+      ],
+      "capabilities": [
+        "embedding"
+      ],
+      "estimated_min_vram_tier_gb": 2,
+      "reference_precision": "FP16",
+      "candidate_runtimes": [
+        "sentence-transformers",
+        "ONNX"
+      ],
+      "license_gate": "gemma-license",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "EG2",
+      "model_id": "google/embeddinggemma-2",
+      "source_url": "https://huggingface.co/google/embeddinggemma-2",
+      "total_parameters_b": 0.74,
+      "architecture": "encoder",
+      "input_modalities": [
+        "text"
+      ],
+      "capabilities": [
+        "embedding"
+      ],
+      "estimated_min_vram_tier_gb": 2,
+      "reference_precision": "FP16",
+      "candidate_runtimes": [
+        "sentence-transformers",
+        "transformers"
+      ],
+      "license_gate": "gemma-license",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "BM3",
+      "model_id": "BAAI/bge-m3",
+      "source_url": "https://huggingface.co/BAAI/bge-m3",
+      "total_parameters_b": 0.57,
+      "architecture": "encoder",
+      "input_modalities": [
+        "text"
+      ],
+      "capabilities": [
+        "embedding",
+        "hybrid",
+        "code_search"
+      ],
+      "estimated_min_vram_tier_gb": 2,
+      "reference_precision": "FP16",
+      "candidate_runtimes": [
+        "sentence-transformers",
+        "FlagEmbedding",
+        "ONNX"
+      ],
+      "license_gate": "mit",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "E06",
+      "model_id": "Qwen/Qwen3-Embedding-0.6B",
+      "source_url": "https://huggingface.co/Qwen/Qwen3-Embedding-0.6B",
+      "total_parameters_b": 0.6,
+      "architecture": "encoder",
+      "input_modalities": [
+        "text"
+      ],
+      "capabilities": [
+        "embedding",
+        "code_search"
+      ],
+      "estimated_min_vram_tier_gb": 2,
+      "reference_precision": "FP16",
+      "candidate_runtimes": [
+        "sentence-transformers",
+        "vLLM",
+        "transformers"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "E4",
+      "model_id": "Qwen/Qwen3-Embedding-4B",
+      "source_url": "https://huggingface.co/Qwen/Qwen3-Embedding-4B",
+      "total_parameters_b": 4,
+      "architecture": "encoder",
+      "input_modalities": [
+        "text"
+      ],
+      "capabilities": [
+        "embedding",
+        "code_search"
+      ],
+      "estimated_min_vram_tier_gb": 16,
+      "reference_precision": "FP16",
+      "candidate_runtimes": [
+        "sentence-transformers",
+        "vLLM",
+        "transformers"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "E8",
+      "model_id": "Qwen/Qwen3-Embedding-8B",
+      "source_url": "https://huggingface.co/Qwen/Qwen3-Embedding-8B",
+      "total_parameters_b": 8,
+      "architecture": "encoder",
+      "input_modalities": [
+        "text"
+      ],
+      "capabilities": [
+        "embedding",
+        "code_search"
+      ],
+      "estimated_min_vram_tier_gb": 24,
+      "reference_precision": "FP16",
+      "candidate_runtimes": [
+        "sentence-transformers",
+        "vLLM",
+        "transformers"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "R06",
+      "model_id": "Qwen/Qwen3-Reranker-0.6B",
+      "source_url": "https://huggingface.co/Qwen/Qwen3-Reranker-0.6B",
+      "total_parameters_b": 0.6,
+      "architecture": "cross-encoder",
+      "input_modalities": [
+        "text"
+      ],
+      "capabilities": [
+        "rerank"
+      ],
+      "estimated_min_vram_tier_gb": 2,
+      "reference_precision": "FP16",
+      "candidate_runtimes": [
+        "transformers",
+        "vLLM"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "R4",
+      "model_id": "Qwen/Qwen3-Reranker-4B",
+      "source_url": "https://huggingface.co/Qwen/Qwen3-Reranker-4B",
+      "total_parameters_b": 4,
+      "architecture": "cross-encoder",
+      "input_modalities": [
+        "text"
+      ],
+      "capabilities": [
+        "rerank"
+      ],
+      "estimated_min_vram_tier_gb": 16,
+      "reference_precision": "FP16",
+      "candidate_runtimes": [
+        "transformers",
+        "vLLM"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "R8",
+      "model_id": "Qwen/Qwen3-Reranker-8B",
+      "source_url": "https://huggingface.co/Qwen/Qwen3-Reranker-8B",
+      "total_parameters_b": 8,
+      "architecture": "cross-encoder",
+      "input_modalities": [
+        "text"
+      ],
+      "capabilities": [
+        "rerank"
+      ],
+      "estimated_min_vram_tier_gb": 24,
+      "reference_precision": "FP16",
+      "candidate_runtimes": [
+        "transformers",
+        "vLLM"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "VE2",
+      "model_id": "Qwen/Qwen3-VL-Embedding-2B",
+      "source_url": "https://huggingface.co/Qwen/Qwen3-VL-Embedding-2B",
+      "total_parameters_b": 2,
+      "architecture": "multimodal-encoder",
+      "input_modalities": [
+        "text",
+        "image",
+        "video"
+      ],
+      "capabilities": [
+        "multimodal_search",
+        "embedding"
+      ],
+      "estimated_min_vram_tier_gb": 8,
+      "reference_precision": "FP16",
+      "candidate_runtimes": [
+        "transformers"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "VE8",
+      "model_id": "Qwen/Qwen3-VL-Embedding-8B",
+      "source_url": "https://huggingface.co/Qwen/Qwen3-VL-Embedding-8B",
+      "total_parameters_b": 8,
+      "architecture": "multimodal-encoder",
+      "input_modalities": [
+        "text",
+        "image",
+        "video"
+      ],
+      "capabilities": [
+        "multimodal_search",
+        "embedding"
+      ],
+      "estimated_min_vram_tier_gb": 24,
+      "reference_precision": "FP16",
+      "candidate_runtimes": [
+        "transformers"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "VR2",
+      "model_id": "Qwen/Qwen3-VL-Reranker-2B",
+      "source_url": "https://huggingface.co/Qwen/Qwen3-VL-Reranker-2B",
+      "total_parameters_b": 2,
+      "architecture": "multimodal-encoder",
+      "input_modalities": [
+        "text",
+        "image",
+        "video"
+      ],
+      "capabilities": [
+        "multimodal_search",
+        "rerank"
+      ],
+      "estimated_min_vram_tier_gb": 8,
+      "reference_precision": "FP16",
+      "candidate_runtimes": [
+        "transformers"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "VR8",
+      "model_id": "Qwen/Qwen3-VL-Reranker-8B",
+      "source_url": "https://huggingface.co/Qwen/Qwen3-VL-Reranker-8B",
+      "total_parameters_b": 8,
+      "architecture": "multimodal-encoder",
+      "input_modalities": [
+        "text",
+        "image",
+        "video"
+      ],
+      "capabilities": [
+        "multimodal_search",
+        "rerank"
+      ],
+      "estimated_min_vram_tier_gb": 24,
+      "reference_precision": "FP16",
+      "candidate_runtimes": [
+        "transformers"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "NERS",
+      "model_id": "urchade/gliner_small-v2.1",
+      "source_url": "https://huggingface.co/urchade/gliner_small-v2.1",
+      "total_parameters_b": 0.166,
+      "architecture": "encoder",
+      "input_modalities": [
+        "text"
+      ],
+      "capabilities": [
+        "ner",
+        "extract"
+      ],
+      "estimated_min_vram_tier_gb": 2,
+      "reference_precision": "FP16",
+      "candidate_runtimes": [
+        "GLiNER",
+        "ONNX"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [
+        "en"
+      ],
+      "language_notes": "English-only GLiNER checkpoint"
+    },
+    {
+      "alias": "NERM",
+      "model_id": "urchade/gliner_multi-v2.1",
+      "source_url": "https://huggingface.co/urchade/gliner_multi-v2.1",
+      "total_parameters_b": 0.209,
+      "architecture": "encoder",
+      "input_modalities": [
+        "text"
+      ],
+      "capabilities": [
+        "ner",
+        "extract"
+      ],
+      "estimated_min_vram_tier_gb": 2,
+      "reference_precision": "FP16",
+      "candidate_runtimes": [
+        "GLiNER",
+        "ONNX"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "NERL",
+      "model_id": "urchade/gliner_large-v2.1",
+      "source_url": "https://huggingface.co/urchade/gliner_large-v2.1",
+      "total_parameters_b": 0.459,
+      "architecture": "encoder",
+      "input_modalities": [
+        "text"
+      ],
+      "capabilities": [
+        "ner",
+        "extract"
+      ],
+      "estimated_min_vram_tier_gb": 4,
+      "reference_precision": "FP16",
+      "candidate_runtimes": [
+        "GLiNER",
+        "ONNX"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [
+        "en"
+      ],
+      "language_notes": "English-only GLiNER checkpoint"
+    },
+    {
+      "alias": "GU06",
+      "model_id": "Qwen/Qwen3Guard-Stream-0.6B",
+      "source_url": "https://huggingface.co/Qwen/Qwen3Guard-Stream-0.6B",
+      "total_parameters_b": 0.6,
+      "architecture": "classifier",
+      "input_modalities": [
+        "text"
+      ],
+      "capabilities": [
+        "guard"
+      ],
+      "estimated_min_vram_tier_gb": 2,
+      "reference_precision": "FP16",
+      "candidate_runtimes": [
+        "transformers"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "GU4",
+      "model_id": "Qwen/Qwen3Guard-Stream-4B",
+      "source_url": "https://huggingface.co/Qwen/Qwen3Guard-Stream-4B",
+      "total_parameters_b": 4,
+      "architecture": "classifier",
+      "input_modalities": [
+        "text"
+      ],
+      "capabilities": [
+        "guard"
+      ],
+      "estimated_min_vram_tier_gb": 16,
+      "reference_precision": "FP16",
+      "candidate_runtimes": [
+        "transformers"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "GU8",
+      "model_id": "Qwen/Qwen3Guard-Stream-8B",
+      "source_url": "https://huggingface.co/Qwen/Qwen3Guard-Stream-8B",
+      "total_parameters_b": 8,
+      "architecture": "classifier",
+      "input_modalities": [
+        "text"
+      ],
+      "capabilities": [
+        "guard"
+      ],
+      "estimated_min_vram_tier_gb": 24,
+      "reference_precision": "FP16",
+      "candidate_runtimes": [
+        "transformers"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "VL2",
+      "model_id": "Qwen/Qwen3-VL-2B-Instruct",
+      "source_url": "https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct",
+      "total_parameters_b": 2,
+      "architecture": "vision-language",
+      "input_modalities": [
+        "text",
+        "image",
+        "video"
+      ],
+      "capabilities": [
+        "vision",
+        "ocr",
+        "extract"
+      ],
+      "estimated_min_vram_tier_gb": 4,
+      "reference_precision": "Q4",
+      "candidate_runtimes": [
+        "llama.cpp",
+        "vLLM",
+        "SGLang"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "Vision encoder and pixel/frame budget add memory",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "VL4",
+      "model_id": "Qwen/Qwen3-VL-4B-Instruct",
+      "source_url": "https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct",
+      "total_parameters_b": 4,
+      "architecture": "vision-language",
+      "input_modalities": [
+        "text",
+        "image",
+        "video"
+      ],
+      "capabilities": [
+        "vision",
+        "ocr",
+        "extract"
+      ],
+      "estimated_min_vram_tier_gb": 8,
+      "reference_precision": "Q4",
+      "candidate_runtimes": [
+        "llama.cpp",
+        "vLLM",
+        "SGLang"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "Vision encoder and pixel/frame budget add memory",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "VL8",
+      "model_id": "Qwen/Qwen3-VL-8B-Instruct",
+      "source_url": "https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct",
+      "total_parameters_b": 8,
+      "architecture": "vision-language",
+      "input_modalities": [
+        "text",
+        "image",
+        "video"
+      ],
+      "capabilities": [
+        "vision",
+        "ocr",
+        "extract"
+      ],
+      "estimated_min_vram_tier_gb": 16,
+      "reference_precision": "Q4",
+      "candidate_runtimes": [
+        "llama.cpp",
+        "vLLM",
+        "SGLang"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "Vision encoder and pixel/frame budget add memory",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "VL30",
+      "model_id": "Qwen/Qwen3-VL-30B-A3B-Instruct",
+      "source_url": "https://huggingface.co/Qwen/Qwen3-VL-30B-A3B-Instruct",
+      "total_parameters_b": 30,
+      "architecture": "moe-3b-active",
+      "input_modalities": [
+        "text",
+        "image",
+        "video"
+      ],
+      "capabilities": [
+        "vision",
+        "ocr",
+        "extract"
+      ],
+      "estimated_min_vram_tier_gb": 24,
+      "reference_precision": "Q4",
+      "candidate_runtimes": [
+        "llama.cpp",
+        "vLLM",
+        "SGLang"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "Vision encoder and pixel/frame budget add memory",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "VL32",
+      "model_id": "Qwen/Qwen3-VL-32B-Instruct",
+      "source_url": "https://huggingface.co/Qwen/Qwen3-VL-32B-Instruct",
+      "total_parameters_b": 32,
+      "architecture": "vision-language",
+      "input_modalities": [
+        "text",
+        "image",
+        "video"
+      ],
+      "capabilities": [
+        "vision",
+        "ocr",
+        "extract"
+      ],
+      "estimated_min_vram_tier_gb": 24,
+      "reference_precision": "Q4",
+      "candidate_runtimes": [
+        "llama.cpp",
+        "vLLM",
+        "SGLang"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "Vision encoder and pixel/frame budget add memory",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "FLO",
+      "model_id": "microsoft/Florence-2-base",
+      "source_url": "https://huggingface.co/microsoft/Florence-2-base",
+      "total_parameters_b": 0.23,
+      "architecture": "vision-language",
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "capabilities": [
+        "vision",
+        "ocr"
+      ],
+      "estimated_min_vram_tier_gb": 4,
+      "reference_precision": "FP16",
+      "candidate_runtimes": [
+        "transformers"
+      ],
+      "license_gate": "mit",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "WT",
+      "model_id": "openai/whisper-tiny",
+      "source_url": "https://huggingface.co/openai/whisper-tiny",
+      "total_parameters_b": 0.039,
+      "architecture": "encoder-decoder",
+      "input_modalities": [
+        "audio"
+      ],
+      "capabilities": [
+        "asr"
+      ],
+      "estimated_min_vram_tier_gb": 2,
+      "reference_precision": "FP16",
+      "candidate_runtimes": [
+        "faster-whisper",
+        "transformers"
+      ],
+      "license_gate": "mit",
+      "notes": "Actual VRAM depends on audio chunking and decoding batches",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "WB",
+      "model_id": "openai/whisper-base",
+      "source_url": "https://huggingface.co/openai/whisper-base",
+      "total_parameters_b": 0.074,
+      "architecture": "encoder-decoder",
+      "input_modalities": [
+        "audio"
+      ],
+      "capabilities": [
+        "asr"
+      ],
+      "estimated_min_vram_tier_gb": 2,
+      "reference_precision": "FP16",
+      "candidate_runtimes": [
+        "faster-whisper",
+        "transformers"
+      ],
+      "license_gate": "mit",
+      "notes": "Actual VRAM depends on audio chunking and decoding batches",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "WS",
+      "model_id": "openai/whisper-small",
+      "source_url": "https://huggingface.co/openai/whisper-small",
+      "total_parameters_b": 0.244,
+      "architecture": "encoder-decoder",
+      "input_modalities": [
+        "audio"
+      ],
+      "capabilities": [
+        "asr"
+      ],
+      "estimated_min_vram_tier_gb": 2,
+      "reference_precision": "FP16",
+      "candidate_runtimes": [
+        "faster-whisper",
+        "transformers"
+      ],
+      "license_gate": "mit",
+      "notes": "Actual VRAM depends on audio chunking and decoding batches",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "WM",
+      "model_id": "openai/whisper-medium",
+      "source_url": "https://huggingface.co/openai/whisper-medium",
+      "total_parameters_b": 0.769,
+      "architecture": "encoder-decoder",
+      "input_modalities": [
+        "audio"
+      ],
+      "capabilities": [
+        "asr"
+      ],
+      "estimated_min_vram_tier_gb": 4,
+      "reference_precision": "FP16",
+      "candidate_runtimes": [
+        "faster-whisper",
+        "transformers"
+      ],
+      "license_gate": "mit",
+      "notes": "Actual VRAM depends on audio chunking and decoding batches",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "WL",
+      "model_id": "openai/whisper-large-v3",
+      "source_url": "https://huggingface.co/openai/whisper-large-v3",
+      "total_parameters_b": 1.55,
+      "architecture": "encoder-decoder",
+      "input_modalities": [
+        "audio"
+      ],
+      "capabilities": [
+        "asr"
+      ],
+      "estimated_min_vram_tier_gb": 8,
+      "reference_precision": "FP16",
+      "candidate_runtimes": [
+        "faster-whisper",
+        "transformers"
+      ],
+      "license_gate": "mit",
+      "notes": "Actual VRAM depends on audio chunking and decoding batches",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "WLT",
+      "model_id": "openai/whisper-large-v3-turbo",
+      "source_url": "https://huggingface.co/openai/whisper-large-v3-turbo",
+      "total_parameters_b": 0.81,
+      "architecture": "encoder-decoder",
+      "input_modalities": [
+        "audio"
+      ],
+      "capabilities": [
+        "asr"
+      ],
+      "estimated_min_vram_tier_gb": 4,
+      "reference_precision": "FP16",
+      "candidate_runtimes": [
+        "faster-whisper",
+        "transformers"
+      ],
+      "license_gate": "mit",
+      "notes": "Actual VRAM depends on audio chunking and decoding batches",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "PAR",
+      "model_id": "nvidia/parakeet-tdt-0.6b-v3",
+      "source_url": "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3",
+      "total_parameters_b": 0.6,
+      "architecture": "transducer",
+      "input_modalities": [
+        "audio"
+      ],
+      "capabilities": [
+        "asr"
+      ],
+      "estimated_min_vram_tier_gb": 4,
+      "reference_precision": "FP16",
+      "candidate_runtimes": [
+        "NeMo",
+        "transformers"
+      ],
+      "license_gate": "cc-by-4.0",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [
+        "bg",
+        "hr",
+        "cs",
+        "da",
+        "nl",
+        "en",
+        "et",
+        "fi",
+        "fr",
+        "de",
+        "el",
+        "hu",
+        "it",
+        "lv",
+        "lt",
+        "mt",
+        "pl",
+        "pt",
+        "ro",
+        "sk",
+        "sl",
+        "es",
+        "sv",
+        "ru",
+        "uk"
+      ],
+      "language_notes": "Publisher language-list based"
+    },
+    {
+      "alias": "AS06",
+      "model_id": "Qwen/Qwen3-ASR-0.6B-hf",
+      "source_url": "https://huggingface.co/Qwen/Qwen3-ASR-0.6B-hf",
+      "total_parameters_b": 0.6,
+      "architecture": "encoder-decoder",
+      "input_modalities": [
+        "audio"
+      ],
+      "capabilities": [
+        "asr"
+      ],
+      "estimated_min_vram_tier_gb": 4,
+      "reference_precision": "FP16",
+      "candidate_runtimes": [
+        "transformers"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [
+        "zh",
+        "en",
+        "yue",
+        "ar",
+        "de",
+        "fr",
+        "es",
+        "pt",
+        "id",
+        "it",
+        "ko",
+        "ru",
+        "th",
+        "vi",
+        "ja",
+        "tr",
+        "hi",
+        "ms",
+        "nl",
+        "sv",
+        "da",
+        "fi",
+        "pl",
+        "cs",
+        "fil",
+        "fa",
+        "el",
+        "hu",
+        "mk",
+        "ro"
+      ],
+      "language_notes": "Publisher language-list based"
+    },
+    {
+      "alias": "AS17",
+      "model_id": "Qwen/Qwen3-ASR-1.7B-hf",
+      "source_url": "https://huggingface.co/Qwen/Qwen3-ASR-1.7B-hf",
+      "total_parameters_b": 1.7,
+      "architecture": "encoder-decoder",
+      "input_modalities": [
+        "audio"
+      ],
+      "capabilities": [
+        "asr"
+      ],
+      "estimated_min_vram_tier_gb": 8,
+      "reference_precision": "FP16",
+      "candidate_runtimes": [
+        "transformers"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [
+        "zh",
+        "en",
+        "yue",
+        "ar",
+        "de",
+        "fr",
+        "es",
+        "pt",
+        "id",
+        "it",
+        "ko",
+        "ru",
+        "th",
+        "vi",
+        "ja",
+        "tr",
+        "hi",
+        "ms",
+        "nl",
+        "sv",
+        "da",
+        "fi",
+        "pl",
+        "cs",
+        "fil",
+        "fa",
+        "el",
+        "hu",
+        "mk",
+        "ro"
+      ],
+      "language_notes": "Publisher language-list based"
+    },
+    {
+      "alias": "ALIGN",
+      "model_id": "Qwen/Qwen3-ForcedAligner-0.6B-hf",
+      "source_url": "https://huggingface.co/Qwen/Qwen3-ForcedAligner-0.6B-hf",
+      "total_parameters_b": 0.6,
+      "architecture": "audio-alignment",
+      "input_modalities": [
+        "audio",
+        "text"
+      ],
+      "capabilities": [
+        "audio_align"
+      ],
+      "estimated_min_vram_tier_gb": 4,
+      "reference_precision": "FP16",
+      "candidate_runtimes": [
+        "transformers"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "KOK",
+      "model_id": "hexgrad/Kokoro-82M",
+      "source_url": "https://huggingface.co/hexgrad/Kokoro-82M",
+      "total_parameters_b": 0.082,
+      "architecture": "tts",
+      "input_modalities": [
+        "text"
+      ],
+      "capabilities": [
+        "tts"
+      ],
+      "estimated_min_vram_tier_gb": 2,
+      "reference_precision": "FP16",
+      "candidate_runtimes": [
+        "kokoro"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "TTS06",
+      "model_id": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
+      "source_url": "https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
+      "total_parameters_b": 0.6,
+      "architecture": "tts",
+      "input_modalities": [
+        "text"
+      ],
+      "capabilities": [
+        "tts"
+      ],
+      "estimated_min_vram_tier_gb": 4,
+      "reference_precision": "FP16",
+      "candidate_runtimes": [
+        "qwen-tts",
+        "transformers"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "TTS17",
+      "model_id": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+      "source_url": "https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+      "total_parameters_b": 1.7,
+      "architecture": "tts",
+      "input_modalities": [
+        "text"
+      ],
+      "capabilities": [
+        "tts"
+      ],
+      "estimated_min_vram_tier_gb": 8,
+      "reference_precision": "FP16",
+      "candidate_runtimes": [
+        "qwen-tts",
+        "transformers"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "SD15",
+      "model_id": "stable-diffusion-v1-5/stable-diffusion-v1-5",
+      "source_url": "https://huggingface.co/stable-diffusion-v1-5/stable-diffusion-v1-5",
+      "total_parameters_b": 0.86,
+      "architecture": "diffusion",
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "capabilities": [
+        "image_gen",
+        "image_edit"
+      ],
+      "estimated_min_vram_tier_gb": 4,
+      "reference_precision": "FP16",
+      "candidate_runtimes": [
+        "Diffusers",
+        "ComfyUI"
+      ],
+      "license_gate": "openrail",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "SDXL",
+      "model_id": "stabilityai/stable-diffusion-xl-base-1.0",
+      "source_url": "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0",
+      "total_parameters_b": 3.5,
+      "architecture": "diffusion",
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "capabilities": [
+        "image_gen",
+        "image_edit"
+      ],
+      "estimated_min_vram_tier_gb": 8,
+      "reference_precision": "FP16",
+      "candidate_runtimes": [
+        "Diffusers",
+        "ComfyUI"
+      ],
+      "license_gate": "openrail",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "SD35",
+      "model_id": "stabilityai/stable-diffusion-3.5-medium",
+      "source_url": "https://huggingface.co/stabilityai/stable-diffusion-3.5-medium",
+      "total_parameters_b": 2.5,
+      "architecture": "diffusion",
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "capabilities": [
+        "image_gen",
+        "image_edit"
+      ],
+      "estimated_min_vram_tier_gb": 16,
+      "reference_precision": "FP16",
+      "candidate_runtimes": [
+        "Diffusers",
+        "ComfyUI"
+      ],
+      "license_gate": "stability-community",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "FK4",
+      "model_id": "black-forest-labs/FLUX.2-klein-4B",
+      "source_url": "https://huggingface.co/black-forest-labs/FLUX.2-klein-4B",
+      "total_parameters_b": 4,
+      "architecture": "diffusion",
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "capabilities": [
+        "image_gen",
+        "image_edit"
+      ],
+      "estimated_min_vram_tier_gb": 16,
+      "reference_precision": "FP8",
+      "candidate_runtimes": [
+        "Diffusers",
+        "ComfyUI"
+      ],
+      "license_gate": "review",
+      "notes": "Quantized profiles may fit 8GB; pipeline must be measured",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "FK9",
+      "model_id": "black-forest-labs/FLUX.2-klein-9B",
+      "source_url": "https://huggingface.co/black-forest-labs/FLUX.2-klein-9B",
+      "total_parameters_b": 9,
+      "architecture": "diffusion",
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "capabilities": [
+        "image_gen",
+        "image_edit"
+      ],
+      "estimated_min_vram_tier_gb": 24,
+      "reference_precision": "FP8",
+      "candidate_runtimes": [
+        "Diffusers",
+        "ComfyUI"
+      ],
+      "license_gate": "review",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "FD32",
+      "model_id": "black-forest-labs/FLUX.2-dev",
+      "source_url": "https://huggingface.co/black-forest-labs/FLUX.2-dev",
+      "total_parameters_b": 32,
+      "architecture": "diffusion",
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "capabilities": [
+        "image_gen",
+        "image_edit"
+      ],
+      "estimated_min_vram_tier_gb": 48,
+      "reference_precision": "quantized",
+      "candidate_runtimes": [
+        "Diffusers",
+        "ComfyUI"
+      ],
+      "license_gate": "flux-non-commercial",
+      "notes": "Gated and noncommercial; 48GB only candidate with quant/offload",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "QI21",
+      "model_id": "Qwen/Qwen-Image-2.1-Turbo",
+      "source_url": "https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo",
+      "total_parameters_b": 7,
+      "architecture": "diffusion",
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "capabilities": [
+        "image_gen",
+        "image_edit"
+      ],
+      "estimated_min_vram_tier_gb": 24,
+      "reference_precision": "BF16",
+      "candidate_runtimes": [
+        "Diffusers",
+        "ComfyUI"
+      ],
+      "license_gate": "qwen-research",
+      "notes": "License restrictions; text encoder/vae extra VRAM",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "LTX",
+      "model_id": "Lightricks/LTX-Video",
+      "source_url": "https://huggingface.co/Lightricks/LTX-Video",
+      "total_parameters_b": 2,
+      "architecture": "video-diffusion",
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "capabilities": [
+        "video_gen",
+        "video_edit"
+      ],
+      "estimated_min_vram_tier_gb": 16,
+      "reference_precision": "quantized",
+      "candidate_runtimes": [
+        "Diffusers",
+        "ComfyUI"
+      ],
+      "license_gate": "review",
+      "notes": "Resolution/frames determine memory, 16GB only reduced settings",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "WAN5",
+      "model_id": "Wan-AI/Wan2.2-TI2V-5B",
+      "source_url": "https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B",
+      "total_parameters_b": 5,
+      "architecture": "video-diffusion",
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "capabilities": [
+        "video_gen",
+        "video_edit"
+      ],
+      "estimated_min_vram_tier_gb": 24,
+      "reference_precision": "offload",
+      "candidate_runtimes": [
+        "Wan2.2",
+        "Diffusers",
+        "ComfyUI"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "Official full checkpoint ~34GB on disk; depends on CPU offload; 24GB unverified",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "WAN14",
+      "model_id": "Wan-AI/Wan2.2-T2V-A14B",
+      "source_url": "https://huggingface.co/Wan-AI/Wan2.2-T2V-A14B",
+      "total_parameters_b": 28,
+      "architecture": "video-diffusion-moe",
+      "input_modalities": [
+        "text"
+      ],
+      "capabilities": [
+        "video_gen"
+      ],
+      "estimated_min_vram_tier_gb": 96,
+      "reference_precision": "BF16",
+      "candidate_runtimes": [
+        "Wan2.2",
+        "Diffusers",
+        "ComfyUI"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "Vendor states 80GB VRAM min for native single-GPU; lower tiers require explicit offload",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "WANI14",
+      "model_id": "Wan-AI/Wan2.2-I2V-A14B",
+      "source_url": "https://huggingface.co/Wan-AI/Wan2.2-I2V-A14B",
+      "total_parameters_b": 28,
+      "architecture": "video-diffusion-moe",
+      "input_modalities": [
+        "image",
+        "text"
+      ],
+      "capabilities": [
+        "video_edit",
+        "video_gen"
+      ],
+      "estimated_min_vram_tier_gb": 96,
+      "reference_precision": "BF16",
+      "candidate_runtimes": [
+        "Wan2.2",
+        "Diffusers",
+        "ComfyUI"
+      ],
+      "license_gate": "apache-2.0",
+      "notes": "Full pipeline >80GB class; offload tier not validated",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "HUN",
+      "model_id": "tencent/HunyuanVideo-1.5",
+      "source_url": "https://huggingface.co/tencent/HunyuanVideo-1.5",
+      "total_parameters_b": 8.3,
+      "architecture": "video-diffusion",
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "capabilities": [
+        "video_gen",
+        "video_edit"
+      ],
+      "estimated_min_vram_tier_gb": 48,
+      "reference_precision": "quantized",
+      "candidate_runtimes": [
+        "Diffusers",
+        "ComfyUI",
+        "HunyuanVideo"
+      ],
+      "license_gate": "review",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    },
+    {
+      "alias": "TF3",
+      "model_id": "google/timesfm-3.0-pytorch",
+      "source_url": "https://huggingface.co/google/timesfm-3.0-pytorch",
+      "total_parameters_b": 0.3,
+      "architecture": "time-series",
+      "input_modalities": [
+        "time_series"
+      ],
+      "capabilities": [
+        "forecast"
+      ],
+      "estimated_min_vram_tier_gb": 4,
+      "reference_precision": "FP16",
+      "candidate_runtimes": [
+        "timesfm"
+      ],
+      "license_gate": "review",
+      "notes": "",
+      "availability": "official_model_card_verified",
+      "fit_status": "estimated_not_benchmarked",
+      "runtime_compatibility": "requires_live_probe",
+      "checkpoint_revision": "must_pin_in_deployment",
+      "license_approval": "not_approved_by_catalog",
+      "verified_languages": [],
+      "language_notes": "No exhaustive language allowlist curated; benchmark requested language"
+    }
+  ],
+  "tasks": [
+    {
+      "group": "Deterministic & NLP",
+      "task_id": "intent",
+      "purpose": "Intent / request routing",
+      "candidates_by_vram_gb": {
+        "2": [
+          {
+            "alias": "Q08",
+            "fit": "candidate"
+          },
+          {
+            "alias": "NERM",
+            "fit": "tight_or_offload"
+          }
+        ],
+        "4": [
+          {
+            "alias": "Q2",
+            "fit": "candidate"
+          },
+          {
+            "alias": "NERL",
+            "fit": "candidate"
+          }
+        ],
+        "8": [
+          {
+            "alias": "Q2",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q4",
+            "fit": "candidate"
+          }
+        ],
+        "16": [
+          {
+            "alias": "Q2",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q4",
+            "fit": "candidate"
+          }
+        ],
+        "24": [
+          {
+            "alias": "Q2",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q4",
+            "fit": "candidate"
+          }
+        ],
+        "32": [
+          {
+            "alias": "Q2",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q4",
+            "fit": "candidate"
+          }
+        ],
+        "48": [
+          {
+            "alias": "Q2",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q4",
+            "fit": "candidate"
+          }
+        ],
+        "64": [
+          {
+            "alias": "Q2",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q4",
+            "fit": "candidate"
+          }
+        ],
+        "96": [
+          {
+            "alias": "Q2",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q4",
+            "fit": "candidate"
+          }
+        ]
+      }
+    },
+    {
+      "group": "Deterministic & NLP",
+      "task_id": "classification",
+      "purpose": "Text and document classification",
+      "candidates_by_vram_gb": {
+        "2": [
+          {
+            "alias": "Q08",
+            "fit": "candidate"
+          }
+        ],
+        "4": [
+          {
+            "alias": "Q2",
+            "fit": "candidate"
+          }
+        ],
+        "8": [
+          {
+            "alias": "Q4",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q2",
+            "fit": "candidate"
+          }
+        ],
+        "16": [
+          {
+            "alias": "Q4",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q9",
+            "fit": "candidate"
+          }
+        ],
+        "24": [
+          {
+            "alias": "Q4",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q9",
+            "fit": "candidate"
+          }
+        ],
+        "32": [
+          {
+            "alias": "Q4",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q9",
+            "fit": "candidate"
+          }
+        ],
+        "48": [
+          {
+            "alias": "Q4",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q9",
+            "fit": "candidate"
+          }
+        ],
+        "64": [
+          {
+            "alias": "Q4",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q9",
+            "fit": "candidate"
+          }
+        ],
+        "96": [
+          {
+            "alias": "Q4",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q9",
+            "fit": "candidate"
+          }
+        ]
+      }
+    },
+    {
+      "group": "Deterministic & NLP",
+      "task_id": "ner",
+      "purpose": "Named entity recognition / span extraction",
+      "candidates_by_vram_gb": {
+        "2": [
+          {
+            "alias": "NERS",
+            "fit": "candidate"
+          },
+          {
+            "alias": "NERM",
+            "fit": "tight_or_offload"
+          }
+        ],
+        "4": [
+          {
+            "alias": "NERL",
+            "fit": "candidate"
+          },
+          {
+            "alias": "NERM",
+            "fit": "candidate"
+          }
+        ],
+        "8": [
+          {
+            "alias": "NERL",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q4",
+            "fit": "candidate"
+          }
+        ],
+        "16": [
+          {
+            "alias": "NERL",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q9",
+            "fit": "candidate"
+          }
+        ],
+        "24": [
+          {
+            "alias": "NERL",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q27",
+            "fit": "candidate"
+          }
+        ],
+        "32": [
+          {
+            "alias": "NERL",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q36",
+            "fit": "candidate"
+          }
+        ],
+        "48": [
+          {
+            "alias": "NERL",
+            "fit": "candidate"
+          },
+          {
+            "alias": "G31",
+            "fit": "candidate"
+          }
+        ],
+        "64": [
+          {
+            "alias": "NERL",
+            "fit": "candidate"
+          },
+          {
+            "alias": "NEXT80",
+            "fit": "candidate"
+          }
+        ],
+        "96": [
+          {
+            "alias": "NERL",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q122",
+            "fit": "candidate"
+          }
+        ]
+      }
+    },
+    {
+      "group": "Deterministic & NLP",
+      "task_id": "finance_facts",
+      "purpose": "Financial facts / SEC extraction",
+      "candidates_by_vram_gb": {
+        "2": [
+          {
+            "alias": "NERM",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q08",
+            "fit": "candidate"
+          }
+        ],
+        "4": [
+          {
+            "alias": "NERL",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q2",
+            "fit": "candidate"
+          }
+        ],
+        "8": [
+          {
+            "alias": "NERL",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q9",
+            "fit": "candidate"
+          }
+        ],
+        "16": [
+          {
+            "alias": "Q9",
+            "fit": "candidate"
+          },
+          {
+            "alias": "G12",
+            "fit": "candidate"
+          }
+        ],
+        "24": [
+          {
+            "alias": "Q38",
+            "fit": "candidate"
+          },
+          {
+            "alias": "G31",
+            "fit": "candidate"
+          }
+        ],
+        "32": [
+          {
+            "alias": "Q36",
+            "fit": "candidate"
+          },
+          {
+            "alias": "G31",
+            "fit": "candidate"
+          }
+        ],
+        "48": [
+          {
+            "alias": "Q36",
+            "fit": "candidate"
+          },
+          {
+            "alias": "G31",
+            "fit": "candidate"
+          }
+        ],
+        "64": [
+          {
+            "alias": "NEXT80",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q38",
+            "fit": "candidate"
+          }
+        ],
+        "96": [
+          {
+            "alias": "Q122",
+            "fit": "candidate"
+          },
+          {
+            "alias": "OSS120",
+            "fit": "candidate"
+          }
+        ]
+      }
+    },
+    {
+      "group": "Deterministic & NLP",
+      "task_id": "json",
+      "purpose": "Schema-bound JSON / structured extraction",
+      "candidates_by_vram_gb": {
+        "2": [
+          {
+            "alias": "Q08",
+            "fit": "candidate"
+          }
+        ],
+        "4": [
+          {
+            "alias": "Q2",
+            "fit": "candidate"
+          }
+        ],
+        "8": [
+          {
+            "alias": "Q4",
+            "fit": "candidate"
+          }
+        ],
+        "16": [
+          {
+            "alias": "Q9",
+            "fit": "candidate"
+          },
+          {
+            "alias": "G12",
+            "fit": "candidate"
+          }
+        ],
+        "24": [
+          {
+            "alias": "Q38",
+            "fit": "candidate"
+          },
+          {
+            "alias": "G31",
+            "fit": "candidate"
+          }
+        ],
+        "32": [
+          {
+            "alias": "Q36",
+            "fit": "candidate"
+          },
+          {
+            "alias": "G31",
+            "fit": "candidate"
+          }
+        ],
+        "48": [
+          {
+            "alias": "G31",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q36",
+            "fit": "candidate"
+          }
+        ],
+        "64": [
+          {
+            "alias": "NEXT80",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q38",
+            "fit": "candidate"
+          }
+        ],
+        "96": [
+          {
+            "alias": "OSS120",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q122",
+            "fit": "candidate"
+          }
+        ]
+      }
+    },
+    {
+      "group": "Deterministic & NLP",
+      "task_id": "entity_link",
+      "purpose": "Entity resolution / relationship extraction",
+      "candidates_by_vram_gb": {
+        "2": [
+          {
+            "alias": "NERM",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q08",
+            "fit": "candidate"
+          }
+        ],
+        "4": [
+          {
+            "alias": "NERL",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q2",
+            "fit": "candidate"
+          }
+        ],
+        "8": [
+          {
+            "alias": "Q4",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q2",
+            "fit": "candidate"
+          }
+        ],
+        "16": [
+          {
+            "alias": "Q9",
+            "fit": "candidate"
+          },
+          {
+            "alias": "G12",
+            "fit": "candidate"
+          }
+        ],
+        "24": [
+          {
+            "alias": "Q38",
+            "fit": "candidate"
+          },
+          {
+            "alias": "G31",
+            "fit": "candidate"
+          }
+        ],
+        "32": [
+          {
+            "alias": "Q36",
+            "fit": "candidate"
+          },
+          {
+            "alias": "G31",
+            "fit": "candidate"
+          }
+        ],
+        "48": [
+          {
+            "alias": "G31",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q36",
+            "fit": "candidate"
+          }
+        ],
+        "64": [
+          {
+            "alias": "NEXT80",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q38",
+            "fit": "candidate"
+          }
+        ],
+        "96": [
+          {
+            "alias": "Q122",
+            "fit": "candidate"
+          },
+          {
+            "alias": "OSS120",
+            "fit": "candidate"
+          }
+        ]
+      }
+    },
+    {
+      "group": "Deterministic & NLP",
+      "task_id": "guard",
+      "purpose": "Prompt safety / content policy classification",
+      "candidates_by_vram_gb": {
+        "2": [
+          {
+            "alias": "GU06",
+            "fit": "candidate"
+          }
+        ],
+        "4": [
+          {
+            "alias": "GU06",
+            "fit": "candidate"
+          }
+        ],
+        "8": [
+          {
+            "alias": "GU06",
+            "fit": "candidate"
+          }
+        ],
+        "16": [
+          {
+            "alias": "GU4",
+            "fit": "candidate"
+          }
+        ],
+        "24": [
+          {
+            "alias": "GU8",
+            "fit": "candidate"
+          }
+        ],
+        "32": [
+          {
+            "alias": "GU8",
+            "fit": "candidate"
+          }
+        ],
+        "48": [
+          {
+            "alias": "GU8",
+            "fit": "candidate"
+          }
+        ],
+        "64": [
+          {
+            "alias": "GU8",
+            "fit": "candidate"
+          }
+        ],
+        "96": [
+          {
+            "alias": "GU8",
+            "fit": "candidate"
+          }
+        ]
+      }
+    },
+    {
+      "group": "Knowledge / retrieval",
+      "task_id": "embedding",
+      "purpose": "Text embeddings / semantic retrieval",
+      "candidates_by_vram_gb": {
+        "2": [
+          {
+            "alias": "EG300",
+            "fit": "candidate"
+          },
+          {
+            "alias": "E06",
+            "fit": "candidate"
+          }
+        ],
+        "4": [
+          {
+            "alias": "E06",
+            "fit": "candidate"
+          },
+          {
+            "alias": "BM3",
+            "fit": "candidate"
+          }
+        ],
+        "8": [
+          {
+            "alias": "E06",
+            "fit": "candidate"
+          },
+          {
+            "alias": "BM3",
+            "fit": "candidate"
+          }
+        ],
+        "16": [
+          {
+            "alias": "E4",
+            "fit": "candidate"
+          },
+          {
+            "alias": "BM3",
+            "fit": "candidate"
+          }
+        ],
+        "24": [
+          {
+            "alias": "E8",
+            "fit": "candidate"
+          },
+          {
+            "alias": "E4",
+            "fit": "candidate"
+          }
+        ],
+        "32": [
+          {
+            "alias": "E8",
+            "fit": "candidate"
+          },
+          {
+            "alias": "E4",
+            "fit": "candidate"
+          }
+        ],
+        "48": [
+          {
+            "alias": "E8",
+            "fit": "candidate"
+          },
+          {
+            "alias": "E4",
+            "fit": "candidate"
+          }
+        ],
+        "64": [
+          {
+            "alias": "E8",
+            "fit": "candidate"
+          },
+          {
+            "alias": "E4",
+            "fit": "candidate"
+          }
+        ],
+        "96": [
+          {
+            "alias": "E8",
+            "fit": "candidate"
+          },
+          {
+            "alias": "E4",
+            "fit": "candidate"
+          }
+        ]
+      }
+    },
+    {
+      "group": "Knowledge / retrieval",
+      "task_id": "hybrid",
+      "purpose": "Hybrid lexical + semantic search",
+      "candidates_by_vram_gb": {
+        "2": [
+          {
+            "alias": "BM3",
+            "fit": "candidate"
+          }
+        ],
+        "4": [
+          {
+            "alias": "BM3",
+            "fit": "candidate"
+          },
+          {
+            "alias": "E06",
+            "fit": "candidate"
+          }
+        ],
+        "8": [
+          {
+            "alias": "BM3",
+            "fit": "candidate"
+          },
+          {
+            "alias": "E06",
+            "fit": "candidate"
+          }
+        ],
+        "16": [
+          {
+            "alias": "BM3",
+            "fit": "candidate"
+          },
+          {
+            "alias": "E4",
+            "fit": "candidate"
+          }
+        ],
+        "24": [
+          {
+            "alias": "BM3",
+            "fit": "candidate"
+          },
+          {
+            "alias": "E8",
+            "fit": "candidate"
+          }
+        ],
+        "32": [
+          {
+            "alias": "BM3",
+            "fit": "candidate"
+          },
+          {
+            "alias": "E8",
+            "fit": "candidate"
+          }
+        ],
+        "48": [
+          {
+            "alias": "BM3",
+            "fit": "candidate"
+          },
+          {
+            "alias": "E8",
+            "fit": "candidate"
+          }
+        ],
+        "64": [
+          {
+            "alias": "BM3",
+            "fit": "candidate"
+          },
+          {
+            "alias": "E8",
+            "fit": "candidate"
+          }
+        ],
+        "96": [
+          {
+            "alias": "BM3",
+            "fit": "candidate"
+          },
+          {
+            "alias": "E8",
+            "fit": "candidate"
+          }
+        ]
+      }
+    },
+    {
+      "group": "Knowledge / retrieval",
+      "task_id": "rerank",
+      "purpose": "Search reranking / relevance scoring",
+      "candidates_by_vram_gb": {
+        "2": [
+          {
+            "alias": "R06",
+            "fit": "candidate"
+          }
+        ],
+        "4": [
+          {
+            "alias": "R06",
+            "fit": "candidate"
+          }
+        ],
+        "8": [
+          {
+            "alias": "R06",
+            "fit": "candidate"
+          }
+        ],
+        "16": [
+          {
+            "alias": "R4",
+            "fit": "candidate"
+          }
+        ],
+        "24": [
+          {
+            "alias": "R8",
+            "fit": "candidate"
+          }
+        ],
+        "32": [
+          {
+            "alias": "R8",
+            "fit": "candidate"
+          }
+        ],
+        "48": [
+          {
+            "alias": "R8",
+            "fit": "candidate"
+          }
+        ],
+        "64": [
+          {
+            "alias": "R8",
+            "fit": "candidate"
+          }
+        ],
+        "96": [
+          {
+            "alias": "R8",
+            "fit": "candidate"
+          }
+        ]
+      }
+    },
+    {
+      "group": "Knowledge / retrieval",
+      "task_id": "code_search",
+      "purpose": "Repository / code embeddings",
+      "candidates_by_vram_gb": {
+        "2": [
+          {
+            "alias": "BM3",
+            "fit": "candidate"
+          },
+          {
+            "alias": "E06",
+            "fit": "candidate"
+          }
+        ],
+        "4": [
+          {
+            "alias": "BM3",
+            "fit": "candidate"
+          },
+          {
+            "alias": "E06",
+            "fit": "candidate"
+          }
+        ],
+        "8": [
+          {
+            "alias": "BM3",
+            "fit": "candidate"
+          },
+          {
+            "alias": "E06",
+            "fit": "candidate"
+          }
+        ],
+        "16": [
+          {
+            "alias": "E4",
+            "fit": "candidate"
+          },
+          {
+            "alias": "BM3",
+            "fit": "candidate"
+          }
+        ],
+        "24": [
+          {
+            "alias": "E8",
+            "fit": "candidate"
+          },
+          {
+            "alias": "E4",
+            "fit": "candidate"
+          }
+        ],
+        "32": [
+          {
+            "alias": "E8",
+            "fit": "candidate"
+          },
+          {
+            "alias": "E4",
+            "fit": "candidate"
+          }
+        ],
+        "48": [
+          {
+            "alias": "E8",
+            "fit": "candidate"
+          },
+          {
+            "alias": "E4",
+            "fit": "candidate"
+          }
+        ],
+        "64": [
+          {
+            "alias": "E8",
+            "fit": "candidate"
+          },
+          {
+            "alias": "E4",
+            "fit": "candidate"
+          }
+        ],
+        "96": [
+          {
+            "alias": "E8",
+            "fit": "candidate"
+          },
+          {
+            "alias": "E4",
+            "fit": "candidate"
+          }
+        ]
+      }
+    },
+    {
+      "group": "Knowledge / retrieval",
+      "task_id": "multimodal_search",
+      "purpose": "Image and video semantic search",
+      "candidates_by_vram_gb": {
+        "2": [],
+        "4": [],
+        "8": [
+          {
+            "alias": "VE2",
+            "fit": "tight_or_offload"
+          },
+          {
+            "alias": "VR2",
+            "fit": "tight_or_offload"
+          }
+        ],
+        "16": [
+          {
+            "alias": "VE2",
+            "fit": "candidate"
+          },
+          {
+            "alias": "VR2",
+            "fit": "candidate"
+          }
+        ],
+        "24": [
+          {
+            "alias": "VE8",
+            "fit": "candidate"
+          },
+          {
+            "alias": "VR8",
+            "fit": "candidate"
+          }
+        ],
+        "32": [
+          {
+            "alias": "VE8",
+            "fit": "candidate"
+          },
+          {
+            "alias": "VR8",
+            "fit": "candidate"
+          }
+        ],
+        "48": [
+          {
+            "alias": "VE8",
+            "fit": "candidate"
+          },
+          {
+            "alias": "VR8",
+            "fit": "candidate"
+          }
+        ],
+        "64": [
+          {
+            "alias": "VE8",
+            "fit": "candidate"
+          },
+          {
+            "alias": "VR8",
+            "fit": "candidate"
+          }
+        ],
+        "96": [
+          {
+            "alias": "VE8",
+            "fit": "candidate"
+          },
+          {
+            "alias": "VR8",
+            "fit": "candidate"
+          }
+        ]
+      }
+    },
+    {
+      "group": "Text / reasoning",
+      "task_id": "chat",
+      "purpose": "Conversational instructions / writing",
+      "candidates_by_vram_gb": {
+        "2": [
+          {
+            "alias": "Q08",
+            "fit": "candidate"
+          }
+        ],
+        "4": [
+          {
+            "alias": "Q2",
+            "fit": "candidate"
+          },
+          {
+            "alias": "MIN3",
+            "fit": "candidate"
+          }
+        ],
+        "8": [
+          {
+            "alias": "Q4",
+            "fit": "candidate"
+          },
+          {
+            "alias": "GN4",
+            "fit": "candidate"
+          }
+        ],
+        "16": [
+          {
+            "alias": "Q9",
+            "fit": "candidate"
+          },
+          {
+            "alias": "G12",
+            "fit": "candidate"
+          }
+        ],
+        "24": [
+          {
+            "alias": "Q38",
+            "fit": "candidate"
+          },
+          {
+            "alias": "G31",
+            "fit": "candidate"
+          }
+        ],
+        "32": [
+          {
+            "alias": "G31",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q36",
+            "fit": "candidate"
+          }
+        ],
+        "48": [
+          {
+            "alias": "Q36",
+            "fit": "candidate"
+          },
+          {
+            "alias": "G31",
+            "fit": "candidate"
+          }
+        ],
+        "64": [
+          {
+            "alias": "NEXT80",
+            "fit": "candidate"
+          },
+          {
+            "alias": "L70",
+            "fit": "candidate"
+          }
+        ],
+        "96": [
+          {
+            "alias": "OSS120",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q122",
+            "fit": "candidate"
+          }
+        ]
+      }
+    },
+    {
+      "group": "Text / reasoning",
+      "task_id": "summary",
+      "purpose": "Short/medium document summaries",
+      "candidates_by_vram_gb": {
+        "2": [
+          {
+            "alias": "Q08",
+            "fit": "candidate"
+          }
+        ],
+        "4": [
+          {
+            "alias": "Q2",
+            "fit": "candidate"
+          }
+        ],
+        "8": [
+          {
+            "alias": "Q4",
+            "fit": "candidate"
+          }
+        ],
+        "16": [
+          {
+            "alias": "G12",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q9",
+            "fit": "candidate"
+          }
+        ],
+        "24": [
+          {
+            "alias": "Q38",
+            "fit": "candidate"
+          },
+          {
+            "alias": "G31",
+            "fit": "candidate"
+          }
+        ],
+        "32": [
+          {
+            "alias": "Q36",
+            "fit": "candidate"
+          },
+          {
+            "alias": "G31",
+            "fit": "candidate"
+          }
+        ],
+        "48": [
+          {
+            "alias": "Q36",
+            "fit": "candidate"
+          },
+          {
+            "alias": "G31",
+            "fit": "candidate"
+          }
+        ],
+        "64": [
+          {
+            "alias": "NEXT80",
+            "fit": "candidate"
+          },
+          {
+            "alias": "L70",
+            "fit": "candidate"
+          }
+        ],
+        "96": [
+          {
+            "alias": "OSS120",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q122",
+            "fit": "candidate"
+          }
+        ]
+      }
+    },
+    {
+      "group": "Text / reasoning",
+      "task_id": "long_docs",
+      "purpose": "Long-form evidence-grounded synthesis",
+      "candidates_by_vram_gb": {
+        "2": [],
+        "4": [
+          {
+            "alias": "Q2",
+            "fit": "low_quality_fallback"
+          }
+        ],
+        "8": [
+          {
+            "alias": "Q4",
+            "fit": "low_quality_fallback"
+          }
+        ],
+        "16": [
+          {
+            "alias": "G12",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q9",
+            "fit": "candidate"
+          }
+        ],
+        "24": [
+          {
+            "alias": "Q38",
+            "fit": "candidate"
+          },
+          {
+            "alias": "G31",
+            "fit": "candidate"
+          }
+        ],
+        "32": [
+          {
+            "alias": "Q36",
+            "fit": "candidate"
+          },
+          {
+            "alias": "G31",
+            "fit": "candidate"
+          }
+        ],
+        "48": [
+          {
+            "alias": "Q36",
+            "fit": "candidate"
+          },
+          {
+            "alias": "G31",
+            "fit": "candidate"
+          }
+        ],
+        "64": [
+          {
+            "alias": "NEXT80",
+            "fit": "candidate"
+          },
+          {
+            "alias": "L70",
+            "fit": "candidate"
+          }
+        ],
+        "96": [
+          {
+            "alias": "OSS120",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q122",
+            "fit": "candidate"
+          }
+        ]
+      }
+    },
+    {
+      "group": "Text / reasoning",
+      "task_id": "translation",
+      "purpose": "Multilingual translation / localization",
+      "candidates_by_vram_gb": {
+        "2": [
+          {
+            "alias": "Q08",
+            "fit": "low_quality_fallback"
+          }
+        ],
+        "4": [
+          {
+            "alias": "Q2",
+            "fit": "candidate"
+          }
+        ],
+        "8": [
+          {
+            "alias": "Q4",
+            "fit": "candidate"
+          },
+          {
+            "alias": "GN4",
+            "fit": "candidate"
+          }
+        ],
+        "16": [
+          {
+            "alias": "G12",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q9",
+            "fit": "candidate"
+          }
+        ],
+        "24": [
+          {
+            "alias": "Q38",
+            "fit": "candidate"
+          },
+          {
+            "alias": "G31",
+            "fit": "candidate"
+          }
+        ],
+        "32": [
+          {
+            "alias": "G31",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q36",
+            "fit": "candidate"
+          }
+        ],
+        "48": [
+          {
+            "alias": "G31",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q36",
+            "fit": "candidate"
+          }
+        ],
+        "64": [
+          {
+            "alias": "NEXT80",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q38",
+            "fit": "candidate"
+          }
+        ],
+        "96": [
+          {
+            "alias": "Q122",
+            "fit": "candidate"
+          },
+          {
+            "alias": "OSS120",
+            "fit": "candidate"
+          }
+        ]
+      }
+    },
+    {
+      "group": "Text / reasoning",
+      "task_id": "reason_simple",
+      "purpose": "Simple planning / semantic reasoning",
+      "candidates_by_vram_gb": {
+        "2": [
+          {
+            "alias": "Q08",
+            "fit": "low_quality_fallback"
+          }
+        ],
+        "4": [
+          {
+            "alias": "Q2",
+            "fit": "candidate"
+          }
+        ],
+        "8": [
+          {
+            "alias": "Q4",
+            "fit": "candidate"
+          },
+          {
+            "alias": "GN4",
+            "fit": "candidate"
+          }
+        ],
+        "16": [
+          {
+            "alias": "G12",
+            "fit": "candidate"
+          },
+          {
+            "alias": "OSS20",
+            "fit": "tight_or_offload"
+          }
+        ],
+        "24": [
+          {
+            "alias": "Q38",
+            "fit": "candidate"
+          },
+          {
+            "alias": "G31",
+            "fit": "candidate"
+          }
+        ],
+        "32": [
+          {
+            "alias": "G31",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q36",
+            "fit": "candidate"
+          }
+        ],
+        "48": [
+          {
+            "alias": "Q36",
+            "fit": "candidate"
+          },
+          {
+            "alias": "G31",
+            "fit": "candidate"
+          }
+        ],
+        "64": [
+          {
+            "alias": "NEXT80",
+            "fit": "candidate"
+          },
+          {
+            "alias": "L70",
+            "fit": "candidate"
+          }
+        ],
+        "96": [
+          {
+            "alias": "OSS120",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q122",
+            "fit": "candidate"
+          }
+        ]
+      }
+    },
+    {
+      "group": "Text / reasoning",
+      "task_id": "reason_deep",
+      "purpose": "Deep multi-hop reasoning / critique",
+      "candidates_by_vram_gb": {
+        "2": [],
+        "4": [
+          {
+            "alias": "Q2",
+            "fit": "low_quality_fallback"
+          }
+        ],
+        "8": [
+          {
+            "alias": "Q9",
+            "fit": "low_quality_fallback"
+          }
+        ],
+        "16": [
+          {
+            "alias": "OSS20",
+            "fit": "tight_or_offload"
+          },
+          {
+            "alias": "G12",
+            "fit": "candidate"
+          }
+        ],
+        "24": [
+          {
+            "alias": "G31",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q38",
+            "fit": "candidate"
+          }
+        ],
+        "32": [
+          {
+            "alias": "G31",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q36",
+            "fit": "candidate"
+          }
+        ],
+        "48": [
+          {
+            "alias": "G31",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q36",
+            "fit": "candidate"
+          }
+        ],
+        "64": [
+          {
+            "alias": "NEXT80",
+            "fit": "candidate"
+          },
+          {
+            "alias": "L70",
+            "fit": "candidate"
+          }
+        ],
+        "96": [
+          {
+            "alias": "OSS120",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q122",
+            "fit": "candidate"
+          }
+        ]
+      }
+    },
+    {
+      "group": "Text / reasoning",
+      "task_id": "agent",
+      "purpose": "Tool selection / multi-step agents",
+      "candidates_by_vram_gb": {
+        "2": [
+          {
+            "alias": "Q08",
+            "fit": "low_quality_fallback"
+          }
+        ],
+        "4": [
+          {
+            "alias": "Q2",
+            "fit": "candidate"
+          },
+          {
+            "alias": "MIN3",
+            "fit": "candidate"
+          }
+        ],
+        "8": [
+          {
+            "alias": "Q4",
+            "fit": "candidate"
+          },
+          {
+            "alias": "GN4",
+            "fit": "candidate"
+          }
+        ],
+        "16": [
+          {
+            "alias": "OSS20",
+            "fit": "tight_or_offload"
+          },
+          {
+            "alias": "G12",
+            "fit": "candidate"
+          }
+        ],
+        "24": [
+          {
+            "alias": "C30",
+            "fit": "tight_or_offload"
+          },
+          {
+            "alias": "Q38",
+            "fit": "candidate"
+          }
+        ],
+        "32": [
+          {
+            "alias": "Q36",
+            "fit": "candidate"
+          },
+          {
+            "alias": "C30",
+            "fit": "candidate"
+          }
+        ],
+        "48": [
+          {
+            "alias": "Q36",
+            "fit": "candidate"
+          },
+          {
+            "alias": "G31",
+            "fit": "candidate"
+          }
+        ],
+        "64": [
+          {
+            "alias": "CN80",
+            "fit": "candidate"
+          },
+          {
+            "alias": "NEXT80",
+            "fit": "candidate"
+          }
+        ],
+        "96": [
+          {
+            "alias": "OSS120",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q122",
+            "fit": "candidate"
+          }
+        ]
+      }
+    },
+    {
+      "group": "Text / reasoning",
+      "task_id": "planner",
+      "purpose": "Workflow DAG / orchestration planning",
+      "candidates_by_vram_gb": {
+        "2": [],
+        "4": [
+          {
+            "alias": "Q2",
+            "fit": "low_quality_fallback"
+          }
+        ],
+        "8": [
+          {
+            "alias": "Q4",
+            "fit": "low_quality_fallback"
+          }
+        ],
+        "16": [
+          {
+            "alias": "OSS20",
+            "fit": "tight_or_offload"
+          },
+          {
+            "alias": "G12",
+            "fit": "candidate"
+          }
+        ],
+        "24": [
+          {
+            "alias": "Q38",
+            "fit": "candidate"
+          },
+          {
+            "alias": "G31",
+            "fit": "candidate"
+          }
+        ],
+        "32": [
+          {
+            "alias": "Q36",
+            "fit": "candidate"
+          },
+          {
+            "alias": "G31",
+            "fit": "candidate"
+          }
+        ],
+        "48": [
+          {
+            "alias": "G31",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q36",
+            "fit": "candidate"
+          }
+        ],
+        "64": [
+          {
+            "alias": "NEXT80",
+            "fit": "candidate"
+          },
+          {
+            "alias": "CN80",
+            "fit": "candidate"
+          }
+        ],
+        "96": [
+          {
+            "alias": "OSS120",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q122",
+            "fit": "candidate"
+          }
+        ]
+      }
+    },
+    {
+      "group": "Coding",
+      "task_id": "code_complete",
+      "purpose": "Code completion / small patches",
+      "candidates_by_vram_gb": {
+        "2": [
+          {
+            "alias": "C05",
+            "fit": "candidate"
+          }
+        ],
+        "4": [
+          {
+            "alias": "C3",
+            "fit": "candidate"
+          },
+          {
+            "alias": "C15",
+            "fit": "candidate"
+          }
+        ],
+        "8": [
+          {
+            "alias": "C7",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q4",
+            "fit": "candidate"
+          }
+        ],
+        "16": [
+          {
+            "alias": "C14",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q9",
+            "fit": "candidate"
+          }
+        ],
+        "24": [
+          {
+            "alias": "C30",
+            "fit": "tight_or_offload"
+          },
+          {
+            "alias": "C32",
+            "fit": "tight_or_offload"
+          }
+        ],
+        "32": [
+          {
+            "alias": "C30",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q36",
+            "fit": "candidate"
+          }
+        ],
+        "48": [
+          {
+            "alias": "CN80",
+            "fit": "tight_or_offload"
+          },
+          {
+            "alias": "C30",
+            "fit": "candidate"
+          }
+        ],
+        "64": [
+          {
+            "alias": "CN80",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q36",
+            "fit": "candidate"
+          }
+        ],
+        "96": [
+          {
+            "alias": "CN80",
+            "fit": "candidate"
+          },
+          {
+            "alias": "OSS120",
+            "fit": "candidate"
+          }
+        ]
+      }
+    },
+    {
+      "group": "Coding",
+      "task_id": "code_generate",
+      "purpose": "Functions / modules / test generation",
+      "candidates_by_vram_gb": {
+        "2": [
+          {
+            "alias": "C05",
+            "fit": "low_quality_fallback"
+          }
+        ],
+        "4": [
+          {
+            "alias": "C3",
+            "fit": "candidate"
+          }
+        ],
+        "8": [
+          {
+            "alias": "C7",
+            "fit": "candidate"
+          }
+        ],
+        "16": [
+          {
+            "alias": "C14",
+            "fit": "candidate"
+          },
+          {
+            "alias": "G12",
+            "fit": "candidate"
+          }
+        ],
+        "24": [
+          {
+            "alias": "C30",
+            "fit": "tight_or_offload"
+          },
+          {
+            "alias": "C32",
+            "fit": "tight_or_offload"
+          }
+        ],
+        "32": [
+          {
+            "alias": "C30",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q36",
+            "fit": "candidate"
+          }
+        ],
+        "48": [
+          {
+            "alias": "CN80",
+            "fit": "tight_or_offload"
+          },
+          {
+            "alias": "Q36",
+            "fit": "candidate"
+          }
+        ],
+        "64": [
+          {
+            "alias": "CN80",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q36",
+            "fit": "candidate"
+          }
+        ],
+        "96": [
+          {
+            "alias": "CN80",
+            "fit": "candidate"
+          },
+          {
+            "alias": "OSS120",
+            "fit": "candidate"
+          }
+        ]
+      }
+    },
+    {
+      "group": "Coding",
+      "task_id": "code_repo",
+      "purpose": "Repository-scale coding / debugging",
+      "candidates_by_vram_gb": {
+        "2": [],
+        "4": [
+          {
+            "alias": "C3",
+            "fit": "low_quality_fallback"
+          }
+        ],
+        "8": [
+          {
+            "alias": "C7",
+            "fit": "low_quality_fallback"
+          }
+        ],
+        "16": [
+          {
+            "alias": "C14",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q9",
+            "fit": "candidate"
+          }
+        ],
+        "24": [
+          {
+            "alias": "C30",
+            "fit": "tight_or_offload"
+          },
+          {
+            "alias": "C32",
+            "fit": "tight_or_offload"
+          }
+        ],
+        "32": [
+          {
+            "alias": "Q36",
+            "fit": "candidate"
+          },
+          {
+            "alias": "C30",
+            "fit": "candidate"
+          }
+        ],
+        "48": [
+          {
+            "alias": "CN80",
+            "fit": "tight_or_offload"
+          },
+          {
+            "alias": "Q36",
+            "fit": "candidate"
+          }
+        ],
+        "64": [
+          {
+            "alias": "CN80",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q36",
+            "fit": "candidate"
+          }
+        ],
+        "96": [
+          {
+            "alias": "CN80",
+            "fit": "candidate"
+          },
+          {
+            "alias": "OSS120",
+            "fit": "candidate"
+          }
+        ]
+      }
+    },
+    {
+      "group": "Coding",
+      "task_id": "code_review",
+      "purpose": "Security review / defect detection",
+      "candidates_by_vram_gb": {
+        "2": [],
+        "4": [
+          {
+            "alias": "C3",
+            "fit": "low_quality_fallback"
+          }
+        ],
+        "8": [
+          {
+            "alias": "C7",
+            "fit": "candidate"
+          }
+        ],
+        "16": [
+          {
+            "alias": "C14",
+            "fit": "candidate"
+          },
+          {
+            "alias": "G12",
+            "fit": "candidate"
+          }
+        ],
+        "24": [
+          {
+            "alias": "C30",
+            "fit": "tight_or_offload"
+          },
+          {
+            "alias": "Q38",
+            "fit": "candidate"
+          }
+        ],
+        "32": [
+          {
+            "alias": "Q36",
+            "fit": "candidate"
+          },
+          {
+            "alias": "C30",
+            "fit": "candidate"
+          }
+        ],
+        "48": [
+          {
+            "alias": "CN80",
+            "fit": "tight_or_offload"
+          },
+          {
+            "alias": "Q36",
+            "fit": "candidate"
+          }
+        ],
+        "64": [
+          {
+            "alias": "CN80",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q36",
+            "fit": "candidate"
+          }
+        ],
+        "96": [
+          {
+            "alias": "OSS120",
+            "fit": "candidate"
+          },
+          {
+            "alias": "CN80",
+            "fit": "candidate"
+          }
+        ]
+      }
+    },
+    {
+      "group": "Coding",
+      "task_id": "testgen",
+      "purpose": "Test case generation / formal checks",
+      "candidates_by_vram_gb": {
+        "2": [
+          {
+            "alias": "C05",
+            "fit": "low_quality_fallback"
+          }
+        ],
+        "4": [
+          {
+            "alias": "C3",
+            "fit": "candidate"
+          }
+        ],
+        "8": [
+          {
+            "alias": "C7",
+            "fit": "candidate"
+          }
+        ],
+        "16": [
+          {
+            "alias": "C14",
+            "fit": "candidate"
+          },
+          {
+            "alias": "G12",
+            "fit": "candidate"
+          }
+        ],
+        "24": [
+          {
+            "alias": "C30",
+            "fit": "tight_or_offload"
+          },
+          {
+            "alias": "Q38",
+            "fit": "candidate"
+          }
+        ],
+        "32": [
+          {
+            "alias": "Q36",
+            "fit": "candidate"
+          },
+          {
+            "alias": "G31",
+            "fit": "candidate"
+          }
+        ],
+        "48": [
+          {
+            "alias": "CN80",
+            "fit": "tight_or_offload"
+          },
+          {
+            "alias": "G31",
+            "fit": "candidate"
+          }
+        ],
+        "64": [
+          {
+            "alias": "CN80",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q36",
+            "fit": "candidate"
+          }
+        ],
+        "96": [
+          {
+            "alias": "OSS120",
+            "fit": "candidate"
+          },
+          {
+            "alias": "CN80",
+            "fit": "candidate"
+          }
+        ]
+      }
+    },
+    {
+      "group": "Vision / documents",
+      "task_id": "ocr",
+      "purpose": "Text OCR / document parsing",
+      "candidates_by_vram_gb": {
+        "2": [],
+        "4": [
+          {
+            "alias": "FLO",
+            "fit": "candidate"
+          },
+          {
+            "alias": "VL2",
+            "fit": "tight_or_offload"
+          }
+        ],
+        "8": [
+          {
+            "alias": "VL4",
+            "fit": "candidate"
+          },
+          {
+            "alias": "FLO",
+            "fit": "candidate"
+          }
+        ],
+        "16": [
+          {
+            "alias": "VL8",
+            "fit": "candidate"
+          },
+          {
+            "alias": "G12",
+            "fit": "candidate"
+          }
+        ],
+        "24": [
+          {
+            "alias": "VL30",
+            "fit": "tight_or_offload"
+          },
+          {
+            "alias": "Q38",
+            "fit": "candidate"
+          }
+        ],
+        "32": [
+          {
+            "alias": "VL32",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q38",
+            "fit": "candidate"
+          }
+        ],
+        "48": [
+          {
+            "alias": "VL32",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q38",
+            "fit": "candidate"
+          }
+        ],
+        "64": [
+          {
+            "alias": "Q38",
+            "fit": "candidate"
+          },
+          {
+            "alias": "G31",
+            "fit": "candidate"
+          }
+        ],
+        "96": [
+          {
+            "alias": "Q38",
+            "fit": "candidate"
+          },
+          {
+            "alias": "G31",
+            "fit": "candidate"
+          }
+        ]
+      }
+    },
+    {
+      "group": "Vision / documents",
+      "task_id": "charts",
+      "purpose": "Charts, tables and financial statement images",
+      "candidates_by_vram_gb": {
+        "2": [],
+        "4": [
+          {
+            "alias": "VL2",
+            "fit": "tight_or_offload"
+          }
+        ],
+        "8": [
+          {
+            "alias": "VL4",
+            "fit": "candidate"
+          }
+        ],
+        "16": [
+          {
+            "alias": "VL8",
+            "fit": "candidate"
+          },
+          {
+            "alias": "G12",
+            "fit": "candidate"
+          }
+        ],
+        "24": [
+          {
+            "alias": "VL30",
+            "fit": "tight_or_offload"
+          },
+          {
+            "alias": "Q38",
+            "fit": "candidate"
+          }
+        ],
+        "32": [
+          {
+            "alias": "VL32",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q38",
+            "fit": "candidate"
+          }
+        ],
+        "48": [
+          {
+            "alias": "VL32",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q38",
+            "fit": "candidate"
+          }
+        ],
+        "64": [
+          {
+            "alias": "Q38",
+            "fit": "candidate"
+          },
+          {
+            "alias": "G31",
+            "fit": "candidate"
+          }
+        ],
+        "96": [
+          {
+            "alias": "Q38",
+            "fit": "candidate"
+          },
+          {
+            "alias": "G31",
+            "fit": "candidate"
+          }
+        ]
+      }
+    },
+    {
+      "group": "Vision / documents",
+      "task_id": "screenshot",
+      "purpose": "Screenshot / web UI understanding",
+      "candidates_by_vram_gb": {
+        "2": [],
+        "4": [
+          {
+            "alias": "VL2",
+            "fit": "tight_or_offload"
+          }
+        ],
+        "8": [
+          {
+            "alias": "VL4",
+            "fit": "candidate"
+          },
+          {
+            "alias": "GN4",
+            "fit": "candidate"
+          }
+        ],
+        "16": [
+          {
+            "alias": "VL8",
+            "fit": "candidate"
+          },
+          {
+            "alias": "G12",
+            "fit": "candidate"
+          }
+        ],
+        "24": [
+          {
+            "alias": "VL30",
+            "fit": "tight_or_offload"
+          },
+          {
+            "alias": "Q38",
+            "fit": "candidate"
+          }
+        ],
+        "32": [
+          {
+            "alias": "VL32",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q38",
+            "fit": "candidate"
+          }
+        ],
+        "48": [
+          {
+            "alias": "VL32",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q38",
+            "fit": "candidate"
+          }
+        ],
+        "64": [
+          {
+            "alias": "Q38",
+            "fit": "candidate"
+          },
+          {
+            "alias": "G31",
+            "fit": "candidate"
+          }
+        ],
+        "96": [
+          {
+            "alias": "Q38",
+            "fit": "candidate"
+          },
+          {
+            "alias": "G31",
+            "fit": "candidate"
+          }
+        ]
+      }
+    },
+    {
+      "group": "Vision / documents",
+      "task_id": "video_understand",
+      "purpose": "Video frames / scene description",
+      "candidates_by_vram_gb": {
+        "2": [],
+        "4": [
+          {
+            "alias": "VL2",
+            "fit": "tight_or_offload"
+          }
+        ],
+        "8": [
+          {
+            "alias": "VL4",
+            "fit": "candidate"
+          }
+        ],
+        "16": [
+          {
+            "alias": "VL8",
+            "fit": "candidate"
+          },
+          {
+            "alias": "G12",
+            "fit": "candidate"
+          }
+        ],
+        "24": [
+          {
+            "alias": "Q38",
+            "fit": "candidate"
+          },
+          {
+            "alias": "VL30",
+            "fit": "tight_or_offload"
+          }
+        ],
+        "32": [
+          {
+            "alias": "Q38",
+            "fit": "candidate"
+          },
+          {
+            "alias": "VL32",
+            "fit": "candidate"
+          }
+        ],
+        "48": [
+          {
+            "alias": "Q38",
+            "fit": "candidate"
+          },
+          {
+            "alias": "VL32",
+            "fit": "candidate"
+          }
+        ],
+        "64": [
+          {
+            "alias": "Q38",
+            "fit": "candidate"
+          },
+          {
+            "alias": "VL32",
+            "fit": "candidate"
+          }
+        ],
+        "96": [
+          {
+            "alias": "Q38",
+            "fit": "candidate"
+          },
+          {
+            "alias": "VL32",
+            "fit": "candidate"
+          }
+        ]
+      }
+    },
+    {
+      "group": "Audio",
+      "task_id": "asr",
+      "purpose": "Audio transcription multilingual",
+      "candidates_by_vram_gb": {
+        "2": [
+          {
+            "alias": "WS",
+            "fit": "candidate"
+          },
+          {
+            "alias": "WT",
+            "fit": "candidate"
+          }
+        ],
+        "4": [
+          {
+            "alias": "PAR",
+            "fit": "candidate"
+          },
+          {
+            "alias": "WLT",
+            "fit": "candidate"
+          }
+        ],
+        "8": [
+          {
+            "alias": "WL",
+            "fit": "candidate"
+          },
+          {
+            "alias": "AS17",
+            "fit": "candidate"
+          }
+        ],
+        "16": [
+          {
+            "alias": "WL",
+            "fit": "candidate"
+          },
+          {
+            "alias": "AS17",
+            "fit": "candidate"
+          }
+        ],
+        "24": [
+          {
+            "alias": "WL",
+            "fit": "candidate"
+          },
+          {
+            "alias": "AS17",
+            "fit": "candidate"
+          }
+        ],
+        "32": [
+          {
+            "alias": "WL",
+            "fit": "candidate"
+          },
+          {
+            "alias": "AS17",
+            "fit": "candidate"
+          }
+        ],
+        "48": [
+          {
+            "alias": "WL",
+            "fit": "candidate"
+          },
+          {
+            "alias": "AS17",
+            "fit": "candidate"
+          }
+        ],
+        "64": [
+          {
+            "alias": "WL",
+            "fit": "candidate"
+          },
+          {
+            "alias": "AS17",
+            "fit": "candidate"
+          }
+        ],
+        "96": [
+          {
+            "alias": "WL",
+            "fit": "candidate"
+          },
+          {
+            "alias": "AS17",
+            "fit": "candidate"
+          }
+        ]
+      }
+    },
+    {
+      "group": "Audio",
+      "task_id": "align",
+      "purpose": "Forced alignment / word timestamps",
+      "candidates_by_vram_gb": {
+        "2": [],
+        "4": [
+          {
+            "alias": "ALIGN",
+            "fit": "candidate"
+          }
+        ],
+        "8": [
+          {
+            "alias": "ALIGN",
+            "fit": "candidate"
+          }
+        ],
+        "16": [
+          {
+            "alias": "ALIGN",
+            "fit": "candidate"
+          }
+        ],
+        "24": [
+          {
+            "alias": "ALIGN",
+            "fit": "candidate"
+          }
+        ],
+        "32": [
+          {
+            "alias": "ALIGN",
+            "fit": "candidate"
+          }
+        ],
+        "48": [
+          {
+            "alias": "ALIGN",
+            "fit": "candidate"
+          }
+        ],
+        "64": [
+          {
+            "alias": "ALIGN",
+            "fit": "candidate"
+          }
+        ],
+        "96": [
+          {
+            "alias": "ALIGN",
+            "fit": "candidate"
+          }
+        ]
+      }
+    },
+    {
+      "group": "Audio",
+      "task_id": "tts",
+      "purpose": "Text-to-speech synthesis",
+      "candidates_by_vram_gb": {
+        "2": [
+          {
+            "alias": "KOK",
+            "fit": "candidate"
+          }
+        ],
+        "4": [
+          {
+            "alias": "TTS06",
+            "fit": "candidate"
+          },
+          {
+            "alias": "KOK",
+            "fit": "candidate"
+          }
+        ],
+        "8": [
+          {
+            "alias": "TTS17",
+            "fit": "candidate"
+          },
+          {
+            "alias": "KOK",
+            "fit": "candidate"
+          }
+        ],
+        "16": [
+          {
+            "alias": "TTS17",
+            "fit": "candidate"
+          },
+          {
+            "alias": "KOK",
+            "fit": "candidate"
+          }
+        ],
+        "24": [
+          {
+            "alias": "TTS17",
+            "fit": "candidate"
+          },
+          {
+            "alias": "KOK",
+            "fit": "candidate"
+          }
+        ],
+        "32": [
+          {
+            "alias": "TTS17",
+            "fit": "candidate"
+          },
+          {
+            "alias": "KOK",
+            "fit": "candidate"
+          }
+        ],
+        "48": [
+          {
+            "alias": "TTS17",
+            "fit": "candidate"
+          },
+          {
+            "alias": "KOK",
+            "fit": "candidate"
+          }
+        ],
+        "64": [
+          {
+            "alias": "TTS17",
+            "fit": "candidate"
+          },
+          {
+            "alias": "KOK",
+            "fit": "candidate"
+          }
+        ],
+        "96": [
+          {
+            "alias": "TTS17",
+            "fit": "candidate"
+          },
+          {
+            "alias": "KOK",
+            "fit": "candidate"
+          }
+        ]
+      }
+    },
+    {
+      "group": "Audio",
+      "task_id": "speech_translate",
+      "purpose": "Speech to translated text",
+      "candidates_by_vram_gb": {
+        "2": [
+          {
+            "alias": "WT",
+            "fit": "low_quality_fallback"
+          }
+        ],
+        "4": [
+          {
+            "alias": "AS06",
+            "fit": "candidate"
+          }
+        ],
+        "8": [
+          {
+            "alias": "AS17",
+            "fit": "candidate"
+          }
+        ],
+        "16": [
+          {
+            "alias": "G12",
+            "fit": "candidate"
+          },
+          {
+            "alias": "AS17",
+            "fit": "candidate"
+          }
+        ],
+        "24": [
+          {
+            "alias": "G12",
+            "fit": "candidate"
+          },
+          {
+            "alias": "AS17",
+            "fit": "candidate"
+          }
+        ],
+        "32": [
+          {
+            "alias": "G12",
+            "fit": "candidate"
+          },
+          {
+            "alias": "AS17",
+            "fit": "candidate"
+          }
+        ],
+        "48": [
+          {
+            "alias": "G12",
+            "fit": "candidate"
+          },
+          {
+            "alias": "AS17",
+            "fit": "candidate"
+          }
+        ],
+        "64": [
+          {
+            "alias": "G12",
+            "fit": "candidate"
+          },
+          {
+            "alias": "AS17",
+            "fit": "candidate"
+          }
+        ],
+        "96": [
+          {
+            "alias": "G12",
+            "fit": "candidate"
+          },
+          {
+            "alias": "AS17",
+            "fit": "candidate"
+          }
+        ]
+      }
+    },
+    {
+      "group": "Media generation",
+      "task_id": "image",
+      "purpose": "Text-to-image generation",
+      "candidates_by_vram_gb": {
+        "2": [],
+        "4": [
+          {
+            "alias": "SD15",
+            "fit": "tight_or_offload"
+          }
+        ],
+        "8": [
+          {
+            "alias": "SDXL",
+            "fit": "tight_or_offload"
+          }
+        ],
+        "16": [
+          {
+            "alias": "FK4",
+            "fit": "candidate"
+          },
+          {
+            "alias": "SD35",
+            "fit": "candidate"
+          }
+        ],
+        "24": [
+          {
+            "alias": "FK9",
+            "fit": "candidate"
+          },
+          {
+            "alias": "QI21",
+            "fit": "tight_or_offload"
+          }
+        ],
+        "32": [
+          {
+            "alias": "FK9",
+            "fit": "candidate"
+          },
+          {
+            "alias": "QI21",
+            "fit": "candidate"
+          }
+        ],
+        "48": [
+          {
+            "alias": "FD32",
+            "fit": "tight_or_offload"
+          },
+          {
+            "alias": "FK9",
+            "fit": "candidate"
+          }
+        ],
+        "64": [
+          {
+            "alias": "FD32",
+            "fit": "candidate"
+          },
+          {
+            "alias": "FK9",
+            "fit": "candidate"
+          }
+        ],
+        "96": [
+          {
+            "alias": "FD32",
+            "fit": "candidate"
+          },
+          {
+            "alias": "FK9",
+            "fit": "candidate"
+          }
+        ]
+      }
+    },
+    {
+      "group": "Media generation",
+      "task_id": "image_edit",
+      "purpose": "Image-to-image / controlled editing",
+      "candidates_by_vram_gb": {
+        "2": [],
+        "4": [
+          {
+            "alias": "SD15",
+            "fit": "tight_or_offload"
+          }
+        ],
+        "8": [
+          {
+            "alias": "SDXL",
+            "fit": "tight_or_offload"
+          }
+        ],
+        "16": [
+          {
+            "alias": "FK4",
+            "fit": "candidate"
+          },
+          {
+            "alias": "SD35",
+            "fit": "candidate"
+          }
+        ],
+        "24": [
+          {
+            "alias": "FK9",
+            "fit": "candidate"
+          },
+          {
+            "alias": "QI21",
+            "fit": "tight_or_offload"
+          }
+        ],
+        "32": [
+          {
+            "alias": "FK9",
+            "fit": "candidate"
+          },
+          {
+            "alias": "QI21",
+            "fit": "candidate"
+          }
+        ],
+        "48": [
+          {
+            "alias": "FD32",
+            "fit": "tight_or_offload"
+          },
+          {
+            "alias": "FK9",
+            "fit": "candidate"
+          }
+        ],
+        "64": [
+          {
+            "alias": "FD32",
+            "fit": "candidate"
+          },
+          {
+            "alias": "FK9",
+            "fit": "candidate"
+          }
+        ],
+        "96": [
+          {
+            "alias": "FD32",
+            "fit": "candidate"
+          },
+          {
+            "alias": "FK9",
+            "fit": "candidate"
+          }
+        ]
+      }
+    },
+    {
+      "group": "Media generation",
+      "task_id": "video_gen",
+      "purpose": "Text-to-video generation",
+      "candidates_by_vram_gb": {
+        "2": [],
+        "4": [],
+        "8": [],
+        "16": [
+          {
+            "alias": "LTX",
+            "fit": "tight_or_offload"
+          }
+        ],
+        "24": [
+          {
+            "alias": "WAN5",
+            "fit": "tight_or_offload"
+          },
+          {
+            "alias": "LTX",
+            "fit": "candidate"
+          }
+        ],
+        "32": [
+          {
+            "alias": "WAN5",
+            "fit": "tight_or_offload"
+          },
+          {
+            "alias": "LTX",
+            "fit": "candidate"
+          }
+        ],
+        "48": [
+          {
+            "alias": "HUN",
+            "fit": "tight_or_offload"
+          },
+          {
+            "alias": "WAN5",
+            "fit": "candidate"
+          }
+        ],
+        "64": [
+          {
+            "alias": "HUN",
+            "fit": "candidate"
+          },
+          {
+            "alias": "WAN5",
+            "fit": "candidate"
+          }
+        ],
+        "96": [
+          {
+            "alias": "WAN14",
+            "fit": "candidate"
+          },
+          {
+            "alias": "HUN",
+            "fit": "candidate"
+          }
+        ]
+      }
+    },
+    {
+      "group": "Media generation",
+      "task_id": "video_edit",
+      "purpose": "Image-to-video / video continuation",
+      "candidates_by_vram_gb": {
+        "2": [],
+        "4": [],
+        "8": [],
+        "16": [
+          {
+            "alias": "LTX",
+            "fit": "tight_or_offload"
+          }
+        ],
+        "24": [
+          {
+            "alias": "WAN5",
+            "fit": "tight_or_offload"
+          },
+          {
+            "alias": "LTX",
+            "fit": "candidate"
+          }
+        ],
+        "32": [
+          {
+            "alias": "WAN5",
+            "fit": "tight_or_offload"
+          },
+          {
+            "alias": "LTX",
+            "fit": "candidate"
+          }
+        ],
+        "48": [
+          {
+            "alias": "HUN",
+            "fit": "tight_or_offload"
+          },
+          {
+            "alias": "WAN5",
+            "fit": "candidate"
+          }
+        ],
+        "64": [
+          {
+            "alias": "HUN",
+            "fit": "candidate"
+          },
+          {
+            "alias": "WAN5",
+            "fit": "candidate"
+          }
+        ],
+        "96": [
+          {
+            "alias": "WANI14",
+            "fit": "candidate"
+          },
+          {
+            "alias": "HUN",
+            "fit": "candidate"
+          }
+        ]
+      }
+    },
+    {
+      "group": "Forecasting",
+      "task_id": "forecast",
+      "purpose": "Time-series forecasting / numeric sequences",
+      "candidates_by_vram_gb": {
+        "2": [],
+        "4": [
+          {
+            "alias": "TF3",
+            "fit": "candidate"
+          }
+        ],
+        "8": [
+          {
+            "alias": "TF3",
+            "fit": "candidate"
+          }
+        ],
+        "16": [
+          {
+            "alias": "TF3",
+            "fit": "candidate"
+          }
+        ],
+        "24": [
+          {
+            "alias": "TF3",
+            "fit": "candidate"
+          }
+        ],
+        "32": [
+          {
+            "alias": "TF3",
+            "fit": "candidate"
+          }
+        ],
+        "48": [
+          {
+            "alias": "TF3",
+            "fit": "candidate"
+          }
+        ],
+        "64": [
+          {
+            "alias": "TF3",
+            "fit": "candidate"
+          }
+        ],
+        "96": [
+          {
+            "alias": "TF3",
+            "fit": "candidate"
+          }
+        ]
+      }
+    },
+    {
+      "group": "Adaptation",
+      "task_id": "qlora",
+      "purpose": "QLoRA / lightweight fine-tuning (experimental)",
+      "candidates_by_vram_gb": {
+        "2": [],
+        "4": [],
+        "8": [
+          {
+            "alias": "Q08",
+            "fit": "tight_or_offload"
+          }
+        ],
+        "16": [
+          {
+            "alias": "Q2",
+            "fit": "tight_or_offload"
+          },
+          {
+            "alias": "Q08",
+            "fit": "candidate"
+          }
+        ],
+        "24": [
+          {
+            "alias": "Q4",
+            "fit": "tight_or_offload"
+          },
+          {
+            "alias": "Q2",
+            "fit": "candidate"
+          }
+        ],
+        "32": [
+          {
+            "alias": "Q9",
+            "fit": "tight_or_offload"
+          },
+          {
+            "alias": "Q4",
+            "fit": "candidate"
+          }
+        ],
+        "48": [
+          {
+            "alias": "Q9",
+            "fit": "candidate"
+          },
+          {
+            "alias": "Q4",
+            "fit": "candidate"
+          }
+        ],
+        "64": [
+          {
+            "alias": "Q27",
+            "fit": "tight_or_offload"
+          },
+          {
+            "alias": "Q9",
+            "fit": "candidate"
+          }
+        ],
+        "96": [
+          {
+            "alias": "G31",
+            "fit": "tight_or_offload"
+          },
+          {
+            "alias": "Q27",
+            "fit": "candidate"
+          }
+        ]
+      }
+    }
+  ],
+  "source_collections": [
+    "https://huggingface.co/Qwen/models",
+    "https://huggingface.co/collections/google/gemma-4",
+    "https://huggingface.co/collections/Qwen/qwen3-vl",
+    "https://huggingface.co/collections/black-forest-labs/flux2",
+    "https://huggingface.co/collections/Qwen/qwen3-asr"
+  ],
+  "known_issues": [
+    "VRAM tier compatibility is editorial/heuristic, not measured",
+    "Package runtime support can lag model release; probe before enabling",
+    "Some licensed checkpoints are noncommercial or gated",
+    "Hunyuan, LTX, FLUX and Wan 2.2 memory varies with resolution/offload and cannot use LLM sizing rules",
+    "Qwen3.5-35B-A3B 24GB and 80B Q3 48GB are tight, not default production",
+    "Model names are official repository IDs, NOT Ollama tags; runtime-specific artifacts must be discovered and pinned"
+  ]
+}

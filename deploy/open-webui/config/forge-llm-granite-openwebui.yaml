@@ -1,0 +1,32 @@
+# Granite Open WebUI ↔ forge-gateway catalog (UI labels + optional forge_task for docs/tests).
+# Served model ids must match artifact_pins in forge-llm configs/runner.granite.yaml.
+gateway:
+  connection_label: forge-llm-granite
+  docker_base_url: http://host.docker.internal:18080/v1
+  loopback_base_url: http://127.0.0.1:18080/v1
+  bearer_env: FORGE_LLM_GATEWAY_BEARER
+  auth_header: Authorization
+models:
+  - id: ctx-unlim-qwen3-8b:latest
+    label: Chat — Qwen3 8B (interactive)
+    forge_task: chat
+  - id: qwen3:30b-a3b
+    label: Code — Qwen3 30B MoE
+    forge_task: code_generate
+  - id: ctx-unlim-qwen3-14b:latest
+    label: Long context — Qwen3 14B
+    forge_task: long_docs
+  - id: ctx-unlim-granite41-8b:latest
+    label: Codegen loop — Granite 4.1 8B
+    forge_task: code_repo
+  - id: nomic-embed-text:latest
+    label: Embeddings — nomic
+    forge_task: embedding
+  - id: ibm/granite4:tiny-h
+    label: Classifier — Granite4 tiny (routing only)
+    forge_task: intent
+external_bridges:
+  - slug: chatgpt-primary
+    model_prefix: granite-chatgpt-primary
+  - slug: gemini-primary
+    model_prefix: granite-gemini-primary

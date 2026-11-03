@@ -34,6 +34,11 @@ async def ensure_model(model: str, mode: str) -> tuple[bool, bool, str | None]:
     Ensure ``model`` is active. Returns (ready, swapped, error).
     """
     adapter = get_adapter()
+    residents = await adapter.resident_models()
+    if adapter.config.kind in ("llama_cpp", "vllm") and residents:
+        loaded = residents[0]
+        if model != loaded:
+            return False, False, f"runner serves single model {loaded!r}; requested {model!r}"
     async with slot_state._lock:
         if slot_state.swapping and slot_state.swap_target != model:
             return False, False, "model_swap_in_progress"

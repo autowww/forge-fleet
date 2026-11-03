@@ -85,6 +85,41 @@ After bridges listen on loopback:
    - **Web UI variants:** `granite-chatgpt-primary.gpt-4o`, `granite-gemini-primary.fast`, etc. (from `config/web-model-catalog.json`, merged with live CDP scrape when signed in). No Open WebUI extension required.
 4. Verify: send a short prompt; assistant text should come from the signed-in Granite browser session.
 
+## 4b. Forge LLM catalog (local GPU via forge-gateway)
+
+Use the **queued control plane** so Open WebUI exercises the same pinned Granite models as Forge apps (resident-first routing, bearer auth). Direct host Ollama stays **off** in the UI.
+
+On Granite (after `rollout-forge-llm-control-plane.sh` and Open WebUI `.env` exist):
+
+```bash
+cd deploy/open-webui
+./scripts/install-openwebui-forge-llm-connections.sh
+cd ../forge-llm-control-plane && docker compose up -d --build forge-gateway
+cd ../open-webui && docker compose -f compose.yaml -f compose.granite.yaml up -d
+```
+
+This script:
+
+1. Creates `~/.config/forge-open-webui/forge-llm-gateway.env` (`FORGE_LLM_GATEWAY_BEARER`, mode `0600`).
+2. Sets `OPENAI_API_BASE_URLS` to `http://host.docker.internal:18080/v1` (first connection) plus web-bridge URLs when `bridge-*.env` bearers exist.
+3. Sets matching semicolon-separated `OPENAI_API_KEYS` (gateway bearer + per-bridge bearers).
+4. Sets `ENABLE_OLLAMA_API=false` so the UI cannot bypass the gateway to unsigned Ollama.
+5. Syncs the **same** bearer into `deploy/forge-llm-control-plane/.env` as `FORGE_API_TOKEN` with `GATEWAY_AUTH_REQUIRED=true`.
+
+Model ids and labels: [config/forge-llm-granite-openwebui.yaml](config/forge-llm-granite-openwebui.yaml) (must match `artifact_pins` in forge-llm `runner.granite.yaml`). Gateway lists only pinned models when `FORGE_LLM_EXPOSE_PINNED_MODELS_ONLY=true`.
+
+Smoke from Granite loopback:
+
+```bash
+source ~/.config/forge-open-webui/forge-llm-gateway.env
+curl -fsS -H "Authorization: Bearer $FORGE_LLM_GATEWAY_BEARER" \
+  "http://127.0.0.1:18080/v1/models"
+```
+
+In Open WebUI chat, pick models prefixed with the forge-gateway connection (for example `ctx-unlim-qwen3-8b:latest`). External users still need Open WebUI login; programmatic access uses per-user API keys (`ENABLE_API_KEYS=true`), not the gateway bearer.
+
+See also [forge-llm/docs/OPENWEBUI-GRANITE.md](https://github.com/autowww/forge-llm/blob/main/docs/OPENWEBUI-GRANITE.md) in the forge-llm repo.
+
 ## 5. Upstream git workflow
 
 - `autowww/open-webui` `main` mirrors upstream tags only.

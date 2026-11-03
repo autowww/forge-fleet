@@ -9,7 +9,7 @@ from typing import Any
 
 import yaml
 
-from runners.base import RunnerConfig
+from runners.base import ArtifactPin, ExternalRunnerConfig, RunnerConfig
 
 ALLOWED_RUNTIME_KEYS = frozenset(
     {
@@ -50,7 +50,61 @@ def _default_config() -> RunnerConfig:
         quarantined_models=_DEFAULT_QUARANTINE,
         classifier_model="ibm/granite4:tiny-h",
         source_path=None,
+        free_vram_gb=4.0,
+        artifact_pins=(),
+        coalesce_sec=3.0,
+        starve_sec=120.0,
+        catalog_path=None,
+        external=ExternalRunnerConfig(),
     )
+
+
+def _parse_artifact_pins(raw: Any) -> tuple[ArtifactPin, ...]:
+    if not isinstance(raw, list):
+        return ()
+    out: list[ArtifactPin] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        mid = str(item.get("runner_model_id") or item.get("model") or "").strip()
+        if not mid:
+            continue
+        alias = item.get("catalog_alias")
+        alias_s = str(alias).strip() if alias else None
+        enabled = bool(item.get("enabled", True))
+        out.append(ArtifactPin(runner_model_id=mid, catalog_alias=alias_s or None, enabled=enabled))
+    return tuple(out)
+
+
+def _parse_external(raw: Any) -> ExternalRunnerConfig:
+    if not isinstance(raw, dict):
+        return ExternalRunnerConfig()
+    return ExternalRunnerConfig(
+        openwebui_base_url=str(raw.get("openwebui_base_url") or "").strip(),
+        chatgpt_model=str(raw.get("chatgpt_model") or "granite-chatgpt-primary").strip(),
+        gemini_model=str(raw.get("gemini_model") or "granite-gemini-primary").strip(),
+        max_concurrent=max(1, int(raw.get("max_concurrent") or 4)),
+    )
+
+
+def _resolve_catalog_path(data: dict[str, Any], source: str | None) -> str | None:
+    raw = data.get("catalog_path")
+    if raw:
+        p = Path(str(raw).strip()).expanduser()
+        if p.is_file():
+            return str(p)
+        if source:
+            rel = (Path(source).resolve().parent / raw).resolve()
+            if rel.is_file():
+                return str(rel)
+    if source:
+        repo = Path(source).resolve().parent.parent / "catalog" / "forge_llm_catalog_2026-11-03.json"
+        if repo.is_file():
+            return str(repo)
+    bundled = Path(__file__).resolve().parents[3] / "configs" / "catalog" / "forge_llm_catalog_2026-11-03.json"
+    if bundled.is_file():
+        return str(bundled)
+    return None
 
 
 def resolve_runner_path() -> Path | None:
@@ -124,6 +178,12 @@ def _parse_raw(data: dict[str, Any], source: str | None) -> RunnerConfig:
     if isinstance(models_list, list):
         models = tuple(str(x).strip() for x in models_list if str(x).strip())
     classifier = str(data.get("classifier_model") or "ibm/granite4:tiny-h").strip()
+    free_vram = float(data.get("free_vram_gb") or 4.0)
+    coalesce = float(data.get("coalesce_sec") or 3.0)
+    starve = float(data.get("starve_sec") or 120.0)
+    pins = _parse_artifact_pins(data.get("artifact_pins"))
+    external = _parse_external(data.get("external"))
+    catalog_path = _resolve_catalog_path(data, source)
     return RunnerConfig(
         kind=kind,
         bind=bind,
@@ -134,6 +194,12 @@ def _parse_raw(data: dict[str, Any], source: str | None) -> RunnerConfig:
         quarantined_models=frozenset(quarantine),
         classifier_model=classifier,
         source_path=source,
+        free_vram_gb=free_vram,
+        artifact_pins=pins,
+        coalesce_sec=coalesce,
+        starve_sec=starve,
+        catalog_path=catalog_path,
+        external=external,
     )
 
 
@@ -170,6 +236,9 @@ def config_hash(cfg: RunnerConfig | None = None) -> str:
             "quarantined_models": sorted(c.quarantined_models),
             "models": list(c.models),
             "classifier_model": c.classifier_model,
+            "free_vram_gb": c.free_vram_gb,
+            "coalesce_sec": c.coalesce_sec,
+            "starve_sec": c.starve_sec,
         },
         sort_keys=True,
     )

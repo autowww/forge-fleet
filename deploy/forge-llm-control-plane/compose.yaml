@@ -22,12 +22,14 @@ services:
       GATEWAY_AUTH_REQUIRED: ${GATEWAY_AUTH_REQUIRED:-true}
       FORGE_API_TOKEN: ${FORGE_API_TOKEN:-}
       LLM_API_KEY: ${FORGE_API_TOKEN:-}
+      FORGE_LLM_EXPOSE_PINNED_MODELS_ONLY: ${FORGE_LLM_EXPOSE_PINNED_MODELS_ONLY:-true}
       FORGE_LLM_DB_PATH: /data/forge-llm.sqlite
       FLEET_WAKE_BASE_URL: ${FLEET_WAKE_BASE_URL:-http://host.docker.internal:18766}
       FLEET_WAKE_BEARER_TOKEN: ${FLEET_WAKE_BEARER_TOKEN:-${FORGE_API_TOKEN:-}}
     volumes:
       - gateway_state:/data
       - ./configs/runner.granite.yaml:/config/runner.yaml:ro
+      - ./configs/catalog:/config/catalog:ro
     ports:
       - "127.0.0.1:${GATEWAY_PORT:-18080}:8080"
     healthcheck:

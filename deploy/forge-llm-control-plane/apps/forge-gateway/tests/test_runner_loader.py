@@ -85,6 +85,29 @@ def test_llama_cpp_native_api_unsupported():
     asyncio.run(_run())
 
 
+def test_llama_cpp_single_model_reject(monkeypatch):
+    from runners.base import RunnerConfig
+    from control_plane import slot_manager
+
+    import asyncio
+
+    cfg = RunnerConfig(kind="llama_cpp", bind="127.0.0.1:8080")
+    adapter = LlamaCppAdapter(cfg, base_url="http://127.0.0.1:8080")
+
+    async def fake_resident():
+        return ["loaded-only"]
+
+    adapter.resident_models = fake_resident  # type: ignore[method-assign]
+    monkeypatch.setattr(slot_manager, "get_adapter", lambda: adapter)
+
+    async def _run():
+        ok, swapped, err = await slot_manager.ensure_model("other-model", "interactive")
+        assert not ok
+        assert err and "single model" in err
+
+    asyncio.run(_run())
+
+
 def test_vllm_adapter_kind():
     reset_runner_cache()
     from runners.base import RunnerConfig
