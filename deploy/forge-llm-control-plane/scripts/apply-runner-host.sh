@@ -40,17 +40,26 @@ render_dropin() {
   export APPLY_ROOT="$ROOT"
   export FORGE_LLM_RUNNER_CONFIG="$RUNNER_FILE"
   python3 - <<'PY'
+import importlib.util
 import os
 import sys
+import types
 from pathlib import Path
 
 root = Path(os.environ["APPLY_ROOT"])
-sys.path.insert(0, str(root / "apps" / "forge-gateway"))
-from runners.loader import load_runner_config, render_systemd_dropin, reset_runner_cache
+gw = root / "apps" / "forge-gateway"
+sys.path.insert(0, str(gw))
+sys.modules.setdefault("runners", types.ModuleType("runners"))
+for mod_name, rel in (("runners.base", "runners/base.py"), ("runners.loader", "runners/loader.py")):
+    spec = importlib.util.spec_from_file_location(mod_name, gw / rel)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[mod_name] = mod
+    spec.loader.exec_module(mod)
+loader = sys.modules["runners.loader"]
 
-reset_runner_cache()
-cfg = load_runner_config(reload=True)
-print(render_systemd_dropin(cfg.runtime), end="")
+loader.reset_runner_cache()
+cfg = loader.load_runner_config(reload=True)
+print(loader.render_systemd_dropin(cfg.runtime), end="")
 PY
 }
 
@@ -58,17 +67,26 @@ missing_models() {
   export APPLY_ROOT="$ROOT"
   export FORGE_LLM_RUNNER_CONFIG="$RUNNER_FILE"
   python3 - <<'PY'
+import importlib.util
 import os
 import subprocess
 import sys
+import types
 from pathlib import Path
 
 root = Path(os.environ["APPLY_ROOT"])
-sys.path.insert(0, str(root / "apps" / "forge-gateway"))
-from runners.loader import load_runner_config, reset_runner_cache
+gw = root / "apps" / "forge-gateway"
+sys.path.insert(0, str(gw))
+sys.modules.setdefault("runners", types.ModuleType("runners"))
+for mod_name, rel in (("runners.base", "runners/base.py"), ("runners.loader", "runners/loader.py")):
+    spec = importlib.util.spec_from_file_location(mod_name, gw / rel)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[mod_name] = mod
+    spec.loader.exec_module(mod)
+loader = sys.modules["runners.loader"]
 
-reset_runner_cache()
-cfg = load_runner_config(reload=True)
+loader.reset_runner_cache()
+cfg = loader.load_runner_config(reload=True)
 try:
     out = subprocess.check_output(["ollama", "list"], text=True, stderr=subprocess.DEVNULL)
 except (subprocess.CalledProcessError, FileNotFoundError):
