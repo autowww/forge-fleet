@@ -57,6 +57,20 @@ ROUTE_SPECS: tuple[RouteSpec, ...] = (
         "mesh_offload_advise",
     ),
     RouteSpec(
+        _p("/v1/admin/snapshot"),
+        frozenset({"GET"}),
+        "admin",
+        "read",
+        "admin_snapshot",
+    ),
+    RouteSpec(
+        _p("/v1/remote-peers/[^/]+/snapshot"),
+        frozenset({"GET"}),
+        "admin",
+        "read",
+        "remote_peer_snapshot",
+    ),
+    RouteSpec(
         _p("/v1/admin/security/events"),
         frozenset({"GET"}),
         "admin",

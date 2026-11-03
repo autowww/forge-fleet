@@ -5785,12 +5785,30 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
         return false;
       }
       if (res.status === 401) {
-        setErr("Unauthorized — send Authorization: Bearer … matching FLEET_BEARER_TOKEN (or use loopback-only bind).");
+        setErr("Unauthorized — open Settings and paste the Fleet bearer token (same as FLEET_BEARER_TOKEN on this host), or use loopback-only bind.");
         return false;
       }
       if (res.status === 429) {
         setErr("Rate limited. The status page will retry on its own.");
         return false;
+      }
+      if (res.status === 404) {
+        var adminTok = "";
+        try {
+          adminTok = (localStorage.getItem(LS) || "").trim();
+        } catch (_e404) {
+          /* ignore */
+        }
+        if (!adminTok) {
+          setErr(
+            "Not authorized — open Settings and paste the Fleet bearer token (same as FLEET_BEARER_TOKEN on this host)."
+          );
+          return false;
+        }
+        if (isFleetScopeRemote()) {
+          setErr("HTTP 404 — remote peer snapshot not found. Switch Fleet scope to Local or pick another peer.");
+          return false;
+        }
       }
       if (!res.ok) {
         setErr("HTTP " + res.status);

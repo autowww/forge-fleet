@@ -55,6 +55,26 @@ def test_route_registry_health_public() -> None:
     assert spec.scope == "public"
 
 
+def test_admin_snapshot_unauthenticated_401(tmp_path: Path) -> None:
+    db = tmp_path / "fleet.sqlite"
+    store.connect(db).close()
+    tok = "secret-token-value-here-32chars"
+    dec = request_guard.evaluate(
+        db_path=db,
+        data_dir=tmp_path,
+        method="GET",
+        path="/v1/admin/snapshot",
+        headers={},
+        peer="203.0.113.1:1234",
+        body=b"",
+        expected_token=tok,
+        loopback_skips_auth=False,
+        listen_host="0.0.0.0",
+    )
+    assert dec.allow is False
+    assert dec.http_code == 401
+
+
 def test_unknown_v1_route_404(tmp_path: Path) -> None:
     db = tmp_path / "fleet.sqlite"
     store.connect(db).close()
