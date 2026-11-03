@@ -4513,7 +4513,12 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
 
     function getFleetScope() {
       var peerId = (localStorage.getItem(LS_REMOTE_PEER) || "").trim();
-      return peerId ? { mode: "remote", peerId: peerId } : { mode: "local" };
+      if (!peerId) return { mode: "local" };
+      var sel = document.getElementById("fleet-scope-select");
+      if (sel && sel.options.length > 1 && sel.value !== peerId) {
+        return { mode: "local" };
+      }
+      return { mode: "remote", peerId: peerId };
     }
 
     function isFleetScopeRemote() {
@@ -4597,6 +4602,17 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       var sel = document.getElementById("fleet-scope-select");
       if (!sel) return;
       var active = (localStorage.getItem(LS_REMOTE_PEER) || "").trim();
+      var peerIds = (peers || []).map(function (p) {
+        return String(p.id || "");
+      });
+      if (active && peerIds.indexOf(active) === -1) {
+        active = "";
+        try {
+          localStorage.removeItem(LS_REMOTE_PEER);
+        } catch (_e) {
+          /* ignore */
+        }
+      }
       sel.innerHTML =
         '<option value="">Local</option>' +
         (peers || [])
@@ -4612,6 +4628,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
             );
           })
           .join("");
+      sel.value = active;
       applyFleetScopeChrome();
     }
 
