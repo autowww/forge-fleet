@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -134,12 +135,16 @@ def get_settings(data_dir: Path) -> dict[str, Any]:
     recipes = _filter_recipes(doc, build_recipes(doc))
     edge_recipes = _filter_recipes(doc, build_edge_recipes(doc))
     gateway_edge = edge_cache.list_gateway_edge_registrations(data_dir)
+    from fleet_server import dashboard_browser_bearer
+
     return {
         "ok": True,
         "settings": doc,
         "recipes": recipes,
         "edge_recipes": edge_recipes,
         "gateway_edge_cache": gateway_edge,
+        "dashboard_bearer_configured": dashboard_browser_bearer.configured(data_dir),
+        "dashboard_bearer_sync": str(os.environ.get("FLEET_SYNC_DASHBOARD_BROWSER_BEARER") or "").strip(),
     }
 
 

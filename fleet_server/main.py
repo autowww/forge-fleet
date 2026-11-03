@@ -125,7 +125,23 @@ class FleetHandler(BaseHTTPRequestHandler):
         except OSError:
             self._send_raw(500, b"admin bundle missing", "text/plain; charset=utf-8")
             return
-        self._send_raw(200, data, "text/html; charset=utf-8")
+        html = data.decode("utf-8")
+        sync_raw = str(os.environ.get("FLEET_SYNC_DASHBOARD_BROWSER_BEARER") or "").strip().lower()
+        if sync_raw in ("1", "true", "yes"):
+            from fleet_server import dashboard_browser_bearer
+
+            data_dir = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            tok = dashboard_browser_bearer.read_bearer(data_dir)
+            if tok:
+                snippet = (
+                    "<script>(function(){try{var k=\"forgeFleetAdminToken\";"
+                    "if(!localStorage.getItem(k))localStorage.setItem(k,"
+                    + json.dumps(tok)
+                    + ");localStorage.removeItem(\"forgeFleetActiveRemotePeer\");"
+                    "}catch(_e){}})();</script>"
+                )
+                html = html.replace("</head>", snippet + "</head>", 1)
+        self._send_raw(200, html.encode("utf-8"), "text/html; charset=utf-8")
 
     def _serve_admin_packaged_static(self, rel: str) -> None:
         """PNG etc. shipped under ``fleet_server/static/`` (e.g. GPU logos for ``/admin/``)."""
@@ -2734,6 +2750,31 @@ class FleetHandler(BaseHTTPRequestHandler):
             body = self._read_json()
             data_dir = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
             self._send(200, operator_ui_settings.put_settings(data_dir, body))
+            return
+        if path == "/v1/operator/dashboard-browser-bearer":
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+            from fleet_server import dashboard_browser_bearer
+
+            body = self._read_json()
+            data_dir = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            try:
+                if body.get("clear"):
+                    dashboard_browser_bearer.clear_bearer(data_dir)
+                else:
+                    dashboard_browser_bearer.write_bearer(data_dir, str(body.get("bearer_token") or ""))
+            except ValueError:
+                self._send(400, {"ok": False, "error": "bearer_token_required"})
+                return
+            self._send(
+                200,
+                {
+                    "ok": True,
+                    "dashboard_bearer_configured": dashboard_browser_bearer.configured(data_dir),
+                    "sync_env": str(os.environ.get("FLEET_SYNC_DASHBOARD_BROWSER_BEARER") or "").strip(),
+                },
+            )
             return
         m_remote_ui = re.match(r"^/v1/remote-peers/([^/]+)/operator/ui-settings$", path)
         if m_remote_ui:

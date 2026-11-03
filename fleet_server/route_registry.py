@@ -144,6 +144,13 @@ ROUTE_SPECS: tuple[RouteSpec, ...] = (
         "operator_ui_settings",
     ),
     RouteSpec(
+        _p("/v1/operator/dashboard-browser-bearer"),
+        frozenset({"PUT"}),
+        "admin",
+        "mutate",
+        "operator_dashboard_browser_bearer",
+    ),
+    RouteSpec(
         _p("/v1/admin/edge-cache/sync"),
         frozenset({"POST"}),
         "admin",
