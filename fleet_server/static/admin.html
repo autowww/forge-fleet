@@ -4515,8 +4515,16 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       var peerId = (localStorage.getItem(LS_REMOTE_PEER) || "").trim();
       if (!peerId) return { mode: "local" };
       var sel = document.getElementById("fleet-scope-select");
-      if (sel && sel.options.length > 1 && sel.value !== peerId) {
-        return { mode: "local" };
+      if (sel) {
+        var opts = sel.options;
+        var found = false;
+        for (var i = 0; i < opts.length; i++) {
+          if (opts[i].value === peerId) {
+            found = true;
+            break;
+          }
+        }
+        if (!found) return { mode: "local" };
       }
       return { mode: "remote", peerId: peerId };
     }
@@ -7173,11 +7181,13 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       });
     }
 
-    setInterval(tick, 500);
     fleetInitWelcome();
     refreshRemotePeersTable().then(function () {
       applyFleetScopeChrome();
-      loadSnapshot().then(function () { scheduleNext(); });
+      loadSnapshot().then(function () {
+        scheduleNext();
+        setInterval(tick, 500);
+      });
     });
   })();
   </script>
