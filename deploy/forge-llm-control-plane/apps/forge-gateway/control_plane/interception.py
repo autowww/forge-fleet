@@ -1,0 +1,280 @@
+"""Shared queue / mode / warm path for OpenAI and Ollama native inference."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import time
+import uuid
+from typing import Any
+
+from fastapi import HTTPException
+from fastapi.responses import JSONResponse, Response
+
+from control_plane.classifier import resolve_mode
+from control_plane.config import DEFAULT_HOLD_TIMEOUT_SEC, QUARANTINED_MODELS
+from control_plane.context import ForgeContext
+from control_plane.modes import DEFAULT_WAIT_BY_MODE, ModeId, needs_think_false
+from control_plane.queue_manager import inference_queue
+from control_plane.slot_manager import active_snapshot, ensure_model
+from control_plane.store import insert_request
+from runners.base import NativeApiUnsupported
+from runners.factory import get_adapter
+
+
+def fingerprint_body(body: dict[str, Any]) -> str:
+    msgs = body.get("messages")
+    if isinstance(msgs, list):
+        text = json.dumps(msgs, sort_keys=True)[:4000]
+    else:
+        text = json.dumps(body, sort_keys=True)[:4000]
+    return hashlib.sha256(text.encode()).hexdigest()[:16]
+
+
+def inject_think_false(body: dict[str, Any], model: str) -> dict[str, Any]:
+    if not needs_think_false(model):
+        return body
+    out = dict(body)
+    if "think" not in out:
+        out["think"] = False
+    return out
+
+
+def is_intercepted_native_path(path: str) -> bool:
+    p = path.rstrip("/")
+    return p in ("/api/chat", "/api/generate")
+
+
+def read_only_native_path(path: str) -> bool:
+    p = path.rstrip("/")
+    return p.startswith("/api/tags") or p.startswith("/api/ps") or p.startswith("/api/version")
+
+
+async def adapter_openai(
+    method: str,
+    path: str,
+    body: bytes,
+    *,
+    timeout: float = 600.0,
+) -> tuple[int, bytes, dict[str, str]]:
+    adapter = get_adapter()
+    return await adapter.openai_request(method, path, body, timeout=timeout)
+
+
+async def run_openai_inference(
+    *,
+    path: str,
+    body: dict[str, Any],
+    ctx: ForgeContext,
+    timeout: float | None = None,
+) -> Response:
+    res = await resolve_mode(
+        header_mode=ctx.mode or ("embed" if path.rstrip("/") == "/v1/embeddings" else None),
+        body_mode=body.get("forge_mode"),
+        path=path,
+        body=body,
+        consumer=ctx.consumer,
+    )
+    model = res.model
+    if model in QUARANTINED_MODELS:
+        raise HTTPException(status_code=400, detail=f"Model quarantined: {model}")
+
+    wait = ctx.wait or DEFAULT_WAIT_BY_MODE.get(res.mode, "bounce")
+    ticket = str(uuid.uuid4())
+    q = await inference_queue.acquire(
+        ticket, hold=(wait == "hold"), timeout_sec=float(DEFAULT_HOLD_TIMEOUT_SEC)
+    )
+    if not q.get("ok"):
+        insert_request(
+            {
+                "ts": time.time(),
+                "consumer": ctx.consumer,
+                "consumer_class": ctx.consumer_class,
+                "mode": res.mode,
+                "requested_model": body.get("model"),
+                "served_model": model,
+                "http_status": 503,
+                "ok": False,
+                "error_class": q.get("reason"),
+                "trace_id": ctx.trace_id,
+                "meta": {"bounced": True, "queue_position": q.get("queue_position")},
+            }
+        )
+        return JSONResponse(
+            {
+                "error": {
+                    "message": "LLM queue busy",
+                    "type": "queue_busy",
+                    "code": q.get("reason"),
+                    "queue_position": q.get("queue_position"),
+                }
+            },
+            status_code=503,
+            headers={
+                "Retry-After": str(q.get("retry_after_sec", 30)),
+                "X-Forge-Queue-Position": str(q.get("queue_position", 0)),
+                "X-Forge-Wait": wait,
+            },
+        )
+
+    t0 = time.perf_counter()
+    infer_t0 = t0
+    try:
+        ready, swapped, err = await ensure_model(model, res.mode)
+        if not ready:
+            raise HTTPException(status_code=503, detail=err or "model unavailable")
+        proxied = inject_think_false({**body, "model": model}, model)
+        infer_t0 = time.perf_counter()
+        to = float(timeout or body.get("timeout") or DEFAULT_HOLD_TIMEOUT_SEC)
+        status, content, hdrs = await adapter_openai(
+            "POST",
+            path,
+            json.dumps(proxied).encode(),
+            timeout=to,
+        )
+        media = hdrs.get("content-type", "application/json")
+        tin = tout = 0
+        if media.startswith("application/json"):
+            try:
+                data = json.loads(content)
+                usage = data.get("usage") or {}
+                tin = int(usage.get("prompt_tokens") or 0)
+                tout = int(usage.get("completion_tokens") or 0)
+            except json.JSONDecodeError:
+                pass
+        insert_request(
+            {
+                "ts": time.time(),
+                "consumer": ctx.consumer,
+                "consumer_class": ctx.consumer_class,
+                "mode": res.mode,
+                "requested_model": body.get("model"),
+                "served_model": model,
+                "swap": swapped,
+                "queue_wait_ms": q.get("queue_wait_ms", 0),
+                "infer_ms": int((time.perf_counter() - infer_t0) * 1000),
+                "total_ms": int((time.perf_counter() - t0) * 1000),
+                "prompt_tokens": tin,
+                "completion_tokens": tout,
+                "http_status": status,
+                "ok": status < 400,
+                "trace_id": ctx.trace_id,
+                "prompt_fingerprint": fingerprint_body(body),
+                "meta": {"mode_source": res.source, "path": path},
+            }
+        )
+        return Response(
+            content=content,
+            status_code=status,
+            media_type=media,
+            headers={
+                "X-Forge-Llm-Mode": res.mode,
+                "X-Forge-Served-Model": model,
+                "X-Forge-Mode-Source": res.source,
+            },
+        )
+    finally:
+        await inference_queue.release()
+
+
+def _native_body_for_mode(body: dict[str, Any], model: str) -> dict[str, Any]:
+    out = inject_think_false({**body, "model": model}, model)
+    return out
+
+
+async def run_native_inference(
+    *,
+    path: str,
+    body: dict[str, Any],
+    ctx: ForgeContext,
+    method: str = "POST",
+) -> Response:
+    adapter = get_adapter()
+    if adapter.kind != "ollama":
+        return JSONResponse(
+            {
+                "error": f"native Ollama API unsupported for runner kind={adapter.kind}",
+            },
+            status_code=501,
+        )
+
+    pseudo_path = "/v1/chat/completions" if path.rstrip("/") == "/api/chat" else "/v1/chat/completions"
+    if path.rstrip("/") == "/api/generate":
+        pseudo_body = {
+            "messages": [{"role": "user", "content": str(body.get("prompt") or "")}],
+            "model": body.get("model"),
+        }
+    else:
+        pseudo_body = {
+            "messages": body.get("messages") or [],
+            "model": body.get("model"),
+        }
+
+    res = await resolve_mode(
+        header_mode=ctx.mode,
+        body_mode=body.get("forge_mode"),
+        path=pseudo_path,
+        body=pseudo_body,
+        consumer=ctx.consumer,
+    )
+    model = res.model
+    if model in QUARANTINED_MODELS:
+        raise HTTPException(status_code=400, detail=f"Model quarantined: {model}")
+
+    wait = ctx.wait or DEFAULT_WAIT_BY_MODE.get(res.mode, "bounce")
+    ticket = str(uuid.uuid4())
+    q = await inference_queue.acquire(
+        ticket, hold=(wait == "hold"), timeout_sec=float(DEFAULT_HOLD_TIMEOUT_SEC)
+    )
+    if not q.get("ok"):
+        return JSONResponse(
+            {
+                "error": {
+                    "message": "LLM queue busy",
+                    "type": "queue_busy",
+                    "code": q.get("reason"),
+                }
+            },
+            status_code=503,
+            headers={"Retry-After": str(q.get("retry_after_sec", 30))},
+        )
+
+    t0 = time.perf_counter()
+    try:
+        ready, swapped, err = await ensure_model(model, res.mode)
+        if not ready:
+            raise HTTPException(status_code=503, detail=err or "model unavailable")
+        proxied = _native_body_for_mode(body, model)
+        status, content, hdrs = await adapter.native_request(
+            method,
+            path,
+            json.dumps(proxied).encode(),
+            timeout=float(DEFAULT_HOLD_TIMEOUT_SEC),
+        )
+        insert_request(
+            {
+                "ts": time.time(),
+                "consumer": ctx.consumer,
+                "consumer_class": ctx.consumer_class,
+                "mode": res.mode,
+                "requested_model": body.get("model"),
+                "served_model": model,
+                "swap": swapped,
+                "total_ms": int((time.perf_counter() - t0) * 1000),
+                "http_status": status,
+                "ok": status < 400,
+                "trace_id": ctx.trace_id,
+                "meta": {"mode_source": res.source, "path": path},
+            }
+        )
+        return Response(
+            content=content,
+            status_code=status,
+            media_type=hdrs.get("content-type", "application/json"),
+            headers={
+                "X-Forge-Llm-Mode": res.mode,
+                "X-Forge-Served-Model": model,
+            },
+        )
+    finally:
+        await inference_queue.release()

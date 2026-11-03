@@ -86,6 +86,22 @@ EOF
   set -a && source .env && set +a
 }
 
+apply_runner_host() {
+  cd "$FORGE_LLM_ROOT"
+  local script="$FORGE_LLM_ROOT/scripts/apply-runner-host.sh"
+  if [[ ! -x "$script" ]]; then
+    log "skip runner apply (no scripts/apply-runner-host.sh)"
+    return 0
+  fi
+  if [[ -f "$ENV_FILE" ]]; then
+  # shellcheck disable=SC1090
+    set -a && source "$ENV_FILE" && set +a
+  fi
+  export FORGE_LLM_RUNNER_APPLY="${FORGE_LLM_RUNNER_APPLY:-observe}"
+  log "runner host apply mode=$FORGE_LLM_RUNNER_APPLY"
+  bash "$script"
+}
+
 deploy_gateway_stack() {
   cd "$FORGE_LLM_ROOT"
   export OLLAMA_HOST_URL="${OLLAMA_HOST_URL:-http://host.docker.internal:11434}"
@@ -159,6 +175,7 @@ main() {
   command -v curl >/dev/null || die "curl missing"
   ensure_forge_llm_checkout
   ensure_env_file
+  apply_runner_host
   deploy_gateway_stack
   register_fleet_service
   retarget_caddy

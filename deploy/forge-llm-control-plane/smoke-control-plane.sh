@@ -23,4 +23,8 @@ echo "== active =="
 curl -fsS "${AUTH[@]}" "${BASE}/v1/llm/active" | head -c 400
 echo
 
+echo "== runner =="
+curl -fsS "${AUTH[@]}" "${BASE}/v1/llm/runner" | head -c 600
+echo
+
 echo "OK"

@@ -1,0 +1,25 @@
+# Granite production runner — host Ollama on loopback; Open WebUI bypass unchanged.
+kind: ollama
+bind: 127.0.0.1:11434
+runtime: {}
+exclusive_slot: false
+classifier_model: ibm/granite4:tiny-h
+quarantined_models:
+  - ctx-unlim-qwen25-coder-7b:latest
+  - qwen2.5-coder:7b
+models:
+  - qwen3:30b-a3b
+  - ctx-unlim-qwen3-8b:latest
+  - ctx-unlim-qwen3-14b:latest
+  - ctx-unlim-granite41-8b:latest
+  - nomic-embed-text:latest
+  - ibm/granite4:tiny-h
+mode_models:
+  interactive: ctx-unlim-qwen3-8b:latest
+  task_code: qwen3:30b-a3b
+  struct_json: ctx-unlim-qwen3-8b:latest
+  reason_short: qwen3:30b-a3b
+  long_ctx: ctx-unlim-qwen3-14b:latest
+  codegen_loop: ctx-unlim-granite41-8b:latest
+  embed: nomic-embed-text:latest
+  batch_eval: ctx-unlim-qwen3-14b:latest

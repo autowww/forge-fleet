@@ -16,6 +16,12 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from control_plane.router import router as control_plane_router
 from metrics import load_persisted_state, restore_counters_from_disk
+from control_plane.context import ForgeContext
+from control_plane.interception import (
+    is_intercepted_native_path,
+    read_only_native_path,
+    run_native_inference,
+)
 from ollama_proxy import proxy_request
 from prometheus_client_helpers import metrics_response
 
@@ -42,6 +48,8 @@ app = FastAPI(title="forge-gateway", version="0.2.0")
 app.include_router(control_plane_router)
 
 _runtime_state: dict[str, Any] = {}
+_DRAINING = False
+_INFLIGHT = 0
 
 
 @app.on_event("startup")
@@ -61,7 +69,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         path = request.url.path
         if not GATEWAY_AUTH_REQUIRED or not _EFFECTIVE_TOKEN:
             return await call_next(request)
-        if path in ("/healthz", "/telemetry/health"):
+        if path in ("/healthz", "/telemetry/health") or path.startswith("/api/lifecycle/"):
             return await call_next(request)
         if path == "/metrics":
             return await call_next(request)
@@ -250,6 +258,45 @@ async def build_telemetry_summary() -> dict[str, Any]:
     }
 
 
+
+
+@app.get("/api/lifecycle/stop-readiness")
+async def lifecycle_stop_readiness() -> dict[str, Any]:
+    blockers: list[dict[str, Any]] = []
+    if _INFLIGHT > 0:
+        blockers.append({"kind": "inference", "count": _INFLIGHT})
+    stop_allowed = len(blockers) == 0
+    return {
+        "ok": True,
+        "service_id": "forge-llm-gateway",
+        "stop_allowed": stop_allowed,
+        "reason": "idle" if stop_allowed else "active_work",
+        "retry_after_sec": 0 if stop_allowed else 5,
+        "draining": _DRAINING,
+        "blockers": blockers,
+    }
+
+
+@app.post("/api/lifecycle/prepare-stop")
+async def lifecycle_prepare_stop(request: Request) -> dict[str, Any]:
+    global _DRAINING
+    already = _DRAINING
+    _DRAINING = True
+    return {
+        "ok": True,
+        "accepted": True,
+        "already_draining": already,
+        "service_id": "forge-llm-gateway",
+    }
+
+
+@app.post("/api/lifecycle/resume")
+async def lifecycle_resume() -> dict[str, Any]:
+    global _DRAINING
+    _DRAINING = False
+    return {"ok": True, "resumed": True}
+
+
 @app.get("/healthz")
 async def healthz() -> dict[str, str]:
     return {"status": "ok"}
@@ -307,8 +354,23 @@ async def prom_metrics() -> Response:
 
 @app.api_route("/api/{path:path}", methods=["GET", "POST", "DELETE", "PUT", "PATCH"])
 async def api_proxy(path: str, request: Request) -> Response:
-    _log("proxy", path=f"/api/{path}", method=request.method)
-    return await proxy_request(request, f"/api/{path}", _runtime_state)
+    full_path = f"/api/{path}"
+    _log("proxy", path=full_path, method=request.method)
+    if request.method == "POST" and is_intercepted_native_path(full_path):
+        body_bytes = await request.body()
+        try:
+            body = json.loads(body_bytes) if body_bytes else {}
+        except json.JSONDecodeError:
+            return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+        if not isinstance(body, dict):
+            body = {}
+        ctx = ForgeContext.from_headers(dict(request.headers))
+        return await run_native_inference(path=full_path, body=body, ctx=ctx, method=request.method)
+    if read_only_native_path(full_path) or request.method in ("GET", "DELETE"):
+        return await proxy_request(request, full_path, _runtime_state)
+    if request.method == "POST":
+        return await proxy_request(request, full_path, _runtime_state)
+    return await proxy_request(request, full_path, _runtime_state)
 
 
 @app.middleware("http")

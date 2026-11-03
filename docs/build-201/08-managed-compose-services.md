@@ -73,6 +73,19 @@ Market Studio rollout **does not use SSH** — it builds from a local ``forge-ma
 
 The gateway image bakes ``apps/forge-gateway`` in at build time and ``compose.yaml`` mounts no source volume. ``POST /v1/container-services/<id>/start`` runs ``docker compose up -d`` **without** ``--build``, so it recreates the container from the existing ``forge-gateway:control-plane`` image and silently keeps the old code. After changing gateway source, use ``POST /v1/admin/forge-llm-control-plane-rollout``, which runs ``compose build forge-gateway`` before ``up -d``.
 
+### Runner config and host Ollama apply
+
+Bundled tree: ``deploy/forge-llm-control-plane/`` (gateway source, ``configs/runner.granite.yaml``, ``scripts/apply-runner-host.sh``). Sync from standalone **forge-llm** when gateway or runner YAML changes.
+
+Rollout calls ``apply-runner-host.sh`` before starting the gateway:
+
+| ``FORGE_LLM_RUNNER_APPLY`` | Effect |
+|---------------------------|--------|
+| ``observe`` (default) | Log ``ollama.service`` + ``ollama list``; log would-be drop-in / pulls |
+| ``apply`` | Write systemd user drop-in for keys in ``runtime:``; ``ollama pull`` missing catalog models |
+
+Gateway mounts ``configs/runner.granite.yaml`` as ``/config/runner.yaml`` and exposes ``GET /v1/llm/runner``. **Open WebUI** still uses the host **11436 → 11434** forwarder; Forge apps use Caddy → gateway **:18080**.
+
 ## LLM request queue (bounce vs hold)
 
 ``control_plane/queue_manager.py`` serialises inference behind one concurrent slot. ``DEFAULT_WAIT_BY_MODE`` in ``control_plane/modes.py`` decides how a caller waits when that slot is taken:

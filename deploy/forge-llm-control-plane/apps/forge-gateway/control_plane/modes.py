@@ -38,6 +38,24 @@ DEFAULT_WAIT_BY_MODE: dict[ModeId, Literal["hold", "bounce"]] = {
     "batch_eval": "hold",
 }
 
+def _mode_model_map() -> dict[str, str]:
+    try:
+        from runners.loader import load_runner_config
+
+        return dict(load_runner_config().mode_models)
+    except (ImportError, OSError, ValueError):
+        return {
+            "interactive": "ctx-unlim-qwen3-8b:latest",
+            "task_code": "qwen3:30b-a3b",
+            "struct_json": "ctx-unlim-qwen3-8b:latest",
+            "reason_short": "qwen3:30b-a3b",
+            "long_ctx": "ctx-unlim-qwen3-14b:latest",
+            "codegen_loop": "ctx-unlim-granite41-8b:latest",
+            "embed": "nomic-embed-text:latest",
+            "batch_eval": "ctx-unlim-qwen3-14b:latest",
+        }
+
+
 MODE_MODEL: dict[ModeId, str] = {
     "interactive": "ctx-unlim-qwen3-8b:latest",
     "task_code": "qwen3:30b-a3b",
@@ -71,7 +89,8 @@ def normalize_mode(raw: str | None) -> ModeId | None:
 def model_for_mode(mode: ModeId, requested_model: str | None = None) -> str:
     if mode == "batch_eval" and requested_model:
         return requested_model
-    return MODE_MODEL[mode]
+    mm = _mode_model_map()
+    return mm.get(mode) or MODE_MODEL[mode]
 
 
 def needs_think_false(model: str) -> bool:
