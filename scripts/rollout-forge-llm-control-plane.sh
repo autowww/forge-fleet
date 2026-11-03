@@ -27,6 +27,12 @@ compose() {
 }
 
 ensure_forge_llm_checkout() {
+  local git_fleet_root="${FORGE_FLEET_GIT_ROOT:-$HOME/forge-fleet}"
+  if [[ -f "$git_fleet_root/deploy/forge-llm-control-plane/compose.yaml" ]]; then
+    FORGE_LLM_ROOT="$git_fleet_root/deploy/forge-llm-control-plane"
+    log "using forge-fleet git deploy tree at $FORGE_LLM_ROOT"
+    return 0
+  fi
   if [[ -f "$FORGE_LLM_ROOT/compose.yaml" ]]; then
     log "using bundled forge-llm control plane at $FORGE_LLM_ROOT"
     return 0
