@@ -126,11 +126,15 @@ class FleetHandler(BaseHTTPRequestHandler):
             self._send_raw(500, b"admin bundle missing", "text/plain; charset=utf-8")
             return
         html = data.decode("utf-8")
-        sync_raw = str(os.environ.get("FLEET_SYNC_DASHBOARD_BROWSER_BEARER") or "").strip().lower()
-        if sync_raw in ("1", "true", "yes"):
-            from fleet_server import dashboard_browser_bearer
+        from fleet_server import dashboard_browser_bearer
 
-            data_dir = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+        data_dir = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+        sync_raw = str(os.environ.get("FLEET_SYNC_DASHBOARD_BROWSER_BEARER") or "").strip().lower()
+        sync_enabled = sync_raw in ("1", "true", "yes")
+        if not sync_enabled and dashboard_browser_bearer.configured(data_dir):
+            doc = operator_ui_settings._merge_defaults(operator_ui_settings._load_raw(data_dir))
+            sync_enabled = str(doc.get("machine_role") or "").strip().lower() == "server"
+        if sync_enabled:
             tok = dashboard_browser_bearer.read_bearer(data_dir)
             if tok:
                 snippet = (
