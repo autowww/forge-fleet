@@ -12,6 +12,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEPLOY="$HERE/deploy/forge-2b-poc"
 export FORGE_2B_ENV_FILE="${FORGE_2B_ENV_FILE:-$HOME/.config/forge-2b-poc/forge-2b.env}"
 export OPEN_WEBUI_NETWORK="${OPEN_WEBUI_NETWORK:-forge-open-webui_default}"
+export FORGE_LLM_NETWORK="${FORGE_LLM_NETWORK:-forge-llm-control-plane_default}"
 
 compose() { docker compose -f "$DEPLOY/compose.yaml" "$@"; }
 
@@ -22,7 +23,9 @@ fi
 
 [[ -f "$FORGE_2B_ENV_FILE" ]] || { echo "missing env file $FORGE_2B_ENV_FILE (copy forge-2b.env.example)" >&2; exit 2; }
 [[ -f "$DEPLOY/vendor/forge_2b/facade.py" ]] || { echo "vendor/ not synced; run scripts/sync-forge-2b-poc.sh and push" >&2; exit 2; }
-docker network inspect "$OPEN_WEBUI_NETWORK" >/dev/null 2>&1 || { echo "network $OPEN_WEBUI_NETWORK missing" >&2; exit 2; }
+for net in "$OPEN_WEBUI_NETWORK" "$FORGE_LLM_NETWORK"; do
+  docker network inspect "$net" >/dev/null 2>&1 || { echo "network $net missing" >&2; exit 2; }
+done
 
 echo "[forge-2b-poc] sources: $(cat "$DEPLOY/vendor/SOURCES.txt" | tr '\n' ';')"
 compose build --pull forge-dcs

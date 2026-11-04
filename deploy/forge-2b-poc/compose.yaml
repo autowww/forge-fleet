@@ -1,6 +1,6 @@
 # Forge 2B PoC on Granite: forge-dcs (ingest + STRICT compile) + forge-2b OpenAI-compatible shim.
-# The shim talks to the forge-llm gateway on the host (:18080) and is reachable from Open WebUI as
-# http://forge-2b:9085/v1 over the Open WebUI compose network. Code arrives via git only
+# The shim talks to the forge-llm gateway over its compose network (forge-gateway:8080) and is reachable
+# from Open WebUI as http://forge-2b:9085/v1 over the Open WebUI compose network. Code arrives via git only
 # (vendor/ is synced by scripts/sync-forge-2b-poc.sh); secrets live in ${FORGE_2B_ENV_FILE}.
 name: forge-2b-poc
 
@@ -41,7 +41,8 @@ services:
       - ${FORGE_2B_ENV_FILE:?set FORGE_2B_ENV_FILE}
     environment:
       DCS_BASE_URL: http://forge-dcs:9793
-      FORGE_2B_LLM_BASE_URL: ${FORGE_2B_LLM_BASE_URL:-http://host.docker.internal:18080/v1}
+      # gateway publishes only on 127.0.0.1:18080; reach it over its compose network instead
+      FORGE_2B_LLM_BASE_URL: ${FORGE_2B_LLM_BASE_URL:-http://forge-gateway:8080/v1}
       FORGE_2B_ENABLE_LIVE: "1"
       FORGE_2B_CACHE_DIR: /var/lib/forge-2b/cache
       FORGE_2B_LLM_TIMEOUT: ${FORGE_2B_LLM_TIMEOUT:-180}
@@ -61,6 +62,7 @@ services:
     networks:
       - internal
       - openwebui
+      - gateway
 
 volumes:
   dcs_store:
@@ -74,3 +76,6 @@ networks:
   openwebui:
     external: true
     name: ${OPEN_WEBUI_NETWORK:-forge-open-webui_default}
+  gateway:
+    external: true
+    name: ${FORGE_LLM_NETWORK:-forge-llm-control-plane_default}
