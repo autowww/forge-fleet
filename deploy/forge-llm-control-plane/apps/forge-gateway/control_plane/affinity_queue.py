@@ -172,7 +172,10 @@ class AffinityQueue:
             # a lingering bounced ticket would leak toward max_queue_depth).
             async with self._lock:
                 nxt = self._pick_next()
-                if nxt is ticket and self._running_local < self._max_local:
+                # A bounce caller cannot sit out the coalesce window (hold callers can), so
+                # on an otherwise idle gateway swap to its model immediately instead of 503.
+                idle = self._running_local == 0 and len(self._waiters) == 1
+                if (nxt is ticket or (nxt is None and idle)) and self._running_local < self._max_local:
                     self._waiters.remove(ticket)
                     self._running_local += 1
                     return {"ok": True, "queue_wait_ms": 0}

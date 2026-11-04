@@ -72,6 +72,38 @@ def test_bounce_takes_free_slot_on_idle_queue(low_starve_queue):
     asyncio.run(run())
 
 
+def test_idle_bounce_swaps_immediately_despite_coalesce(monkeypatch, tmp_path: Path):
+    """Regression: resident chat model + lone embedding *bounce* request must not be refused.
+
+    Hold-policy callers still observe the coalesce window (see
+    test_resident_model_serviced_before_other)."""
+    cfg = tmp_path / "runner.yaml"
+    cfg.write_text(
+        "kind: ollama\nbind: 127.0.0.1:11434\nruntime: {}\nstarve_sec: 30\ncoalesce_sec: 5\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("FORGE_LLM_RUNNER_CONFIG", str(cfg))
+    from runners.loader import reset_runner_cache
+
+    reset_runner_cache()
+    slot_state.active_model = "chat-model"
+    try:
+        q = AffinityQueue()
+
+        async def run():
+            r = await q.acquire("e-1", model="embed-model", lane="local", hold=False, timeout_sec=1.0)
+            assert r["ok"], r
+            # Under contention (slot busy) a second other-model bounce is still refused.
+            r2 = await q.acquire("e-2", model="other-model", lane="local", hold=False, timeout_sec=1.0)
+            assert not r2["ok"]
+            await q.release(lane="local")
+
+        asyncio.run(run())
+    finally:
+        slot_state.active_model = None
+        reset_runner_cache()
+
+
 def test_estimate_wait_grows_with_depth(low_starve_queue):
     q = low_starve_queue
     q._waiters.append(  # noqa: SLF001
