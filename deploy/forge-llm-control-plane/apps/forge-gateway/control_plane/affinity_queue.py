@@ -167,6 +167,21 @@ class AffinityQueue:
             self._max_local = self._max_for_model(model)
 
         if not hold:
+            # Bounce policy: take a free slot right now if this ticket is next in
+            # affinity order; otherwise leave the queue immediately (never linger —
+            # a lingering bounced ticket would leak toward max_queue_depth).
+            async with self._lock:
+                nxt = self._pick_next()
+                if nxt is ticket and self._running_local < self._max_local:
+                    self._waiters.remove(ticket)
+                    self._running_local += 1
+                    return {"ok": True, "queue_wait_ms": 0}
+                try:
+                    self._waiters.remove(ticket)
+                except ValueError:
+                    pass
+                for i, w in enumerate(self._waiters):
+                    w.position = i + 1
             est = self.estimate_wait_sec(target_model=model, lane=lane)
             return {
                 "ok": False,
