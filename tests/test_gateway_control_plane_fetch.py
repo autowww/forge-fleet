@@ -31,3 +31,27 @@ def test_fetch_gateway_control_plane_json() -> None:
         assert out["rollup"]["requests"] == 3
     finally:
         srv.shutdown()
+
+
+def test_fetch_gateway_catalog_json() -> None:
+    class H(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            body = json.dumps({"schema": "forge-llm-catalog-v1", "artifact_pins": []}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_a: object) -> None:
+            return None
+
+    srv = HTTPServer(("127.0.0.1", 0), H)
+    port = srv.server_address[1]
+    t = threading.Thread(target=srv.serve_forever, daemon=True)
+    t.start()
+    try:
+        out = fls.fetch_gateway_catalog(port)
+        assert out is not None
+        assert out["schema"] == "forge-llm-catalog-v1"
+    finally:
+        srv.shutdown()

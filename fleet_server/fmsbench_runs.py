@@ -39,8 +39,9 @@ _BUNDLE_FILES = (
 _FLAGS = {
     "micro": ("--threads", "2", "--workers", "2", "--repeats", "1", "--trials", "1", "--duration", "1"),
     "smoke": ("--threads", "2", "--workers", "2", "--repeats", "1", "--trials", "1", "--duration", "1"),
-    "standard": ("--threads", "8", "--workers", "8", "--repeats", "3", "--trials", "3", "--duration", "5"),
-    "large": ("--threads", "8", "--workers", "8", "--repeats", "3", "--trials", "3", "--duration", "5"),
+    # standard and large take --threads/--workers from host_width("threads") in _run_command.
+    "standard": ("--repeats", "3", "--trials", "3", "--duration", "5"),
+    "large": ("--repeats", "3", "--trials", "3", "--duration", "5"),
     "stress": ("--stress-only",),
     "host-max-cores": (),
     "host-max-threads": (),
@@ -58,7 +59,8 @@ _TIMEOUT_S = {
     "host-max-threads": 7200,
     "full": 21600,
 }
-# Additive capacity, parts of 100. Two-thread throughput versus the reference host.
+# Additive capacity, parts of 100. Throughput at the host's hardware thread count
+# versus the reference host. One-thread rates stay visible and are not scored.
 # DuckDB and NLP are the analytical and narrative share. PostgreSQL is the system of record.
 # Compute and SQLite are smaller. Summing host scores is the cluster, in reference-host units.
 COMPOSITE_WEIGHTS = {"postgres": 22, "duckdb": 28, "sqlite": 10, "compute": 12, "nlp": 28}
@@ -417,6 +419,39 @@ def _compute_seconds(workers: int, rate: float, loops: int, size: int) -> float 
     return (workers * 3 * loops * size) / rate
 
 
+def _widest_scale(scales: dict[str, Any] | None) -> tuple[int, dict[str, Any]] | None:
+    """Largest measured worker or thread count, and the raw scale record."""
+    if not isinstance(scales, dict):
+        return None
+    best: tuple[int, dict[str, Any]] | None = None
+    for key, raw in scales.items():
+        width = _positive_int(key)
+        if width is None or not isinstance(raw, dict):
+            continue
+        if best is None or width > best[0]:
+            best = (width, raw)
+    return best
+
+
+def _mark_threads(level: dict[str, float] | None, threads: int | None) -> dict[str, float] | None:
+    if level is None or threads is None:
+        return level
+    level["threads"] = threads
+    return level
+
+
+def _displayed_seconds(single: dict[str, Any] | None, multi: dict[str, Any] | None) -> float:
+    """Sum one-thread time and the hardware-width time. Width 1 is one measurement."""
+    total = 0.0
+    if isinstance(single, dict) and isinstance(single.get("seconds"), (int, float)):
+        total += float(single["seconds"])
+    multi_threads = _positive_int(multi.get("threads")) if isinstance(multi, dict) else None
+    same_as_single = multi_threads == 1 and isinstance(single, dict)
+    if isinstance(multi, dict) and not same_as_single and isinstance(multi.get("seconds"), (int, float)):
+        total += float(multi["seconds"])
+    return total
+
+
 def stage_breakdown(doc: dict[str, Any]) -> dict[str, Any] | None:
     engines = doc.get("engines") if isinstance(doc.get("engines"), dict) else {}
     compute = doc.get("compute") if isinstance(doc.get("compute"), dict) else {}
@@ -426,17 +461,22 @@ def stage_breakdown(doc: dict[str, Any]) -> dict[str, Any] | None:
         scales = (eng.get("concurrency") or {}).get("scales") if isinstance(eng.get("concurrency"), dict) else {}
         single = _level(scales.get("1") if isinstance(scales, dict) else None, "median_jobs_per_second")
         double = _level(scales.get("2") if isinstance(scales, dict) else None, "median_jobs_per_second")
-        if single is None and double is None:
+        widest = _widest_scale(scales if isinstance(scales, dict) else None)
+        multi = _mark_threads(
+            _level(widest[1], "median_jobs_per_second") if widest else None,
+            widest[0] if widest else None,
+        )
+        if single is None and double is None and multi is None:
             continue
         prep = _positive_float(eng.get("prep_seconds"))
-        pieces = [item.get("seconds") for item in (single, double) if isinstance(item, dict)]
-        stage_seconds = sum(piece for piece in pieces if isinstance(piece, (int, float)))
+        stage_seconds = _displayed_seconds(single, multi)
         if prep is not None:
             stage_seconds += prep
         stages[name] = {
             "prep_seconds": prep,
             "single": single,
             "double": double,
+            "multi": multi,
             "stage_seconds": stage_seconds if stage_seconds > 0 else None,
         }
     scales = compute.get("scales") if isinstance(compute.get("scales"), dict) else {}
@@ -444,34 +484,44 @@ def stage_breakdown(doc: dict[str, Any]) -> dict[str, Any] | None:
     size = _positive_int(compute.get("size")) or 200_000
     single_c = _level(scales.get("1"), "median_rows_per_second")
     double_c = _level(scales.get("2"), "median_rows_per_second")
-    if single_c is not None or double_c is not None:
-        for workers, level in ((1, single_c), (2, double_c)):
-            if isinstance(level, dict) and "seconds" not in level:
+    widest_c = _widest_scale(scales)
+    multi_c = _mark_threads(
+        _level(widest_c[1], "median_rows_per_second") if widest_c else None,
+        widest_c[0] if widest_c else None,
+    )
+    if single_c is not None or double_c is not None or multi_c is not None:
+        for workers, level in ((1, single_c), (2, double_c), (widest_c[0] if widest_c else None, multi_c)):
+            if isinstance(workers, int) and isinstance(level, dict) and "seconds" not in level:
                 derived = _compute_seconds(workers, level["rate"], loops, size)
                 if derived is not None:
                     level["seconds"] = derived
-        pieces = [item.get("seconds") for item in (single_c, double_c) if isinstance(item, dict)]
-        stage_seconds = sum(piece for piece in pieces if isinstance(piece, (int, float)))
+        stage_seconds = _displayed_seconds(single_c, multi_c)
         stages["compute"] = {
             "single": single_c,
             "double": double_c,
+            "multi": multi_c,
             "stage_seconds": stage_seconds if stage_seconds > 0 else None,
         }
     nlp = doc.get("nlp") if isinstance(doc.get("nlp"), dict) else {}
     nlp_scales = nlp.get("scales") if isinstance(nlp.get("scales"), dict) else {}
     single_n = _level(nlp_scales.get("1"), "median_docs_per_second")
     double_n = _level(nlp_scales.get("2"), "median_docs_per_second")
-    if single_n is not None or double_n is not None:
-        for key, level in (("1", single_n), ("2", double_n)):
+    widest_n = _widest_scale(nlp_scales)
+    multi_n = _mark_threads(
+        _level(widest_n[1], "median_docs_per_second") if widest_n else None,
+        widest_n[0] if widest_n else None,
+    )
+    if single_n is not None or double_n is not None or multi_n is not None:
+        for key, level in (("1", single_n), ("2", double_n), (str(widest_n[0]) if widest_n else "", multi_n)):
             raw = nlp_scales.get(key) if isinstance(nlp_scales.get(key), dict) else {}
             gib = _positive_float(raw.get("median_gib_per_second"))
             if isinstance(level, dict) and gib is not None:
                 level["gib_per_second"] = gib
-        pieces = [item.get("seconds") for item in (single_n, double_n) if isinstance(item, dict)]
-        stage_seconds = sum(piece for piece in pieces if isinstance(piece, (int, float)))
+        stage_seconds = _displayed_seconds(single_n, multi_n)
         stages["nlp"] = {
             "single": single_n,
             "double": double_n,
+            "multi": multi_n,
             "stage_seconds": stage_seconds if stage_seconds > 0 else None,
             "planned_bytes": _positive_int(nlp.get("planned_bytes")),
         }
@@ -510,6 +560,14 @@ def _stage_rate(view: dict[str, Any], name: str, width: str) -> float | None:
     return _positive_float(level.get("rate"))
 
 
+def _composite_rate(view: dict[str, Any], name: str) -> float | None:
+    """Hardware-width throughput. Older rows that only stored two threads still score."""
+    rate = _stage_rate(view, name, "multi")
+    if rate is not None:
+        return rate
+    return _stage_rate(view, name, "double")
+
+
 def _geometric_speedup(pairs: list[tuple[float, float]]) -> float | None:
     if not pairs:
         return None
@@ -522,7 +580,11 @@ def _geometric_speedup(pairs: list[tuple[float, float]]) -> float | None:
 
 
 def composite_parts(reference: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any] | None:
-    """100 on the reference. Each stage contributes its weight times the two-thread rate ratio.
+    """100 on the reference. Each stage contributes its weight times the hardware-thread rate ratio.
+
+    The rate is the widest measured scale (the host's logical CPUs, capped at 64).
+    One-thread rates stay on the stage grid and do not enter the score, so a fast
+    narrow CPU and a slower wide CPU separate on aggregate throughput.
 
     NLP is included only when both sides measured it. Otherwise the other weights are
     renormalized to 100 and ``nlp_included`` is false, so that partial must not be added
@@ -531,8 +593,8 @@ def composite_parts(reference: dict[str, Any], candidate: dict[str, Any]) -> dic
     used: list[tuple[int, float]] = []
     nlp_included = False
     for name, weight in COMPOSITE_WEIGHTS.items():
-        cand = _stage_rate(candidate, name, "double")
-        ref = _stage_rate(reference, name, "double")
+        cand = _composite_rate(candidate, name)
+        ref = _composite_rate(reference, name)
         if cand is None or ref is None:
             if name == "nlp":
                 continue
@@ -773,7 +835,7 @@ def comparison(data_dir: Path, *, fetch_peer: Callable[[str], tuple[int, dict[st
         "reference_peer_id": "local",
         "batch": batch_status(data_dir),
         "composite_weights": dict(COMPOSITE_WEIGHTS),
-        "composite_model": "additive_two_thread",
+        "composite_model": "additive_host_threads",
         "reference_nlp": reference_nlp,
         "cluster_score": round(cluster_total(capacity_parts, reference_nlp=reference_nlp), 1) if capacity_parts else None,
         "stress_weights": dict(STRESS_WEIGHTS),
@@ -983,15 +1045,16 @@ def _run_command(profile: str) -> list[str]:
             "5",
             "--stress-only",
         ]
-    if profile in _WIDTH_PROFILES:
+    if profile in _WIDTH_PROFILES or profile in ("standard", "large"):
         kind = "cores" if profile == "host-max-cores" else "threads"
         width = str(host_width(kind))
+        dataset = "standard" if profile in _WIDTH_PROFILES else profile
         return [
             "./run.sh",
             "--label",
             label,
             "--profile",
-            "standard",
+            dataset,
             "--threads",
             width,
             "--workers",

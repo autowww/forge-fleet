@@ -33,7 +33,7 @@ Feature docs (details beyond this table): [CONTAINER-TEMPLATES.md](../build-201/
 | GET | `/v1/host/profile` | `read:profile` | Hardware snapshot, Fleet mark (`benchmark`), Market Studio benchmark (`fmsbench`, separate file), 5m rollup history (`period=1h\|24h\|7d`). |
 | POST | `/v1/host/profile/benchmark` | admin | Run bounded Fleet-mark benchmark (cooldown). Does not write the Market Studio result. |
 | POST | `/v1/host/profile/fmsbench` | admin | Start a Forge Benchmarks Market Studio run. Profiles: `micro`, `smoke`, `standard`, `large`, `host-max-cores`, `host-max-threads`, `stress`, `full`. `full` runs standard, both host-max widths, and stress. Result is `etc/fmsbench-result.json`, separate from the hardware score. |
-| GET | `/v1/mesh/benchmarks` | `read:profile` | Forge Benchmarks. The composite is an additive two-thread capacity index (PostgreSQL 22, DuckDB 28, SQLite 10, compute 12, NLP 28). `cluster_score` is the sum of complete composites, in units of this server. NLP is a shared 1 GiB embedding table. Stress stays a separate score. A peer that cannot be reached keeps its last saved row. |
+| GET | `/v1/mesh/benchmarks` | `read:profile` | Forge Benchmarks. The composite is an additive hardware-thread capacity index (`composite_model: additive_host_threads`; PostgreSQL 22, DuckDB 28, SQLite 10, compute 12, NLP 28). Each host is scored at its logical CPU count, capped at 64. `cluster_score` is the sum of complete composites, in units of this server. NLP is a shared 1 GiB embedding table. Stress stays a separate score. A peer that cannot be reached keeps its last saved row. |
 | POST | `/v1/mesh/benchmarks/run` | admin | Body `{"suite":"hardware"}` or `{"suite":"market_studio","profile":"standard"}`. Starts that suite on this host and every peer. |
 | POST | `/v1/host/profile/fmsbench/cleanup` | admin | Remove Market Studio containers, volumes, the runner image, and work files. Result JSON is kept. |
 | GET | `/v1/host/link-probe` | `read:links` | Fixed 1 MiB body for throughput probes (`Cache-Control: no-store`). |
@@ -114,6 +114,7 @@ Feature docs (details beyond this table): [CONTAINER-TEMPLATES.md](../build-201/
 | GET | `/v1/container-services` | bearer | All `etc/services/*.json` + forge_llm compose status. |
 | GET | `/v1/container-services/{id}` | bearer | One service + paths. |
 | GET | `/v1/services/forge-llm` | bearer | Legacy aggregate for primary `forge_llm` id. |
+| GET | `/v1/services/forge-llm/catalog` | bearer | Primary forge_llm gateway catalog inventory (pins, VRAM tier, task fits, install state). Proxies `GET /v1/llm/catalog` on the published gateway host port. |
 | GET | `/v1/jobs/{id}` | bearer | Job row; secrets in `meta` redacted in output. |
 | POST | `/v1/cooldown-events` | bearer | **`duration_s`** plus optional **`kind`**, **`meta`**. |
 | POST | `/v1/jobs` | bearer | **`kind: docker_argv`**; optional workspace / template fields — see WORKSPACE_UPLOAD. |
@@ -224,6 +225,8 @@ Each **`forge_llm_services[]`** entry may include **`llm_rack`** with gateway co
 | `active_model` / `active_mode` | Current gateway session |
 
 Gateway **`control_plane`** is fetched with **`since_epoch`** aligned to Fleet start when available.
+
+**Catalog inventory:** `GET /v1/services/forge-llm/catalog` returns the gateway **`forge-llm-catalog-v1`** document: configured **`free_vram_gb`**, **`artifact_pins`** (installed/resident flags), **`missing_pins`**, per-**`task_id`** catalog candidates and resolved pins, and **`gateway_exposed_model_ids`**. Direct gateway surface: **`GET /v1/llm/catalog`** (same JSON). Fleet scrapes loopback with **`FORGE_API_TOKEN`** (or host env used by the gateway compose stack) when gateway auth is enabled. Open WebUI connection setup is **Granite-only** — see [granite-open-webui.md](../operate/granite-open-webui.md), not this catalog payload.
 
 ## Authentication
 

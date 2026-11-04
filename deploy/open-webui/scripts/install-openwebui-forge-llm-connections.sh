@@ -62,7 +62,7 @@ upsert_env() {
 upsert_env "$WEBUI_ENV" "OPENAI_API_BASE_URLS" "$base_urls"
 upsert_env "$WEBUI_ENV" "OPENAI_API_KEYS" "$joined_keys"
 upsert_env "$WEBUI_ENV" "ENABLE_OPENAI_API" "true"
-upsert_env "$WEBUI_ENV" "ENABLE_OLLAMA_API" "false"
+upsert_env "$WEBUI_ENV" "ENABLE_OLLAMA_API" "true"
 upsert_env "$WEBUI_ENV" "ENABLE_API_KEYS" "true"
 upsert_env "$WEBUI_ENV" "ENABLE_API_KEYS_ENDPOINT_RESTRICTIONS" "true"
 upsert_env "$WEBUI_ENV" "API_KEYS_ALLOWED_ENDPOINTS" "/api/chat/completions,/api/models"
@@ -72,11 +72,16 @@ touch "$CP_ENV"
 upsert_env "$CP_ENV" "FORGE_API_TOKEN" "$FORGE_LLM_GATEWAY_BEARER"
 upsert_env "$CP_ENV" "GATEWAY_AUTH_REQUIRED" "true"
 upsert_env "$CP_ENV" "GATEWAY_PORT" "$GATEWAY_PORT"
-upsert_env "$CP_ENV" "FORGE_LLM_EXPOSE_PINNED_MODELS_ONLY" "true"
+upsert_env "$CP_ENV" "FORGE_LLM_EXPOSE_PINNED_MODELS_ONLY" "${FORGE_LLM_EXPOSE_PINNED_MODELS_ONLY:-false}"
+
+chmod +x "$SCRIPT_DIR/sync-openwebui-connections-db.sh"
+OPENWEBUI_FORGE_GATEWAY_URL="${OPENWEBUI_FORGE_GATEWAY_URL:-http://forge-gateway:8080/v1}" \
+  "$SCRIPT_DIR/sync-openwebui-connections-db.sh"
+docker restart "${OPEN_WEBUI_CONTAINER:-forge-open-webui}" 2>/dev/null || true
 
 echo ""
 echo "Open WebUI connections (bearer-secured):"
-echo "  1) forge-gateway  http://host.docker.internal:${GATEWAY_PORT}/v1"
+echo "  1) forge-gateway  ${OPENWEBUI_FORGE_GATEWAY_URL:-http://forge-gateway:8080/v1}"
 idx=2
 for bridge_env in "$BEARER_DIR"/bridge-*.env; do
   [[ -f "$bridge_env" ]] || continue

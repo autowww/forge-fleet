@@ -604,8 +604,8 @@
         </div>
         <section class="card border-secondary-subtle shadow-sm">
           <div class="card-body">
-            <h3 class="h6 text-uppercase text-body-secondary mb-2">Two-thread throughput by workload</h3>
-            <p class="small text-body-secondary mb-3">Synthetic Market Studio stages at two threads. Relative bar length only; not predicted production throughput.</p>
+            <h3 class="h6 text-uppercase text-body-secondary mb-2">Hardware-thread throughput by workload</h3>
+            <p class="small text-body-secondary mb-3">Synthetic Market Studio stages at each host's logical CPU count (capped at 64). One-thread rates stay in the stage grid. Relative bar length only; not predicted production throughput.</p>
             <div id="fleet-bench-workloads" class="small text-body-secondary">Loading workloads…</div>
           </div>
         </section>
@@ -623,7 +623,7 @@
             <p class="small text-body-secondary mb-2"><strong>Re-run all Market Studio</strong> — <code class="fleet-mono">standard</code> profile on every peer (composite source).</p>
             <p class="small text-body-secondary mb-2"><strong>This peer · hardware</strong> — hardware mark on the scope selected in the admin bar (local or one remote peer).</p>
             <p class="small text-body-secondary mb-2"><strong>This peer · Market Studio</strong> — runs the profile chosen below on that same scope.</p>
-            <p id="fleet-bench-profile-hint" class="small text-body-secondary mb-3">Profile <code class="fleet-mono">standard</code>: full fixture, two-thread composite source. Smoke and micro are short checks and are not the comparison profile.</p>
+            <p id="fleet-bench-profile-hint" class="small text-body-secondary mb-3">Profile <code class="fleet-mono">standard</code>: full fixture at this host's logical CPU count. Those rates are the composite source. Smoke and micro are short checks and are not the comparison profile.</p>
             <div id="fleet-bench-peer" class="small text-body-secondary mb-3">Open this tab to load the selected peer.</div>
             <div class="d-flex flex-wrap gap-2 align-items-center">
               <button type="button" class="btn btn-sm btn-outline-primary" id="fleet-cap-bench-all-btn">Re-run all hardware</button>

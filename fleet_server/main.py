@@ -1519,6 +1519,62 @@ class FleetHandler(BaseHTTPRequestHandler):
             st = forge_llm_service.status_for_record(rec)
             self._send(200, {**st, "configured": True, "legacy_endpoint": True}            )
             return
+        if path == "/v1/services/forge-llm/catalog":
+            sid = container_layout.pick_primary_forge_llm_service_id(data_dir)
+            if sid is None:
+                self._send(
+                    200,
+                    {
+                        "ok": True,
+                        "configured": False,
+                        "detail": "No forge_llm service under etc/services/. Use POST /v1/container-services or set FLEET_FORGE_LLM_ROOT for auto-migration.",
+                    },
+                )
+                return
+            rec = container_layout.read_service(data_dir, sid)
+            if rec is None:
+                self._send(500, {"ok": False, "error": "service_missing"})
+                return
+            root = Path(str(rec.get("compose_root") or "")).resolve()
+            rel = list(rec.get("compose_files") or [])
+            if not rel:
+                rel = forge_llm_service.resolve_compose_files(root, [])
+            rows, _err = forge_llm_service.compose_ps(root, rel)
+            gw = forge_llm_service.gateway_host_port_from_compose_ps(rows)
+            if not gw or not gw.get("host_port"):
+                self._send(
+                    503,
+                    {
+                        "ok": False,
+                        "error": "gateway_not_published",
+                        "detail": "forge-gateway is not running or has no published host port.",
+                        "service_id": sid,
+                    },
+                )
+                return
+            catalog = forge_llm_service.fetch_gateway_catalog(int(gw["host_port"]))
+            if catalog is None:
+                self._send(
+                    502,
+                    {
+                        "ok": False,
+                        "error": "catalog_unavailable",
+                        "detail": "Could not fetch GET /v1/llm/catalog from forge-gateway.",
+                        "gateway_publish": gw,
+                    },
+                )
+                return
+            self._send(
+                200,
+                {
+                    "ok": True,
+                    "configured": True,
+                    "service_id": sid,
+                    "gateway_publish": gw,
+                    "catalog": catalog,
+                },
+            )
+            return
         if path == "/v1/fleet-apps/catalog":
             data_dir = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
             q = parse_qs(urlparse(self.path).query)

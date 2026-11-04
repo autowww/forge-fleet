@@ -11,9 +11,9 @@
   ];
 
   var PROFILE_HINTS = {
-    standard: "Profile standard: full fixture; two-thread rates feed the composite.",
+    standard: "Profile standard: full fixture. Workers and intra-query threads match this host's logical CPUs (capped at 64). Those rates feed the composite. One-thread rates stay beside them.",
     "host-max-cores": "Profile host-max-cores: same dataset at physical core count; saved beside standard, not the composite.",
-    "host-max-threads": "Profile host-max-threads: same dataset at hardware thread count (suite caps workers at 64).",
+    "host-max-threads": "Profile host-max-threads: same dataset at hardware thread count (suite caps workers at 64). Standard already runs at this width.",
     stress: "Profile stress: oversubscribed run; separate stress score, not the composite.",
     full: "Profile full: standard, both host-max widths, then stress.",
     smoke: "Profile smoke: short install check; replaces displayed result; not the comparison profile.",
@@ -75,12 +75,32 @@
     return '<span class="badge text-bg-' + (warn ? "warning" : "secondary") + '">' + esc(bits.join(" · ")) + "</span>";
   }
 
-  function doubleRate(row, stageKey) {
+  function scoredLevel(stage) {
+    if (stage && stage.multi && typeof stage.multi === "object" && hasNumeric(stage.multi.rate)) return stage.multi;
+    if (stage && stage.double && typeof stage.double === "object") return stage.double;
+    return {};
+  }
+
+  function stageOf(row, stageKey) {
     var fms = row.fmsbench || {};
     var inner = fms.stages && fms.stages.stages ? fms.stages.stages : {};
-    var stage = inner[stageKey] || {};
-    var two = stage.double && typeof stage.double === "object" ? stage.double : {};
-    return hasNumeric(two.rate) ? Number(two.rate) : null;
+    return inner[stageKey] || {};
+  }
+
+  function doubleRate(row, stageKey) {
+    var level = scoredLevel(stageOf(row, stageKey));
+    return hasNumeric(level.rate) ? Number(level.rate) : null;
+  }
+
+  function scoredThreads(row, stageKey) {
+    var level = scoredLevel(stageOf(row, stageKey));
+    return hasNumeric(level.threads) ? Number(level.threads) : null;
+  }
+
+  function threadSuffix(threads) {
+    if (!hasNumeric(threads)) return "";
+    var n = Number(threads);
+    return " · " + n + (n === 1 ? " thread" : " threads");
   }
 
   function countStagesPresent(rows) {
@@ -122,7 +142,7 @@
     var cards = [
       {
         title: "Reference (100)",
-        body: "Composite 100 = this server's two-thread Market Studio standard rates (<code class=\"fleet-mono\">" + esc(refId) + "</code>).",
+        body: "Composite 100 = this server's Market Studio rates at its hardware thread count (<code class=\"fleet-mono\">" + esc(refId) + "</code>). One-thread rates stay visible and are not scored.",
       },
       {
         title: "Additive capacity index",
@@ -135,7 +155,7 @@
       },
       {
         title: "Stage coverage",
-        body: (stageCount ? stageCount : "0") + " / 5 workloads with two-thread rates" +
+        body: (stageCount ? stageCount : "0") + " / 5 workloads with hardware-thread rates" +
           (nlpGap ? "; NLP <strong>Not measured</strong> on at least one node" : "") + ".",
       },
     ];
@@ -164,7 +184,12 @@
       var key = pair[0];
       var label = pair[1];
       var rates = rows.map(function (row) {
-        return { label: peerLabel(row), rate: doubleRate(row, key), ref: row.peer_id === refId };
+        return {
+          label: peerLabel(row),
+          rate: doubleRate(row, key),
+          threads: scoredThreads(row, key),
+          ref: row.peer_id === refId,
+        };
       });
       var measurable = rates.filter(function (r) { return r.rate != null; });
       if (!measurable.length) {
@@ -198,7 +223,7 @@
         html +=
           '<div class="mt-2"><div class="d-flex justify-content-between small mb-1">' +
           "<span>" + esc(r.label) + (r.ref ? ' <span class="text-body-secondary">(reference)</span>' : "") + "</span>" +
-          "<span>" + esc(fmtStageRate(key, r.rate)) + "</span></div>" +
+          "<span>" + esc(fmtStageRate(key, r.rate)) + esc(threadSuffix(r.threads)) + "</span></div>" +
           '<div class="progress" style="height:8px" role="progressbar" aria-valuenow="' + pct + '" aria-valuemin="0" aria-valuemax="100">' +
           '<div class="progress-bar" style="width:' + pct + '%"></div></div></div>';
       });
@@ -236,7 +261,8 @@
         esc(scoreCell(fleet.fleet_mark)) + "</td>";
       STAGE_KEYS.forEach(function (pair) {
         var rate = doubleRate(row, pair[0]);
-        html += "<td>" + (rate == null ? "Not measured" : esc(fmtStageRate(pair[0], rate))) + "</td>";
+        var width = threadSuffix(scoredThreads(row, pair[0]));
+        html += "<td>" + (rate == null ? "Not measured" : esc(fmtStageRate(pair[0], rate) + width)) + "</td>";
       });
       html += "<td>" + esc(cap.physical_cores != null ? cap.physical_cores : "—") + "</td><td>" +
         esc(cap.hardware_threads != null ? cap.hardware_threads : "—") + "</td></tr>";
@@ -246,7 +272,7 @@
     if (capNote) {
       if (showCap) {
         capNote.textContent =
-          "Market Studio runner caps worker threads at 64 per stage. Hosts with more hardware threads run host-max-threads at the capped width, not at the full CPU count.";
+          "Market Studio caps workers and intra-query threads at 64. Hosts with more hardware threads run standard and host-max-threads at that cap.";
         capNote.classList.remove("d-none");
       } else {
         capNote.classList.add("d-none");
@@ -304,7 +330,7 @@
     });
     html += "</tbody></table>";
     html += "<table class=\"table table-sm mb-0\"><thead><tr>" +
-      "<th>Peer</th><th>Stage</th><th>1 thread</th><th>1 thread time</th><th>2 threads</th><th>2 thread time</th><th>Stage time</th>" +
+      "<th>Peer</th><th>Stage</th><th>1 thread</th><th>1 thread time</th><th>Max threads</th><th>Max thread time</th><th>Stage time</th>" +
       "</tr></thead><tbody>";
     var stageNames = [
       ["postgres", "PostgreSQL"],
@@ -324,10 +350,11 @@
       stageNames.forEach(function (pair) {
         var stage = inner[pair[0]] || {};
         var one = stageLevel(stage, "single");
-        var two = stageLevel(stage, "double");
+        var many = stageLevel(stage, "multi");
+        if (!hasNumeric(many.rate)) many = stageLevel(stage, "double");
         html += "<tr><td>" + esc(who) + "</td><td>" + esc(pair[1]) + "</td><td>" +
           esc(fmtStageRate(pair[0], one.rate)) + esc(nlpBandwidth(pair[0], one)) + "</td><td>" + esc(fmtSeconds(one.seconds)) + "</td><td>" +
-          esc(fmtStageRate(pair[0], two.rate)) + esc(nlpBandwidth(pair[0], two)) + "</td><td>" + esc(fmtSeconds(two.seconds)) + "</td><td>" +
+          esc(fmtStageRate(pair[0], many.rate)) + esc(threadSuffix(many.threads)) + esc(nlpBandwidth(pair[0], many)) + "</td><td>" + esc(fmtSeconds(many.seconds)) + "</td><td>" +
           esc(fmtSeconds(stage.stage_seconds)) + "</td></tr>";
       });
     });

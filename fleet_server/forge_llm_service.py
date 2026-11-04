@@ -23,6 +23,47 @@ _TOKENS_RATE_LOCK = threading.Lock()
 _TOKENS_RATE_STATE: dict[str, tuple[float, int]] = {}
 
 
+def _gateway_scrape_bearer() -> str:
+    for key in (
+        "FORGE_API_TOKEN",
+        "FORGE_LLM_GATEWAY_BEARER",
+        "LLM_API_KEY",
+        "FLEET_WAKE_BEARER_TOKEN",
+    ):
+        val = str(os.environ.get(key) or "").strip()
+        if val:
+            return val
+    env_path = Path.home() / ".config" / "forge-open-webui" / "forge-llm-gateway.env"
+    if env_path.is_file():
+        for line in env_path.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, _, v = line.partition("=")
+            if k.strip() == "FORGE_LLM_GATEWAY_BEARER":
+                return v.strip().strip('"').strip("'")
+    return ""
+
+
+def _gateway_get_json(path: str, host_port: int, *, timeout: float) -> dict[str, Any] | None:
+    import urllib.error
+    import urllib.request
+
+    url = f"http://127.0.0.1:{int(host_port)}{path}"
+    headers: dict[str, str] = {"Accept": "application/json"}
+    bearer = _gateway_scrape_bearer()
+    if bearer:
+        headers["Authorization"] = f"Bearer {bearer}"
+    req = urllib.request.Request(url, headers=headers, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+        data = json.loads(raw)
+        return data if isinstance(data, dict) else None
+    except (OSError, urllib.error.URLError, json.JSONDecodeError, ValueError, TypeError):
+        return None
+
+
 def gateway_host_port_from_compose_ps(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
     """
     Parse ``docker compose ps --format json`` rows for ``forge-gateway`` published ``8080`` port.
@@ -58,18 +99,13 @@ def fetch_gateway_control_plane(
     timeout: float = 3.0,
 ) -> dict[str, Any] | None:
     """Best-effort scrape of forge-gateway ``/v1/llm/stats`` from Fleet host."""
-    import urllib.error
-    import urllib.request
-
     window = max(0.01, float(hours))
-    url = f"http://127.0.0.1:{int(host_port)}/v1/llm/stats?hours={window}"
-    try:
-        with urllib.request.urlopen(url, timeout=timeout) as resp:
-            raw = resp.read().decode("utf-8", errors="replace")
-        data = json.loads(raw)
-        return data if isinstance(data, dict) else None
-    except (OSError, urllib.error.URLError, json.JSONDecodeError, ValueError, TypeError):
-        return None
+    return _gateway_get_json(f"/v1/llm/stats?hours={window}", host_port, timeout=timeout)
+
+
+def fetch_gateway_catalog(host_port: int, *, timeout: float = 5.0) -> dict[str, Any] | None:
+    """Best-effort scrape of forge-gateway ``/v1/llm/catalog`` from Fleet host."""
+    return _gateway_get_json("/v1/llm/catalog", host_port, timeout=timeout)
 
 
 def tokens_per_sec(service_id: str, completion_tokens: int) -> float | None:

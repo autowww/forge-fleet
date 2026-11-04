@@ -150,6 +150,7 @@ def _scored_view(wall: float, single: float, double: float) -> dict:
         stages[name] = {
             "single": {"rate": single, "seconds": 1.0},
             "double": {"rate": double, "seconds": 1.0},
+            "multi": {"rate": double, "seconds": 1.0, "threads": 2},
             "stage_seconds": 2.0,
         }
     return {"wall_seconds": wall, "stages": {"wall_seconds": wall, "stages": stages}}
@@ -179,8 +180,36 @@ def test_stage_breakdown_keeps_one_and_two_threads() -> None:
     assert view["wall_seconds"] == 60
     assert view["stages"]["postgres"]["single"]["rate"] == 1.5
     assert view["stages"]["postgres"]["double"]["seconds"] == 5.0
+    assert view["stages"]["postgres"]["multi"]["rate"] == 3.0
+    assert view["stages"]["postgres"]["multi"]["threads"] == 2
     assert view["stages"]["postgres"]["stage_seconds"] == 12.0
     assert view["stages"]["compute"]["double"]["seconds"] == 1.4
+    assert view["stages"]["compute"]["multi"]["threads"] == 2
+
+
+def test_stage_breakdown_keeps_the_widest_scale() -> None:
+    report = {
+        "start_utc": "2026-10-25T00:00:00+00:00",
+        "end_utc": "2026-10-25T00:01:00+00:00",
+        "engines": {
+            "duckdb": {"concurrency": {"scales": {
+                "1": {"median_jobs_per_second": 1.0, "elapsed_seconds": 5.0},
+                "2": {"median_jobs_per_second": 1.8, "elapsed_seconds": 5.0},
+                "16": {"median_jobs_per_second": 9.0, "elapsed_seconds": 5.0},
+            }}},
+        },
+        "compute": {"scales": {
+            "1": {"median_rows_per_second": 100.0, "elapsed_seconds": 1.0},
+            "16": {"median_rows_per_second": 900.0, "elapsed_seconds": 1.0},
+        }},
+    }
+    view = fmsbench_runs.stage_breakdown(report)
+    assert view is not None
+    assert view["stages"]["duckdb"]["double"]["rate"] == 1.8
+    assert view["stages"]["duckdb"]["multi"]["rate"] == 9.0
+    assert view["stages"]["duckdb"]["multi"]["threads"] == 16
+    assert view["stages"]["compute"]["multi"]["threads"] == 16
+    assert view["stages"]["duckdb"]["stage_seconds"] == 10.0
 
 
 def test_composite_adds_two_thread_rates() -> None:
@@ -191,13 +220,30 @@ def test_composite_adds_two_thread_rates() -> None:
     assert fmsbench_runs.composite_score(ref, _scored_view(10, 2, 2)) == 50
     incomplete = _scored_view(100, 2, 4)
     incomplete["stages"]["stages"]["compute"]["double"] = None
+    incomplete["stages"]["stages"]["compute"]["multi"] = None
     assert fmsbench_runs.composite_score(ref, incomplete) is None
+
+
+def test_composite_falls_back_when_hardware_width_is_missing() -> None:
+    ref = _scored_view(100, 2, 4)
+    for stage in ref["stages"]["stages"].values():
+        stage.pop("multi")
+    assert fmsbench_runs.composite_score(ref, ref) == 100
+
+
+def test_composite_prefers_hardware_width_over_two_threads() -> None:
+    ref = _scored_view(100, 2, 4)
+    cand = _scored_view(100, 2, 4)
+    ref["stages"]["stages"]["postgres"]["multi"] = {"rate": 10, "threads": 16}
+    cand["stages"]["stages"]["postgres"]["multi"] = {"rate": 20, "threads": 32}
+    assert fmsbench_runs.composite_score(ref, cand) == pytest.approx(100 * 94 / 72)
 
 
 def _with_nlp(view: dict, rate: float) -> dict:
     view["stages"]["stages"]["nlp"] = {
         "single": {"rate": rate, "seconds": 1.0},
         "double": {"rate": rate, "seconds": 1.0},
+        "multi": {"rate": rate, "seconds": 1.0, "threads": 2},
     }
     return view
 
@@ -248,6 +294,8 @@ def test_stage_breakdown_reads_the_one_gibibyte_nlp_stage() -> None:
     assert view is not None
     assert view["stages"]["nlp"]["double"]["rate"] == 1800
     assert view["stages"]["nlp"]["double"]["gib_per_second"] == 4.0
+    assert view["stages"]["nlp"]["multi"]["rate"] == 1800
+    assert view["stages"]["nlp"]["multi"]["threads"] == 2
     assert view["stages"]["nlp"]["planned_bytes"] == 1024 ** 3
     assert fmsbench_runs.report_has_nlp_evidence(report) is True
     assert 262_144 * 1_024 * 4 == 1024 ** 3
@@ -402,6 +450,16 @@ def test_host_max_uses_physical_cores_and_hardware_threads(monkeypatch) -> None:
     assert threads[threads.index("--threads") + 1] == "16"
     assert threads[threads.index("--workers") + 1] == "16"
     assert cores[cores.index("--profile") + 1] == "standard"
+    standard = fmsbench_runs._run_command("standard")
+    large = fmsbench_runs._run_command("large")
+    smoke = fmsbench_runs._run_command("smoke")
+    assert standard[standard.index("--threads") + 1] == "16"
+    assert standard[standard.index("--workers") + 1] == "16"
+    assert standard[standard.index("--profile") + 1] == "standard"
+    assert large[large.index("--threads") + 1] == "16"
+    assert large[large.index("--profile") + 1] == "large"
+    assert smoke[smoke.index("--threads") + 1] == "2"
+    assert smoke[smoke.index("--workers") + 1] == "2"
     assert fmsbench_runs._FULL_STEPS == ("standard", "host-max-cores", "host-max-threads", "stress")
 
 

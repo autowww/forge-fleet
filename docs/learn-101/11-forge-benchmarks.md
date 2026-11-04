@@ -2,7 +2,7 @@
 
 **Outcome:** you can read cluster answers, per-workload rates, and stage detail on one Benchmarks page, launch a run from the same tab, and see a short composite summary on Capacity.
 
-**Audience:** operators comparing Fleet hosts. **Time:** ~15 minutes. **Verify:** **`GET /v1/mesh/benchmarks`** returns `composite_model: additive_two_thread` and a `cluster_score`.
+**Audience:** operators comparing Fleet hosts. **Time:** ~15 minutes. **Verify:** **`GET /v1/mesh/benchmarks`** returns `composite_model: additive_host_threads` and a `cluster_score`.
 
 Forge Benchmarks live on **`/admin/` → Benchmarks** as a single scroll: answer cards (what 100 means, additive index, coverage), all five workload bar groups, a node table, run controls, and the full stage grid. **Capacity** keeps guardians and a compact composite table next to live headroom; it does not start a run. Two measurements stay in different columns and different files.
 
@@ -24,9 +24,9 @@ The hardware mark is not an input to the Market Studio composite. Mesh headroom 
 
 | Profile | What runs |
 | --- | --- |
-| **standard** | Comparable dataset. Threads and workers are 8. This is the composite source. |
+| **standard** | Comparable dataset. Threads and workers equal this host's logical CPU count, capped at 64. This is the composite source. One-thread rates are recorded beside that width. |
 | **host-max-cores** | Same dataset. Threads and workers equal the physical core count. Saved beside standard. |
-| **host-max-threads** | Same dataset. Threads and workers equal the hardware thread count. Saved beside standard. |
+| **host-max-threads** | Same dataset. Threads and workers equal the hardware thread count, capped at 64. Saved beside standard. Standard already uses this width. |
 | **stress** | Same dataset at twice the hardware thread count. Separate stress score. Does not replace standard. |
 | **full** | Standard, then host-max-cores, then host-max-threads, then stress. |
 | **smoke** and **micro** | Short install checks. They replace the displayed Market Studio result and are not the composite source. |
@@ -35,7 +35,7 @@ Work files, containers, and the runner image are removed after a run. Result JSO
 
 ## Composite and cluster
 
-The composite uses **two-thread throughput** from the standard run. Each stage is `weight × (this host's rate / this server's rate)`. This server scores **100**. A host that is twice as fast on every stage scores **200**.
+The composite uses **hardware-thread throughput** from the standard run: the widest measured scale. A new standard run sets that width to this host's logical CPU count, capped at 64. Each stage is `weight × (this host's rate / this server's rate)`. This server scores **100**. A host that is twice as fast on every stage scores **200**. One-thread rates stay on the stage grid so a fast narrow CPU and a slower CPU with more threads can be told apart. A saved JSON is scored at the widest scale it already contains (often 8, from the previous fixed width). Run standard again to record the host's real thread count. A run whose widest scale is two threads still scores from that rate.
 
 | Stage | Weight | Rate |
 | --- | --- | --- |
