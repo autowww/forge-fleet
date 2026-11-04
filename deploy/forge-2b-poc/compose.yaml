@@ -14,7 +14,7 @@ services:
     restart: unless-stopped
     command: ["uvicorn", "forge_dcs.api:app", "--host", "0.0.0.0", "--port", "9793"]
     env_file:
-      - ${FORGE_2B_ENV_FILE:?set FORGE_2B_ENV_FILE}
+      - ${FORGE_2B_ENV_FILE:-${HOME}/.config/forge-2b-poc/forge-2b.env}
     environment:
       DCS_STORE_ROOT: /var/lib/forge-dcs/store
     volumes:
@@ -38,7 +38,7 @@ services:
         condition: service_started
     command: ["uvicorn", "forge_2b.facade:app", "--host", "0.0.0.0", "--port", "9085"]
     env_file:
-      - ${FORGE_2B_ENV_FILE:?set FORGE_2B_ENV_FILE}
+      - ${FORGE_2B_ENV_FILE:-${HOME}/.config/forge-2b-poc/forge-2b.env}
     environment:
       DCS_BASE_URL: http://forge-dcs:9793
       # gateway publishes only on 127.0.0.1:18080; reach it over its compose network instead
