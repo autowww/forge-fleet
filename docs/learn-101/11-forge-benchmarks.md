@@ -4,7 +4,7 @@
 
 **Audience:** operators comparing Fleet hosts. **Time:** ~15 minutes. **Verify:** **`GET /v1/mesh/benchmarks`** returns `composite_model: additive_host_threads` and a `cluster_score`.
 
-Forge Benchmarks live on **`/admin/` → Benchmarks** as a single scroll: answer cards (what 100 means, additive index, coverage), all five workload bar groups, a node table, run controls, and the full stage grid. **Capacity** keeps guardians and a compact composite table next to live headroom; it does not start a run. Two measurements stay in different columns and different files.
+Forge Benchmarks live on **`/admin/` → Benchmarks** as a tabbed **Performance Intelligence** view: modeled cluster capacity (trust-first headline from confirmed live nodes), workload component scores, worker speedup matrix, deterministic findings, editable baseline/weights, and evidence/run controls. **Capacity** keeps guardians and a compact composite table next to live headroom; it does not start a run. Two measurements stay in different columns and different files.
 
 | Measurement | What it is | Where it is stored |
 | --- | --- | --- |
@@ -57,7 +57,8 @@ The NLP stage is one shared table of 262,144 vectors by 1,024 float32 values (1 
 
 | Call | Role |
 | --- | --- |
-| `GET /v1/mesh/benchmarks` | Comparison rows, composite weights, `cluster_score` |
+| `GET /v1/mesh/benchmarks` | Legacy comparison rows, composite weights, `cluster_score` (Capacity tab) |
+| `GET /v1/mesh/benchmarks/score` | Performance Intelligence view model: baseline-selectable stage indexes, cluster composites (`composite_confirmed` vs `composite_with_snapshots`), insights, evidence. Query: `baseline`, `include_snapshots=0\|1`, optional `weights=22,28,10,12,28` (percent, five stages). |
 | `POST /v1/mesh/benchmarks/run` | Body `{"suite":"hardware"}` or `{"suite":"market_studio","profile":"standard"}` |
 | `POST /v1/host/profile/benchmark` | Hardware mark on this host |
 | `POST /v1/host/profile/fmsbench` | Market Studio run. Body `{"profile":"<name>"}` |

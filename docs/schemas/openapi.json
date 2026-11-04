@@ -4283,6 +4283,43 @@
         ]
       }
     },
+    "/v1/mesh/benchmarks/score": {
+      "get": {
+        "tags": ["v1"],
+        "summary": "GET /v1/mesh/benchmarks/score",
+        "operationId": "getV1MeshBenchmarksScore",
+        "description": "Performance Intelligence view model. Query: baseline, include_snapshots, weights. Handbook: docs/learn-101/11-forge-benchmarks.md.",
+        "parameters": [
+          {"name": "baseline", "in": "query", "schema": {"type": "string"}},
+          {"name": "include_snapshots", "in": "query", "schema": {"type": "string", "enum": ["0", "1"]}},
+          {"name": "weights", "in": "query", "schema": {"type": "string"}}
+        ],
+        "responses": {
+          "200": {
+            "description": "Scoring view model with insights.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FleetJsonSuccess"}}}
+          },
+          "401": {"description": "Unauthorized.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorJson"}}}}
+        },
+        "security": [{"bearerAuth": []}]
+      }
+    },
+    "/v1/mesh/benchmarks": {
+      "get": {
+        "tags": ["v1"],
+        "summary": "GET /v1/mesh/benchmarks",
+        "operationId": "getV1MeshBenchmarks",
+        "description": "Mesh benchmark comparison rows and legacy cluster_score.",
+        "responses": {
+          "200": {
+            "description": "Comparison document.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FleetJsonSuccess"}}}
+          },
+          "401": {"description": "Unauthorized.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorJson"}}}}
+        },
+        "security": [{"bearerAuth": []}]
+      }
+    },
     "/v1/mesh/capacity": {
       "get": {
         "tags": [
