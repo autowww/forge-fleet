@@ -12,6 +12,13 @@ from runners.base import ArtifactPin
 from runners.loader import load_runner_config
 
 ADEQUATE_FITS = frozenset({"candidate", "tight_or_offload"})
+# Tasks served by embedding/reranker models, never by a resident chat model.
+EMBEDDING_TASKS = frozenset({"embedding", "hybrid", "code_search", "rerank"})
+
+
+def _looks_like_embedding_model(runner_model_id: str) -> bool:
+    s = runner_model_id.lower()
+    return "embed" in s or "rerank" in s or "bge-" in s or s.startswith("e5-")
 
 
 @lru_cache(maxsize=4)
@@ -249,11 +256,14 @@ def resident_adequate_pin(
             continue
         if ca and ca in alias_by_fit:
             return mid, ca, alias_by_fit[ca]
-    cfg = load_runner_config()
+    # Legacy fallback: a resident pin *without* a catalog alias (not evaluated above) may
+    # serve the task when the model kind matches. Pins with an alias were already judged
+    # by the catalog and must not be reused for tasks they are not candidates for
+    # (e.g. a resident chat model must never answer /v1/embeddings).
+    want_embed = task_id in EMBEDDING_TASKS
     for mid, ca in enabled_pins():
-        if mid in resident_set:
+        if mid not in resident_set or ca:
+            continue
+        if _looks_like_embedding_model(mid) == want_embed:
             return mid, ca, "legacy_resident"
-    for rm in resident_models:
-        if rm in {p[0] for p in enabled_pins()}:
-            return rm, None, "legacy_resident"
     return None, None, "none"

@@ -226,6 +226,47 @@ def test_classify_mode_endpoint_uses_task_router(granite_cfg, monkeypatch):
     assert out["source"] == "rules"
 
 
+def test_resident_chat_model_never_serves_embeddings(granite_cfg, monkeypatch):
+    """Regression: with qwen3.5 resident, /v1/embeddings must still route to E06."""
+    from control_plane.catalog_select import resident_adequate_pin
+    from control_plane.route_select import plan_route
+    from control_plane.task_resolve import TaskResolution
+
+    assert resident_adequate_pin("embedding", ["qwen3.5:2b-q4_K_M"]) == (None, None, "none")
+    # Legacy (no alias) embedding pin resident -> fine for embeddings, not for chat.
+    assert resident_adequate_pin("embedding", ["nomic-embed-text:latest"])[2] == "legacy_resident"
+    assert resident_adequate_pin("chat", ["nomic-embed-text:latest"]) == (None, None, "none")
+    # Legacy chat pin resident -> serves chat, never embeddings.
+    assert resident_adequate_pin("chat", ["ctx-unlim-qwen3-8b:latest"])[2] == "legacy_resident"
+    assert resident_adequate_pin("embedding", ["ctx-unlim-qwen3-8b:latest"]) == (None, None, "none")
+
+    async def _chat_resident():
+        return ["qwen3.5:2b-q4_K_M"]
+
+    monkeypatch.setattr("control_plane.route_select.resident_models", _chat_resident)
+    route = asyncio.run(
+        plan_route(task=TaskResolution("embedding", "embed", "path"), body={"input": "x"}, ctx=_ctx())
+    )
+    assert route.model == "qwen3-embedding:0.6b" and route.catalog_alias == "E06"
+
+
+def test_think_disabled_on_openai_surface_for_ollama(granite_cfg, monkeypatch):
+    """Ollama /v1 ignores ``think``; gateway must send reasoning_effort=none unless caller chose."""
+    from control_plane.interception import inject_think_false
+
+    class _A:
+        kind = "ollama"
+
+    monkeypatch.setattr("control_plane.interception.get_adapter", lambda: _A())
+    out = inject_think_false({"messages": []}, "qwen3.5:2b-q4_K_M", openai_surface=True)
+    assert out["think"] is False and out["reasoning_effort"] == "none"
+    kept = inject_think_false({"messages": [], "reasoning_effort": "high"}, "qwen3.5:2b-q4_K_M", openai_surface=True)
+    assert kept["reasoning_effort"] == "high"
+    native = inject_think_false({"messages": []}, "qwen3.5:2b-q4_K_M")
+    assert native["think"] is False and "reasoning_effort" not in native
+    assert "think" not in inject_think_false({"messages": []}, "ibm/granite4:tiny-h", openai_surface=True)
+
+
 def test_language_filter_excludes_incompatible_allowlist(granite_cfg, monkeypatch):
     """ASR: AS17 lists languages that exclude 'uk'; Parakeet v3 includes it."""
     from control_plane.catalog_select import catalog_candidates_for_task

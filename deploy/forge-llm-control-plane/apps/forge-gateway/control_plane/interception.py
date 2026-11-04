@@ -78,12 +78,26 @@ def fingerprint_body(body: dict[str, Any]) -> str:
     return hashlib.sha256(text.encode()).hexdigest()[:16]
 
 
-def inject_think_false(body: dict[str, Any], model: str) -> dict[str, Any]:
+def inject_think_false(body: dict[str, Any], model: str, *, openai_surface: bool = False) -> dict[str, Any]:
+    """
+    Disable chain-of-thought by default for thinking families (qwen3*, deepseek-r1).
+
+    Native ``/api/*`` honors ``think: false``. Ollama's OpenAI-compatible ``/v1`` surface
+    ignores ``think`` (measured on 0.40.13) but honors ``reasoning_effort: "none"``; callers
+    that set ``reasoning_effort`` / ``reasoning`` explicitly keep their choice.
+    """
     if not needs_think_false(model):
         return body
     out = dict(body)
     if "think" not in out:
         out["think"] = False
+    if openai_surface and "reasoning_effort" not in out and "reasoning" not in out:
+        try:
+            kind = get_adapter().kind
+        except Exception:  # noqa: BLE001
+            kind = "ollama"
+        if kind == "ollama":
+            out["reasoning_effort"] = "none"
     return out
 
 
@@ -211,7 +225,7 @@ async def run_openai_inference(
             ready, swapped, err = await ensure_model(model, res_mode)
             if not ready:
                 raise HTTPException(status_code=503, detail=err or "model unavailable")
-            proxied = inject_think_false({**body, "model": model}, model)
+            proxied = inject_think_false({**body, "model": model}, model, openai_surface=True)
             infer_t0 = time.perf_counter()
             to = float(timeout or body.get("timeout") or DEFAULT_HOLD_TIMEOUT_SEC)
             status, content, hdrs = await adapter_openai(
