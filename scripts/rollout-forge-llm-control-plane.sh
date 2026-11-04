@@ -118,13 +118,38 @@ apply_runner_host() {
   bash "$script"
 }
 
+# compose.yaml bind-mounts configs/runner.granite.yaml as a *single file* (/config/runner.yaml).
+# git pull / rsync replace that file with a new inode, which a running container never sees, and
+# `compose up -d` does not recreate a container just because a mounted file's content changed.
+# Result (P2B, 2026-11-04): a promoted artifact pin shipped, rollout said "complete", and the
+# gateway kept serving the old config_hash. Compare host vs in-container bytes and force-recreate.
+_runner_yaml_changed_in_container() {
+  local host_yaml="$FORGE_LLM_ROOT/configs/runner.granite.yaml"
+  local container="${FORGE_GATEWAY_CONTAINER_NAME:-forge-gateway}"
+  [[ -f "$host_yaml" ]] || return 1
+  local running
+  running="$(docker inspect -f '{{.State.Running}}' "$container" 2>/dev/null || true)"
+  [[ "$running" == "true" ]] || return 1
+  local host_sum live_sum
+  host_sum="$(sha256sum "$host_yaml" | cut -d' ' -f1)"
+  live_sum="$(docker exec "$container" cat /config/runner.yaml 2>/dev/null | sha256sum | cut -d' ' -f1)"
+  [[ -n "$live_sum" && "$host_sum" != "$live_sum" ]]
+}
+
 deploy_gateway_stack() {
   cd "$FORGE_LLM_ROOT"
   export OLLAMA_HOST_URL="${OLLAMA_HOST_URL:-$OLLAMA_FORWARDER_URL}"
   log "building forge-gateway"
   compose -f compose.yaml build forge-gateway
+  local -a up_args=(-d)
+  if _runner_yaml_changed_in_container; then
+    log "runner.granite.yaml differs from the running container's /config/runner.yaml -> --force-recreate"
+    up_args+=(--force-recreate)
+  else
+    log "runner.granite.yaml unchanged in running container (or no container) -> plain up -d"
+  fi
   log "starting forge-gateway"
-  compose -f compose.yaml up -d forge-gateway
+  compose -f compose.yaml up "${up_args[@]}" forge-gateway
 }
 
 register_fleet_service() {

@@ -84,7 +84,13 @@ Rollout calls ``apply-runner-host.sh`` before starting the gateway:
 | ``observe`` (default) | Log ``ollama.service`` + ``ollama list``; log would-be drop-in / pulls |
 | ``apply`` | Write systemd user drop-in for keys in ``runtime:``; ``ollama pull`` missing catalog models |
 
-Gateway mounts ``configs/runner.granite.yaml`` as ``/config/runner.yaml`` and exposes ``GET /v1/llm/runner`` and ``GET /v1/llm/catalog``. Host Ollama binds loopback only, so the gateway container reaches it through the host **11436 → 11434** forwarder (``OLLAMA_HOST_URL=http://host.docker.internal:11436``, the rollout migrates a stale ``:11434`` ``.env``); Forge apps use Caddy → gateway **:18080**. Open WebUI's chat models come from the gateway's OpenAI connection, not direct Ollama.
+Gateway mounts ``configs/runner.granite.yaml`` as ``/config/runner.yaml`` and exposes ``GET /v1/llm/runner`` and ``GET /v1/llm/catalog``.
+
+### Runner YAML changes force a gateway recreate
+
+That mount is a **single-file** bind. ``git pull`` / ``update-user.sh`` replace the file with a new inode, which a running container never sees, and ``docker compose up -d`` does not recreate a container because a mounted file's bytes changed. Before 0.3.187 a promoted artifact pin could ship, the rollout log could say ``rollout complete``, and ``GET /v1/llm/catalog`` would still report the old ``config_hash`` and ``deployment_authorized: false`` (observed on Granite, P2B 2026-11-04; recovered by ``POST /v1/container-services/default/stop`` then ``/start``).
+
+``deploy_gateway_stack`` now hashes the host ``configs/runner.granite.yaml`` and the container's ``/config/runner.yaml`` (``docker exec … cat``) and passes ``--force-recreate`` only when they differ; the log line says which branch was taken. Covered by ``tests/test_forge_llm_rollout_recreate.py``. Catalog JSON under ``configs/catalog/`` is a directory mount and does not have this problem. Host Ollama binds loopback only, so the gateway container reaches it through the host **11436 → 11434** forwarder (``OLLAMA_HOST_URL=http://host.docker.internal:11436``, the rollout migrates a stale ``:11434`` ``.env``); Forge apps use Caddy → gateway **:18080**. Open WebUI's chat models come from the gateway's OpenAI connection, not direct Ollama.
 
 ## LLM request queue (bounce vs hold)
 
