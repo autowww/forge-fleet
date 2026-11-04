@@ -6,7 +6,7 @@ def test_open_webui_compose_files_exist() -> None:
     assert (root / "compose.yaml").is_file()
     assert (root / "compose.granite.yaml").is_file()
     text = (root / "compose.yaml").read_text(encoding="utf-8")
-    assert "open-webui/open-webui:v0.12.3" in text
+    assert "open-webui/open-webui:v0.13.0" in text
     assert "pgvector" in text
 
 

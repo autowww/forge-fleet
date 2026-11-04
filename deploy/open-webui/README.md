@@ -1,6 +1,6 @@
 # Open WebUI on Granite (Fleet-managed)
 
-Pinned image `ghcr.io/open-webui/open-webui:v0.12.3`. Separate Postgres + file volumes from Market Studio. UI is exposed on a **dedicated hostname** via unified Caddy (`OPEN_WEBUI_SITE_ADDRESS`), not `/v1/app-gateways/`.
+Pinned image `ghcr.io/open-webui/open-webui:v0.13.0`. Separate Postgres + file volumes from Market Studio. UI is exposed on a **dedicated hostname** via unified Caddy (`OPEN_WEBUI_SITE_ADDRESS`), not `/v1/app-gateways/`.
 
 ## Fleet compliance
 
