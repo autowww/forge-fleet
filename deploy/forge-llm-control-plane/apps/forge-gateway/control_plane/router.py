@@ -123,17 +123,27 @@ async def classify_mode(request: Request) -> dict[str, Any]:
     ctx = ForgeContext.from_headers(dict(request.headers))
     body = raw.get("body") if isinstance(raw.get("body"), dict) else raw
     path = str(raw.get("path") or "/v1/chat/completions")
-    res = await resolve_mode(
-        header_mode=ctx.mode,
-        body_mode=raw.get("forge_mode"),
-        path=path,
-        body=body,
-        consumer=ctx.consumer,
-    )
+    try:
+        task = resolve_task(
+            header_task=header_task_from_request(dict(request.headers)),
+            body_task=raw.get("forge_task") or raw.get("task_id") or body.get("forge_task") or body.get("task_id"),
+            header_mode=ctx.mode,
+            body_mode=raw.get("forge_mode") or body.get("forge_mode"),
+            path=path,
+            body=body,
+        )
+        route = await plan_route(task=task, body=body, ctx=ctx)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {
-        "mode": res.mode,
-        "model": res.model,
-        "source": res.source,
+        "mode": task.mode,
+        "model": route.model,
+        "source": task.source,
+        "task_id": task.task_id,
+        "lane": route.lane,
+        "catalog_alias": route.catalog_alias,
+        "fit": route.fit,
+        "mode_source": route.mode_source,
     }
 
 

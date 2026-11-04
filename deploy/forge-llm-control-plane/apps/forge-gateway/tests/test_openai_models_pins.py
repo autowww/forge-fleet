@@ -30,7 +30,7 @@ artifact_pins:
 
     async def fake_adapter(method, path, body, *, timeout=600.0):
         assert method == "GET" and path == "/v1/models"
-        payload = {"object": "list", "data": [{"id": "qwen3.5:2b", "object": "model"}]}
+        payload = {"object": "list", "data": [{"id": "qwen3.5:2b-q4_K_M", "object": "model"}]}
         return 200, json.dumps(payload).encode(), {"content-type": "application/json"}
 
     monkeypatch.setattr("control_plane.router.adapter_openai", fake_adapter)
@@ -48,4 +48,4 @@ def test_models_lists_all_pins_not_only_ollama_tags(client: TestClient):
     ids = {m["id"] for m in r.json()["data"]}
     assert "ctx-unlim-qwen3-8b:latest" in ids
     assert "qwen3:30b-a3b" in ids
-    assert "qwen3.5:2b" not in ids
+    assert "qwen3.5:2b-q4_K_M" not in ids

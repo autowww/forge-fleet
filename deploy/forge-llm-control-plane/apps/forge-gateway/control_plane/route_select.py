@@ -31,6 +31,9 @@ from runners.loader import load_runner_config
 
 Lane = Literal["local", "external"]
 
+# Model ids that mean "let the gateway choose from the catalog" (not an explicit pin).
+AUTO_MODEL_ALIASES = frozenset({"forge-llm", "forge-llm-auto", "auto", "forge-auto", ""})
+
 
 @dataclass(frozen=True)
 class RoutePlan:
@@ -44,14 +47,16 @@ class RoutePlan:
 
 def _explicit_model(body: dict[str, Any], ctx: ForgeContext) -> str | None:
     h = getattr(ctx, "requested_model", None)
-    if h:
-        return h
+    if h and str(h).strip().lower() not in AUTO_MODEL_ALIASES:
+        return str(h).strip()
     raw = body.get("model")
     if isinstance(raw, str) and raw.strip():
         s = raw.strip()
         # Open WebUI may forward its connection prefix (``forge-llm.<id>``); strip it.
         if s.startswith("forge-llm."):
             s = s[len("forge-llm.") :]
+        if s.lower() in AUTO_MODEL_ALIASES:
+            return None
         return s
     return None
 

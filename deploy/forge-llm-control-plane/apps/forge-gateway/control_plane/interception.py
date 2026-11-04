@@ -308,7 +308,6 @@ async def run_native_inference(
             "model": body.get("model"),
         }
 
-    wait = ctx.wait or DEFAULT_WAIT_BY_MODE.get(res_mode, "bounce")
     ticket = str(uuid.uuid4())
     try:
         task = resolve_task(
@@ -322,6 +321,7 @@ async def run_native_inference(
         route = await plan_route(task=task, body=pseudo_body, ctx=ctx)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    wait = ctx.wait or DEFAULT_WAIT_BY_MODE.get(task.mode, "bounce")
 
     model = route.model
     res_mode = task.mode

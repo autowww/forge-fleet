@@ -40,9 +40,9 @@ external:
 # model_revision, weight_file_sha256, runtime_probe=passed, measured.{peak_vram_mib,
 # context_length, active_requests, p95_latency_ms, task_quality_score} and license_approval are set.
 artifact_pins:
-  - runner_model_id: qwen3.5:2b
+  - runner_model_id: qwen3.5:2b-q4_K_M  # exact Q4 artifact (1.95 GB); bare qwen3.5:2b tag is the 2.7 GB Q8 build
     catalog_alias: Q2
-    precision: Q4
+    precision: Q4_K_M
     enabled: true
     # model_revision: <hf commit or ollama digest>
     # weight_file_sha256: <sha256 of the GGUF>
@@ -59,7 +59,7 @@ artifact_pins:
     #   gpu_uuid: GPU-xxxx
   - runner_model_id: qwen2.5-coder:3b
     catalog_alias: C3
-    precision: Q4
+    precision: Q4_K_M
     enabled: true
   - runner_model_id: qwen3-embedding:0.6b
     catalog_alias: E06
@@ -76,7 +76,7 @@ artifact_pins:
     enabled: true
 
 models:
-  - qwen3.5:2b
+  - qwen3.5:2b-q4_K_M
   - qwen2.5-coder:3b
   - qwen3-embedding:0.6b
   - ctx-unlim-qwen3-8b:latest
@@ -86,8 +86,8 @@ models:
 mode_models:
   interactive: ctx-unlim-qwen3-8b:latest
   task_code: qwen2.5-coder:3b
-  struct_json: qwen3.5:2b
-  reason_short: qwen3.5:2b
+  struct_json: qwen3.5:2b-q4_K_M
+  reason_short: qwen3.5:2b-q4_K_M
   long_ctx: ctx-unlim-qwen3-8b:latest
   codegen_loop: qwen2.5-coder:3b
   embed: nomic-embed-text:latest

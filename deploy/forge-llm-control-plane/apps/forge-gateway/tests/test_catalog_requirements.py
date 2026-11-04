@@ -88,7 +88,7 @@ def test_granite_pins_cover_4gb_tier_chat_code_embedding(granite_cfg):
     from control_plane.catalog_select import resolve_runner_model_for_task
 
     mid, alias, fit = resolve_runner_model_for_task("chat")
-    assert (mid, alias, fit) == ("qwen3.5:2b", "Q2", "candidate")
+    assert (mid, alias, fit) == ("qwen3.5:2b-q4_K_M", "Q2", "candidate")
     mid, alias, fit = resolve_runner_model_for_task("code_generate")
     assert (mid, alias, fit) == ("qwen2.5-coder:3b", "C3", "candidate")
     mid, alias, fit = resolve_runner_model_for_task("embedding")
@@ -113,7 +113,7 @@ def test_granite_queue_policy_two_active_ten_queued(granite_cfg):
     assert cfg.max_active_requests == 2
     assert cfg.max_queue_depth == 10
     q = AffinityQueue()
-    assert q._max_for_model("qwen3.5:2b") == 2
+    assert q._max_for_model("qwen3.5:2b-q4_K_M") == 2
     assert q._max_queue_depth() == 10
 
 
@@ -124,7 +124,7 @@ def test_legacy_pins_carry_tier_note_and_are_not_authorized(granite_cfg):
     by_id = {p.runner_model_id: p for p in cfg.artifact_pins}
     assert by_id["qwen3:30b-a3b"].tier_note
     assert all(not p.deployment_authorized for p in cfg.artifact_pins)
-    assert "weight_file_sha256" in by_id["qwen3.5:2b"].promotion_missing()
+    assert "weight_file_sha256" in by_id["qwen3.5:2b-q4_K_M"].promotion_missing()
 
 
 # --- headroom + promotion ---
@@ -192,8 +192,38 @@ def test_openwebui_prefix_is_stripped(granite_cfg, monkeypatch):
 
     monkeypatch.setattr("control_plane.route_select.resident_models", _empty_residents)
     task = TaskResolution("chat", "interactive", "body_task")
-    route = asyncio.run(plan_route(task=task, body={"model": "forge-llm.qwen3.5:2b", "messages": []}, ctx=_ctx()))
-    assert route.model == "qwen3.5:2b" and route.fit == "explicit"
+    route = asyncio.run(plan_route(task=task, body={"model": "forge-llm.qwen3.5:2b-q4_K_M", "messages": []}, ctx=_ctx()))
+    assert route.model == "qwen3.5:2b-q4_K_M" and route.fit == "explicit"
+
+
+def test_auto_alias_routes_by_task_even_in_pinned_only_mode(granite_cfg, monkeypatch):
+    """``model: forge-llm`` (and ``auto``) means catalog routing, not an explicit pin."""
+    from control_plane.route_select import plan_route
+    from control_plane.task_resolve import TaskResolution
+
+    monkeypatch.setattr("control_plane.route_select.resident_models", _empty_residents)
+    monkeypatch.setenv("FORGE_LLM_EXPOSE_PINNED_MODELS_ONLY", "true")
+    task = TaskResolution("code_generate", "task_code", "header_task")
+    for alias in ("forge-llm", "auto", "forge-llm.auto"):
+        route = asyncio.run(plan_route(task=task, body={"model": alias, "messages": []}, ctx=_ctx()))
+        assert route.model == "qwen2.5-coder:3b" and route.catalog_alias == "C3", alias
+
+
+def test_classify_mode_endpoint_uses_task_router(granite_cfg, monkeypatch):
+    """Regression: /v1/llm/classify-mode must not reference the removed resolve_mode()."""
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setenv("GATEWAY_AUTH_REQUIRED", "false")
+    monkeypatch.setattr("control_plane.route_select.resident_models", _empty_residents)
+    import main
+
+    client = TestClient(main.app, raise_server_exceptions=True)
+    r = client.post("/v1/llm/classify-mode", json={"messages": [{"role": "user", "content": "def add(a,b): return a+b"}]})
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert out["mode"] == "task_code" and out["task_id"] == "code_generate"
+    assert out["model"] == "qwen2.5-coder:3b" and out["catalog_alias"] == "C3"
+    assert out["source"] == "rules"
 
 
 def test_language_filter_excludes_incompatible_allowlist(granite_cfg, monkeypatch):

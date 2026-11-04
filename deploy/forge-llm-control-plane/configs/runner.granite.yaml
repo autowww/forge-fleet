@@ -29,13 +29,13 @@ quarantined_models:
   - qwen2.5-coder:7b
 artifact_pins:
   # --- 4 GB tier catalog candidates (Q4 unless noted) ---
-  - runner_model_id: qwen3.5:2b
+  - runner_model_id: qwen3.5:2b-q4_K_M  # exact Q4 artifact (1.95 GB); bare qwen3.5:2b tag is the 2.7 GB Q8 build
     catalog_alias: Q2            # Qwen/Qwen3.5-2B — chat, json, intent, summary, translation, reason_simple, agent
-    precision: Q4
+    precision: Q4_K_M
     enabled: true
   - runner_model_id: qwen2.5-coder:3b
     catalog_alias: C3            # Qwen/Qwen2.5-Coder-3B-Instruct — code_complete, code_generate, testgen
-    precision: Q4
+    precision: Q4_K_M
     enabled: true
   - runner_model_id: qwen3-embedding:0.6b
     catalog_alias: E06           # Qwen/Qwen3-Embedding-0.6B — embedding, code_search
@@ -61,7 +61,7 @@ artifact_pins:
     tier_note: classifier_only_not_in_catalog
     enabled: true
 models:
-  - qwen3.5:2b
+  - qwen3.5:2b-q4_K_M
   - qwen2.5-coder:3b
   - qwen3-embedding:0.6b
   - qwen3:30b-a3b
