@@ -599,73 +599,86 @@
         <h2 class="h6 text-uppercase text-body-secondary mb-2" id="fleet-bench-page-title">Forge Benchmarks</h2>
         <p class="small text-body-secondary mb-3">One page: what was measured, how scores are defined, and how to run again. Hardware and Market Studio stay separate measurements. Capacity tab shows a short summary only.</p>
         <div id="fleet-bench-consoles" class="small mb-3 text-body-secondary">Loading Fleet consoles…</div>
-        <div id="fleet-bench-answers" class="row g-3 mb-3" aria-live="polite">
-          <div class="col-12 small text-body-secondary">Open this tab to load cluster answers.</div>
+        <ul class="nav nav-tabs mb-3" id="fleet-perf-tablist" role="tablist">
+          <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="fleet-perf-overview-tab" data-bs-toggle="tab" data-bs-target="#fleet-perf-overview-pane" type="button" role="tab" aria-controls="fleet-perf-overview-pane" aria-selected="true">Overview</button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="fleet-perf-workloads-tab" data-bs-toggle="tab" data-bs-target="#fleet-perf-workloads-pane" type="button" role="tab">Workloads</button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="fleet-perf-scoring-tab" data-bs-toggle="tab" data-bs-target="#fleet-perf-scoring-pane" type="button" role="tab">Scoring</button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="fleet-perf-nodes-tab" data-bs-toggle="tab" data-bs-target="#fleet-perf-nodes-pane" type="button" role="tab">Nodes</button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="fleet-perf-evidence-tab" data-bs-toggle="tab" data-bs-target="#fleet-perf-evidence-pane" type="button" role="tab">Evidence &amp; runs</button>
+          </li>
+        </ul>
+        <div class="tab-content" id="fleet-perf-tab-content">
+          <div class="tab-pane fade show active" id="fleet-perf-overview-pane" role="tabpanel" aria-labelledby="fleet-perf-overview-tab">
+            <div id="fleet-perf-hero" class="card border-primary-subtle mb-3"><div class="card-body">Loading scores…</div></div>
+            <div id="fleet-perf-components" class="mb-3"></div>
+            <h3 class="h6 text-uppercase text-body-secondary">Worker speedup matrix</h3>
+            <div id="fleet-perf-speedup-matrix" class="mb-3"></div>
+            <h3 class="h6 text-uppercase text-body-secondary">Priority findings</h3>
+            <div id="fleet-perf-insights"></div>
+          </div>
+          <div class="tab-pane fade" id="fleet-perf-workloads-pane" role="tabpanel"><p class="small text-body-secondary">Loading…</p></div>
+          <div class="tab-pane fade" id="fleet-perf-scoring-pane" role="tabpanel"><p class="small text-body-secondary">Loading…</p></div>
+          <div class="tab-pane fade" id="fleet-perf-nodes-pane" role="tabpanel"><p class="small text-body-secondary">Loading…</p></div>
+          <div class="tab-pane fade" id="fleet-perf-evidence-pane" role="tabpanel">
+            <section class="card border-secondary-subtle shadow-sm mb-3">
+              <div class="card-body">
+                <h3 class="h6 text-uppercase text-body-secondary mb-2">Run benchmarks</h3>
+                <p class="small text-body-secondary mb-2">Hardware and Market Studio remain separate measurements. Synthetic hardware mark is not part of workload composite.</p>
+                <p id="fleet-bench-profile-hint" class="small text-body-secondary mb-3">Profile <code class="fleet-mono">standard</code>: full fixture at this host's logical CPU count (composite source).</p>
+                <div id="fleet-bench-peer" class="small text-body-secondary mb-3">Open this tab to load the selected peer.</div>
+                <div class="d-flex flex-wrap gap-2 align-items-center">
+                  <button type="button" class="btn btn-sm btn-outline-primary" id="fleet-cap-bench-all-btn">Re-run all hardware</button>
+                  <button type="button" class="btn btn-sm btn-outline-primary" id="fleet-cap-fms-all-btn">Re-run all Market Studio</button>
+                  <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-cap-bench-btn">This peer · hardware</button>
+                  <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-cap-fms-btn">This peer · Market Studio</button>
+                  <label class="small mb-0" for="fleet-cap-fms-profile">This peer profile
+                    <select id="fleet-cap-fms-profile" class="form-select form-select-sm d-inline-block w-auto">
+                      <option value="standard" selected>standard</option>
+                      <option value="host-max-cores">host-max-cores</option>
+                      <option value="host-max-threads">host-max-threads</option>
+                      <option value="stress">stress (2× threads)</option>
+                      <option value="full">full (all capacity tests)</option>
+                      <option value="smoke">smoke</option>
+                      <option value="micro">micro</option>
+                    </select>
+                  </label>
+                </div>
+                <div id="fleet-cap-live" class="mt-3" aria-live="polite"></div>
+                <p id="fleet-cap-bench-status" class="small mb-0 mt-2" aria-live="polite"></p>
+                <p id="fleet-cap-fms-status" class="small mb-0 mt-1" aria-live="polite"></p>
+              </div>
+            </section>
+            <section class="card border-secondary-subtle shadow-sm mb-3">
+              <div class="card-body">
+                <h3 class="h6 text-uppercase text-body-secondary mb-2">Stage detail (raw runs)</h3>
+                <div id="fleet-bench-measure-body" class="small text-body-secondary">Loading…</div>
+                <p id="fleet-bench-thread-cap-note" class="small text-body-secondary mt-2 mb-0 d-none"></p>
+              </div>
+            </section>
+            <section class="card border-secondary-subtle shadow-sm">
+              <div class="card-body">
+                <h3 class="h6 text-uppercase text-body-secondary mb-2">Not measured in this suite</h3>
+                <ul class="small text-body-secondary mb-0">
+                  <li>Verified distributed cluster throughput</li>
+                  <li>Random NVMe IOPS / latency</li>
+                  <li>GPU inference</li>
+                </ul>
+              </div>
+            </section>
+          </div>
         </div>
-        <section class="card border-secondary-subtle shadow-sm">
-          <div class="card-body">
-            <h3 class="h6 text-uppercase text-body-secondary mb-2">Hardware-thread throughput by workload</h3>
-            <p class="small text-body-secondary mb-3">Synthetic Market Studio stages at each host's logical CPU count (capped at 64). One-thread rates stay in the stage grid. Relative bar length only; not predicted production throughput.</p>
-            <div id="fleet-bench-workloads" class="small text-body-secondary">Loading workloads…</div>
-          </div>
-        </section>
-        <section class="card border-secondary-subtle shadow-sm mt-3">
-          <div class="card-body">
-            <h3 class="h6 text-uppercase text-body-secondary mb-2">Node inventory</h3>
-            <div id="fleet-bench-nodes" class="table-responsive small text-body-secondary">Loading nodes…</div>
-            <p id="fleet-bench-thread-cap-note" class="small text-body-secondary mt-2 mb-0 d-none"></p>
-          </div>
-        </section>
-        <section class="card border-secondary-subtle shadow-sm mt-3">
-          <div class="card-body">
-            <h3 class="h6 text-uppercase text-body-secondary mb-2">Run benchmarks</h3>
-            <p class="small text-body-secondary mb-2"><strong>Re-run all hardware</strong> — in-process CPU, memory, and 256&nbsp;MB disk on this host and every peer. No containers.</p>
-            <p class="small text-body-secondary mb-2"><strong>Re-run all Market Studio</strong> — <code class="fleet-mono">standard</code> profile on every peer (composite source).</p>
-            <p class="small text-body-secondary mb-2"><strong>This peer · hardware</strong> — hardware mark on the scope selected in the admin bar (local or one remote peer).</p>
-            <p class="small text-body-secondary mb-2"><strong>This peer · Market Studio</strong> — runs the profile chosen below on that same scope.</p>
-            <p id="fleet-bench-profile-hint" class="small text-body-secondary mb-3">Profile <code class="fleet-mono">standard</code>: full fixture at this host's logical CPU count. Those rates are the composite source. Smoke and micro are short checks and are not the comparison profile.</p>
-            <div id="fleet-bench-peer" class="small text-body-secondary mb-3">Open this tab to load the selected peer.</div>
-            <div class="d-flex flex-wrap gap-2 align-items-center">
-              <button type="button" class="btn btn-sm btn-outline-primary" id="fleet-cap-bench-all-btn">Re-run all hardware</button>
-              <button type="button" class="btn btn-sm btn-outline-primary" id="fleet-cap-fms-all-btn">Re-run all Market Studio</button>
-              <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-cap-bench-btn">This peer · hardware</button>
-              <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-cap-fms-btn">This peer · Market Studio</button>
-              <label class="small mb-0" for="fleet-cap-fms-profile">This peer profile
-                <select id="fleet-cap-fms-profile" class="form-select form-select-sm d-inline-block w-auto">
-                  <option value="standard" selected>standard</option>
-                  <option value="host-max-cores">host-max-cores</option>
-                  <option value="host-max-threads">host-max-threads</option>
-                  <option value="stress">stress (2× threads)</option>
-                  <option value="full">full (all capacity tests)</option>
-                  <option value="smoke">smoke</option>
-                  <option value="micro">micro</option>
-                </select>
-              </label>
-            </div>
-            <div id="fleet-cap-live" class="mt-3" aria-live="polite"></div>
-            <p id="fleet-cap-bench-status" class="small mb-0 mt-2" aria-live="polite"></p>
-            <p id="fleet-cap-fms-status" class="small mb-0 mt-1" aria-live="polite"></p>
-          </div>
-        </section>
-        <section class="card border-secondary-subtle shadow-sm mt-3">
-          <div class="card-body">
-            <h3 class="h6 text-uppercase text-body-secondary mb-2">Stage detail</h3>
-            <p class="small text-body-secondary mb-2">1-thread and 2-thread rates, host-max widths, and stress. Composite weights: DuckDB 28, NLP 28, PostgreSQL 22, compute 12, SQLite 10.</p>
-            <div id="fleet-bench-measure-body" class="small text-body-secondary">Open this tab to load measurements.</div>
-          </div>
-        </section>
-        <section class="card border-secondary-subtle shadow-sm mt-3">
-          <div class="card-body">
-            <h3 class="h6 text-uppercase text-body-secondary mb-2">Not in this suite</h3>
-            <ul class="small text-body-secondary mb-2">
-              <li>Random NVMe IOPS / latency — <strong>Not measured</strong></li>
-              <li>GPU inference — <strong>Not measured</strong></li>
-              <li>Controlled inter-node transfer — <strong>Not measured</strong></li>
-              <li>Verified distributed cluster throughput — <strong>Not measured</strong></li>
-            </ul>
-            <p class="small text-body-secondary mb-0">History on disk (JSONL) is not listed here yet; this view shows the latest saved result per node.</p>
-          </div>
-        </section>
+        <div id="fleet-bench-answers" class="d-none" aria-hidden="true"></div>
+        <div id="fleet-bench-workloads" class="d-none" aria-hidden="true"></div>
+        <div id="fleet-bench-nodes" class="d-none" aria-hidden="true"></div>
       </div>
       <div id="fleet-dynamic-app-panes" class="d-contents"></div>
     </div>
@@ -1241,6 +1254,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
   <script src="/admin/ks/js/forge-theme.js"></script>
   <script src="/admin/ks/js/forge-fleet-app-ui.js"></script>
   <script src="/admin/benchmarks-view.js"></script>
+  <script src="/admin/performance-view.js"></script>
   <script src="/admin/capacity.js"></script>
   <script>
   /* forge-theme.js only registers DOMContentLoaded; if that event already fired, theme + clicks never wire — fix here. */

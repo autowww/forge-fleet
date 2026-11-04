@@ -669,7 +669,7 @@
   function loadCompare() {
     var root = document.getElementById("fleet-capacity-compare-body");
     var measure = document.getElementById("fleet-bench-measure-body");
-    if (!root && !measure) return;
+    if (!root && !measure && !document.getElementById("fleet-perf-hero")) return;
     Promise.all([
       fleetApi("/v1/mesh/benchmarks").then(function (r) {
         return r.json().then(function (j) {
@@ -694,21 +694,44 @@
     ])
       .then(function (parts) {
         renderScoreboard(parts[0], parts[1]);
-        if (window.forgeFleetBenchmarksView && typeof window.forgeFleetBenchmarksView.render === "function") {
-          window.forgeFleetBenchmarksView.render(parts[0], { peers: (parts[2] && parts[2].peers) || [] });
+        var peers = (parts[2] && parts[2].peers) || [];
+        var defaultBaseline = (parts[0] && parts[0].reference_peer_id) || "local";
+        var scorePath = "/v1/mesh/benchmarks/score";
+        if (window.forgeFleetPerformanceView && typeof window.forgeFleetPerformanceView.scoreQuery === "function") {
+          scorePath += "?" + window.forgeFleetPerformanceView.scoreQuery(defaultBaseline);
         }
-        if (comparisonBusy(parts[0]) && !compareTimer) {
-          compareTimer = setTimeout(function () {
-            compareTimer = null;
-            loadCompare();
-            refreshCapacity();
-          }, 5000);
-        }
+        return fleetApi(scorePath)
+          .then(function (r) {
+            return r.json().then(function (j) {
+              if (!r.ok) throw new Error((j && j.error) || "HTTP " + r.status);
+              return j;
+            });
+          })
+          .then(function (scoreDoc) {
+            if (window.forgeFleetPerformanceView && typeof window.forgeFleetPerformanceView.render === "function") {
+              window.forgeFleetPerformanceView.render(scoreDoc, {
+                peers: peers,
+                comparisonDoc: parts[0],
+                onPolicyChange: loadCompare,
+              });
+            } else if (window.forgeFleetBenchmarksView && typeof window.forgeFleetBenchmarksView.render === "function") {
+              window.forgeFleetBenchmarksView.render(parts[0], { peers: peers });
+            }
+            if (comparisonBusy(parts[0]) && !compareTimer) {
+              compareTimer = setTimeout(function () {
+                compareTimer = null;
+                loadCompare();
+                refreshCapacity();
+              }, 5000);
+            }
+          });
       })
       .catch(function (e) {
         var message = "Could not load scores: " + (e && e.message ? e.message : e);
         if (root) root.textContent = message;
         if (measure) measure.textContent = message;
+        var hero = document.getElementById("fleet-perf-hero");
+        if (hero) hero.textContent = message;
       });
   }
 

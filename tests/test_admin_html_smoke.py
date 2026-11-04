@@ -34,6 +34,14 @@ def test_admin_remote_scope_ui() -> None:
     assert "loadRemoteDashboard" not in html
 
 
+def test_admin_benchmarks_performance_shell() -> None:
+    html = ADMIN.read_text(encoding="utf-8")
+    assert 'id="fleet-perf-tablist"' in html
+    assert 'id="fleet-perf-hero"' in html
+    assert 'id="fleet-cap-fms-btn"' in html
+    assert "/admin/performance-view.js" in html
+
+
 def test_smoke_script_exists() -> None:
     smoke = Path(__file__).resolve().parents[1] / "scripts" / "smoke-admin-ui.mjs"
     assert smoke.is_file()
