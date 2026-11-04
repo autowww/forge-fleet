@@ -23,45 +23,111 @@ _TOKENS_RATE_LOCK = threading.Lock()
 _TOKENS_RATE_STATE: dict[str, tuple[float, int]] = {}
 
 
-def _gateway_scrape_bearer() -> str:
-    for key in (
-        "FORGE_API_TOKEN",
-        "FORGE_LLM_GATEWAY_BEARER",
-        "LLM_API_KEY",
-        "FLEET_WAKE_BEARER_TOKEN",
-    ):
-        val = str(os.environ.get(key) or "").strip()
-        if val:
-            return val
-    env_path = Path.home() / ".config" / "forge-open-webui" / "forge-llm-gateway.env"
-    if env_path.is_file():
-        for line in env_path.read_text(encoding="utf-8", errors="replace").splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            k, _, v = line.partition("=")
-            if k.strip() == "FORGE_LLM_GATEWAY_BEARER":
-                return v.strip().strip('"').strip("'")
+_GATEWAY_BEARER_ENV_KEYS = (
+    "FORGE_API_TOKEN",
+    "LLM_BEARER_TOKEN",
+    "FORGE_LLM_GATEWAY_BEARER",
+    "LLM_API_KEY",
+    "FLEET_WAKE_BEARER_TOKEN",
+)
+
+
+def _first_key_from_env_file(path: Path, keys: tuple[str, ...]) -> str:
+    if not path.is_file():
+        return ""
+    found: dict[str, str] = {}
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return ""
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, _, v = line.partition("=")
+        k = k.strip()
+        if k in keys and k not in found:
+            found[k] = v.strip().strip('"').strip("'")
+    for k in keys:
+        if found.get(k):
+            return found[k]
     return ""
 
 
-def _gateway_get_json(path: str, host_port: int, *, timeout: float) -> dict[str, Any] | None:
+def _gateway_scrape_bearer(compose_root: Path | None = None) -> str:
+    """
+    Bearer the Fleet host uses to scrape forge-gateway on loopback.
+
+    Order: process env → Fleet user env (``forge-fleet.env``: ``LLM_BEARER_TOKEN`` on Granite)
+    → the service compose ``.env`` (``FORGE_API_TOKEN`` written by the rollout) → the
+    Open WebUI connection env. The gateway accepts the same token for all of these.
+    """
+    for key in _GATEWAY_BEARER_ENV_KEYS:
+        val = str(os.environ.get(key) or "").strip()
+        if val:
+            return val
+    cfg_home = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config")))
+    candidates: list[tuple[Path, tuple[str, ...]]] = [
+        (cfg_home / "forge-fleet" / "forge-fleet.env", _GATEWAY_BEARER_ENV_KEYS),
+    ]
+    if compose_root is not None:
+        candidates.append((Path(compose_root) / ".env", ("FORGE_API_TOKEN", "LLM_API_KEY", "FLEET_WAKE_BEARER_TOKEN")))
+    candidates.append((cfg_home / "forge-open-webui" / "forge-llm-gateway.env", ("FORGE_LLM_GATEWAY_BEARER",)))
+    for path, keys in candidates:
+        val = _first_key_from_env_file(path, keys)
+        if val:
+            return val
+    return ""
+
+
+def _gateway_get_json_detailed(
+    path: str,
+    host_port: int,
+    *,
+    timeout: float,
+    compose_root: Path | None = None,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Return ``(json, error)``; ``error`` is a short machine-readable reason when ``json`` is None."""
     import urllib.error
     import urllib.request
 
     url = f"http://127.0.0.1:{int(host_port)}{path}"
     headers: dict[str, str] = {"Accept": "application/json"}
-    bearer = _gateway_scrape_bearer()
+    bearer = _gateway_scrape_bearer(compose_root)
     if bearer:
         headers["Authorization"] = f"Bearer {bearer}"
     req = urllib.request.Request(url, headers=headers, method="GET")
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             raw = resp.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as exc:
+        body = ""
+        try:
+            body = exc.read().decode("utf-8", errors="replace")[:300]
+        except Exception:  # noqa: BLE001
+            body = ""
+        hint = " (no gateway bearer resolved on Fleet host)" if exc.code == 401 and not bearer else ""
+        return None, f"gateway_http_{exc.code}{hint}: {body}".strip()
+    except (OSError, urllib.error.URLError) as exc:
+        return None, f"gateway_unreachable: {exc}"[:400]
+    try:
         data = json.loads(raw)
-        return data if isinstance(data, dict) else None
-    except (OSError, urllib.error.URLError, json.JSONDecodeError, ValueError, TypeError):
-        return None
+    except (json.JSONDecodeError, ValueError, TypeError):
+        return None, "gateway_invalid_json"
+    if not isinstance(data, dict):
+        return None, "gateway_invalid_json"
+    return data, None
+
+
+def _gateway_get_json(
+    path: str,
+    host_port: int,
+    *,
+    timeout: float,
+    compose_root: Path | None = None,
+) -> dict[str, Any] | None:
+    data, _err = _gateway_get_json_detailed(path, host_port, timeout=timeout, compose_root=compose_root)
+    return data
 
 
 def gateway_host_port_from_compose_ps(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -97,15 +163,31 @@ def fetch_gateway_control_plane(
     *,
     hours: float = 1.0,
     timeout: float = 3.0,
+    compose_root: Path | None = None,
 ) -> dict[str, Any] | None:
     """Best-effort scrape of forge-gateway ``/v1/llm/stats`` from Fleet host."""
     window = max(0.01, float(hours))
-    return _gateway_get_json(f"/v1/llm/stats?hours={window}", host_port, timeout=timeout)
+    return _gateway_get_json(f"/v1/llm/stats?hours={window}", host_port, timeout=timeout, compose_root=compose_root)
 
 
-def fetch_gateway_catalog(host_port: int, *, timeout: float = 5.0) -> dict[str, Any] | None:
+def fetch_gateway_catalog(
+    host_port: int,
+    *,
+    timeout: float = 5.0,
+    compose_root: Path | None = None,
+) -> dict[str, Any] | None:
     """Best-effort scrape of forge-gateway ``/v1/llm/catalog`` from Fleet host."""
-    return _gateway_get_json("/v1/llm/catalog", host_port, timeout=timeout)
+    return _gateway_get_json("/v1/llm/catalog", host_port, timeout=timeout, compose_root=compose_root)
+
+
+def fetch_gateway_catalog_detailed(
+    host_port: int,
+    *,
+    timeout: float = 5.0,
+    compose_root: Path | None = None,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Like :func:`fetch_gateway_catalog` but also returns the failure reason."""
+    return _gateway_get_json_detailed("/v1/llm/catalog", host_port, timeout=timeout, compose_root=compose_root)
 
 
 def tokens_per_sec(service_id: str, completion_tokens: int) -> float | None:
@@ -168,10 +250,10 @@ def status_for_record(
         uptime_h = 1.0
         if fleet_started_epoch is not None:
             uptime_h = max(0.01, (time.time() - float(fleet_started_epoch)) / 3600.0)
-        cp_start = fetch_gateway_control_plane(port, hours=uptime_h)
+        cp_start = fetch_gateway_control_plane(port, hours=uptime_h, compose_root=root)
         cp_1h = cp_start
         if uptime_h > 1.05:
-            cp_1h = fetch_gateway_control_plane(port, hours=1.0) or cp_start
+            cp_1h = fetch_gateway_control_plane(port, hours=1.0, compose_root=root) or cp_start
         if cp_start:
             cp_start = dict(cp_start)
             if cp_1h and cp_1h is not cp_start:
