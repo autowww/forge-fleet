@@ -203,9 +203,17 @@ async function main() {
   try {
     await page.waitForFunction(
       () => {
-        const el = document.getElementById('fleet-perf-hero');
-        const t = (el && el.textContent) || '';
-        return el && !/Loading scores/i.test(t) && t.trim().length > 20;
+        const hero = document.getElementById('fleet-perf-hero');
+        const main = document.getElementById('fleet-perf-main');
+        const val = hero && hero.querySelector('.heroval');
+        const mainText = (main && main.textContent) || '';
+        return (
+          val &&
+          val.textContent &&
+          val.textContent.trim().length > 0 &&
+          val.textContent.trim() !== '—' &&
+          !/Loading scores/i.test(mainText)
+        );
       },
       { timeout: 25000 },
     );
@@ -223,6 +231,13 @@ async function main() {
     fullPage: false,
   });
   pass('saved benchmarks-desktop.png');
+  await page.click('#fleet-perf-tablist button[data-page="insights"]');
+  await page.waitForTimeout(400);
+  await page.screenshot({
+    path: resolve(evidenceDir, 'benchmarks-insights.png'),
+    fullPage: false,
+  });
+  pass('saved benchmarks-insights.png');
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForTimeout(300);
   await page.screenshot({

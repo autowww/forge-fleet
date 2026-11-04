@@ -12,12 +12,13 @@ Date: 2026-11-04.
 | P03 UI | Complete — `performance-view.js`, tabbed Benchmarks admin |
 | P04 Insights | Complete — `fleet_server/perf_insights.py` |
 | P05 Verify + docs | This report |
+| P06 Prototype fidelity | Complete — scoped `.fpi` studio, rail IA, handoff visual parity |
 
 ## Paths changed (high level)
 
 - Domain: `fleet_server/perf_scoring.py`, `fleet_server/perf_insights.py`
 - Integration: `fleet_server/fmsbench_runs.py`, `fleet_server/main.py`, `fleet_server/route_registry.py`
-- UI: `fleet_server/static/performance-view.js`, `admin.html`, `capacity.js`
+- UI: `fleet_server/static/performance-view.js`, `performance-view.css`, `admin.html`, `capacity.js`
 - Tests: `tests/test_perf_*.py`, `tests/fixtures/perf_screenshot_fixture.json`
 - Docs: `docs/design/performance-intelligence/*`, `docs/learn-101/11-forge-benchmarks.md`, `docs/reference/01-http-api-reference.md`, `docs/schemas/openapi.json`
 
@@ -47,7 +48,7 @@ python -m unittest discover -s /tmp/fpi-handoff/fleet_performance_intelligence_c
 
 - Admin shell smoke: `node scripts/smoke-admin-ui.mjs --base http://127.0.0.1:18766` (2026-11-04, local user service).
 - Benchmarks hero renders from `GET /v1/mesh/benchmarks/score` (live modeled cluster **248.3** on this host, baseline local).
-- Screenshots: `docs/design/performance-intelligence/evidence/benchmarks-desktop.png` (1280×900) and `benchmarks-narrow.png` (390×844).
+- Screenshots: `docs/design/performance-intelligence/evidence/benchmarks-desktop.png` (1280×900), `benchmarks-insights.png`, and `benchmarks-narrow.png` (390×844).
 - Remaining smoke issue: overview `#fleet-load-chart` has no SVG on this host (pre-existing telemetry chart, not the performance score view).
 
 ## Acceptance criteria (mandatory)

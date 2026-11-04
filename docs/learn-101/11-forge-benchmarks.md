@@ -4,7 +4,7 @@
 
 **Audience:** operators comparing Fleet hosts. **Time:** ~15 minutes. **Verify:** **`GET /v1/mesh/benchmarks`** returns `composite_model: additive_host_threads` and a `cluster_score`.
 
-Forge Benchmarks live on **`/admin/` → Benchmarks** as a tabbed **Performance Intelligence** view: modeled cluster capacity (trust-first headline from confirmed live nodes), workload component scores, worker speedup matrix, deterministic findings, editable baseline/weights, and evidence/run controls. **Capacity** keeps guardians and a compact composite table next to live headroom; it does not start a run. Two measurements stay in different columns and different files.
+Forge Benchmarks live on **`/admin/` → Benchmarks** as a **Performance Intelligence studio**: a left rail (Command center, Multi-thread explorer, Cluster scoring, Insights & actions, Nodes & evidence), navy hero with modeled cluster capacity, workload component cards, scaling matrix, deterministic Observation/Means/Action findings, editable baseline/weights on Cluster scoring, and run controls on Nodes & evidence. **Capacity** keeps guardians and a compact composite table next to live headroom; it does not start a run. Two measurements stay in different columns and different files.
 
 | Measurement | What it is | Where it is stored |
 | --- | --- | --- |
