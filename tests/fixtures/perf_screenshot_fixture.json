@@ -1,0 +1,170 @@
+{
+  "schema_version": "1.0.0",
+  "provenance": {
+    "source": "user-supplied Fleet UI screenshots, November 2026",
+    "purpose": "frozen demo and acceptance fixture, NOT live measurements",
+    "accuracy": "transcribed rounded dashboard values; use authoritative stored raw samples in production",
+    "granite_baseline_available": false
+  },
+  "profile": {
+    "id": "standard",
+    "description": "Synthetic Market Studio stage benchmarks, profile standard; comparison profile may require version and fixture identity",
+    "nominal_max_workers": "Screenshot reports 8 workers for Precision and Mercury, unknown for ASUS"
+  },
+  "workloads": [
+    {
+      "id": "postgresql",
+      "label": "PostgreSQL",
+      "unit": "bundles/s",
+      "weight": 22
+    },
+    {
+      "id": "duckdb",
+      "label": "DuckDB",
+      "unit": "bundles/s",
+      "weight": 28
+    },
+    {
+      "id": "sqlite",
+      "label": "SQLite",
+      "unit": "bundles/s",
+      "weight": 10
+    },
+    {
+      "id": "numpy",
+      "label": "NumPy",
+      "unit": "million_rows/s",
+      "weight": 12
+    },
+    {
+      "id": "nlp",
+      "label": "NLP 1 GiB",
+      "unit": "docs/s",
+      "weight": 28
+    }
+  ],
+  "baseline": {
+    "id": "precision",
+    "display_name": "Precision 7550",
+    "status": "TEMPORARY FALLBACK",
+    "granite": "NOT_MEASURED"
+  },
+  "nodes": [
+    {
+      "id": "precision",
+      "name": "administrator-Precision-7550",
+      "physical_cores": 8,
+      "logical_cpus": 16,
+      "hardware_score": 6123,
+      "evidence": "recorded",
+      "rate": {
+        "postgresql": {
+          "single": 1.03,
+          "max": 5.64,
+          "max_workers": 8
+        },
+        "duckdb": {
+          "single": 11.69,
+          "max": 69.32,
+          "max_workers": 8
+        },
+        "sqlite": {
+          "single": 0.45,
+          "max": 1.87,
+          "max_workers": 8
+        },
+        "numpy": {
+          "single": 17.0,
+          "max": 72.8177644,
+          "max_workers": 8
+        },
+        "nlp": {
+          "single": 15099,
+          "max": 28789.25,
+          "max_workers": 8
+        }
+      }
+    },
+    {
+      "id": "mercury",
+      "name": "Mercury (mercury)",
+      "physical_cores": 2,
+      "logical_cpus": 4,
+      "hardware_score": 5766,
+      "evidence": "recorded",
+      "rate": {
+        "postgresql": {
+          "single": 0.78,
+          "max": 1.43,
+          "max_workers": 8
+        },
+        "duckdb": {
+          "single": 8.73,
+          "max": 15.71,
+          "max_workers": 8
+        },
+        "sqlite": {
+          "single": 0.13,
+          "max": 0.24,
+          "max_workers": 8
+        },
+        "numpy": {
+          "single": 20.8,
+          "max": 39.4,
+          "max_workers": 8
+        },
+        "nlp": {
+          "single": 10423,
+          "max": 15741,
+          "max_workers": 8
+        }
+      }
+    },
+    {
+      "id": "asus",
+      "name": "ASUS (S8NXCV01S67931C)",
+      "physical_cores": 10,
+      "logical_cpus": 12,
+      "hardware_score": 2093,
+      "evidence": "saved_snapshot",
+      "connectivity": "http_401",
+      "rate": {
+        "postgresql": {
+          "single": 1.18,
+          "max": 1.95,
+          "max_workers": null
+        },
+        "duckdb": {
+          "single": 9.93,
+          "max": 27.55,
+          "max_workers": null
+        },
+        "sqlite": {
+          "single": 0.37,
+          "max": 0.72,
+          "max_workers": null
+        },
+        "numpy": {
+          "single": 13.6,
+          "max": 26.2,
+          "max_workers": null
+        },
+        "nlp": {
+          "single": 15760,
+          "max": 16039,
+          "max_workers": null
+        }
+      }
+    },
+    {
+      "id": "venus",
+      "name": "Venus (FW3GSG3)",
+      "physical_cores": 8,
+      "logical_cpus": 16,
+      "hardware_score": 2407,
+      "evidence": "not_run",
+      "connectivity": "http_502",
+      "rate": {}
+    }
+  ]
+}
