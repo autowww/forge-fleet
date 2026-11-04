@@ -752,6 +752,14 @@ class FleetHandler(BaseHTTPRequestHandler):
                 return
             self._send_raw(200, cap_js, "application/javascript; charset=utf-8")
             return
+        if path == "/admin/performance-view.css":
+            try:
+                perf_css = resources.files("fleet_server").joinpath("static/performance-view.css").read_bytes()
+            except OSError:
+                self._send_raw(404, b"", "text/plain; charset=utf-8")
+                return
+            self._send_raw(200, perf_css, "text/css; charset=utf-8")
+            return
         if path == "/admin/performance-view.js":
             try:
                 perf_js = resources.files("fleet_server").joinpath("static/performance-view.js").read_bytes()
