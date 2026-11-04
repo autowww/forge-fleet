@@ -2,6 +2,11 @@
 # Push forge-gateway OpenAI URL + bearer into Open WebUI Postgres (env alone is not enough after first boot).
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=open-webui-host-guard.sh
+source "$SCRIPT_DIR/open-webui-host-guard.sh"
+open_webui_require_granite_host
+
 GW_ENV="${FORGE_OPEN_WEBUI_BEARER_DIR:-${HOME}/.config/forge-open-webui}/forge-llm-gateway.env"
 PG_CONTAINER="${OPEN_WEBUI_PG_CONTAINER:-forge-open-webui-postgres}"
 
@@ -18,7 +23,7 @@ set -a && source "$GW_ENV" && set +a
 
 OPENAI_URL="${OPENWEBUI_FORGE_GATEWAY_URL:-http://forge-gateway:8080/v1}"
 OLLAMA_URL="${OPENWEBUI_OLLAMA_URL:-http://forge-ollama-host:11434}"
-ENABLE_OLLAMA="${OPENWEBUI_ENABLE_OLLAMA:-true}"
+ENABLE_OLLAMA="${OPENWEBUI_ENABLE_OLLAMA:-false}"
 
 docker network connect forge-open-webui_default forge-ollama-host 2>/dev/null || true
 docker network connect forge-open-webui_default forge-gateway 2>/dev/null || true

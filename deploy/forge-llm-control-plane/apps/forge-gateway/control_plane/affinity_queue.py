@@ -37,17 +37,29 @@ class AffinityQueue:
         return load_runner_config()
 
     def _max_for_model(self, model: str) -> int:
+        """
+        Measured active slots (catalog README: start with 2 measured active requests, never
+        assume N connected clients = N GPU sequences). ``max_active_requests`` from runner.yaml
+        is the policy ceiling; an explicit ``OLLAMA_NUM_PARALLEL`` cannot raise it.
+        """
         cfg = self._cfg()
+        policy = max(1, int(cfg.max_active_requests))
         if cfg.kind == "vllm":
-            return max(1, int(cfg.runtime.get("OLLAMA_NUM_PARALLEL") or 4))
+            return max(1, min(policy, int(cfg.runtime.get("OLLAMA_NUM_PARALLEL") or policy)))
         if cfg.kind == "ollama":
             par = cfg.runtime.get("OLLAMA_NUM_PARALLEL")
             if par:
                 try:
-                    return max(1, int(par))
+                    return max(1, min(policy, int(par)))
                 except ValueError:
                     pass
-        return 1
+        return policy
+
+    def _max_queue_depth(self) -> int:
+        cfg = self._cfg()
+        if cfg.max_queue_depth:
+            return max(1, int(cfg.max_queue_depth))
+        return MAX_QUEUE_DEPTH
 
     def _external_pool(self) -> asyncio.Semaphore:
         cfg = self._cfg()
@@ -143,7 +155,7 @@ class AffinityQueue:
 
         ticket = QueueTicket(ticket_id=ticket_id, model=model, lane=lane)
         async with self._lock:
-            if len(self._waiters) >= MAX_QUEUE_DEPTH:
+            if len(self._waiters) >= self._max_queue_depth():
                 return {
                     "ok": False,
                     "reason": "queue_full",

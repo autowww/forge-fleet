@@ -2356,13 +2356,20 @@ class FleetHandler(BaseHTTPRequestHandler):
             return
         if path == "/v1/admin/forge-llm-control-plane-rollout":
             sync = str(body.get("sync") or "").strip().lower() in ("1", "true", "yes")
+            runner_apply = str(body.get("runner_apply") or "").strip().lower() or None
             try:
                 if sync:
-                    out = forge_llm_rollout.run_rollout_sync(self._repo_root())
+                    out = forge_llm_rollout.run_rollout_sync(self._repo_root(), runner_apply=runner_apply)
                 else:
-                    out = forge_llm_rollout.schedule_rollout(self._repo_root())
+                    out = forge_llm_rollout.schedule_rollout(self._repo_root(), runner_apply=runner_apply)
             except FileNotFoundError as ex:
                 self._send(400, {"ok": False, "error": "rollout_script_missing", "detail": str(ex)[:400]})
+                return
+            except ValueError:
+                self._send(
+                    400,
+                    {"ok": False, "error": "invalid_runner_apply", "detail": "runner_apply must be observe|apply"},
+                )
                 return
             code = 200 if out.get("ok") else 502
             self._send(code, out)

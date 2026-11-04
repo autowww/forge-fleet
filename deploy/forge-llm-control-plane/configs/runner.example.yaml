@@ -10,10 +10,19 @@ exclusive_slot: false
 
 classifier_model: ibm/granite4:tiny-h
 
+# Catalog layer 3 (host capability) — nominal free VRAM for one request; the catalog tier
+# is the largest vram_tiers_gb <= free_vram_gb. headroom_ratio is applied only against
+# *measured* peaks (fit_policy.minimum_host_free_vram_ratio).
 free_vram_gb: 4
+headroom_ratio: 0.15
 catalog_path: catalog/forge_llm_catalog_2026-11-03.json
+
+# Resident-first queue policy. Catalog guidance for a 4 GB host: 5–10 queued clients,
+# 2 measured active requests. OLLAMA_NUM_PARALLEL can lower but never raise max_active_requests.
 coalesce_sec: 3
 starve_sec: 120
+max_active_requests: 2
+max_queue_depth: 10
 
 quarantined_models:
   - ctx-unlim-qwen25-coder-7b:latest
@@ -25,34 +34,61 @@ external:
   gemini_model: granite-gemini-primary
   max_concurrent: 4
 
+# Catalog layer 2 (artifact registry). Every served model must be pinned here.
+# catalog_alias links the runtime tag to a catalog model so task routing can use the tier matrix.
+# The promotion fields are optional; deployment_authorized stays false until ALL of
+# model_revision, weight_file_sha256, runtime_probe=passed, measured.{peak_vram_mib,
+# context_length, active_requests, p95_latency_ms, task_quality_score} and license_approval are set.
 artifact_pins:
+  - runner_model_id: qwen3.5:2b
+    catalog_alias: Q2
+    precision: Q4
+    enabled: true
+    # model_revision: <hf commit or ollama digest>
+    # weight_file_sha256: <sha256 of the GGUF>
+    # runtime_probe: passed
+    # license_approval: true
+    # measured:
+    #   peak_vram_mib: 2900
+    #   context_length: 4096
+    #   active_requests: 2
+    #   p95_latency_ms: 4200
+    #   decode_tokens_per_second: 38.5
+    #   task_quality_score: 0.81
+    #   runtime_version: ollama 0.6.x
+    #   gpu_uuid: GPU-xxxx
+  - runner_model_id: qwen2.5-coder:3b
+    catalog_alias: C3
+    precision: Q4
+    enabled: true
+  - runner_model_id: qwen3-embedding:0.6b
+    catalog_alias: E06
+    precision: FP16
+    enabled: true
   - runner_model_id: ctx-unlim-qwen3-8b:latest
-    enabled: true
-  - runner_model_id: qwen3:30b-a3b
-    enabled: true
-  - runner_model_id: ctx-unlim-qwen3-14b:latest
-    enabled: true
-  - runner_model_id: ctx-unlim-granite41-8b:latest
+    tier_note: exceeds_4gb_nominal_tier_estimate_unmeasured
     enabled: true
   - runner_model_id: nomic-embed-text:latest
+    tier_note: legacy_embedding_not_in_catalog
     enabled: true
   - runner_model_id: ibm/granite4:tiny-h
+    tier_note: classifier_only_not_in_catalog
     enabled: true
 
 models:
-  - qwen3:30b-a3b
+  - qwen3.5:2b
+  - qwen2.5-coder:3b
+  - qwen3-embedding:0.6b
   - ctx-unlim-qwen3-8b:latest
-  - ctx-unlim-qwen3-14b:latest
-  - ctx-unlim-granite41-8b:latest
   - nomic-embed-text:latest
   - ibm/granite4:tiny-h
 
 mode_models:
   interactive: ctx-unlim-qwen3-8b:latest
-  task_code: qwen3:30b-a3b
-  struct_json: ctx-unlim-qwen3-8b:latest
-  reason_short: qwen3:30b-a3b
-  long_ctx: ctx-unlim-qwen3-14b:latest
-  codegen_loop: ctx-unlim-granite41-8b:latest
+  task_code: qwen2.5-coder:3b
+  struct_json: qwen3.5:2b
+  reason_short: qwen3.5:2b
+  long_ctx: ctx-unlim-qwen3-8b:latest
+  codegen_loop: qwen2.5-coder:3b
   embed: nomic-embed-text:latest
-  batch_eval: ctx-unlim-qwen3-14b:latest
+  batch_eval: ctx-unlim-qwen3-8b:latest

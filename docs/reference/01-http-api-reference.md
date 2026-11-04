@@ -67,7 +67,7 @@ Feature docs (details beyond this table): [CONTAINER-TEMPLATES.md](../build-201/
 | GET | `/v1/fleet-apps/{id}/about` | bearer | Installed app metadata for remote peer proxy and About UI. |
 | GET | `/v1/admin/app-deployments/{sid}` | bearer | App deployment / rollout status for service id. |
 | GET | `/v1/admin/forge-llm-rollout-log` | bearer | Tail Forge LLM control-plane rollout log. |
-| POST | `/v1/admin/forge-llm-control-plane-rollout` | bearer | Queue Forge LLM gateway control-plane rollout. |
+| POST | `/v1/admin/forge-llm-control-plane-rollout` | bearer | Queue Forge LLM gateway control-plane rollout. Body: `sync` (bool), `runner_apply` (`observe` default / `apply` = write Ollama drop-in + pull missing `models` from `runner.granite.yaml`). |
 | POST | `/v1/admin/forge-market-studio-rollout` | bearer | Queue Forge Market Studio rollout (schema migrate gate, backup verify). |
 | GET | `/v1/admin/forge-market-studio-rollout-log` | bearer | Tail Market Studio rollout log. |
 | GET | `/v1/admin/forge-market-studio-rollout-contract` | bearer | Rollout contract JSON (steps, env, paths). |

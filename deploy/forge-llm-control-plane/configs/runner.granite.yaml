@@ -1,13 +1,24 @@
 # Granite production runner — host Ollama on loopback; Open WebUI bypass unchanged.
+#
+# Catalog alignment (configs/catalog/forge_llm_README.md, T2000 4 GB):
+#   "use Qwen3.5-2B Q4 or specialized NLP candidates first; keep 5–10 clients queued,
+#    start with 2 measured *active* requests."
+# Pins with a catalog_alias are routed by the catalog task matrix at the 4 GB tier.
+# Pins without an alias (8B/14B/30B) are operator legacy tags: they exceed the 4 GB
+# nominal tier estimate and are served only via mode_models / explicit model requests
+# until a measured profile is recorded (see RUNNER.md "Artifact pins").
 kind: ollama
 bind: 127.0.0.1:11434
 runtime: {}
 exclusive_slot: false
 classifier_model: ibm/granite4:tiny-h
 free_vram_gb: 4
+headroom_ratio: 0.15
 catalog_path: catalog/forge_llm_catalog_2026-11-03.json
 coalesce_sec: 3
 starve_sec: 120
+max_active_requests: 2
+max_queue_depth: 10
 external:
   openwebui_base_url: http://127.0.0.1:19808
   chatgpt_model: granite-chatgpt-primary
@@ -17,19 +28,42 @@ quarantined_models:
   - ctx-unlim-qwen25-coder-7b:latest
   - qwen2.5-coder:7b
 artifact_pins:
+  # --- 4 GB tier catalog candidates (Q4 unless noted) ---
+  - runner_model_id: qwen3.5:2b
+    catalog_alias: Q2            # Qwen/Qwen3.5-2B — chat, json, intent, summary, translation, reason_simple, agent
+    precision: Q4
+    enabled: true
+  - runner_model_id: qwen2.5-coder:3b
+    catalog_alias: C3            # Qwen/Qwen2.5-Coder-3B-Instruct — code_complete, code_generate, testgen
+    precision: Q4
+    enabled: true
+  - runner_model_id: qwen3-embedding:0.6b
+    catalog_alias: E06           # Qwen/Qwen3-Embedding-0.6B — embedding, code_search
+    precision: FP16
+    enabled: true
+  # --- operator legacy tags (above 4 GB nominal tier; not catalog-certified) ---
   - runner_model_id: ctx-unlim-qwen3-8b:latest
+    tier_note: exceeds_4gb_nominal_tier_estimate_unmeasured
     enabled: true
   - runner_model_id: qwen3:30b-a3b
+    tier_note: moe_total_params_govern_memory_exceeds_4gb_unmeasured
     enabled: true
   - runner_model_id: ctx-unlim-qwen3-14b:latest
+    tier_note: exceeds_4gb_nominal_tier_estimate_unmeasured
     enabled: true
   - runner_model_id: ctx-unlim-granite41-8b:latest
+    tier_note: exceeds_4gb_nominal_tier_estimate_unmeasured
     enabled: true
   - runner_model_id: nomic-embed-text:latest
+    tier_note: legacy_embedding_not_in_catalog
     enabled: true
   - runner_model_id: ibm/granite4:tiny-h
+    tier_note: classifier_only_not_in_catalog
     enabled: true
 models:
+  - qwen3.5:2b
+  - qwen2.5-coder:3b
+  - qwen3-embedding:0.6b
   - qwen3:30b-a3b
   - ctx-unlim-qwen3-8b:latest
   - ctx-unlim-qwen3-14b:latest

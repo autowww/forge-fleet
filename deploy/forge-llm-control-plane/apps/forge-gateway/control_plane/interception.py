@@ -19,9 +19,11 @@ from control_plane.queue_manager import inference_queue
 from control_plane.route_select import header_task_from_request, plan_route
 from control_plane.slot_manager import active_snapshot, ensure_model
 from control_plane.store import insert_request
-from control_plane.task_resolve import resolve_task
+from control_plane.task_resolve import deterministic_first_recommended, resolve_task
+from control_plane.catalog_select import catalog_evidence
 from runners.base import NativeApiUnsupported
 from runners.factory import get_adapter
+from runners.loader import config_hash
 
 
 def _forge_route_headers(
@@ -32,8 +34,10 @@ def _forge_route_headers(
     mode: ModeId,
     mode_source: str,
     resident: str | None,
+    catalog_alias: str | None = None,
+    fit: str | None = None,
 ) -> dict[str, str]:
-    return {
+    out = {
         "X-Forge-Llm-Mode": mode,
         "X-Forge-Task": task_id,
         "X-Forge-Lane": lane,
@@ -41,6 +45,27 @@ def _forge_route_headers(
         "X-Forge-Queue-Model": model,
         "X-Forge-Mode-Source": mode_source,
         "X-Forge-Resident-Model": resident or "",
+        "X-Forge-Catalog-Alias": catalog_alias or "",
+        "X-Forge-Catalog-Fit": fit or "",
+    }
+    if deterministic_first_recommended(task_id):
+        out["X-Forge-Deterministic-First"] = "recommended"
+    return out
+
+
+def _route_evidence(route: Any, task: Any) -> dict[str, Any]:
+    """Catalog README step 8: log chosen artifact, catalog alias/fit, catalog revision, config hash."""
+    ev = catalog_evidence()
+    return {
+        "mode_source": route.mode_source,
+        "task": task.task_id,
+        "lane": route.lane,
+        "catalog_alias": route.catalog_alias,
+        "fit": route.fit,
+        "catalog_schema": ev.get("catalog_schema"),
+        "catalog_date": ev.get("catalog_date"),
+        "runner_config_hash": config_hash(),
+        "deterministic_first": deterministic_first_recommended(task.task_id),
     }
 
 
@@ -139,8 +164,7 @@ async def run_openai_inference(
                 "meta": {
                     "bounced": True,
                     "queue_position": q.get("queue_position"),
-                    "task": task.task_id,
-                    "lane": route.lane,
+                    **_route_evidence(route, task),
                 },
             }
         )
@@ -167,6 +191,8 @@ async def run_openai_inference(
                     mode=res_mode,
                     mode_source=route.mode_source,
                     resident=resident,
+                    catalog_alias=route.catalog_alias,
+                    fit=route.fit,
                 ),
             },
         )
@@ -225,9 +251,7 @@ async def run_openai_inference(
                 "trace_id": ctx.trace_id,
                 "prompt_fingerprint": fingerprint_body(body),
                 "meta": {
-                    "mode_source": route.mode_source,
-                    "task": task.task_id,
-                    "lane": route.lane,
+                    **_route_evidence(route, task),
                     "path": path,
                 },
             }
@@ -243,6 +267,8 @@ async def run_openai_inference(
                 mode=res_mode,
                 mode_source=route.mode_source,
                 resident=active_snapshot().get("active_model"),
+                catalog_alias=route.catalog_alias,
+                fit=route.fit,
             ),
         )
     finally:
@@ -347,7 +373,7 @@ async def run_native_inference(
                 "http_status": status,
                 "ok": status < 400,
                 "trace_id": ctx.trace_id,
-                "meta": {"mode_source": route.mode_source, "task": task.task_id, "path": path},
+                "meta": {**_route_evidence(route, task), "path": path},
             }
         )
         return Response(

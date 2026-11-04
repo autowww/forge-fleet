@@ -28,9 +28,19 @@ def _merge_env_file(env: dict[str, str], path: Path) -> None:
             env[key] = val
 
 
-def _rollout_env() -> dict[str, str]:
+RUNNER_APPLY_MODES = frozenset({"observe", "apply"})
+
+
+def _rollout_env(*, runner_apply: str | None = None) -> dict[str, str]:
     env = os.environ.copy()
     _merge_env_file(env, _fleet_user_env_file())
+    if runner_apply:
+        mode = str(runner_apply).strip().lower()
+        if mode not in RUNNER_APPLY_MODES:
+            raise ValueError("invalid_runner_apply")
+        # ``apply`` lets scripts/apply-runner-host.sh write the Ollama drop-in and pull
+        # missing ``models`` from runner.granite.yaml (catalog pins) during this rollout.
+        env["FORGE_LLM_RUNNER_APPLY"] = mode
     return env
 
 
@@ -62,9 +72,9 @@ def _rollout_script(repo_root: Path) -> Path:
     return p
 
 
-def schedule_rollout(repo_root: Path) -> dict[str, Any]:
+def schedule_rollout(repo_root: Path, *, runner_apply: str | None = None) -> dict[str, Any]:
     script = _rollout_script(repo_root)
-    env = _rollout_env()
+    env = _rollout_env(runner_apply=runner_apply)
     log_path = rollout_log_path()
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -94,13 +104,19 @@ def schedule_rollout(repo_root: Path) -> dict[str, Any]:
         "scheduled": True,
         "script": str(script),
         "log_path": str(log_path),
-        "note": "Rollout runs in background; tail log_path on the host for progress.",
+        "runner_apply": env.get("FORGE_LLM_RUNNER_APPLY", "observe"),
+        "note": "Rollout runs in background; poll GET /v1/admin/forge-llm-rollout-log for progress.",
     }
 
 
-def run_rollout_sync(repo_root: Path, *, timeout_sec: int = 1800) -> dict[str, Any]:
+def run_rollout_sync(
+    repo_root: Path,
+    *,
+    timeout_sec: int = 1800,
+    runner_apply: str | None = None,
+) -> dict[str, Any]:
     script = _rollout_script(repo_root)
-    env = _rollout_env()
+    env = _rollout_env(runner_apply=runner_apply)
     try:
         r = subprocess.run(
             ["bash", str(script)],

@@ -1,7 +1,26 @@
 from pathlib import Path
 
+import subprocess
 
-def test_open_webui_compose_files_exist() -> None:
+
+def test_open_webui_host_guard_script_exists() -> None:
+    path = Path(__file__).resolve().parents[1] / "deploy" / "open-webui" / "scripts" / "open-webui-host-guard.sh"
+    assert path.is_file()
+
+
+def test_open_webui_host_guard_rejects_without_granite_role() -> None:
+    guard = Path(__file__).resolve().parents[1] / "deploy" / "open-webui" / "scripts" / "open-webui-host-guard.sh"
+    env = {"FORGE_HOST_ROLE": "", "FORGE_OPEN_WEBUI_FORCE_LOCAL": "", "HOME": "/tmp"}
+    proc = subprocess.run(["bash", str(guard)], env=env, capture_output=True, text=True, check=False)
+    assert proc.returncode == 1
+    assert "Granite-only" in proc.stderr
+
+
+def test_open_webui_host_guard_allows_granite_role() -> None:
+    guard = Path(__file__).resolve().parents[1] / "deploy" / "open-webui" / "scripts" / "open-webui-host-guard.sh"
+    env = {"FORGE_HOST_ROLE": "granite", "HOME": "/tmp"}
+    proc = subprocess.run(["bash", str(guard)], env=env, capture_output=True, text=True, check=False)
+    assert proc.returncode == 0
     root = Path(__file__).resolve().parents[1] / "deploy" / "open-webui"
     assert (root / "compose.yaml").is_file()
     assert (root / "compose.granite.yaml").is_file()

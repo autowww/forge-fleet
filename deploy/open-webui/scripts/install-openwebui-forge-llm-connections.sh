@@ -4,6 +4,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=open-webui-host-guard.sh
+source "$SCRIPT_DIR/open-webui-host-guard.sh"
+open_webui_require_granite_host
+
 DEPLOY="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$DEPLOY/../.." && pwd)"
 BEARER_DIR="${FORGE_OPEN_WEBUI_BEARER_DIR:-${HOME}/.config/forge-open-webui}"
@@ -62,7 +66,7 @@ upsert_env() {
 upsert_env "$WEBUI_ENV" "OPENAI_API_BASE_URLS" "$base_urls"
 upsert_env "$WEBUI_ENV" "OPENAI_API_KEYS" "$joined_keys"
 upsert_env "$WEBUI_ENV" "ENABLE_OPENAI_API" "true"
-upsert_env "$WEBUI_ENV" "ENABLE_OLLAMA_API" "true"
+upsert_env "$WEBUI_ENV" "ENABLE_OLLAMA_API" "${OPENWEBUI_ENABLE_OLLAMA:-false}"
 upsert_env "$WEBUI_ENV" "ENABLE_API_KEYS" "true"
 upsert_env "$WEBUI_ENV" "ENABLE_API_KEYS_ENDPOINT_RESTRICTIONS" "true"
 upsert_env "$WEBUI_ENV" "API_KEYS_ALLOWED_ENDPOINTS" "/api/chat/completions,/api/models"
@@ -72,7 +76,7 @@ touch "$CP_ENV"
 upsert_env "$CP_ENV" "FORGE_API_TOKEN" "$FORGE_LLM_GATEWAY_BEARER"
 upsert_env "$CP_ENV" "GATEWAY_AUTH_REQUIRED" "true"
 upsert_env "$CP_ENV" "GATEWAY_PORT" "$GATEWAY_PORT"
-upsert_env "$CP_ENV" "FORGE_LLM_EXPOSE_PINNED_MODELS_ONLY" "${FORGE_LLM_EXPOSE_PINNED_MODELS_ONLY:-false}"
+upsert_env "$CP_ENV" "FORGE_LLM_EXPOSE_PINNED_MODELS_ONLY" "${FORGE_LLM_EXPOSE_PINNED_MODELS_ONLY:-true}"
 
 chmod +x "$SCRIPT_DIR/sync-openwebui-connections-db.sh"
 OPENWEBUI_FORGE_GATEWAY_URL="${OPENWEBUI_FORGE_GATEWAY_URL:-http://forge-gateway:8080/v1}" \

@@ -51,6 +51,27 @@ UNSUPPORTED_TASK_IDS = frozenset(
     }
 )
 
+# Catalog README routing step 1: tasks whose acceptance is exact should run deterministic
+# code / specialized NLP before a general LLM. The gateway cannot do that on the caller's
+# behalf, so it advertises the recommendation via ``X-Forge-Deterministic-First``.
+DETERMINISTIC_FIRST_TASKS = frozenset(
+    {
+        "intent",
+        "classification",
+        "ner",
+        "finance_facts",
+        "json",
+        "entity_link",
+        "guard",
+        "rerank",
+    }
+)
+
+
+def deterministic_first_recommended(task_id: str) -> bool:
+    return task_id in DETERMINISTIC_FIRST_TASKS
+
+
 KNOWN_TASK_IDS: frozenset[str] | None = None
 
 

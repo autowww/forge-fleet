@@ -23,6 +23,7 @@ class ForgeContext:
     webhook_secret: str | None
     trace_id: str | None
     requested_model: str | None = None
+    language: str | None = None
 
     @classmethod
     def from_headers(cls, headers: dict[str, str], body_mode: str | None = None) -> ForgeContext:
@@ -37,6 +38,7 @@ class ForgeContext:
             wait = wait_raw  # type: ignore[assignment]
         async_job = (h.get("x-forge-async") or "").strip() in ("1", "true", "yes")
         req_model = (h.get("x-forge-model") or "").strip() or None
+        language = (h.get("x-forge-language") or "").strip().lower()[:16] or None
         return cls(
             consumer=consumer,
             consumer_class=consumer_class,
@@ -47,4 +49,5 @@ class ForgeContext:
             webhook_secret=(h.get("x-forge-webhook-secret") or "").strip() or None,
             trace_id=(h.get("x-forge-trace-id") or "").strip()[:64] or None,
             requested_model=req_model,
+            language=language,
         )

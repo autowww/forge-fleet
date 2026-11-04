@@ -9,7 +9,7 @@ from typing import Any
 
 import yaml
 
-from runners.base import ArtifactPin, ExternalRunnerConfig, RunnerConfig
+from runners.base import ArtifactPin, ExternalRunnerConfig, MeasuredProfile, RunnerConfig
 
 ALLOWED_RUNTIME_KEYS = frozenset(
     {
@@ -59,6 +59,47 @@ def _default_config() -> RunnerConfig:
     )
 
 
+def _opt_int(v: Any) -> int | None:
+    if v is None or v == "":
+        return None
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _opt_float(v: Any) -> float | None:
+    if v is None or v == "":
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _opt_str(v: Any) -> str | None:
+    s = str(v).strip() if v is not None else ""
+    return s or None
+
+
+def _parse_measured(raw: Any) -> MeasuredProfile | None:
+    if not isinstance(raw, dict) or not raw:
+        return None
+    return MeasuredProfile(
+        peak_vram_mib=_opt_int(raw.get("peak_vram_mib")),
+        context_length=_opt_int(raw.get("context_length")),
+        active_requests=_opt_int(raw.get("active_requests")),
+        p95_latency_ms=_opt_int(raw.get("p95_latency_ms")),
+        decode_tokens_per_second=_opt_float(raw.get("decode_tokens_per_second")),
+        task_quality_score=_opt_float(raw.get("task_quality_score")),
+        runtime_version=_opt_str(raw.get("runtime_version")),
+        gpu_uuid=_opt_str(raw.get("gpu_uuid")),
+    )
+
+
+_RUNTIME_PROBE_VALUES = frozenset({"unprobed", "passed", "failed"})
+
+
 def _parse_artifact_pins(raw: Any) -> tuple[ArtifactPin, ...]:
     if not isinstance(raw, list):
         return ()
@@ -69,10 +110,23 @@ def _parse_artifact_pins(raw: Any) -> tuple[ArtifactPin, ...]:
         mid = str(item.get("runner_model_id") or item.get("model") or "").strip()
         if not mid:
             continue
-        alias = item.get("catalog_alias")
-        alias_s = str(alias).strip() if alias else None
-        enabled = bool(item.get("enabled", True))
-        out.append(ArtifactPin(runner_model_id=mid, catalog_alias=alias_s or None, enabled=enabled))
+        probe = str(item.get("runtime_probe") or "unprobed").strip().lower()
+        if probe not in _RUNTIME_PROBE_VALUES:
+            raise ValueError(f"artifact pin {mid!r}: runtime_probe must be one of {sorted(_RUNTIME_PROBE_VALUES)}")
+        out.append(
+            ArtifactPin(
+                runner_model_id=mid,
+                catalog_alias=_opt_str(item.get("catalog_alias")),
+                enabled=bool(item.get("enabled", True)),
+                model_revision=_opt_str(item.get("model_revision")),
+                weight_file_sha256=_opt_str(item.get("weight_file_sha256")),
+                precision=_opt_str(item.get("precision")),
+                license_approval=bool(item.get("license_approval", False)),
+                runtime_probe=probe,
+                tier_note=_opt_str(item.get("tier_note")),
+                measured=_parse_measured(item.get("measured")),
+            )
+        )
     return tuple(out)
 
 
@@ -184,6 +238,13 @@ def _parse_raw(data: dict[str, Any], source: str | None) -> RunnerConfig:
     pins = _parse_artifact_pins(data.get("artifact_pins"))
     external = _parse_external(data.get("external"))
     catalog_path = _resolve_catalog_path(data, source)
+    max_active = max(1, int(data.get("max_active_requests") or 1))
+    max_queue = _opt_int(data.get("max_queue_depth"))
+    if max_queue is not None and max_queue < 1:
+        raise ValueError("max_queue_depth must be >= 1 when set")
+    headroom = float(data.get("headroom_ratio") if data.get("headroom_ratio") is not None else 0.15)
+    if not 0.0 <= headroom < 1.0:
+        raise ValueError("headroom_ratio must be in [0, 1)")
     return RunnerConfig(
         kind=kind,
         bind=bind,
@@ -200,6 +261,9 @@ def _parse_raw(data: dict[str, Any], source: str | None) -> RunnerConfig:
         starve_sec=starve,
         catalog_path=catalog_path,
         external=external,
+        max_active_requests=max_active,
+        max_queue_depth=max_queue,
+        headroom_ratio=headroom,
     )
 
 
@@ -239,6 +303,13 @@ def config_hash(cfg: RunnerConfig | None = None) -> str:
             "free_vram_gb": c.free_vram_gb,
             "coalesce_sec": c.coalesce_sec,
             "starve_sec": c.starve_sec,
+            "max_active_requests": c.max_active_requests,
+            "max_queue_depth": c.max_queue_depth,
+            "headroom_ratio": c.headroom_ratio,
+            "artifact_pins": [
+                [p.runner_model_id, p.catalog_alias, p.enabled, p.model_revision, p.weight_file_sha256]
+                for p in c.artifact_pins
+            ],
         },
         sort_keys=True,
     )

@@ -5,6 +5,7 @@ Operator runbook for Fleet-managed Open WebUI on Granite with signed-in **web** 
 ## Boundary
 
 - Deploy via Fleet HTTP and [deploy/open-webui](../../deploy/open-webui/README.md). No SSH `docker compose`.
+- **Not on the operator ASUS laptop:** do not run Open WebUI compose locally; use **`deploy/open-webui/scripts/stop-open-webui-local.sh`** if containers appear. Production UI is **`https://webui.forgedc.net`** only.
 - Laptop `~/.config/microsoft-edge` is never copied. Market harvest profile stays on CDP `:9222`.
 - UI uses **hostname B**, not `/v1/app-gateways/`. On `forgedc.net`, public URL is **`https://webui.forgedc.net`** via the **Granite Cloudflare tunnel** to loopback `:19808` (same connector as `granite.forgedc.net`). Caddy `OPEN_WEBUI_SITE_ADDRESS` is optional for direct host TLS; tunnel is the normal laptop path.
 - Bootstrap DNS + ingress: `deploy/open-webui/scripts/apply-cf-webui-tunnel.sh` (uses `CF_TUNNEL_ID=07ff2cbc-4741-4737-a0e5-10a60a884efd` on Granite). Set `WEBUI_URL=https://webui.forgedc.net` in deploy `.env`.

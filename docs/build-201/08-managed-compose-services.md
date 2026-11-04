@@ -84,7 +84,7 @@ Rollout calls ``apply-runner-host.sh`` before starting the gateway:
 | ``observe`` (default) | Log ``ollama.service`` + ``ollama list``; log would-be drop-in / pulls |
 | ``apply`` | Write systemd user drop-in for keys in ``runtime:``; ``ollama pull`` missing catalog models |
 
-Gateway mounts ``configs/runner.granite.yaml`` as ``/config/runner.yaml`` and exposes ``GET /v1/llm/runner``. **Open WebUI** still uses the host **11436 → 11434** forwarder; Forge apps use Caddy → gateway **:18080**.
+Gateway mounts ``configs/runner.granite.yaml`` as ``/config/runner.yaml`` and exposes ``GET /v1/llm/runner`` and ``GET /v1/llm/catalog``. Host Ollama binds loopback only, so the gateway container reaches it through the host **11436 → 11434** forwarder (``OLLAMA_HOST_URL=http://host.docker.internal:11436``, the rollout migrates a stale ``:11434`` ``.env``); Forge apps use Caddy → gateway **:18080**. Open WebUI's chat models come from the gateway's OpenAI connection, not direct Ollama.
 
 ## LLM request queue (bounce vs hold)
 

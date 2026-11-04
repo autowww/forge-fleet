@@ -9,6 +9,8 @@ FORGE_LLM_ROOT="${FORGE_LLM_ROOT:-$FLEET_ROOT/deploy/forge-llm-control-plane}"
 FORGE_LLM_GIT_URL="${FORGE_LLM_GIT_URL:-https://github.com/autowww/forge-llm.git}"
 FORGE_LLM_GIT_BRANCH="${FORGE_LLM_GIT_BRANCH:-main}"
 GATEWAY_HOST_PORT="${FORGE_GATEWAY_HOST_PORT:-18080}"
+# Host Ollama is loopback-only; containers must use the 11436 -> 11434 forwarder.
+OLLAMA_FORWARDER_URL="${OLLAMA_FORWARDER_URL:-http://host.docker.internal:11436}"
 CFG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/forge-fleet"
 ENV_FILE="$CFG_DIR/forge-fleet.env"
 
@@ -67,8 +69,16 @@ ensure_env_file() {
 HOST_BIND_IP=127.0.0.1
 GATEWAY_PORT=${GATEWAY_HOST_PORT}
 GATEWAY_AUTH_REQUIRED=true
-OLLAMA_HOST_URL=http://host.docker.internal:11434
+OLLAMA_HOST_URL=${OLLAMA_FORWARDER_URL}
 EOF
+  fi
+  # Migrate stale .env that pointed at loopback-only :11434 (unreachable from containers).
+  if grep -qE '^OLLAMA_HOST_URL=http://host\.docker\.internal:11434/?$' .env; then
+    sed -i "s|^OLLAMA_HOST_URL=.*|OLLAMA_HOST_URL=${OLLAMA_FORWARDER_URL}|" .env
+    log "migrated OLLAMA_HOST_URL -> ${OLLAMA_FORWARDER_URL} (host Ollama is loopback-only)"
+  fi
+  if ! grep -q '^OLLAMA_HOST_URL=' .env; then
+    echo "OLLAMA_HOST_URL=${OLLAMA_FORWARDER_URL}" >>.env
   fi
   if ! grep -q '^GATEWAY_PORT=' .env; then
     echo "GATEWAY_PORT=$GATEWAY_HOST_PORT" >>.env
@@ -110,7 +120,7 @@ apply_runner_host() {
 
 deploy_gateway_stack() {
   cd "$FORGE_LLM_ROOT"
-  export OLLAMA_HOST_URL="${OLLAMA_HOST_URL:-http://host.docker.internal:11434}"
+  export OLLAMA_HOST_URL="${OLLAMA_HOST_URL:-$OLLAMA_FORWARDER_URL}"
   log "building forge-gateway"
   compose -f compose.yaml build forge-gateway
   log "starting forge-gateway"

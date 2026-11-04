@@ -15,7 +15,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 
 from control_plane.interception import adapter_openai, fingerprint_body, inject_think_false, run_openai_inference
-from control_plane.classifier import resolve_mode
+from control_plane.catalog_select import enabled_pins, pinned_openai_model_objects
 from control_plane.config import (
     DEFAULT_HOLD_TIMEOUT_SEC,
     QUARANTINED_MODELS,
@@ -23,6 +23,7 @@ from control_plane.config import (
 from control_plane.context import ForgeContext
 from control_plane.external_lane import openai_chat_via_openwebui
 from control_plane.finops import suggestions
+from control_plane.inventory import build_catalog_inventory
 from control_plane.modes import (
     DEFAULT_WAIT_BY_MODE,
     ModeId,
@@ -162,6 +163,12 @@ async def llm_runner() -> dict[str, Any]:
     }
 
 
+@router.get("/v1/llm/catalog")
+async def llm_catalog() -> dict[str, Any]:
+    """Pins, VRAM tier, catalog task fits, and runner install state for Fleet operators."""
+    return await build_catalog_inventory()
+
+
 @router.get("/v1/llm/stats")
 async def llm_stats(hours: float = 1.0) -> dict[str, Any]:
     since = time.time() - hours * 3600
@@ -216,21 +223,13 @@ async def openai_models() -> dict[str, Any]:
         "yes",
     ):
         allowed: set[str] = set()
-        try:
-            from control_plane.catalog_select import enabled_pins
-
-            allowed = {p[0] for p in enabled_pins()}
-        except ImportError:
-            from runners.loader import load_runner_config
-
-            cfg = load_runner_config()
-            pins = getattr(cfg, "artifact_pins", ()) or ()
-            allowed = set(cfg.models) | {
-                p.runner_model_id for p in pins if getattr(p, "enabled", True)
-            }
+        allowed = {p[0] for p in enabled_pins()}
         models = data.get("data") or []
         if allowed and isinstance(models, list):
-            data["data"] = [m for m in models if isinstance(m, dict) and m.get("id") in allowed]
+            filtered = [m for m in models if isinstance(m, dict) and m.get("id") in allowed]
+            data["data"] = pinned_openai_model_objects(filtered, include_synthetic=True)
+        elif allowed:
+            data["data"] = pinned_openai_model_objects([], include_synthetic=True)
     return data
 
 

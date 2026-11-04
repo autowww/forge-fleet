@@ -17,7 +17,9 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
-      OLLAMA_INTERNAL_URL: ${OLLAMA_HOST_URL:-http://host.docker.internal:11434}
+      # Host Ollama binds loopback only; containers reach it through the Granite
+      # 11436 -> 11434 forwarder (the same path Open WebUI uses). Override with OLLAMA_HOST_URL.
+      OLLAMA_INTERNAL_URL: ${OLLAMA_HOST_URL:-http://host.docker.internal:11436}
       FORGE_LLM_RUNNER_CONFIG: /config/runner.yaml
       GATEWAY_AUTH_REQUIRED: ${GATEWAY_AUTH_REQUIRED:-true}
       FORGE_API_TOKEN: ${FORGE_API_TOKEN:-}

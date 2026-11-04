@@ -4,6 +4,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+GUARD="$REPO_ROOT/deploy/open-webui/scripts/open-webui-host-guard.sh"
+# shellcheck source=/dev/null
+source "$GUARD"
+open_webui_require_granite_host
+
 DEPLOY="${OPEN_WEBUI_DEPLOY_ROOT:-$REPO_ROOT/deploy/open-webui}"
 COMPOSE_FILES=(-f "$DEPLOY/compose.yaml" -f "$DEPLOY/compose.granite.yaml")
 

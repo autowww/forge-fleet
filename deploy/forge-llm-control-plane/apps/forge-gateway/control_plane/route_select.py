@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -13,6 +14,15 @@ from control_plane.catalog_select import (
     resident_adequate_pin,
     resolve_runner_model_for_task,
 )
+
+
+def pinned_models_only() -> bool:
+    """Production posture (catalog README step 3): only pinned artifacts may be served."""
+    return os.environ.get("FORGE_LLM_EXPOSE_PINNED_MODELS_ONLY", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
 from control_plane.context import ConsumerClass, ForgeContext
 from control_plane.external_lane import external_model_for_task, is_external_model
 from control_plane.residency import resident_models
@@ -38,7 +48,11 @@ def _explicit_model(body: dict[str, Any], ctx: ForgeContext) -> str | None:
         return h
     raw = body.get("model")
     if isinstance(raw, str) and raw.strip():
-        return raw.strip()
+        s = raw.strip()
+        # Open WebUI may forward its connection prefix (``forge-llm.<id>``); strip it.
+        if s.startswith("forge-llm."):
+            s = s[len("forge-llm.") :]
+        return s
     return None
 
 
@@ -61,16 +75,20 @@ async def plan_route(
             return RoutePlan(task, "external", explicit, None, "explicit", task.source)
         if explicit in pin_ids or explicit in cfg.models:
             return RoutePlan(task, "local", explicit, None, "explicit", task.source)
+        if pinned_models_only():
+            raise ValueError(f"model_not_pinned: {explicit!r} is not an enabled artifact pin on this host")
+        # Dev/lab posture: honor the caller's model instead of silently substituting.
+        return RoutePlan(task, "local", explicit, None, "explicit_unpinned", task.source)
 
+    lang = ctx.language
     residents = await resident_models()
-    r_mid, r_alias, r_fit = resident_adequate_pin(task.task_id, residents)
+    r_mid, r_alias, r_fit = resident_adequate_pin(task.task_id, residents, language=lang)
     if r_mid and (r_fit in ADEQUATE_FITS or r_fit == "legacy_resident"):
         return RoutePlan(task, "local", r_mid, r_alias, r_fit, task.source)
 
-    best_mid, best_alias, fit = resolve_runner_model_for_task(task.task_id)
-    adequate_local = fit in ADEQUATE_FITS or fit == "legacy"
+    best_mid, best_alias, fit = resolve_runner_model_for_task(task.task_id, language=lang)
 
-    candidates = catalog_candidates_for_task(task.task_id)
+    candidates = catalog_candidates_for_task(task.task_id, language=lang)
     has_adequate_pin = any(
         str(c.get("fit") or "") in ADEQUATE_FITS and pin_for_alias(str(c.get("alias") or ""))
         for c in candidates

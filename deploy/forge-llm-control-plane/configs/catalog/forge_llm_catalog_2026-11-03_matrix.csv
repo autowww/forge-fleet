@@ -1,0 +1,40 @@
+group,task_id,purpose,2GB,4GB,8GB,16GB,24GB,32GB,48GB,64GB,96GB
+Deterministic & NLP,intent,Intent / request routing,Q08 / NERM !,Q2 / NERL,Q2 / Q4,Q2 / Q4,Q2 / Q4,Q2 / Q4,Q2 / Q4,Q2 / Q4,Q2 / Q4
+Deterministic & NLP,classification,Text and document classification,Q08,Q2,Q4 / Q2,Q4 / Q9,Q4 / Q9,Q4 / Q9,Q4 / Q9,Q4 / Q9,Q4 / Q9
+Deterministic & NLP,ner,Named entity recognition / span extraction,NERS / NERM !,NERL / NERM,NERL / Q4,NERL / Q9,NERL / Q27,NERL / Q36,NERL / G31,NERL / NEXT80,NERL / Q122
+Deterministic & NLP,finance_facts,Financial facts / SEC extraction,NERM / Q08,NERL / Q2,NERL / Q9,Q9 / G12,Q38 / G31,Q36 / G31,Q36 / G31,NEXT80 / Q38,Q122 / OSS120
+Deterministic & NLP,json,Schema-bound JSON / structured extraction,Q08,Q2,Q4,Q9 / G12,Q38 / G31,Q36 / G31,G31 / Q36,NEXT80 / Q38,OSS120 / Q122
+Deterministic & NLP,entity_link,Entity resolution / relationship extraction,NERM / Q08,NERL / Q2,Q4 / Q2,Q9 / G12,Q38 / G31,Q36 / G31,G31 / Q36,NEXT80 / Q38,Q122 / OSS120
+Deterministic & NLP,guard,Prompt safety / content policy classification,GU06,GU06,GU06,GU4,GU8,GU8,GU8,GU8,GU8
+Knowledge / retrieval,embedding,Text embeddings / semantic retrieval,EG300 / E06,E06 / BM3,E06 / BM3,E4 / BM3,E8 / E4,E8 / E4,E8 / E4,E8 / E4,E8 / E4
+Knowledge / retrieval,hybrid,Hybrid lexical + semantic search,BM3,BM3 / E06,BM3 / E06,BM3 / E4,BM3 / E8,BM3 / E8,BM3 / E8,BM3 / E8,BM3 / E8
+Knowledge / retrieval,rerank,Search reranking / relevance scoring,R06,R06,R06,R4,R8,R8,R8,R8,R8
+Knowledge / retrieval,code_search,Repository / code embeddings,BM3 / E06,BM3 / E06,BM3 / E06,E4 / BM3,E8 / E4,E8 / E4,E8 / E4,E8 / E4,E8 / E4
+Knowledge / retrieval,multimodal_search,Image and video semantic search,—,—,VE2 ! / VR2 !,VE2 / VR2,VE8 / VR8,VE8 / VR8,VE8 / VR8,VE8 / VR8,VE8 / VR8
+Text / reasoning,chat,Conversational instructions / writing,Q08,Q2 / MIN3,Q4 / GN4,Q9 / G12,Q38 / G31,G31 / Q36,Q36 / G31,NEXT80 / L70,OSS120 / Q122
+Text / reasoning,summary,Short/medium document summaries,Q08,Q2,Q4,G12 / Q9,Q38 / G31,Q36 / G31,Q36 / G31,NEXT80 / L70,OSS120 / Q122
+Text / reasoning,long_docs,Long-form evidence-grounded synthesis,—,Q2 ~,Q4 ~,G12 / Q9,Q38 / G31,Q36 / G31,Q36 / G31,NEXT80 / L70,OSS120 / Q122
+Text / reasoning,translation,Multilingual translation / localization,Q08 ~,Q2,Q4 / GN4,G12 / Q9,Q38 / G31,G31 / Q36,G31 / Q36,NEXT80 / Q38,Q122 / OSS120
+Text / reasoning,reason_simple,Simple planning / semantic reasoning,Q08 ~,Q2,Q4 / GN4,G12 / OSS20 !,Q38 / G31,G31 / Q36,Q36 / G31,NEXT80 / L70,OSS120 / Q122
+Text / reasoning,reason_deep,Deep multi-hop reasoning / critique,—,Q2 ~,Q9 ~,OSS20 ! / G12,G31 / Q38,G31 / Q36,G31 / Q36,NEXT80 / L70,OSS120 / Q122
+Text / reasoning,agent,Tool selection / multi-step agents,Q08 ~,Q2 / MIN3,Q4 / GN4,OSS20 ! / G12,C30 ! / Q38,Q36 / C30,Q36 / G31,CN80 / NEXT80,OSS120 / Q122
+Text / reasoning,planner,Workflow DAG / orchestration planning,—,Q2 ~,Q4 ~,OSS20 ! / G12,Q38 / G31,Q36 / G31,G31 / Q36,NEXT80 / CN80,OSS120 / Q122
+Coding,code_complete,Code completion / small patches,C05,C3 / C15,C7 / Q4,C14 / Q9,C30 ! / C32 !,C30 / Q36,CN80 ! / C30,CN80 / Q36,CN80 / OSS120
+Coding,code_generate,Functions / modules / test generation,C05 ~,C3,C7,C14 / G12,C30 ! / C32 !,C30 / Q36,CN80 ! / Q36,CN80 / Q36,CN80 / OSS120
+Coding,code_repo,Repository-scale coding / debugging,—,C3 ~,C7 ~,C14 / Q9,C30 ! / C32 !,Q36 / C30,CN80 ! / Q36,CN80 / Q36,CN80 / OSS120
+Coding,code_review,Security review / defect detection,—,C3 ~,C7,C14 / G12,C30 ! / Q38,Q36 / C30,CN80 ! / Q36,CN80 / Q36,OSS120 / CN80
+Coding,testgen,Test case generation / formal checks,C05 ~,C3,C7,C14 / G12,C30 ! / Q38,Q36 / G31,CN80 ! / G31,CN80 / Q36,OSS120 / CN80
+Vision / documents,ocr,Text OCR / document parsing,—,FLO / VL2 !,VL4 / FLO,VL8 / G12,VL30 ! / Q38,VL32 / Q38,VL32 / Q38,Q38 / G31,Q38 / G31
+Vision / documents,charts,"Charts, tables and financial statement images",—,VL2 !,VL4,VL8 / G12,VL30 ! / Q38,VL32 / Q38,VL32 / Q38,Q38 / G31,Q38 / G31
+Vision / documents,screenshot,Screenshot / web UI understanding,—,VL2 !,VL4 / GN4,VL8 / G12,VL30 ! / Q38,VL32 / Q38,VL32 / Q38,Q38 / G31,Q38 / G31
+Vision / documents,video_understand,Video frames / scene description,—,VL2 !,VL4,VL8 / G12,Q38 / VL30 !,Q38 / VL32,Q38 / VL32,Q38 / VL32,Q38 / VL32
+Audio,asr,Audio transcription multilingual,WS / WT,PAR / WLT,WL / AS17,WL / AS17,WL / AS17,WL / AS17,WL / AS17,WL / AS17,WL / AS17
+Audio,align,Forced alignment / word timestamps,—,ALIGN,ALIGN,ALIGN,ALIGN,ALIGN,ALIGN,ALIGN,ALIGN
+Audio,tts,Text-to-speech synthesis,KOK,TTS06 / KOK,TTS17 / KOK,TTS17 / KOK,TTS17 / KOK,TTS17 / KOK,TTS17 / KOK,TTS17 / KOK,TTS17 / KOK
+Audio,speech_translate,Speech to translated text,WT ~,AS06,AS17,G12 / AS17,G12 / AS17,G12 / AS17,G12 / AS17,G12 / AS17,G12 / AS17
+Media generation,image,Text-to-image generation,—,SD15 !,SDXL !,FK4 / SD35,FK9 / QI21 !,FK9 / QI21,FD32 ! / FK9,FD32 / FK9,FD32 / FK9
+Media generation,image_edit,Image-to-image / controlled editing,—,SD15 !,SDXL !,FK4 / SD35,FK9 / QI21 !,FK9 / QI21,FD32 ! / FK9,FD32 / FK9,FD32 / FK9
+Media generation,video_gen,Text-to-video generation,—,—,—,LTX !,WAN5 ! / LTX,WAN5 ! / LTX,HUN ! / WAN5,HUN / WAN5,WAN14 / HUN
+Media generation,video_edit,Image-to-video / video continuation,—,—,—,LTX !,WAN5 ! / LTX,WAN5 ! / LTX,HUN ! / WAN5,HUN / WAN5,WANI14 / HUN
+Forecasting,forecast,Time-series forecasting / numeric sequences,—,TF3,TF3,TF3,TF3,TF3,TF3,TF3,TF3
+Adaptation,qlora,QLoRA / lightweight fine-tuning (experimental),—,—,Q08 !,Q2 ! / Q08,Q4 ! / Q2,Q9 ! / Q4,Q9 / Q4,Q27 ! / Q9,G31 ! / Q27
