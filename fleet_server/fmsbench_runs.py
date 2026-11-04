@@ -1006,7 +1006,10 @@ def performance_score_view(
         baseline_profile="standard",
     )
     score = compute_score(nodes, policy)
-    score["insights"] = []
+    from fleet_server.perf_insights import evaluate_insights, evaluate_insights_prioritized
+
+    score["insights_all"] = evaluate_insights(score)
+    score["insights"] = evaluate_insights_prioritized(score, limit=6)
     score["legacy_comparison"] = {
         "reference_peer_id": comp.get("reference_peer_id"),
         "cluster_score": comp.get("cluster_score"),
