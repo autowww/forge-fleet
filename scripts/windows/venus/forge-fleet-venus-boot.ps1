@@ -1,10 +1,13 @@
-# Ensure Ubuntu WSL is up, Fleet is listening in WSL, and Windows portproxy is set.
+# Ensure Ubuntu WSL is up and Fleet is listening in WSL.
+# Do not add a Windows portproxy for Fleet; wslrelay owns localhost:18766.
 $ErrorActionPreference = "Stop"
 $Distro = "Ubuntu"
 
 function Test-FleetHealthyInWsl {
     try {
-        wsl -d $Distro -e curl -fsS -m 5 http://127.0.0.1:18766/v1/health | Out-Null
+        # Inside WSL, 127.0.0.1:18766 does not answer. Windows localhost does,
+        # through wslrelay, which is also what cloudflared uses.
+        curl.exe -fsS -m 5 http://127.0.0.1:18766/v1/health | Out-Null
         return ($LASTEXITCODE -eq 0)
     } catch {
         return $false

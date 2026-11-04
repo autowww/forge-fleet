@@ -16,6 +16,10 @@ if "%~1"=="" (
   wsl.exe -d $Distro -- bash -l
   exit /b %ERRORLEVEL%
 )
+if /I "%~1"=="-c" (
+  wsl.exe -d $Distro -- bash -lc "%~2"
+  exit /b %ERRORLEVEL%
+)
 wsl.exe -d $Distro -- %*
 exit /b %ERRORLEVEL%
 "@
@@ -24,7 +28,7 @@ Set-Content -Path $Wrapper -Value $cmdContent -Encoding ascii
 $regPath = "HKLM:\SOFTWARE\OpenSSH"
 if (-not (Test-Path $regPath)) { New-Item -Path $regPath -Force | Out-Null }
 New-ItemProperty -Path $regPath -Name DefaultShell -Value $Wrapper -PropertyType String -Force | Out-Null
-Remove-ItemProperty -Path $regPath -Name DefaultShellCommandOption -ErrorAction SilentlyContinue
+New-ItemProperty -Path $regPath -Name DefaultShellCommandOption -Value "-c" -PropertyType String -Force | Out-Null
 
 Restart-Service sshd -Force
 Write-Host "SSH default shell -> $Wrapper (WSL $Distro). Test: ssh venus uname -a"

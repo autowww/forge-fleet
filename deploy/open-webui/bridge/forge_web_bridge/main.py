@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
 import time
 import uuid
 from typing import Any
@@ -148,83 +150,41 @@ def _live_web_model_labels(cfg: dict[str, str]) -> list[str]:
 
 
 def _run_provider(prompt: str, *, model: str) -> str:
+    """Playwright sync API hangs on the uvicorn thread. Run it in a child process."""
     cfg = _settings()
-    provider = cfg["provider"]
-    cdp_url = cfg["cdp_url"]
-    base_id = cfg["model_id"]
-    variant = _resolve_variant(provider, base_id, model)
+    payload = json.dumps(
+        {
+            "prompt": prompt,
+            "model": model,
+            "provider": cfg["provider"],
+            "cdp_url": cfg["cdp_url"],
+            "model_id": cfg["model_id"],
+        }
+    )
+    timeout_s = int(os.getenv("FORGE_WEB_BRIDGE_TIMEOUT_S", "150"))
     try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        raise HTTPException(
-            status_code=503,
-            detail="playwright not installed; pip install 'forge-lcdl[playwright]' on Granite host",
+        proc = subprocess.run(
+            [sys.executable, "-m", "forge_web_bridge.run_once"],
+            input=payload,
+            text=True,
+            capture_output=True,
+            timeout=timeout_s,
+            check=False,
         )
-
-    with sync_playwright() as pw:
-        if provider == "chatgpt":
-            from forge_lcdl.playwright.connectors.chatgpt import connect_chatgpt_tab, send_chatgpt_prompt
-            from forge_lcdl.result import Err
-
-            attached = connect_chatgpt_tab(pw, cdp_url)
-            if isinstance(attached, Err):
-                raise HTTPException(status_code=503, detail=attached.error.message)
-            sess = attached.value
-            try:
-                page_url = str(getattr(sess.page, "url", "") or "")
-                if "challenges.cloudflare.com" in page_url:
-                    raise HTTPException(
-                        status_code=503,
-                        detail=(
-                            "ChatGPT Cloudflare challenge on Granite — use "
-                            "granite-open-webui-auth-laptop.sh chatgpt-primary (complete Turnstile) "
-                            "or pack-open-webui-edge-profile.sh from a laptop session"
-                        ),
-                    )
-                if variant:
-                    from forge_lcdl.playwright.connectors.web_ui_models import select_chatgpt_web_model
-
-                    picked = select_chatgpt_web_model(
-                        sess.page,
-                        label=str(variant.get("label") or variant.get("slug") or ""),
-                        match=list(variant.get("match") or []),
-                    )
-                    if isinstance(picked, Err):
-                        raise HTTPException(status_code=503, detail=picked.error.message)
-                result = send_chatgpt_prompt(sess.page, prompt, min_response_chars=20)
-            finally:
-                sess.close_tab()
-            if isinstance(result, Err):
-                raise HTTPException(status_code=502, detail=result.error.message)
-            return str(result.value or "").strip()
-
-        if provider == "gemini":
-            from forge_lcdl.playwright.connectors.gemini import connect_gemini_tab, send_gemini_prompt
-            from forge_lcdl.result import Err
-
-            attached = connect_gemini_tab(pw, cdp_url)
-            if isinstance(attached, Err):
-                raise HTTPException(status_code=503, detail=attached.error.message)
-            sess = attached.value
-            try:
-                if variant:
-                    from forge_lcdl.playwright.connectors.web_ui_models import select_gemini_web_model
-
-                    picked = select_gemini_web_model(
-                        sess.page,
-                        label=str(variant.get("label") or variant.get("slug") or ""),
-                        match=list(variant.get("match") or []),
-                    )
-                    if isinstance(picked, Err):
-                        raise HTTPException(status_code=503, detail=picked.error.message)
-                result = send_gemini_prompt(sess.page, prompt, min_response_chars=20)
-            finally:
-                sess.close_tab()
-            if isinstance(result, Err):
-                raise HTTPException(status_code=502, detail=result.error.message)
-            return str(result.value or "").strip()
-
-    raise HTTPException(status_code=400, detail=f"unsupported provider: {provider}")
+    except subprocess.TimeoutExpired as exc:
+        raise HTTPException(status_code=504, detail=f"provider call exceeded {timeout_s}s") from exc
+    raw = (proc.stdout or "").strip()
+    try:
+        parsed = json.loads(raw) if raw else {}
+    except json.JSONDecodeError as exc:
+        detail = (proc.stderr or raw or "bridge runner returned no result")[-500:]
+        raise HTTPException(status_code=502, detail=detail) from exc
+    if not parsed.get("ok"):
+        detail = str(parsed.get("detail") or "").strip()
+        if not detail:
+            detail = (proc.stderr or "bridge runner failed").strip()[-500:]
+        raise HTTPException(status_code=int(parsed.get("status") or 502), detail=detail)
+    return str(parsed.get("text") or "").strip()
 
 
 def _completion_payload(text: str, model: str, *, request_id: str | None = None) -> dict[str, Any]:
