@@ -1,0 +1,237 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:forge-dcs:schema:planir:v0.1",
+  "title": "DCS PlanIR v0.1",
+  "description": "Canonical strict compilation output. Contains no live model availability, selected model IDs, timestamps or random identifiers. plan_hash covers every other field.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "compiler_version",
+    "rule_pack_version",
+    "rule_pack_digest",
+    "normalization_version",
+    "tenant_id",
+    "determinism_class",
+    "tokenizer_profile",
+    "intent",
+    "source_versions",
+    "tasks",
+    "edges",
+    "coverage",
+    "unresolved",
+    "plan_hash"
+  ],
+  "properties": {
+    "schema_version": { "const": "planir.v0.1" },
+    "compiler_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "rule_pack_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "rule_pack_digest": { "$ref": "#/$defs/sha256" },
+    "normalization_version": { "type": "string", "minLength": 1 },
+    "tenant_id": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "determinism_class": { "enum": ["STRICT"] },
+    "tokenizer_profile": {
+      "type": "string",
+      "description": "Pinned tokenizer profile id, or the sentinel TOKEN_BUDGET_UNVERIFIED when no verified tokenizer is bound (P01 default)."
+    },
+    "intent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["normalized_prompt_digest", "rule_id", "operation"],
+      "properties": {
+        "normalized_prompt_digest": { "$ref": "#/$defs/sha256" },
+        "rule_id": { "type": ["string", "null"] },
+        "operation": { "type": ["string", "null"] },
+        "requested_fields": { "type": "array", "items": { "type": "string" } },
+        "comparison_dimension": { "type": ["string", "null"] }
+      }
+    },
+    "source_versions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["file_id", "version", "content_hash"],
+        "properties": {
+          "file_id": { "type": "string" },
+          "version": { "type": "string" },
+          "content_hash": { "$ref": "#/$defs/sha256" }
+        }
+      }
+    },
+    "tasks": { "type": "array", "items": { "$ref": "#/$defs/node" } },
+    "edges": {
+      "type": "array",
+      "uniqueItems": true,
+      "description": "Exactly the set derived from tasks[].depends_on and input_bindings (one per binding alias; one control edge per unbound dependency). Enforced semantically by graph_validation; uniqueItems is the schema-level floor.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["from", "to"],
+        "properties": {
+          "from": { "$ref": "#/$defs/node_id" },
+          "to": { "$ref": "#/$defs/node_id" },
+          "binding_ref": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "sources_covered"],
+      "properties": {
+        "status": { "enum": ["COMPLETE", "UNSUPPORTED_INTENT", "INCOMPLETE"] },
+        "sources_covered": { "type": "integer", "minimum": 0 },
+        "notes": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "unresolved": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "message"],
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" },
+          "node_id": { "type": "string" }
+        }
+      }
+    },
+    "estimated_cost": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "model_nodes": { "type": "integer", "minimum": 0 },
+        "zero_model_nodes": { "type": "integer", "minimum": 0 },
+        "max_input_tokens_total": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "plan_hash": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "schema_ref": { "type": "string", "pattern": "^urn:forge-dcs:schema:[a-z0-9_]+:v[0-9]+(\\.[0-9]+)?$" },
+    "node_id": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$" },
+    "output_path": {
+      "type": "string",
+      "description": "Restricted dotted path rooted at $; no indexing, filters or expressions.",
+      "pattern": "^\\$(\\.[A-Za-z_][A-Za-z0-9_]*){1,8}$"
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from_node", "output_path", "bind_as", "schema_ref"],
+      "properties": {
+        "from_node": { "$ref": "#/$defs/node_id" },
+        "output_path": { "$ref": "#/$defs/output_path" },
+        "bind_as": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$" },
+        "schema_ref": { "$ref": "#/$defs/schema_ref" }
+      }
+    },
+    "model_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["data_boundary", "max_attempts", "fallback", "remediation"],
+      "properties": {
+        "data_boundary": { "enum": ["local_only", "explicit_remote_allowlist"] },
+        "allow_models": { "type": "array", "items": { "type": "string" } },
+        "deny_models": { "type": "array", "items": { "type": "string" } },
+        "max_attempts": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3,
+          "description": "TOTAL attempts including the first; remediation retries = max_attempts - 1. Frozen ceiling 3 in v0.1."
+        },
+        "fallback": { "enum": ["none", "compatible_allowlisted_only"] },
+        "remediation": { "enum": ["deterministic_only", "llm_refine_allowed"] }
+      }
+    },
+    "node": {
+      "type": "object",
+      "required": [
+        "node_id",
+        "operation",
+        "routing_class",
+        "depends_on",
+        "source_scope",
+        "fragment_refs",
+        "input_bindings",
+        "output_schema_ref",
+        "verification_policy"
+      ],
+      "properties": {
+        "node_id": { "$ref": "#/$defs/node_id" },
+        "operation": { "enum": ["extract", "compare", "reason", "synthesize", "validate"] },
+        "routing_class": { "enum": ["fixed_model", "heterogeneous", "zero_model"] },
+        "depends_on": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/node_id" } },
+        "source_scope": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}@sha256:[a-f0-9]{64}$" }
+        },
+        "fragment_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "description": "<file_id>@<version>#root only, until a versioned fragment registry exists (P02). Semantic binding to source_versions is enforced by graph_validation.",
+          "items": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}@[A-Za-z0-9][A-Za-z0-9._-]{0,63}#(root|p[0-9]{4,60})$" }
+        },
+        "input_bindings": { "type": "array", "items": { "$ref": "#/$defs/binding" } },
+        "input_schema_ref": { "$ref": "#/$defs/schema_ref" },
+        "output_schema_ref": { "$ref": "#/$defs/schema_ref" },
+        "required_capabilities": { "$ref": "urn:forge-dcs:schema:node_capability:v0.1" },
+        "preferred_capabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "reasoning_tier": { "enum": ["standard", "strong"] },
+            "prefer_resident_model": { "type": "boolean" }
+          }
+        },
+        "model_policy": { "$ref": "#/$defs/model_policy" },
+        "token_budget": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["max_input_tokens", "max_output_tokens"],
+          "properties": {
+            "max_input_tokens": { "type": "integer", "minimum": 1 },
+            "max_output_tokens": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "verification_policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["validators"],
+          "properties": {
+            "validators": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+            "validator_ref": { "type": "string" },
+            "source_ref_required": { "type": "boolean" },
+            "stop_conditions": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": { "properties": { "routing_class": { "const": "zero_model" } } },
+          "then": {
+            "description": "Typed no-model sentinel: deterministic validator only; model fields are forbidden.",
+            "properties": {
+              "operation": { "const": "validate" },
+              "verification_policy": { "required": ["validators", "validator_ref"] }
+            },
+            "allOf": [
+              { "not": { "required": ["required_capabilities"] } },
+              { "not": { "required": ["preferred_capabilities"] } },
+              { "not": { "required": ["model_policy"] } },
+              { "not": { "required": ["token_budget"] } }
+            ]
+          },
+          "else": {
+            "required": ["required_capabilities", "model_policy", "token_budget", "input_schema_ref"]
+          }
+        }
+      ]
+    }
+  }
+}

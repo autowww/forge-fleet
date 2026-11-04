@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:forge-dcs:schema:prompt_artifact:v0.1",
+  "title": "DCS raw prompt artifact (custody record)",
+  "description": "Immutable, tenant-scoped record of the exact model-visible prompt bytes. prompt_sha256 is the identity of the RAW UTF-8 bytes; normalized_prompt_digest is the rule-engine view used by PlanIR v0.1 and is NOT an identity of model-visible text (P01R2 review F3). An executor may hydrate prompt bytes only through handle, only for the owning tenant, and must include prompt_sha256 in every execution input digest / cache key. P02 ships the contract and storage; binding into PlanIR is a P03 prerequisite for any inference.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["tenant_id", "prompt_sha256", "byte_length", "normalized_prompt_digest", "normalization_version", "created_utc", "handle"],
+  "properties": {
+    "tenant_id": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "prompt_sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "byte_length": { "type": "integer", "minimum": 1, "maximum": 2097152 },
+    "normalized_prompt_digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "normalization_version": { "const": "dcs-canon-v0.1" },
+    "created_utc": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$" },
+    "handle": { "type": "string", "pattern": "^prompt:[a-f0-9]{64}$" }
+  }
+}

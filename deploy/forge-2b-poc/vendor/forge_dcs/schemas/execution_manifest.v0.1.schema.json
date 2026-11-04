@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:forge-dcs:schema:execution_manifest:v0.1",
+  "title": "DCS execution manifest v0.1 (contract only in P01; produced by the P05 executor)",
+  "description": "Runtime-only facts: selected models, attempts, queue/swap observations and committed output digests. Never part of plan_hash.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "run_id", "plan_hash", "tenant_id", "capability_catalog_digest", "nodes"],
+  "properties": {
+    "schema_version": { "const": "execution_manifest.v0.1" },
+    "run_id": { "type": "string", "minLength": 1 },
+    "plan_hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "tenant_id": { "type": "string", "minLength": 1 },
+    "capability_catalog_digest": { "type": "string" },
+    "routing_policy_resolved": {
+      "type": "object",
+      "additionalProperties": { "enum": ["fixed_model", "heterogeneous", "zero_model"] }
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["node_id", "state", "attempts"],
+        "properties": {
+          "node_id": { "type": "string" },
+          "state": {
+            "enum": ["QUEUED", "RUNNING", "VALIDATING", "SUCCEEDED", "FAILED", "SKIPPED_DEPENDENCY", "CANCELLED"]
+          },
+          "selected_model_id": { "type": "string" },
+          "selection_reason": { "type": "string" },
+          "committed_output_digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+          "attempts": {
+            "type": "array",
+            "maxItems": 3,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["attempt_id", "input_hash", "state"],
+              "properties": {
+                "attempt_id": { "type": "string" },
+                "input_hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+                "model_id": { "type": "string" },
+                "queue_wait_ms": { "type": "integer", "minimum": 0 },
+                "swap_predicted": { "type": "boolean" },
+                "state": { "enum": ["RUNNING", "VALIDATING", "ACCEPTED", "REJECTED", "TIMEOUT", "CANCELLED"] },
+                "validator_results": { "type": "array" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:forge-dcs:schema:node_capability:v0.1",
+  "title": "DCS node required_capabilities v0.1",
+  "description": "Declared requirements only. Nothing here asserts a model is live or verified.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["task_class", "input_modality", "output_format", "min_context_tokens", "max_output_tokens"],
+  "properties": {
+    "task_class": {
+      "enum": ["structured_extraction", "comparison", "reasoning", "synthesis"]
+    },
+    "input_modality": { "enum": ["text", "markdown", "json", "csv"] },
+    "output_format": { "enum": ["json_schema", "json_object", "text"] },
+    "min_context_tokens": { "type": "integer", "minimum": 256, "maximum": 262144 },
+    "max_output_tokens": { "type": "integer", "minimum": 1, "maximum": 32768 },
+    "languages": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[a-z]{2}(-[A-Z]{2})?$" }
+    },
+    "tools_required": { "type": "boolean" }
+  }
+}

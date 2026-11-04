@@ -111,6 +111,13 @@ DEFAULT_TYPES: dict[str, Any] = {
             "notes": "Matrix bot that brokers !agent task into the agentic dev rail; compose under a host git clone of autowww/forge-agents (docker/compose.roadrunner.yaml).",
         },
         {
+            "id": "forge_2b_poc",
+            "category_id": "service",
+            "container_class": "forge_2b_poc",
+            "title": "Forge 2B PoC (Compose)",
+            "notes": "forge-dcs + forge-2b OpenAI shim for Open WebUI; compose under deploy/forge-2b-poc (scripts/rollout-forge-2b-poc.sh builds; start/stop here do not build).",
+        },
+        {
             "id": "agentic_dev",
             "category_id": "job",
             "container_class": "agentic_dev",
@@ -126,6 +133,7 @@ _DEFAULT_TYPE_TO_CATEGORY: dict[str, str] = {
     "forge_llm": "service",
     "forge_market_studio": "service",
     "forge_agents_roadrunner": "service",
+    "forge_2b_poc": "service",
     "agentic_dev": "job",
 }
 

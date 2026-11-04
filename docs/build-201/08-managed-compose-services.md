@@ -142,6 +142,15 @@ curl -fsS -X POST "$FLEET/v1/container-services/market-studio/start" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
+## Forge 2B PoC stack (`forge_2b_poc`)
+
+`deploy/forge-2b-poc/` runs two containers from one image: **forge-dcs** (ingest + STRICT compile, store volume `forge_2b_dcs_store`) and **forge-2b** (OpenAI-compatible shim on `:9085`, graph executor that makes one atomic `qwen3.5:2b-q4_K_M` decision per source window through the forge-llm gateway on `host.docker.internal:18080`). The shim joins the Open WebUI compose network so Open WebUI reaches it as `http://forge-2b:9085/v1`.
+
+1. On the laptop: `scripts/sync-forge-2b-poc.sh` copies `forge_dcs` and `forge_2b` sources into `deploy/forge-2b-poc/vendor/` (git is the only code carrier; `vendor/SOURCES.txt` records both commits). Ship with `update-fleet.sh`.
+2. On the host: create `~/.config/forge-2b-poc/forge-2b.env` from `forge-2b.env.example` (mode 600), then `scripts/rollout-forge-2b-poc.sh` — builds the image, `up -d --force-recreate`, waits for both health checks.
+3. Register once: `POST /v1/container-services` with `type_id: forge_2b_poc`, `compose_root: <fleet>/deploy/forge-2b-poc`; start/stop then work through the Fleet API (they do not rebuild — rerun the rollout script after code changes).
+4. Open WebUI: append `http://forge-2b:9085/v1` + the shim's `FORGE_2B_API_KEY` to `openai.api_base_urls` / `openai.api_keys`, add `openai.api_configs[<index>] = {"enable": true, "prefix_id": "forge-2b-poc", "provider": "openai"}`, and raise `AIOHTTP_CLIENT_TIMEOUT` (graph runs over a full 10-K take minutes). The model appears as `forge-2b-poc.forge-2b`.
+
 ## Implementation map
 
 | Module | Role |

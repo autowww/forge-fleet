@@ -1,0 +1,41 @@
+{
+  "rule_pack_version": "0.1.0",
+  "description": "P01 pinned rule descriptions. Matching operates on the NFC+casefold+whitespace-normalized prompt only. First matching rule in order wins. Synthetic P01 scope: two operations.",
+  "routing_class_by_operation": {
+    "extract": "fixed_model",
+    "compare": "heterogeneous",
+    "validate": "zero_model"
+  },
+  "defaults": {
+    "languages": ["en"],
+    "extract_max_output_tokens": 400,
+    "compare_max_output_tokens": 800,
+    "model_policy": {
+      "data_boundary": "local_only",
+      "max_attempts": 3,
+      "fallback": "none",
+      "remediation": "deterministic_only"
+    }
+  },
+  "rules": [
+    {
+      "rule_id": "extract.fields.v0",
+      "operation": "extract",
+      "template": "extract_single_source",
+      "match": {
+        "any_tokens": ["extract", "extraction", "extracted"],
+        "file_count": 1
+      }
+    },
+    {
+      "rule_id": "compare.dimension.v0",
+      "operation": "compare",
+      "template": "compare_two_sources",
+      "match": {
+        "any_tokens": ["compare", "comparison", "contrast", "diff"],
+        "file_count": 2,
+        "requires": ["comparison_dimension"]
+      }
+    }
+  ]
+}
