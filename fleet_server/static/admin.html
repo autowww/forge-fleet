@@ -148,8 +148,8 @@
           <span id="fleet-version-line" class="fleet-mono" aria-live="polite">Loading version…</span>
           <span id="fleet-install-channel" class="badge text-bg-secondary fleet-mono small fleet-local-only" title="Install channel"></span>
         </p>
-        <p class="mb-0"><span id="fleet-git-remote-row" class="fleet-mono fleet-local-only" aria-live="polite"></span></p>
-        <p class="mb-0"><span id="fleet-self-update-status" class="fleet-mono fleet-local-only" aria-live="polite"></span></p>
+        <div class="mb-0"><span id="fleet-git-remote-row" class="fleet-mono fleet-local-only" aria-live="polite"></span></div>
+        <div class="mb-0"><span id="fleet-self-update-status" class="fleet-mono fleet-local-only" aria-live="polite"></span></div>
         <div id="fleet-bench-consoles" class="fleet-app-consoles">Loading Fleet consoles…</div>
       </div>
     </aside>
@@ -556,55 +556,58 @@
                   <button type="button" class="btn blue" id="fleet-perf-plan-run">＋ Plan a run</button>
                 </div>
               </div>
+              <div id="fleet-perf-evidence-static" class="d-none" aria-hidden="true">
+                <section class="card pad mb-3">
+                  <div class="rowbetween">
+                    <div>
+                      <div class="sectiontitle">Run a benchmark</div>
+                      <div class="sectiondesc">Choose the host, then start hardware or Market Studio on that machine. “All hosts” ignores the selection and runs everywhere.</div>
+                    </div>
+                  </div>
+                  <div class="topgap" style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
+                    <label class="small" for="fleet-bench-run-host">Run on host
+                      <select id="fleet-bench-run-host" class="form-select form-select-sm" aria-label="Host to benchmark"></select>
+                    </label>
+                    <label class="small" for="fleet-cap-fms-profile">Market Studio profile
+                      <select id="fleet-cap-fms-profile" class="form-select form-select-sm">
+                        <option value="standard" selected>standard</option>
+                        <option value="host-max-cores">host-max-cores</option>
+                        <option value="host-max-threads">host-max-threads</option>
+                        <option value="stress">stress (2× threads)</option>
+                        <option value="full">full (all capacity tests)</option>
+                        <option value="smoke">smoke</option>
+                        <option value="micro">micro</option>
+                      </select>
+                    </label>
+                  </div>
+                  <p id="fleet-bench-profile-hint" class="sectiondesc topgap">Profile standard: full fixture at this host's logical CPU count (composite source).</p>
+                  <div id="fleet-bench-peer" class="sectiondesc">Loading the selected host…</div>
+                  <div class="topgap" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+                    <button type="button" class="btn blue small" id="fleet-cap-fms-btn">Run Market Studio on this host</button>
+                    <button type="button" class="btn small" id="fleet-cap-bench-btn">Run hardware on this host</button>
+                    <button type="button" class="btn small" id="fleet-cap-fms-all-btn">Market Studio · all hosts</button>
+                    <button type="button" class="btn small" id="fleet-cap-bench-all-btn">Hardware · all hosts</button>
+                  </div>
+                  <div id="fleet-cap-live" class="topgap" aria-live="polite"></div>
+                  <p id="fleet-cap-bench-status" class="sectiondesc" aria-live="polite"></p>
+                  <p id="fleet-cap-fms-status" class="sectiondesc" aria-live="polite"></p>
+                </section>
+                <section class="card pad mb-3">
+                  <div class="sectiontitle">Stage detail (raw runs)</div>
+                  <div id="fleet-bench-measure-body" class="sectiondesc topgap">Loading…</div>
+                  <p id="fleet-bench-thread-cap-note" class="sectiondesc d-none"></p>
+                </section>
+                <section class="card pad">
+                  <div class="sectiontitle">Not measured in this suite</div>
+                  <ul class="sectiondesc" style="margin:8px 0 0;padding-left:18px">
+                    <li>Verified distributed cluster throughput</li>
+                    <li>Random NVMe IOPS / latency</li>
+                    <li>GPU inference</li>
+                  </ul>
+                </section>
+              </div>
               <div id="fleet-perf-main"><div class="card pad">Loading scores…</div></div>
             </div>
-        </div>
-        <div id="fleet-perf-evidence-static" class="d-none" aria-hidden="true">
-            <section class="card border-secondary-subtle shadow-sm mb-3">
-              <div class="card-body">
-                <h3 class="h6 text-uppercase text-body-secondary mb-2">Run benchmarks</h3>
-                <p class="small text-body-secondary mb-2">Hardware and Market Studio remain separate measurements. Synthetic hardware mark is not part of workload composite.</p>
-                <p id="fleet-bench-profile-hint" class="small text-body-secondary mb-3">Profile <code class="fleet-mono">standard</code>: full fixture at this host's logical CPU count (composite source).</p>
-                <div id="fleet-bench-peer" class="small text-body-secondary mb-3">Open this tab to load the selected peer.</div>
-                <div class="d-flex flex-wrap gap-2 align-items-center">
-                  <button type="button" class="btn btn-sm btn-outline-primary" id="fleet-cap-bench-all-btn">Re-run all hardware</button>
-                  <button type="button" class="btn btn-sm btn-outline-primary" id="fleet-cap-fms-all-btn">Re-run all Market Studio</button>
-                  <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-cap-bench-btn">This peer · hardware</button>
-                  <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-cap-fms-btn">This peer · Market Studio</button>
-                  <label class="small mb-0" for="fleet-cap-fms-profile">This peer profile
-                    <select id="fleet-cap-fms-profile" class="form-select form-select-sm d-inline-block w-auto">
-                      <option value="standard" selected>standard</option>
-                      <option value="host-max-cores">host-max-cores</option>
-                      <option value="host-max-threads">host-max-threads</option>
-                      <option value="stress">stress (2× threads)</option>
-                      <option value="full">full (all capacity tests)</option>
-                      <option value="smoke">smoke</option>
-                      <option value="micro">micro</option>
-                    </select>
-                  </label>
-                </div>
-                <div id="fleet-cap-live" class="mt-3" aria-live="polite"></div>
-                <p id="fleet-cap-bench-status" class="small mb-0 mt-2" aria-live="polite"></p>
-                <p id="fleet-cap-fms-status" class="small mb-0 mt-1" aria-live="polite"></p>
-              </div>
-            </section>
-            <section class="card border-secondary-subtle shadow-sm mb-3">
-              <div class="card-body">
-                <h3 class="h6 text-uppercase text-body-secondary mb-2">Stage detail (raw runs)</h3>
-                <div id="fleet-bench-measure-body" class="small text-body-secondary">Loading…</div>
-                <p id="fleet-bench-thread-cap-note" class="small text-body-secondary mt-2 mb-0 d-none"></p>
-              </div>
-            </section>
-            <section class="card border-secondary-subtle shadow-sm">
-              <div class="card-body">
-                <h3 class="h6 text-uppercase text-body-secondary mb-2">Not measured in this suite</h3>
-                <ul class="small text-body-secondary mb-0">
-                  <li>Verified distributed cluster throughput</li>
-                  <li>Random NVMe IOPS / latency</li>
-                  <li>GPU inference</li>
-                </ul>
-              </div>
-            </section>
         </div>
         <div id="fleet-bench-answers" class="d-none" aria-hidden="true"></div>
         <div id="fleet-bench-workloads" class="d-none" aria-hidden="true"></div>

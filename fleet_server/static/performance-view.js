@@ -911,7 +911,7 @@
         "</tbody></table></div>";
     } else {
       body +=
-        '<div class="empty"><h3>Unmeasured workload rates</h3><p>Hardware score alone cannot estimate SQL, NumPy, or NLP throughput. No component index or composite was inferred.</p><button type="button" class="btn blue small" data-action="planRun">Plan retry</button></div>';
+        '<div class="empty"><h3>Unmeasured workload rates</h3><p>Hardware score alone cannot estimate SQL, NumPy, or NLP throughput. No component index or composite was inferred.</p><button type="button" class="btn blue small" data-action="planRun" data-id="' + esc(n.node_id) + '">Run on this host</button></div>';
     }
     if (n.worker_oversubscription) {
       body += '<div class="callout"><b>Worker mismatch:</b> reported benchmark workers exceed logical CPU threads. Flag oversubscription before interpreting parallel efficiency.</div>';
@@ -919,17 +919,81 @@
     if (n.evidence === "saved_snapshot") {
       body += '<div class="callout"><b>Snapshot-only evidence:</b> live peer returned an error; snapshot may still be included in modeled capacity when enabled.</div>';
     }
-    body += '</section><div id="fleet-perf-evidence-slot"></div>';
+    body += "</section>";
     return body;
   }
 
-  function mountEvidenceControls() {
-    var slot = document.getElementById("fleet-perf-evidence-slot");
-    var staticBox = document.getElementById("fleet-perf-evidence-static");
-    if (!slot || !staticBox) return;
-    staticBox.classList.remove("d-none");
-    staticBox.removeAttribute("aria-hidden");
-    if (staticBox.parentElement !== slot) slot.appendChild(staticBox);
+  function syncRunHostSelect() {
+    var runSel = document.getElementById("fleet-bench-run-host");
+    var scope = document.getElementById("fleet-scope-select");
+    if (!runSel || !scope) return;
+    var html = "";
+    for (var i = 0; i < scope.options.length; i++) {
+      var opt = scope.options[i];
+      html += '<option value="' + esc(opt.value) + '">' + esc(opt.textContent || opt.value || "This console") + "</option>";
+    }
+    if (!html) html = '<option value="">This console</option>';
+    if (runSel.getAttribute("data-opts") !== html) {
+      runSel.innerHTML = html;
+      runSel.setAttribute("data-opts", html);
+    }
+    var want = scope.value || "";
+    var found = false;
+    for (var j = 0; j < runSel.options.length; j++) {
+      if (runSel.options[j].value === want) found = true;
+    }
+    runSel.value = found ? want : runSel.options[0] ? runSel.options[0].value : "";
+  }
+
+  function bindRunHostSelect() {
+    var runSel = document.getElementById("fleet-bench-run-host");
+    var scope = document.getElementById("fleet-scope-select");
+    if (runSel && !runSel.getAttribute("data-bound")) {
+      runSel.setAttribute("data-bound", "1");
+      runSel.addEventListener("change", function () {
+        var scopeEl = document.getElementById("fleet-scope-select");
+        if (!scopeEl || scopeEl.value === runSel.value) return;
+        scopeEl.value = runSel.value;
+        scopeEl.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+    }
+    if (scope && !scope.getAttribute("data-fpi-host-sync")) {
+      scope.setAttribute("data-fpi-host-sync", "1");
+      scope.addEventListener("change", syncRunHostSelect);
+    }
+  }
+
+  function showRunPanel(scroll) {
+    var box = document.getElementById("fleet-perf-evidence-static");
+    if (!box) return;
+    var on = STATE.page === "evidence";
+    box.classList.toggle("d-none", !on);
+    if (on) {
+      box.removeAttribute("aria-hidden");
+      syncRunHostSelect();
+      bindRunHostSelect();
+      if (scroll) box.scrollIntoView({ block: "start", behavior: "smooth" });
+    } else {
+      box.setAttribute("aria-hidden", "true");
+    }
+  }
+
+  function setRunHost(nodeId) {
+    var scope = document.getElementById("fleet-scope-select");
+    if (!scope || !nodeId) return false;
+    var match = "";
+    for (var i = 0; i < scope.options.length; i++) {
+      var opt = scope.options[i];
+      if (opt.value === nodeId || (opt.textContent || "").indexOf(nodeId) !== -1) {
+        match = opt.value;
+        break;
+      }
+    }
+    if (!match && nodeId !== "local") return false;
+    scope.value = match;
+    scope.dispatchEvent(new Event("change", { bubbles: true }));
+    syncRunHostSelect();
+    return true;
   }
 
   function paintMain(doc) {
@@ -942,7 +1006,7 @@
     else if (STATE.page === "insights") html = pageInsights(doc);
     else if (STATE.page === "evidence") html = pageEvidence(doc);
     main.innerHTML = html;
-    if (STATE.page === "evidence") mountEvidenceControls();
+    showRunPanel(false);
     bindWeightSliders(doc);
   }
 
@@ -1061,10 +1125,12 @@
     if (DOC) paintMain(DOC);
   }
 
-  function planRunFocus() {
+  function planRunFocus(nodeId) {
     goPage("evidence");
+    if (nodeId) setRunHost(nodeId);
     setTimeout(function () {
-      var btn = document.getElementById("fleet-cap-fms-all-btn") || document.getElementById("fleet-cap-fms-btn");
+      showRunPanel(true);
+      var btn = document.getElementById("fleet-cap-fms-btn") || document.getElementById("fleet-cap-bench-btn");
       if (btn) btn.focus();
     }, 80);
   }
@@ -1091,7 +1157,7 @@
       syncPageChrome();
       if (DOC) paintMain(DOC);
     } else if (action === "planRun") {
-      planRunFocus();
+      planRunFocus(el.getAttribute("data-id") || "");
     } else if (action === "resetWeights") {
       writePolicy({ baseline: readPolicy().baseline, include_snapshots: readPolicy().include_snapshots, weights: DEFAULT_W });
       if (ON_POLICY) ON_POLICY();

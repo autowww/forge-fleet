@@ -1239,7 +1239,7 @@
           setFmsStatus(fmsOutcomeText(fms, who, mode), failed);
           if (fmsBtn) {
             fmsBtn.disabled = false;
-            fmsBtn.textContent = "This peer · Market Studio";
+            fmsBtn.textContent = "Run Market Studio on this host";
           }
           refreshCapacity();
         })
@@ -1251,7 +1251,7 @@
           clearInterval(timer);
           if (fmsBtn) {
             fmsBtn.disabled = false;
-            fmsBtn.textContent = "This peer · Market Studio";
+            fmsBtn.textContent = "Run Market Studio on this host";
           }
         })
         .finally(function () {
@@ -1416,7 +1416,7 @@
           })
           .finally(function () {
             benchBtn.disabled = false;
-            benchBtn.textContent = "This peer · hardware";
+            benchBtn.textContent = "Run hardware on this host";
           });
       });
     }
@@ -1461,7 +1461,7 @@
             paintFms(j && j.fmsbench ? j.fmsbench : { status: status, phase: "Checking the host" }, who);
             setFmsStatus(fmsOutcomeText(j && j.fmsbench, who), status !== "passed");
             fmsBtn.disabled = false;
-            fmsBtn.textContent = "This peer · Market Studio";
+            fmsBtn.textContent = "Run Market Studio on this host";
             refreshCapacity();
           })
           .catch(function (e) {
@@ -1475,7 +1475,7 @@
             });
             setFmsStatus(message, true);
             fmsBtn.disabled = false;
-            fmsBtn.textContent = "This peer · Market Studio";
+            fmsBtn.textContent = "Run Market Studio on this host";
           });
       });
     }

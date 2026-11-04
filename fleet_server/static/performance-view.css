@@ -43,6 +43,7 @@ body.fleet-admin-body{margin:0;background:#f4f7fc;color:#14233c;}
 #fleet-scope-bar{background:#fff;border:1px solid #e3eaf3;border-radius:12px;padding:10px 12px;margin-bottom:16px;}
 #fleet-perf-studio.fpi{background:transparent;border-radius:0;overflow:visible;}
 #fleet-perf-studio .content{max-width:none;padding:4px 0 32px;margin:0;}
+#fleet-bench-run-host,#fleet-cap-fms-profile{display:block;min-width:220px;margin-top:4px;background:#fff;color:#14233c;border:1px solid #d5e1ef;border-radius:8px;padding:8px 10px;}
 html[data-bs-theme="dark"] body.fleet-admin-body{background:#0f1727;}
 html[data-bs-theme="dark"] .fleet-app-main{background:#0f1727;color:#e6edf8;}
 html[data-bs-theme="dark"] .fleet-app-main .card{background:#16213a;color:#e6edf8;border-color:#243352;}
