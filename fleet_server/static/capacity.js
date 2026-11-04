@@ -669,7 +669,7 @@
   function loadCompare() {
     var root = document.getElementById("fleet-capacity-compare-body");
     var measure = document.getElementById("fleet-bench-measure-body");
-    var hero = document.getElementById("fleet-perf-hero");
+    var hero = document.getElementById("fleet-perf-main") || document.getElementById("fleet-perf-hero");
     if (!root && !measure && !hero) return;
 
     function readJson(r) {

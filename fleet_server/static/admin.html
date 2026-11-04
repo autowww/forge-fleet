@@ -600,36 +600,48 @@
         <h2 class="h6 text-uppercase text-body-secondary mb-2" id="fleet-bench-page-title">Forge Benchmarks</h2>
         <p class="small text-body-secondary mb-3">One page: what was measured, how scores are defined, and how to run again. Hardware and Market Studio stay separate measurements. Capacity tab shows a short summary only.</p>
         <div id="fleet-bench-consoles" class="small mb-3 text-body-secondary">Loading Fleet consoles…</div>
-        <ul class="nav nav-tabs mb-3" id="fleet-perf-tablist" role="tablist">
-          <li class="nav-item" role="presentation">
-            <button class="nav-link active" id="fleet-perf-overview-tab" data-bs-toggle="tab" data-bs-target="#fleet-perf-overview-pane" type="button" role="tab" aria-controls="fleet-perf-overview-pane" aria-selected="true">Overview</button>
-          </li>
-          <li class="nav-item" role="presentation">
-            <button class="nav-link" id="fleet-perf-workloads-tab" data-bs-toggle="tab" data-bs-target="#fleet-perf-workloads-pane" type="button" role="tab">Workloads</button>
-          </li>
-          <li class="nav-item" role="presentation">
-            <button class="nav-link" id="fleet-perf-scoring-tab" data-bs-toggle="tab" data-bs-target="#fleet-perf-scoring-pane" type="button" role="tab">Scoring</button>
-          </li>
-          <li class="nav-item" role="presentation">
-            <button class="nav-link" id="fleet-perf-nodes-tab" data-bs-toggle="tab" data-bs-target="#fleet-perf-nodes-pane" type="button" role="tab">Nodes</button>
-          </li>
-          <li class="nav-item" role="presentation">
-            <button class="nav-link" id="fleet-perf-evidence-tab" data-bs-toggle="tab" data-bs-target="#fleet-perf-evidence-pane" type="button" role="tab">Evidence &amp; runs</button>
-          </li>
-        </ul>
-        <div class="tab-content" id="fleet-perf-tab-content">
-          <div class="tab-pane fade show active" id="fleet-perf-overview-pane" role="tabpanel" aria-labelledby="fleet-perf-overview-tab">
-            <div id="fleet-perf-hero" class="card border-primary-subtle mb-3"><div class="card-body">Loading scores…</div></div>
-            <div id="fleet-perf-components" class="mb-3"></div>
-            <h3 class="h6 text-uppercase text-body-secondary">Worker speedup matrix</h3>
-            <div id="fleet-perf-speedup-matrix" class="mb-3"></div>
-            <h3 class="h6 text-uppercase text-body-secondary">Priority findings</h3>
-            <div id="fleet-perf-insights"></div>
+        <div id="fleet-perf-studio" class="fpi mb-3">
+          <div class="shell">
+            <aside class="sidebar">
+              <div class="logo">
+                <div class="logoicon">F</div>
+                <div>
+                  <div class="logoname">fleet<span style="color:#6ea1fd">.</span></div>
+                  <div class="logosub">PERFORMANCE INTELLIGENCE</div>
+                </div>
+              </div>
+              <div>
+                <div class="navtitle">Benchmark studio</div>
+                <div id="fleet-perf-tablist" class="nav" role="tablist" aria-label="Performance intelligence pages">
+                  <button type="button" class="navbtn active" data-page="overview" role="tab" aria-selected="true"><span class="ico">▦</span> Command center</button>
+                  <button type="button" class="navbtn" data-page="threads" role="tab" aria-selected="false"><span class="ico">☷</span> Multi-thread explorer</button>
+                  <button type="button" class="navbtn" data-page="scoring" role="tab" aria-selected="false"><span class="ico">◈</span> Cluster scoring</button>
+                  <button type="button" class="navbtn" data-page="insights" role="tab" aria-selected="false"><span class="ico">✧</span> Insights &amp; actions <span class="navbadge" id="fleet-perf-insights-badge">0</span></button>
+                  <button type="button" class="navbtn" data-page="evidence" role="tab" aria-selected="false"><span class="ico">▤</span> Nodes &amp; evidence</button>
+                </div>
+              </div>
+              <div class="asidebottom" id="fleet-perf-connection"><b><span class="minidot"></span> Cluster view</b><br>Loading node inventory…</div>
+            </aside>
+            <div class="content">
+              <div class="topbar">
+                <div>
+                  <div class="kicker">Market Studio / Synthetic benchmark</div>
+                  <h1 class="pagetitle" id="fleet-perf-title">Performance command center</h1>
+                  <div class="lead" id="fleet-perf-subtitle">Multi-thread throughput, capacity scoring, and operational decisions.</div>
+                </div>
+                <div class="topright">
+                  <div class="subtlebox">
+                    <span class="smalllabel">BASELINE</span>
+                    <select class="select" id="fleet-fpi-baseline" aria-label="Scoring baseline"><option value="local">Loading…</option></select>
+                  </div>
+                  <button type="button" class="btn blue" id="fleet-perf-plan-run">＋ Plan a run</button>
+                </div>
+              </div>
+              <div id="fleet-perf-main"><div class="card pad">Loading scores…</div></div>
+            </div>
           </div>
-          <div class="tab-pane fade" id="fleet-perf-workloads-pane" role="tabpanel"><p class="small text-body-secondary">Loading…</p></div>
-          <div class="tab-pane fade" id="fleet-perf-scoring-pane" role="tabpanel"><p class="small text-body-secondary">Loading…</p></div>
-          <div class="tab-pane fade" id="fleet-perf-nodes-pane" role="tabpanel"><p class="small text-body-secondary">Loading…</p></div>
-          <div class="tab-pane fade" id="fleet-perf-evidence-pane" role="tabpanel">
+        </div>
+        <div id="fleet-perf-evidence-static" class="d-none" aria-hidden="true">
             <section class="card border-secondary-subtle shadow-sm mb-3">
               <div class="card-body">
                 <h3 class="h6 text-uppercase text-body-secondary mb-2">Run benchmarks</h3>
@@ -675,7 +687,6 @@
                 </ul>
               </div>
             </section>
-          </div>
         </div>
         <div id="fleet-bench-answers" class="d-none" aria-hidden="true"></div>
         <div id="fleet-bench-workloads" class="d-none" aria-hidden="true"></div>

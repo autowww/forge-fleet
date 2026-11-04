@@ -37,9 +37,13 @@ def test_admin_remote_scope_ui() -> None:
 def test_admin_benchmarks_performance_shell() -> None:
     html = ADMIN.read_text(encoding="utf-8")
     assert 'id="fleet-perf-tablist"' in html
-    assert 'id="fleet-perf-hero"' in html
+    assert 'id="fleet-perf-studio"' in html
+    assert 'id="fleet-perf-main"' in html
+    assert 'data-page="overview"' in html
+    assert 'data-page="insights"' in html
     assert 'id="fleet-cap-fms-btn"' in html
     assert "/admin/performance-view.js" in html
+    assert "/admin/performance-view.css" in html
 
 
 def test_smoke_script_exists() -> None:
