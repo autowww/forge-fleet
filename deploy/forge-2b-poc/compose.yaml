@@ -20,7 +20,8 @@ services:
     volumes:
       - dcs_store:/var/lib/forge-dcs/store
     healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:9793/v1/capabilities', timeout=3).status in (200,401) else 1)"]
+      # /v1/capabilities is bearer-protected: a 401 still proves the API is serving
+      test: ["CMD", "python3", "-c", "import urllib.request,urllib.error,sys\ntry:\n  sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:9793/v1/capabilities', timeout=3).status == 200 else 1)\nexcept urllib.error.HTTPError as e:\n  sys.exit(0 if e.code == 401 else 1)"]
       interval: 20s
       timeout: 5s
       retries: 5
