@@ -4,6 +4,9 @@
  * usage: node scripts/smoke-admin-ui.mjs [--base http://127.0.0.1:18766]
  */
 import process from 'node:process';
+import { mkdir } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const base = (() => {
   const i = process.argv.indexOf('--base');
@@ -64,6 +67,14 @@ async function main() {
   }
 
   await page.goto(`${base}/admin/`, { waitUntil: 'domcontentloaded', timeout: 30000 });
+  try {
+    await page.waitForSelector('#fleet-welcome-modal.show', { timeout: 8000 });
+    await page.click('#fleet-welcome-dismiss');
+    await page.waitForSelector('#fleet-welcome-modal.show', { state: 'hidden', timeout: 5000 });
+    pass('dismissed welcome modal');
+  } catch {
+    pass('welcome modal not shown');
+  }
 
   // Version line should populate
   try {
@@ -184,6 +195,41 @@ async function main() {
   } else {
     pass('no console errors');
   }
+
+  await page.locator('#fleet-tel-history-modal .btn-close').click();
+  await page.waitForSelector('#fleet-tel-history-modal', { state: 'hidden', timeout: 8000 });
+  await page.click('#fleet-tab-benchmarks-btn');
+  await page.waitForTimeout(500);
+  try {
+    await page.waitForFunction(
+      () => {
+        const el = document.getElementById('fleet-perf-hero');
+        const t = (el && el.textContent) || '';
+        return el && !/Loading scores/i.test(t) && t.trim().length > 20;
+      },
+      { timeout: 25000 },
+    );
+    pass('benchmarks performance hero rendered');
+  } catch {
+    fail('fleet-perf-hero did not finish loading');
+  }
+  const evidenceDir = resolve(
+    dirname(fileURLToPath(import.meta.url)),
+    '../docs/design/performance-intelligence/evidence',
+  );
+  await mkdir(evidenceDir, { recursive: true });
+  await page.screenshot({
+    path: resolve(evidenceDir, 'benchmarks-desktop.png'),
+    fullPage: false,
+  });
+  pass('saved benchmarks-desktop.png');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(300);
+  await page.screenshot({
+    path: resolve(evidenceDir, 'benchmarks-narrow.png'),
+    fullPage: false,
+  });
+  pass('saved benchmarks-narrow.png');
 
   await browser.close();
 

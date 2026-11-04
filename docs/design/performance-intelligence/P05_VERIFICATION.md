@@ -45,9 +45,10 @@ python -m unittest discover -s /tmp/fpi-handoff/fleet_performance_intelligence_c
 
 ## Interaction / browser smoke
 
-- Admin shell smoke: `tests/test_admin_html_smoke.py` (includes `fleet-perf-tablist`, run button IDs).
-- Full `scripts/smoke-admin-ui.mjs`: run locally when Fleet admin is up on port 18766.
-- Desktop/narrow screenshots: capture `/admin/#benchmarks` after `update-user.sh` (not committed in this pass — BACKLOG H2).
+- Admin shell smoke: `node scripts/smoke-admin-ui.mjs --base http://127.0.0.1:18766` (2026-11-04, local user service).
+- Benchmarks hero renders from `GET /v1/mesh/benchmarks/score` (live modeled cluster **248.3** on this host, baseline local).
+- Screenshots: `docs/design/performance-intelligence/evidence/benchmarks-desktop.png` (1280×900) and `benchmarks-narrow.png` (390×844).
+- Remaining smoke issue: overview `#fleet-load-chart` has no SVG on this host (pre-existing telemetry chart, not the performance score view).
 
 ## Acceptance criteria (mandatory)
 
@@ -75,7 +76,7 @@ python -m unittest discover -s /tmp/fpi-handoff/fleet_performance_intelligence_c
 
 | Class | Item |
 | --- | --- |
-| HARDENING | Playwright/desktop+narrow screenshots in `docs/design/performance-intelligence/evidence/` |
+| HARDENING | Overview load chart SVG empty on this host (`#fleet-load-chart`) |
 | HARDENING | Handbook submodule rebuild/deploy (`forge-fleet-website`) on operator request |
 | BACKLOG | Verified distributed throughput measurement |
 | LIMITATION | Granite baseline until live five-stage standard runs exist on Granite peer |

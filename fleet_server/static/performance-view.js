@@ -118,7 +118,7 @@
         '<div class="col-sm-6 col-lg-4"><div class="card h-100 border-secondary-subtle"><div class="card-body py-2">' +
         "<strong>" + esc(c.label || sid) + "</strong>" +
         '<div class="fs-5">' + esc(fmtScore(c.cluster_index)) + "</div>" +
-        '<div class="small text-body-secondary">weight " + esc(String(Math.round((c.weight || 0) * 100))) +
+        '<div class="small text-body-secondary">weight ' + esc(String(Math.round((c.weight || 0) * 100))) +
         "% · contrib " + esc(fmtScore(c.weighted_contribution)) + " · " + esc(c.unit || "") + "</div></div></div></div>";
     });
     html += "</div>";
