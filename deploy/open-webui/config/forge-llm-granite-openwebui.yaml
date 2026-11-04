@@ -9,8 +9,8 @@ gateway:
   bearer_env: FORGE_LLM_GATEWAY_BEARER
   auth_header: Authorization
 models:
-  - id: qwen3.5:2b
-    label: Chat — Qwen3.5 2B (4 GB tier, catalog Q2)
+  - id: qwen3.5:2b-q4_K_M
+    label: Chat — Qwen3.5 2B Q4 (4 GB tier, catalog Q2)
     forge_task: chat
     catalog_alias: Q2
   - id: qwen2.5-coder:3b
