@@ -46,9 +46,10 @@ services:
       FORGE_2B_ENABLE_LIVE: "1"
       FORGE_2B_CACHE_DIR: /var/lib/forge-2b/cache
       FORGE_2B_LLM_TIMEOUT: ${FORGE_2B_LLM_TIMEOUT:-180}
-      FORGE_2B_MAX_WINDOWS: ${FORGE_2B_MAX_WINDOWS:-200}
-      FORGE_2B_WINDOW_CHARS: ${FORGE_2B_WINDOW_CHARS:-3200}
-      FORGE_2B_TOP_N: ${FORGE_2B_TOP_N:-60}
+      # tuned on the NVDA FY26 10-K etalon (forge-2b-poc artifacts/P2B-GRAPH): smaller windows + top-80 with category caps
+      FORGE_2B_MAX_WINDOWS: ${FORGE_2B_MAX_WINDOWS:-240}
+      FORGE_2B_WINDOW_CHARS: ${FORGE_2B_WINDOW_CHARS:-2000}
+      FORGE_2B_TOP_N: ${FORGE_2B_TOP_N:-80}
     volumes:
       - shim_cache:/var/lib/forge-2b/cache
     extra_hosts:
