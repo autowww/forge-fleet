@@ -839,8 +839,197 @@ def comparison(data_dir: Path, *, fetch_peer: Callable[[str], tuple[int, dict[st
         "reference_nlp": reference_nlp,
         "cluster_score": round(cluster_total(capacity_parts, reference_nlp=reference_nlp), 1) if capacity_parts else None,
         "stress_weights": dict(STRESS_WEIGHTS),
+        "perf_scoring_version": "1.0",
         "rows": rows,
     }
+
+
+_FMS_STAGE_TO_DOMAIN = {
+    "postgres": "postgresql",
+    "duckdb": "duckdb",
+    "sqlite": "sqlite",
+    "compute": "numpy",
+    "nlp": "nlp",
+}
+
+
+def _fixture_id_from_fms(fms: dict[str, Any]) -> str | None:
+    summary = fms.get("summary") if isinstance(fms.get("summary"), dict) else {}
+    checksum = summary.get("workload_checksum")
+    revision = summary.get("data_revision")
+    if checksum and revision:
+        return f"{checksum}:{revision}"
+    if checksum:
+        return str(checksum)
+    return None
+
+
+def _rates_from_fms_stages(fms: dict[str, Any]) -> dict[str, Any]:
+    from fleet_server.perf_scoring import StageRates
+
+    inner = {}
+    stages_root = fms.get("stages") if isinstance(fms.get("stages"), dict) else {}
+    raw = stages_root.get("stages") if isinstance(stages_root.get("stages"), dict) else {}
+    out: dict[str, StageRates] = {}
+    for fms_key, domain_key in _FMS_STAGE_TO_DOMAIN.items():
+        stage = raw.get(fms_key) if isinstance(raw.get(fms_key), dict) else {}
+        single = stage.get("single") if isinstance(stage.get("single"), dict) else {}
+        multi = stage.get("multi") if isinstance(stage.get("multi"), dict) else {}
+        if not multi.get("rate") and isinstance(stage.get("double"), dict):
+            multi = stage["double"]
+        s_rate = multi.get("rate") if isinstance(multi, dict) else None
+        o_rate = single.get("rate") if isinstance(single, dict) else None
+        if o_rate is None and s_rate is None:
+            continue
+        try:
+            single_f = float(o_rate or 0)
+            max_f = float(s_rate or 0)
+        except (TypeError, ValueError):
+            continue
+        mw = multi.get("threads") if isinstance(multi, dict) else None
+        try:
+            max_workers = int(mw) if mw is not None else None
+        except (TypeError, ValueError):
+            max_workers = None
+        if max_f <= 0 or single_f <= 0:
+            continue
+        out[domain_key] = StageRates(single=single_f, max_rate=max_f, max_workers=max_workers)
+    return out
+
+
+def evidence_from_rows(rows: list[dict[str, Any]]) -> list[Any]:
+    """Map mesh comparison rows to performance scoring node evidence."""
+    from fleet_server.perf_scoring import NodeEvidence
+
+    nodes: list[NodeEvidence] = []
+    for row in rows:
+        peer_id = str(row.get("peer_id") or "")
+        fms = row.get("fmsbench") if isinstance(row.get("fmsbench"), dict) else {}
+        cap = row.get("capacity") if isinstance(row.get("capacity"), dict) else {}
+        fleet = row.get("fleet") if isinstance(row.get("fleet"), dict) else {}
+        label = str(row.get("label") or peer_id)
+        if row.get("node_id"):
+            label = f"{label} ({row.get('node_id')})"
+
+        evidence = "not_run"
+        if row.get("from_saved"):
+            evidence = "saved_snapshot"
+        elif fms.get("status") == "passed" and fms.get("stages"):
+            evidence = "recorded"
+        elif fms.get("status") in {"failed", "incomplete"}:
+            evidence = "run_failed"
+        elif row.get("error") or fms.get("status") == "unavailable":
+            evidence = "unavailable"
+
+        profile = str(fms.get("profile") or "standard")
+        if profile not in {"", "standard"} and evidence == "recorded":
+            pass
+        if profile in {"smoke", "micro"}:
+            evidence = "incompatible"
+
+        stages = _rates_from_fms_stages(fms)
+        connectivity = None
+        if row.get("live_error"):
+            connectivity = str(row["live_error"])
+        elif row.get("error"):
+            connectivity = str(row["error"])
+
+        nodes.append(
+            NodeEvidence(
+                node_id=peer_id or "unknown",
+                label=label,
+                evidence=evidence,
+                stages=stages,
+                connectivity=connectivity,
+                profile=profile if profile else "standard",
+                fixture_id=_fixture_id_from_fms(fms),
+                physical_cores=_positive_int(cap.get("physical_cores")),
+                logical_cpus=_positive_int(cap.get("hardware_threads")),
+                hardware_score=_positive_float(fleet.get("fleet_mark")),
+                run_id=str(fms.get("result_name") or "") or None,
+            )
+        )
+    return nodes
+
+
+def _parse_weight_query(raw: str | None) -> dict[str, float] | None:
+    if not raw:
+        return None
+    parts = [p.strip() for p in raw.split(",")]
+    if len(parts) != 5:
+        return None
+    keys = ("postgresql", "duckdb", "sqlite", "numpy", "nlp")
+    try:
+        return {keys[i]: float(parts[i]) for i in range(5)}
+    except ValueError:
+        return None
+
+
+def _market_studio_history(data_dir: Path, limit: int = 40) -> list[dict[str, Any]]:
+    path = _benchmarks_dir(data_dir) / "market-studio.jsonl"
+    if not path.is_file():
+        return []
+    lines = path.read_text(encoding="utf-8").splitlines()
+    out: list[dict[str, Any]] = []
+    for line in lines[-limit:]:
+        try:
+            doc = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(doc, dict):
+            out.append(doc)
+    return out
+
+
+def performance_score_view(
+    data_dir: Path,
+    *,
+    baseline_peer_id: str | None = None,
+    include_snapshots: bool = False,
+    weight_csv: str | None = None,
+    fetch_peer: Callable[[str], tuple[int, dict[str, Any] | None]] | None = None,
+) -> dict[str, Any]:
+    from fleet_server.perf_scoring import ScoringPolicy, compute_score
+
+    comp = comparison(data_dir, fetch_peer=fetch_peer)
+    rows = comp.get("rows") if isinstance(comp.get("rows"), list) else []
+    nodes = evidence_from_rows(rows)
+    baseline = (baseline_peer_id or comp.get("reference_peer_id") or "local").strip()
+    weights = _parse_weight_query(weight_csv)
+    baseline_node = next((n for n in nodes if n.node_id == baseline), None)
+    fixture_id = baseline_node.fixture_id if baseline_node else None
+    policy = ScoringPolicy(
+        baseline_node_id=baseline,
+        weights=weights,
+        include_snapshots=include_snapshots,
+        baseline_fixture_id=fixture_id,
+        baseline_profile="standard",
+    )
+    score = compute_score(nodes, policy)
+    score["insights"] = []
+    score["legacy_comparison"] = {
+        "reference_peer_id": comp.get("reference_peer_id"),
+        "cluster_score": comp.get("cluster_score"),
+        "composite_model": comp.get("composite_model"),
+    }
+    score["evidence"] = [
+        {
+            "peer_id": row.get("peer_id"),
+            "label": row.get("label"),
+            "from_saved": bool(row.get("from_saved")),
+            "saved_at": row.get("saved_at"),
+            "live_error": row.get("live_error") or row.get("error"),
+            "fmsbench": {
+                "status": (row.get("fmsbench") or {}).get("status"),
+                "profile": (row.get("fmsbench") or {}).get("profile"),
+                "result_name": (row.get("fmsbench") or {}).get("result_name"),
+                "finished_at": (row.get("fmsbench") or {}).get("finished_at"),
+            },
+        }
+        for row in rows
+    ]
+    score["history"] = {"market_studio_local": _market_studio_history(data_dir)}
+    return score
 
 
 def _safe_label(raw: str) -> str:

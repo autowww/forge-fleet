@@ -1009,6 +1009,25 @@ class FleetHandler(BaseHTTPRequestHandler):
             data_dir_c = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
             self._send(200, capacity.mesh_capacity(data_dir_c))
             return
+        if path == "/v1/mesh/benchmarks/score":
+            from fleet_server import fmsbench_runs
+
+            data_dir_b = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            q = parse_qs(urlparse(self.path).query)
+            baseline = (q.get("baseline") or [None])[0]
+            include_raw = (q.get("include_snapshots") or ["0"])[0].strip().lower()
+            include_snapshots = include_raw in {"1", "true", "yes", "on"}
+            weights = (q.get("weights") or [None])[0]
+            self._send(
+                200,
+                fmsbench_runs.performance_score_view(
+                    data_dir_b,
+                    baseline_peer_id=baseline,
+                    include_snapshots=include_snapshots,
+                    weight_csv=weights,
+                ),
+            )
+            return
         if path == "/v1/mesh/benchmarks":
             from fleet_server import fmsbench_runs
 
@@ -1552,15 +1571,19 @@ class FleetHandler(BaseHTTPRequestHandler):
                     },
                 )
                 return
-            catalog = forge_llm_service.fetch_gateway_catalog(int(gw["host_port"]))
+            catalog, cat_err = forge_llm_service.fetch_gateway_catalog_detailed(
+                int(gw["host_port"]), compose_root=root
+            )
             if catalog is None:
+                # 503 (not 502): Cloudflare replaces origin 502 bodies with its own page.
                 self._send(
-                    502,
+                    503,
                     {
                         "ok": False,
                         "error": "catalog_unavailable",
-                        "detail": "Could not fetch GET /v1/llm/catalog from forge-gateway.",
+                        "detail": f"Could not fetch GET /v1/llm/catalog from forge-gateway: {cat_err or 'unknown'}",
                         "gateway_publish": gw,
+                        "service_id": sid,
                     },
                 )
                 return
