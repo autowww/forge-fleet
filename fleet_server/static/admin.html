@@ -95,15 +95,66 @@
     Page overview
   </button>
 
-  <main class="container pb-5">
-    <header class="mb-3 fleet-admin-chrome">
-      <h1 class="h3 fleet-admin-title mb-1">Forge Fleet — status</h1>
-      <p class="text-body-secondary small mb-1 d-flex flex-wrap align-items-center gap-2">
-        <span id="fleet-version-line" class="fleet-mono" aria-live="polite">Loading version…</span>
-        <span id="fleet-install-channel" class="badge text-bg-secondary fleet-mono small fleet-local-only" title="Install channel"></span>
-        <span id="fleet-git-remote-row" class="small fleet-mono fleet-local-only" aria-live="polite"></span>
-        <span id="fleet-self-update-status" class="fleet-mono small fleet-local-only" aria-live="polite"></span>
-      </p>
+  <div class="fleet-app-shell">
+    <aside class="fleet-app-rail" aria-label="Fleet navigation">
+      <div class="logo">
+        <div class="logoicon">F</div>
+        <div>
+          <div class="logoname">fleet<span style="color:#6ea1fd">.</span></div>
+          <div class="logosub">FORGE FLEET</div>
+        </div>
+      </div>
+      <div>
+        <div class="navtitle">Fleet</div>
+        <ul class="nav fleet-app-nav" id="fleet-admin-tablist" role="tablist">
+          <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="fleet-tab-overview-btn" data-bs-toggle="tab" data-bs-target="#fleet-tab-overview" type="button" role="tab" aria-controls="fleet-tab-overview" aria-selected="true">Overview</button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="fleet-tab-services-btn" data-bs-toggle="tab" data-bs-target="#fleet-tab-services" type="button" role="tab" aria-controls="fleet-tab-services" aria-selected="false" tabindex="-1">Services</button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="fleet-tab-containers-btn" data-bs-toggle="tab" data-bs-target="#fleet-tab-containers" type="button" role="tab" aria-controls="fleet-tab-containers" aria-selected="false" tabindex="-1">Containers</button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="fleet-tab-jobs-btn" data-bs-toggle="tab" data-bs-target="#fleet-tab-jobs" type="button" role="tab" aria-controls="fleet-tab-jobs" aria-selected="false" tabindex="-1">Jobs</button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="fleet-tab-apps-btn" data-bs-toggle="tab" data-bs-target="#fleet-tab-apps" type="button" role="tab" aria-controls="fleet-tab-apps" aria-selected="false" tabindex="-1">Apps</button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="fleet-tab-capacity-btn" data-bs-toggle="tab" data-bs-target="#fleet-tab-capacity" type="button" role="tab" aria-controls="fleet-tab-capacity" aria-selected="false" tabindex="-1">Capacity</button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="fleet-tab-benchmarks-btn" data-bs-toggle="tab" data-bs-target="#fleet-tab-benchmarks" type="button" role="tab" aria-controls="fleet-tab-benchmarks" aria-selected="false" tabindex="-1">Benchmarks</button>
+          </li>
+          <span id="fleet-dynamic-app-tabs" class="d-contents"></span>
+        </ul>
+      </div>
+      <div>
+        <div class="navtitle">Benchmark studio</div>
+        <div id="fleet-perf-tablist" class="nav" role="tablist" aria-label="Performance intelligence pages">
+          <button type="button" class="navbtn active" data-page="overview" role="tab" aria-selected="true"><span class="ico">▦</span> Command center</button>
+          <button type="button" class="navbtn" data-page="threads" role="tab" aria-selected="false"><span class="ico">☷</span> Multi-thread explorer</button>
+          <button type="button" class="navbtn" data-page="scoring" role="tab" aria-selected="false"><span class="ico">◈</span> Cluster scoring</button>
+          <button type="button" class="navbtn" data-page="insights" role="tab" aria-selected="false"><span class="ico">✧</span> Insights &amp; actions <span class="navbadge" id="fleet-perf-insights-badge">0</span></button>
+          <button type="button" class="navbtn" data-page="evidence" role="tab" aria-selected="false"><span class="ico">▤</span> Nodes &amp; evidence</button>
+        </div>
+      </div>
+      <div class="asidebottom" id="fleet-perf-connection"><b><span class="minidot"></span> Cluster view</b><br>Loading node inventory…</div>
+      <div class="asidebottom fleet-app-meta">
+        <h1 class="fleet-admin-title">Forge Fleet — status</h1>
+        <p class="mb-0">
+          <span id="fleet-version-line" class="fleet-mono" aria-live="polite">Loading version…</span>
+          <span id="fleet-install-channel" class="badge text-bg-secondary fleet-mono small fleet-local-only" title="Install channel"></span>
+        </p>
+        <p class="mb-0"><span id="fleet-git-remote-row" class="fleet-mono fleet-local-only" aria-live="polite"></span></p>
+        <p class="mb-0"><span id="fleet-self-update-status" class="fleet-mono fleet-local-only" aria-live="polite"></span></p>
+        <div id="fleet-bench-consoles" class="fleet-app-consoles">Loading Fleet consoles…</div>
+      </div>
+    </aside>
+    <main class="fleet-app-main">
+    <header class="fleet-admin-chrome d-none" aria-hidden="true"></header>
       <p class="text-body-secondary small mb-1 d-none" id="fleet-forge-console-wrap">
         <a id="fleet-forge-console" href="#" target="_blank" rel="noopener">Open Forge LLM console</a>
         <span class="text-body-secondary"> (set <code class="fleet-mono">FLEET_FORGE_CONSOLE_URL</code> on Fleet)</span>
@@ -114,7 +165,6 @@
         style="max-height: 14rem; overflow: auto; white-space: pre-wrap"
       ></pre>
       <div class="alert alert-danger py-2 px-3 mb-2 small d-none" id="err" role="alert"></div>
-    </header>
 
     <div class="d-flex flex-wrap align-items-center gap-2 mb-2" id="fleet-scope-bar">
       <label class="small text-body-secondary mb-0" for="fleet-scope-select">Fleet scope</label>
@@ -145,114 +195,6 @@
     <div class="alert alert-info py-2 px-3 mb-3 small d-none" id="fleet-scope-remote-banner" role="status">
       <span id="fleet-scope-remote-banner-text">Viewing remote peer (read-only).</span>
     </div>
-
-    <ul class="nav nav-tabs mb-3 flex-nowrap overflow-auto fleet-admin-tablist" id="fleet-admin-tablist" role="tablist">
-      <li class="nav-item" role="presentation">
-        <button
-          class="nav-link active"
-          id="fleet-tab-overview-btn"
-          data-bs-toggle="tab"
-          data-bs-target="#fleet-tab-overview"
-          type="button"
-          role="tab"
-          aria-controls="fleet-tab-overview"
-          aria-selected="true"
-        >
-          Overview
-        </button>
-      </li>
-      <li class="nav-item" role="presentation">
-        <button
-          class="nav-link"
-          id="fleet-tab-services-btn"
-          data-bs-toggle="tab"
-          data-bs-target="#fleet-tab-services"
-          type="button"
-          role="tab"
-          aria-controls="fleet-tab-services"
-          aria-selected="false"
-          tabindex="-1"
-        >
-          Services
-        </button>
-      </li>
-      <li class="nav-item" role="presentation">
-        <button
-          class="nav-link"
-          id="fleet-tab-containers-btn"
-          data-bs-toggle="tab"
-          data-bs-target="#fleet-tab-containers"
-          type="button"
-          role="tab"
-          aria-controls="fleet-tab-containers"
-          aria-selected="false"
-          tabindex="-1"
-        >
-          Containers
-        </button>
-      </li>
-      <li class="nav-item" role="presentation">
-        <button
-          class="nav-link"
-          id="fleet-tab-jobs-btn"
-          data-bs-toggle="tab"
-          data-bs-target="#fleet-tab-jobs"
-          type="button"
-          role="tab"
-          aria-controls="fleet-tab-jobs"
-          aria-selected="false"
-          tabindex="-1"
-        >
-          Jobs
-        </button>
-      </li>
-      <li class="nav-item" role="presentation">
-        <button
-          class="nav-link"
-          id="fleet-tab-apps-btn"
-          data-bs-toggle="tab"
-          data-bs-target="#fleet-tab-apps"
-          type="button"
-          role="tab"
-          aria-controls="fleet-tab-apps"
-          aria-selected="false"
-          tabindex="-1"
-        >
-          Apps
-        </button>
-      </li>
-      <li class="nav-item" role="presentation">
-        <button
-          class="nav-link"
-          id="fleet-tab-capacity-btn"
-          data-bs-toggle="tab"
-          data-bs-target="#fleet-tab-capacity"
-          type="button"
-          role="tab"
-          aria-controls="fleet-tab-capacity"
-          aria-selected="false"
-          tabindex="-1"
-        >
-          Capacity
-        </button>
-      </li>
-      <li class="nav-item" role="presentation">
-        <button
-          class="nav-link"
-          id="fleet-tab-benchmarks-btn"
-          data-bs-toggle="tab"
-          data-bs-target="#fleet-tab-benchmarks"
-          type="button"
-          role="tab"
-          aria-controls="fleet-tab-benchmarks"
-          aria-selected="false"
-          tabindex="-1"
-        >
-          Benchmarks
-        </button>
-      </li>
-      <span id="fleet-dynamic-app-tabs" class="d-contents"></span>
-    </ul>
 
     <div class="tab-content" id="fleet-admin-tab-content">
       <div
@@ -596,32 +538,9 @@
         aria-labelledby="fleet-tab-benchmarks-btn"
         tabindex="0"
       >
-        <p id="fleet-bench-msg" class="fleet-mono small text-body-secondary mb-2" aria-live="polite"></p>
-        <h2 class="h6 text-uppercase text-body-secondary mb-2" id="fleet-bench-page-title">Forge Benchmarks</h2>
-        <p class="small text-body-secondary mb-3">One page: what was measured, how scores are defined, and how to run again. Hardware and Market Studio stay separate measurements. Capacity tab shows a short summary only.</p>
-        <div id="fleet-bench-consoles" class="small mb-3 text-body-secondary">Loading Fleet consoles…</div>
-        <div id="fleet-perf-studio" class="fpi mb-3">
-          <div class="shell">
-            <aside class="sidebar">
-              <div class="logo">
-                <div class="logoicon">F</div>
-                <div>
-                  <div class="logoname">fleet<span style="color:#6ea1fd">.</span></div>
-                  <div class="logosub">PERFORMANCE INTELLIGENCE</div>
-                </div>
-              </div>
-              <div>
-                <div class="navtitle">Benchmark studio</div>
-                <div id="fleet-perf-tablist" class="nav" role="tablist" aria-label="Performance intelligence pages">
-                  <button type="button" class="navbtn active" data-page="overview" role="tab" aria-selected="true"><span class="ico">▦</span> Command center</button>
-                  <button type="button" class="navbtn" data-page="threads" role="tab" aria-selected="false"><span class="ico">☷</span> Multi-thread explorer</button>
-                  <button type="button" class="navbtn" data-page="scoring" role="tab" aria-selected="false"><span class="ico">◈</span> Cluster scoring</button>
-                  <button type="button" class="navbtn" data-page="insights" role="tab" aria-selected="false"><span class="ico">✧</span> Insights &amp; actions <span class="navbadge" id="fleet-perf-insights-badge">0</span></button>
-                  <button type="button" class="navbtn" data-page="evidence" role="tab" aria-selected="false"><span class="ico">▤</span> Nodes &amp; evidence</button>
-                </div>
-              </div>
-              <div class="asidebottom" id="fleet-perf-connection"><b><span class="minidot"></span> Cluster view</b><br>Loading node inventory…</div>
-            </aside>
+        <p id="fleet-bench-msg" class="fleet-mono small mb-2" aria-live="polite"></p>
+        <h2 id="fleet-bench-page-title" class="visually-hidden">Performance intelligence</h2>
+        <div id="fleet-perf-studio" class="fpi">
             <div class="content">
               <div class="topbar">
                 <div>
@@ -639,7 +558,6 @@
               </div>
               <div id="fleet-perf-main"><div class="card pad">Loading scores…</div></div>
             </div>
-          </div>
         </div>
         <div id="fleet-perf-evidence-static" class="d-none" aria-hidden="true">
             <section class="card border-secondary-subtle shadow-sm mb-3">
@@ -694,7 +612,8 @@
       </div>
       <div id="fleet-dynamic-app-panes" class="d-contents"></div>
     </div>
-  </main>
+    </main>
+  </div>
 
   <div
     class="offcanvas offcanvas-end"

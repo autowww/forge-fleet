@@ -13,3 +13,44 @@ html[data-bs-theme="dark"] .fpi .notice{background:#2a2418;border-color:#4a4020;
 html[data-bs-theme="dark"] .fpi .subtlebox{background:var(--fpi-paper);border-color:var(--fpi-line);}
 html[data-bs-theme="dark"] .fpi .tabchip{background:var(--fpi-paper);border-color:var(--fpi-line);color:var(--fpi-sub);}
 html[data-bs-theme="dark"] .fpi .tabchip.active{background:var(--fpi-bluebg);color:#8ab4ff;border-color:#4a6a9a;}
+
+/* Whole admin shell — same studio language as the benchmark prototype. */
+body.fleet-admin-body{margin:0;background:#f4f7fc;color:#14233c;}
+.fleet-app-shell{display:grid;grid-template-columns:248px minmax(0,1fr);min-height:100vh;align-items:stretch;}
+.fleet-app-rail{background:#101d32;color:#e3ebfb;padding:22px 14px 16px;display:flex;flex-direction:column;gap:18px;position:sticky;top:0;height:100vh;overflow:auto;}
+.fleet-app-rail .logo{display:flex;align-items:center;gap:11px;padding:0 9px;}
+.fleet-app-rail .logoicon{width:35px;height:35px;border-radius:11px;display:grid;place-items:center;background:#3478f5;color:#fff;font-weight:900;font-size:18px;}
+.fleet-app-rail .logoname{font-size:17px;font-weight:850;letter-spacing:-.65px;line-height:1.1;}
+.fleet-app-rail .logosub{font-size:10px;color:#8e9db6;margin-top:3px;letter-spacing:.08em;}
+.fleet-app-rail .navtitle{font-size:10px;font-weight:800;letter-spacing:1.2px;color:#7486a4;text-transform:uppercase;padding:0 12px;margin-bottom:8px;}
+.fleet-app-rail .nav{display:flex;flex-direction:column;gap:4px;list-style:none;padding:0;margin:0;}
+.fleet-app-rail .nav-item{list-style:none;}
+.fleet-app-rail .nav-link,.fleet-app-rail .navbtn{border:0;background:transparent;color:#a6b5cc;text-align:left;display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;font-weight:670;width:100%;font-size:13px;}
+.fleet-app-rail .nav-link:hover,.fleet-app-rail .navbtn:hover{color:#fff;background:#1b2c49;}
+.fleet-app-rail .nav-link.active,.fleet-app-rail .navbtn.active{background:#263e64;color:#fff;}
+.fleet-app-rail .navbtn .ico{width:21px;font-size:16px;text-align:center;}
+.fleet-app-rail .navbadge{margin-left:auto;background:#37547d;font-size:10px;padding:2px 7px;border-radius:6px;}
+.fleet-app-rail .asidebottom{background:#1b2a45;border-radius:12px;padding:12px 14px;color:#93a6c6;font-size:11px;}
+.fleet-app-rail .asidebottom b{color:#e8f0ff;}
+.fleet-app-rail .minidot{display:inline-block;width:7px;height:7px;background:#38caa7;border-radius:100%;margin-right:5px;}
+.fleet-app-meta .fleet-admin-title{font-size:12px;font-weight:750;color:#e8f0ff;margin:0 0 6px;line-height:1.3;}
+.fleet-app-meta p{margin:0 0 4px;color:#93a6c6;font-size:11px;}
+.fleet-app-consoles{margin-top:8px;color:#b7c6de;font-size:11px;line-height:1.45;}
+.fleet-app-consoles a{color:#9ec0ff;}
+.fleet-app-main{min-width:0;background:#f4f7fc;color:#14233c;padding:22px 28px 56px;}
+.fleet-app-main .card{background:#fff;color:#14233c;border-color:#e3eaf3;border-radius:15px;}
+.fleet-app-main .text-body-secondary{color:#62738c !important;}
+#fleet-scope-bar{background:#fff;border:1px solid #e3eaf3;border-radius:12px;padding:10px 12px;margin-bottom:16px;}
+#fleet-perf-studio.fpi{background:transparent;border-radius:0;overflow:visible;}
+#fleet-perf-studio .content{max-width:none;padding:4px 0 32px;margin:0;}
+html[data-bs-theme="dark"] body.fleet-admin-body{background:#0f1727;}
+html[data-bs-theme="dark"] .fleet-app-main{background:#0f1727;color:#e6edf8;}
+html[data-bs-theme="dark"] .fleet-app-main .card{background:#16213a;color:#e6edf8;border-color:#243352;}
+html[data-bs-theme="dark"] #fleet-scope-bar{background:#16213a;border-color:#243352;}
+@media(max-width:920px){
+  .fleet-app-shell{grid-template-columns:1fr;}
+  .fleet-app-rail{position:relative;height:auto;flex-direction:row;flex-wrap:wrap;align-items:flex-start;gap:12px;}
+  .fleet-app-rail .nav{flex-direction:row;flex-wrap:wrap;}
+  .fleet-app-rail .nav-link,.fleet-app-rail .navbtn{width:auto;}
+  .fleet-app-rail .asidebottom{display:none;}
+}

@@ -1045,8 +1045,16 @@
     });
   }
 
+  function ensureBenchmarksTab() {
+    var btn = document.getElementById("fleet-tab-benchmarks-btn");
+    if (!btn || !window.bootstrap || !window.bootstrap.Tab) return;
+    if (btn.classList.contains("active")) return;
+    window.bootstrap.Tab.getOrCreateInstance(btn).show();
+  }
+
   function goPage(page) {
     if (!PAGE_COPY[page]) return;
+    ensureBenchmarksTab();
     STATE.page = page;
     saveState();
     syncPageChrome();
@@ -1092,20 +1100,23 @@
     }
   }
 
+  function onStudioClick(ev) {
+    var t = ev.target.closest("[data-page],[data-action]");
+    if (!t) return;
+    if (t.hasAttribute("data-page")) {
+      goPage(t.getAttribute("data-page"));
+      return;
+    }
+    var act = t.getAttribute("data-action");
+    if (act) handleAction(act, t);
+  }
+
   function bindStudioEvents() {
     if (BOUND) return;
     BOUND = true;
-    var studio = document.getElementById("fleet-perf-studio");
-    if (!studio) return;
-    studio.addEventListener("click", function (ev) {
-      var t = ev.target.closest("[data-page],[data-action]");
-      if (!t) return;
-      if (t.hasAttribute("data-page")) {
-        goPage(t.getAttribute("data-page"));
-        return;
-      }
-      var act = t.getAttribute("data-action");
-      if (act) handleAction(act, t);
+    ["fleet-perf-tablist", "fleet-perf-studio"].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.addEventListener("click", onStudioClick);
     });
     var plan = document.getElementById("fleet-perf-plan-run");
     if (plan) plan.onclick = planRunFocus;
