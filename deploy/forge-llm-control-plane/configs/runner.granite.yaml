@@ -43,7 +43,7 @@ artifact_pins:
       active_requests: 1
       p95_latency_ms: 12760
       task_quality_score: 1.0
-      runtime_version: ollama 0.30.0
+      runtime_version: ollama 0.40.13
   - runner_model_id: qwen2.5-coder:3b
     catalog_alias: C3            # Qwen/Qwen2.5-Coder-3B-Instruct — code_complete, code_generate, testgen
     precision: Q4_K_M
