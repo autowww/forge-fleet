@@ -57,16 +57,29 @@ class OllamaAdapter:
                 out.append(str(m["name"]))
         return out
 
+    @staticmethod
+    def _is_embedding_model(model: str) -> bool:
+        s = model.lower()
+        return "embed" in s or "rerank" in s or "bge-" in s or s.startswith("e5-")
+
     async def warm(self, model: str) -> tuple[bool, str | None]:
-        url = f"{self.base_url}/api/generate"
-        payload: dict[str, Any] = {
-            "model": model,
-            "prompt": "ping",
-            "stream": False,
-            "options": {"num_predict": 1, "num_ctx": 512},
-        }
-        if "qwen" in model.lower():
-            payload["think"] = False
+        """
+        Load ``model`` into VRAM. Embedding models reject ``/api/generate``
+        ("does not support generate"), so warm them through ``/api/embed``.
+        """
+        if self._is_embedding_model(model):
+            url = f"{self.base_url}/api/embed"
+            payload: dict[str, Any] = {"model": model, "input": "ping"}
+        else:
+            url = f"{self.base_url}/api/generate"
+            payload = {
+                "model": model,
+                "prompt": "ping",
+                "stream": False,
+                "options": {"num_predict": 1, "num_ctx": 512},
+            }
+            if "qwen" in model.lower():
+                payload["think"] = False
         try:
             async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=15.0)) as client:
                 r = await client.post(url, json=payload)
@@ -79,13 +92,17 @@ class OllamaAdapter:
     async def unload(self, model: str) -> None:
         if not self.config.exclusive_slot:
             return
-        url = f"{self.base_url}/api/generate"
-        payload = {
-            "model": model,
-            "prompt": "",
-            "stream": False,
-            "keep_alive": 0,
-        }
+        if self._is_embedding_model(model):
+            url = f"{self.base_url}/api/embed"
+            payload: dict[str, Any] = {"model": model, "input": "", "keep_alive": 0}
+        else:
+            url = f"{self.base_url}/api/generate"
+            payload = {
+                "model": model,
+                "prompt": "",
+                "stream": False,
+                "keep_alive": 0,
+            }
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 await client.post(url, json=payload)
