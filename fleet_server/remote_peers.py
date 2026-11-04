@@ -194,12 +194,13 @@ def proxy_get(
     upstream_path: str,
     *,
     query: str = "",
+    timeout_s: float | None = None,
 ) -> tuple[int, bytes, str]:
     peer = get_peer(data_dir, peer_id)
     if peer is None:
         body = json.dumps({"ok": False, "error": "not_found"}).encode("utf-8")
         return 404, body, "application/json"
-    return _request_peer(peer, upstream_path, query=query)
+    return _request_peer(peer, upstream_path, query=query, timeout_s=timeout_s)
 
 
 def proxy_json(

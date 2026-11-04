@@ -336,6 +336,7 @@
 
   window.forgeFleetPerformanceView = {
     render: render,
+    renderConsoles: renderConsoles,
     readPolicy: readPolicy,
     writePolicy: writePolicy,
     scoreQuery: scoreQuery,

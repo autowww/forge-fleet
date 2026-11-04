@@ -749,11 +749,83 @@ def batch_status(data_dir: Path) -> dict[str, Any] | None:
     return doc if isinstance(doc, dict) else None
 
 
+_BENCH_PEER_TIMEOUT_S = 8.0
+_COMPARISON_CACHE_S = 15.0
+_comparison_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+_comparison_cache_lock = threading.Lock()
+
+
+def _cached_comparison(data_dir: Path) -> dict[str, Any] | None:
+    key = str(data_dir.resolve())
+    now = time.time()
+    with _comparison_cache_lock:
+        hit = _comparison_cache.get(key)
+        if hit is None or (now - hit[0]) >= _COMPARISON_CACHE_S:
+            return None
+        return json.loads(json.dumps(hit[1]))
+
+
+def _store_comparison(data_dir: Path, doc: dict[str, Any]) -> None:
+    with _comparison_cache_lock:
+        _comparison_cache[str(data_dir.resolve())] = (time.time(), doc)
+
+
+def _peer_row_from_fetch(peer_id: str, label: str, code: int, payload: dict[str, Any] | None) -> dict[str, Any]:
+    if code != 200 or not isinstance(payload, dict):
+        return {
+            "peer_id": peer_id,
+            "label": label,
+            "error": "http_%s" % code,
+            "fleet": None,
+            "fmsbench": {"suite": SUITE, "status": "unavailable"},
+        }
+    return row_from_profile(peer_id, label, payload)
+
+
+def _fetch_remote_rows(
+    peers: list[dict[str, Any]],
+    fetcher: Callable[[str], tuple[int, dict[str, Any] | None]],
+) -> list[dict[str, Any]]:
+    from concurrent.futures import ThreadPoolExecutor
+
+    usable = [peer for peer in peers if str(peer.get("id") or "")]
+
+    def one(peer: dict[str, Any]) -> dict[str, Any]:
+        peer_id = str(peer.get("id") or "")
+        label = str(peer.get("label") or peer_id)
+        try:
+            code, payload = fetcher(peer_id)
+        except Exception as exc:  # noqa: BLE001 — one peer must not block the page
+            return {
+                "peer_id": peer_id,
+                "label": label,
+                "error": str(exc)[:200],
+                "fleet": None,
+                "fmsbench": {"suite": SUITE, "status": "unavailable"},
+            }
+        return _peer_row_from_fetch(peer_id, label, code, payload)
+
+    if len(usable) <= 1:
+        return [one(peer) for peer in usable]
+    with ThreadPoolExecutor(max_workers=min(8, len(usable))) as pool:
+        return list(pool.map(one, usable))
+
+
 def comparison(data_dir: Path, *, fetch_peer: Callable[[str], tuple[int, dict[str, Any] | None]] | None = None) -> dict[str, Any]:
     from fleet_server import host_profile, remote_peers
 
+    if fetch_peer is None:
+        cached = _cached_comparison(data_dir)
+        if cached is not None:
+            return cached
+
     def default_fetch(peer_id: str) -> tuple[int, dict[str, Any] | None]:
-        code, raw, _ctype = remote_peers.proxy_get(data_dir, peer_id, "/v1/host/profile")
+        code, raw, _ctype = remote_peers.proxy_get(
+            data_dir,
+            peer_id,
+            "/v1/host/profile",
+            timeout_s=_BENCH_PEER_TIMEOUT_S,
+        )
         try:
             payload = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError):
@@ -769,32 +841,8 @@ def comparison(data_dir: Path, *, fetch_peer: Callable[[str], tuple[int, dict[st
     }
     rows = [row_from_profile("local", socket.gethostname(), local_doc)]
     fetcher = fetch_peer or default_fetch
-    for peer in remote_peers.list_peers(data_dir).get("peers") or []:
-        peer_id = str(peer.get("id") or "")
-        label = str(peer.get("label") or peer_id)
-        if not peer_id:
-            continue
-        try:
-            code, payload = fetcher(peer_id)
-        except Exception as exc:  # noqa: BLE001
-            rows.append({
-                "peer_id": peer_id,
-                "label": label,
-                "error": str(exc)[:200],
-                "fleet": None,
-                "fmsbench": {"suite": SUITE, "status": "unavailable"},
-            })
-            continue
-        if code != 200 or not isinstance(payload, dict):
-            rows.append({
-                "peer_id": peer_id,
-                "label": label,
-                "error": "http_%s" % code,
-                "fleet": None,
-                "fmsbench": {"suite": SUITE, "status": "unavailable"},
-            })
-            continue
-        rows.append(row_from_profile(peer_id, label, payload))
+    listed = [peer for peer in (remote_peers.list_peers(data_dir).get("peers") or []) if isinstance(peer, dict)]
+    rows.extend(_fetch_remote_rows(listed, fetcher))
     rows = _merge_saved_rows(data_dir, rows)
     reference = next((row for row in rows if row.get("peer_id") == "local"), None)
     ref_fms = reference.get("fmsbench") if isinstance(reference, dict) else None
@@ -828,7 +876,7 @@ def comparison(data_dir: Path, *, fetch_peer: Callable[[str], tuple[int, dict[st
                 width_scored = composite_score(reference_width, candidate_width)
                 if width_scored is not None:
                     fms[field] = round(width_scored, 1)
-    return {
+    doc = {
         "ok": True,
         "name": "Forge Benchmarks",
         "separation": "hardware and Market Studio are different measurements",
@@ -842,6 +890,9 @@ def comparison(data_dir: Path, *, fetch_peer: Callable[[str], tuple[int, dict[st
         "perf_scoring_version": "1.0",
         "rows": rows,
     }
+    if fetch_peer is None:
+        _store_comparison(data_dir, doc)
+    return doc
 
 
 _FMS_STAGE_TO_DOMAIN = {
@@ -1014,7 +1065,10 @@ def performance_score_view(
         "reference_peer_id": comp.get("reference_peer_id"),
         "cluster_score": comp.get("cluster_score"),
         "composite_model": comp.get("composite_model"),
+        "reference_nlp": comp.get("reference_nlp"),
     }
+    score["rows"] = rows
+    score["batch"] = comp.get("batch")
     score["evidence"] = [
         {
             "peer_id": row.get("peer_id"),

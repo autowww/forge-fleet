@@ -669,70 +669,81 @@
   function loadCompare() {
     var root = document.getElementById("fleet-capacity-compare-body");
     var measure = document.getElementById("fleet-bench-measure-body");
-    if (!root && !measure && !document.getElementById("fleet-perf-hero")) return;
-    Promise.all([
-      fleetApi("/v1/mesh/benchmarks").then(function (r) {
-        return r.json().then(function (j) {
-          if (!r.ok) throw new Error((j && j.error) || "HTTP " + r.status);
-          return j;
-        });
-      }),
-      fleetApi("/v1/mesh/capacity").then(function (r) {
-        return r.json().then(function (j) {
-          return r.ok && j ? j : { nodes: [] };
-        });
-      }).catch(function () {
-        return { nodes: [] };
-      }),
-      fleetApi("/v1/remote-peers").then(function (r) {
-        return r.json().then(function (j) {
-          return r.ok && j ? j : { peers: [] };
-        });
-      }).catch(function () {
-        return { peers: [] };
-      }),
-    ])
-      .then(function (parts) {
-        renderScoreboard(parts[0], parts[1]);
-        var peers = (parts[2] && parts[2].peers) || [];
-        var defaultBaseline = (parts[0] && parts[0].reference_peer_id) || "local";
-        var scorePath = "/v1/mesh/benchmarks/score";
-        if (window.forgeFleetPerformanceView && typeof window.forgeFleetPerformanceView.scoreQuery === "function") {
-          scorePath += "?" + window.forgeFleetPerformanceView.scoreQuery(defaultBaseline);
-        }
-        return fleetApi(scorePath)
-          .then(function (r) {
-            return r.json().then(function (j) {
-              if (!r.ok) throw new Error((j && j.error) || "HTTP " + r.status);
-              return j;
-            });
-          })
-          .then(function (scoreDoc) {
-            if (window.forgeFleetPerformanceView && typeof window.forgeFleetPerformanceView.render === "function") {
-              window.forgeFleetPerformanceView.render(scoreDoc, {
-                peers: peers,
-                comparisonDoc: parts[0],
-                onPolicyChange: loadCompare,
-              });
-            } else if (window.forgeFleetBenchmarksView && typeof window.forgeFleetBenchmarksView.render === "function") {
-              window.forgeFleetBenchmarksView.render(parts[0], { peers: peers });
-            }
-            if (comparisonBusy(parts[0]) && !compareTimer) {
-              compareTimer = setTimeout(function () {
-                compareTimer = null;
-                loadCompare();
-                refreshCapacity();
-              }, 5000);
-            }
-          });
-      })
-      .catch(function (e) {
-        var message = "Could not load scores: " + (e && e.message ? e.message : e);
-        if (root) root.textContent = message;
-        if (measure) measure.textContent = message;
-        var hero = document.getElementById("fleet-perf-hero");
-        if (hero) hero.textContent = message;
+    var hero = document.getElementById("fleet-perf-hero");
+    if (!root && !measure && !hero) return;
+
+    function readJson(r) {
+      return r.json().then(function (j) {
+        if (!r.ok) throw new Error((j && j.error) || "HTTP " + r.status);
+        return j;
       });
+    }
+
+    fleetApi("/v1/remote-peers")
+      .then(readJson)
+      .then(function (j) {
+        var peers = (j && j.peers) || [];
+        if (window.forgeFleetPerformanceView && typeof window.forgeFleetPerformanceView.renderConsoles === "function") {
+          window.forgeFleetPerformanceView.renderConsoles(peers);
+        }
+      })
+      .catch(function () {});
+
+    var latestComparison = null;
+
+    if (hero || measure) {
+      var defaultBaseline = "local";
+      var scorePath = "/v1/mesh/benchmarks/score";
+      if (window.forgeFleetPerformanceView && typeof window.forgeFleetPerformanceView.scoreQuery === "function") {
+        scorePath += "?" + window.forgeFleetPerformanceView.scoreQuery(defaultBaseline);
+      }
+      fleetApi(scorePath)
+        .then(readJson)
+        .then(function (scoreDoc) {
+          var legacy = scoreDoc.legacy_comparison || {};
+          var comparisonDoc = {
+            ok: true,
+            rows: scoreDoc.rows || [],
+            reference_peer_id: legacy.reference_peer_id || "local",
+            reference_nlp: legacy.reference_nlp,
+            cluster_score: legacy.cluster_score,
+            batch: scoreDoc.batch || null,
+          };
+          latestComparison = comparisonDoc;
+          if (window.forgeFleetPerformanceView && typeof window.forgeFleetPerformanceView.render === "function") {
+            window.forgeFleetPerformanceView.render(scoreDoc, {
+              comparisonDoc: comparisonDoc,
+              onPolicyChange: loadCompare,
+            });
+          }
+          if (root) {
+            fleetApi("/v1/mesh/capacity")
+              .then(function (r) {
+                return r.json().then(function (j) {
+                  return r.ok && j ? j : { nodes: [] };
+                });
+              })
+              .catch(function () {
+                return { nodes: [] };
+              })
+              .then(function (mesh) {
+                if (latestComparison) renderScoreboard(latestComparison, mesh);
+              });
+          }
+          if (comparisonBusy(comparisonDoc) && !compareTimer) {
+            compareTimer = setTimeout(function () {
+              compareTimer = null;
+              loadCompare();
+              refreshCapacity();
+            }, 5000);
+          }
+        })
+        .catch(function (e) {
+          var message = "Could not load scores: " + (e && e.message ? e.message : e);
+          if (hero) hero.textContent = message;
+          if (measure) measure.textContent = message;
+        });
+    }
   }
 
   function peerLabel(row) {
