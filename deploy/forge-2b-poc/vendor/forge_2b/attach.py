@@ -369,7 +369,6 @@ def render_answer(run_id: str, ctx: Context, decision: dict[str, Any] | None, hi
     if note:
         out.append(f"\n_{note}_")
     out.append(render_log(run_id, steps, hits, raw=(decision or {}).get("model_output", {}).get("raw")))
-    out.append(render_graph_html(run_id, steps))
     return "\n".join(out)
 
 
@@ -387,35 +386,3 @@ def render_log(run_id: str, steps: list[dict[str, Any]], hits: list[Hit], *, raw
         out.append("```json\n" + raw.strip().replace("```", "'''") + "\n```")
     out.append("")
     return "\n".join(out)
-
-
-def render_graph_html(run_id: str, steps: list[dict[str, Any]]) -> str:
-    """Vertical node list (fits the narrow Open WebUI Artifacts pane without horizontal scroll)."""
-    bw, bh, gap, x = 440, 74, 26, 8
-    boxes = []
-    for i, s in enumerate(steps):
-        y = 8 + i * (bh + gap)
-        color = {"COMMITTED": "#2e7d32", "FAILED": "#c62828", "SKIPPED": "#9e9e9e"}.get(s["status"], "#1565c0")
-        fill = "#e8f5e9" if s["status"] == "COMMITTED" else "#ffebee" if s["status"] == "FAILED" else "#f5f5f5"
-        detail = s.get("detail", "")
-        detail = detail if len(detail) <= 68 else detail[:65] + "…"
-        boxes.append(
-            f'<rect x="{x}" y="{y}" width="{bw}" height="{bh}" rx="8" fill="{fill}" stroke="{color}" stroke-width="2"/>'
-            f'<text x="{x + 12}" y="{y + 22}" font-family="monospace" font-size="14" font-weight="bold">{html.escape(s["node"])}</text>'
-            f'<text x="{x + 12}" y="{y + 41}" font-family="sans-serif" font-size="11" fill="#555">{html.escape(s["routing"])} · '
-            f'<tspan fill="{color}" font-weight="bold">{html.escape(s["status"])}</tspan></text>'
-            f'<text x="{x + 12}" y="{y + 60}" font-family="sans-serif" font-size="11" fill="#333">{html.escape(detail)}</text>'
-        )
-        if i:
-            cx = x + bw // 2
-            boxes.append(f'<line x1="{cx}" y1="{y - gap}" x2="{cx}" y2="{y}" stroke="#555" stroke-width="2" marker-end="url(#a)"/>')
-    width, height = bw + 2 * x, 16 + len(steps) * (bh + gap) - gap
-    svg = (
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 {width} {height}" style="max-width:{width}px;display:block">'
-        '<defs><marker id="a" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#555"/></marker></defs>'
-        + "".join(boxes) + "</svg>"
-    )
-    return (
-        "\n```html\n<!doctype html><html><head><meta charset=\"utf-8\"><title>Forge 2B attachment run</title></head>"
-        f"<body style=\"font-family:sans-serif;margin:8px\"><div style=\"font-size:12px;color:#555;margin-bottom:6px\">attachment lane · run {run_id}</div>{svg}</body></html>\n```\n"
-    )

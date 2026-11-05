@@ -24,7 +24,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from jsonschema import Draft202012Validator
 
-from . import attach, edgar, graph, zipingest
+from . import attach, edgar, graph, live, zipingest
 
 log = logging.getLogger("forge_2b")
 if not logging.getLogger().handlers:  # uvicorn configures only its own loggers; make node progress visible
@@ -86,6 +86,7 @@ class Config:
     window_chars: int = 2000
     max_windows: int = 240
     top_n: int = 80
+    live_snapshot_s: float = 20.0  # min seconds between live-graph artifact snapshots in the 10-K lane
     llm_timeout: float = 120.0
     zip_limits: zipingest.Limits = zipingest.Limits()
 
@@ -117,6 +118,7 @@ class Config:
             window_chars=int(os.environ.get("FORGE_2B_WINDOW_CHARS", cls.window_chars)),
             max_windows=int(os.environ.get("FORGE_2B_MAX_WINDOWS", cls.max_windows)),
             top_n=int(os.environ.get("FORGE_2B_TOP_N", cls.top_n)),
+            live_snapshot_s=float(os.environ.get("FORGE_2B_LIVE_SNAPSHOT_S", cls.live_snapshot_s)),
             llm_timeout=float(os.environ.get("FORGE_2B_LLM_TIMEOUT", cls.llm_timeout)),
         )
 
@@ -390,17 +392,28 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
             traces.pop(next(iter(traces)))
         traces[run_id] = record
 
+        lg = live.LiveGraph(run_id, "graph")
+        lg.add("source", "zero_model", "attached 10-K file" if source_loader else "SEC EDGAR fetch + HTML→paragraph text")
+        lg.add("plan", "dcs", "forge-dcs ingest + plan compile (deterministic)")
+        lg.add("triage", "zero_model", "signal-lexicon paragraph scoring + windowing; no neural NLP model")
+        lg.add("windows", "fixed_model", f"{cfg.backend_model} (Ollama via forge-gateway), one atomic call per window")
+        lg.add("reduce", "zero_model", "score = impact×2 + signal, Jaccard dedupe, top-N")
+        record["steps"] = lg.steps()
+
         async def body_gen():
             """Yields markdown text pieces; raises POCError on run failure (before any text when possible)."""
             async with run_sem:
                 async with httpx.AsyncClient(transport=transport, timeout=cfg.llm_timeout, follow_redirects=False) as client:
                     trace_meta = await check_backend(client)
                     record["upstream_catalog"] = trace_meta.get("catalog_trace")
+                    lg.start("source")
                     source_file_id, data, source_meta = await load_source(client)
                     if len(data) > cfg.max_source_bytes:
                         raise POCError(413, "SOURCE_TOO_LARGE", "Filing text exceeds DCS source cap")
                     record["source"] = source_meta
                     record["stages"].append("source_resolved")
+                    lg.finish("source", "COMMITTED", f"{len(data):,} bytes · {source_meta.get('kind', 'edgar')}")
+                    lg.start("plan")
                     file_ref = await ingest_source(client, data, source_file_id)
                     record["source"].update(file_ref)
                     req = {
@@ -415,6 +428,8 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                     record["plan_hash"] = plan["plan_hash"]
                     record["plan_intent"] = plan.get("intent")
                     record["stages"].append("dcs_ingest_compile_pass")
+                    lg.finish("plan", "COMMITTED", f"plan {plan['plan_hash'][:19]}")
+                    lg.start("triage")
                     frags = await call(
                         client,
                         "GET",
@@ -430,7 +445,12 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                     record["stages"].append("triage_pass")
                     if not windows:
                         raise POCError(422, "NO_MATERIAL_CONTENT", "Deterministic triage kept no paragraphs")
+                    lg.finish("triage", "COMMITTED", f"{counts['total']} paragraphs → {counts['kept']} kept → {len(windows)} windows (signal ≥ {threshold})")
+                    lg.start("windows", f"0/{len(windows)} windows")
+                    lg.progress("windows", 0, len(windows))
+                    yield lg.snapshot_html()
                     yield graph.render_markdown_header(run_id, plan["plan_hash"], file_ref, counts, len(windows), threshold)
+                    last_snap = time.monotonic()
 
                     async def llm(msgs: list[dict[str, str]], max_tokens: int) -> tuple[str, str]:
                         answer = await call(
@@ -469,15 +489,30 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                             }
                         )
                         yield graph.render_progress_line(w)
+                        done = len(record["windows"])
+                        avg = sum(x["latency_ms"] for x in record["windows"]) / done
+                        eta = int(avg * (len(windows) - done) / 1000)
+                        lg.progress("windows", done, len(windows),
+                                    f"{done}/{len(windows)} windows · {sum(1 for x in record['windows'] if x['status'] == 'COMMITTED')} committed · avg {int(avg)} ms · ETA {eta} s")
+                        if time.monotonic() - last_snap >= cfg.live_snapshot_s and done < len(windows):
+                            last_snap = time.monotonic()
+                            yield lg.snapshot_html()
                     committed = [w for w in windows if w.status == "COMMITTED"]
+                    lg.finish("windows", "COMMITTED" if committed else "FAILED",
+                              f"{len(committed)}/{len(windows)} windows committed, {sum(w.attempts for w in windows)} LLM call(s)")
                     if not committed:
                         record["status"] = "FAILED"
                         raise POCError(502, "OUTPUT_VALIDATION_FAILED", "No window node committed; no result")
+                    lg.start("reduce")
                     result = graph.reduce_statements(windows, top_n=cfg.top_n)
                     record["result"] = result
                     record["status"] = "COMMITTED"
                     record["stages"] += ["reduce_pass", "atomic_commit"]
+                    lg.finish("reduce", "COMMITTED", f"{len(result)} ranked statements")
+                    lg.close("COMMITTED")
+                    record["steps"] = lg.steps()
                     yield graph.render_result_markdown(result, windows, run_id)
+                    yield lg.snapshot_html(final=True)
                     yield graph.render_graph_html(
                         {k: record[k] for k in ("run_id", "status", "plan_hash", "plan_intent", "source", "triage", "windows", "result")}
                     )
@@ -491,7 +526,8 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
             parts: list[str] = []
             try:
                 async for piece in body_gen():
-                    parts.append(piece)
+                    if not live.is_live_snapshot(piece):
+                        parts.append(piece)
             except POCError as ex:
                 raise _fail(ex) from ex
             content = "".join(parts)
@@ -524,7 +560,9 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
             except POCError as ex:
                 record["status"] = "FAILED"
                 record["stages"].append("run_failed")
+                lg.close("FAILED")
                 yield chunk({"content": f"\n\n**Run failed:** `{ex.code}` — {ex.message}. No result committed.\n"})
+                yield chunk({"content": lg.snapshot_html(final=True)})
             yield chunk({}, "stop")
             yield "data: [DONE]\n\n"
 
@@ -645,138 +683,223 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                 record["status"] = "FAILED"
                 raise POCError(422, "NO_MATERIAL_CONTENT", f"No 10-K document found inside the attachment (run {run_id})")
 
-        parts: list[str] = []
+        # ---- live-streamed body ---------------------------------------------------------------------------
+        stream = bool(body.get("stream"))
+        lg = live.LiveGraph(run_id, "attachment")
+        llm_engine = f"{cfg.backend_model} (Ollama via forge-gateway, temperature 0)"
         terms, paths = attach.query_terms(query)
         listing = attach.is_list_request(query) or (not terms and not paths)  # small talk ("hi") with a file -> show the manifest
-        if listing:
-            for ing in ings:
-                parts.append(zipingest.render_manifest_markdown(ing))
-            steps.append({"node": "manifest", "routing": "zero_model", "status": "COMMITTED", "detail": "listing rendered from manifest"})
-            record["stages"].append("manifest_rendered")
-            if not terms and not paths and not attach.is_list_request(query):
-                parts.append("Ask about the contents, e.g. *\"What does `README.md` say about …?\"*, *\"Quote the exact … from `<path>`\"*, "
-                             "or *\"Extract the most impactful statements from the SEC 10-K form in this archive.\"*\n")
         want_qa = not listing or bool(paths) or len(terms) >= 2
-        decision: dict[str, Any] | None = None
-        hits: list[attach.Hit] = []
-        note = ""
-        injection_hits: list[attach.Hit] = []
         question = attach.qa_question(query) if want_qa else query  # listing / guidance sentences are handled zero-model
-        if want_qa and attach.INJECTION_INTENT_RE.search(question):
-            # Questions about embedded instructions are answered by a deterministic scan: the suspicious lines are
-            # reported verbatim as evidence and never shown to the model, so there is nothing to "follow".
-            injection_hits = attach.scan_injections(ings)
-            record["injection_hits"] = [{"path": h.path, "line": h.line} for h in injection_hits]
-            steps.append({"node": "scan", "routing": "zero_model", "status": "COMMITTED",
-                          "detail": f"{len(injection_hits)} instruction-like line(s) found by lexicon scan"})
-        if want_qa and injection_hits:
-            hits = injection_hits
-            n = len(injection_hits)
-            files = sorted({h.path for h in injection_hits})
-            decision = {"found": True,
-                        "answer": f"Yes. {n} line(s) in {', '.join(f'`{f}`' for f in files)} contain instruction-like text addressed to the assistant. "
-                                  "They were identified by a deterministic scan, treated as untrusted data and not followed.",
-                        "quotes": [{"path": h.path, "line": h.line, "text": h.text} for h in injection_hits]}
-            steps.append({"node": "decide", "routing": "fixed_model", "status": "SKIPPED", "detail": "injection question answered zero-model from the scan"})
-            steps.append({"node": "verify", "routing": "zero_model", "status": "COMMITTED", "detail": f"{n} quote(s) are file lines by construction"})
-        elif want_qa:
-            describing = not paths and attach.is_describe_request(question)
-            if describing:
-                # "Describe / what is this?" is not a lookup: show a deterministic digest and let the model write ONE
-                # sentence that must be backed by verbatim headline lines (quote-verified like any other answer).
-                parts.append(attach.render_overview(ings))
-                hits = attach.overview_hits(ings)
-                question = ("Based only on these headline lines, what is this archive about? Answer in one sentence "
-                            "and quote the lines that support it.")
-                steps.append({"node": "overview", "routing": "zero_model", "status": "COMMITTED",
-                              "detail": f"{len(hits)} headline line(s) (first heading per file) as the model's only input"})
-            else:
-                hits = attach.retrieve(ings, question)
-                steps.append({"node": "retrieve", "routing": "zero_model", "status": "COMMITTED",
-                              "detail": f"{len(hits)} excerpt(s) for {len(terms)} term(s), {len(paths)} named path(s)"})
-            record["question"] = question[:500]
-            record["hits"] = [{"path": h.path, "line": h.line, "score": h.score} for h in hits]
-            if not hits:
-                names = [f"`{e.path}`" for i in ings for e in i.included][:12]
-                decision = {"found": False, "quotes": [],
-                            "answer": "No file line shares a word with the question, so nothing was sent to the model. "
-                                      f"Attached text: {', '.join(names) or 'none'}. Ask about something those files contain, "
-                                      "e.g. *\"What does `<path>` say about <topic>?\"* or *\"Quote the exact <thing> from `<path>`\"*."}
-                steps.append({"node": "decide", "routing": "fixed_model", "status": "SKIPPED", "detail": "no excerpts -> zero-model not-found"})
-                steps.append({"node": "verify", "routing": "zero_model", "status": "COMMITTED", "detail": "nothing to verify"})
-            else:
-                async with run_sem:
-                    async with httpx.AsyncClient(transport=transport, timeout=cfg.llm_timeout, follow_redirects=False) as client:
-                        try:
-                            trace_meta = await check_backend(client)
-                        except POCError as ex:
-                            record["status"] = "FAILED"
-                            raise POCError(ex.status, ex.code, f"{ex.message} (run {run_id})") from ex
-                        record["upstream_catalog"] = trace_meta.get("catalog_trace")
-                        hint: str | None = None
-                        attempts: list[dict[str, Any]] = []
-                        for attempt in range(1, cfg.max_attempts + 1):
-                            msgs = attach.qa_messages(question, hits, retry_hint=hint)
-                            t0 = time.monotonic()
-                            try:
-                                answer = await call(client, "POST", cfg.llm_url.rstrip("/") + "/chat/completions", cfg.llm_key,
-                                                    json={"model": cfg.backend_model, "messages": msgs, "temperature": 0, "max_tokens": 400, "stream": False})
-                                served = str(answer.get("model", ""))
-                                content = str(answer["choices"][0]["message"]["content"])
-                            except (POCError, KeyError, IndexError, TypeError) as ex:
-                                attempts.append({"attempt": attempt, "failure": f"UPSTREAM:{type(ex).__name__}"})
-                                hint = "upstream error"
-                                continue
-                            ms = int((time.monotonic() - t0) * 1000)
-                            if not _backend_matches(served, cfg.backend_model):
-                                attempts.append({"attempt": attempt, "failure": "BACKEND_MODEL_MISMATCH", "served": served})
-                                break
-                            try:
-                                cand = attach.parse_qa(content)
-                            except (ValueError, json.JSONDecodeError) as ex:
-                                attempts.append({"attempt": attempt, "failure": f"DECISION_INVALID:{str(ex)[:60]}", "raw": content[:400], "ms": ms})
-                                hint = str(ex)[:80]
-                                continue
-                            problems = attach.verify_quotes(cand, hits)
-                            if problems:
-                                attempts.append({"attempt": attempt, "failure": "QUOTE_NOT_VERBATIM", "problems": problems, "raw": content[:400], "ms": ms})
-                                hint = problems[0]
-                                continue
-                            cand["found"] = bool(cand["quotes"])  # verified evidence decides the flag, not the model's opinion
-                            cand["model_output"] = {"served": served, "ms": ms, "attempt": attempt, "raw": content[:600],
-                                                    "label": "Model summary" if describing else "Model answer"}
-                            attempts.append({"attempt": attempt, "status": "COMMITTED", "ms": ms, "served": served,
-                                             "prompt_sha256": hashlib.sha256(json.dumps(msgs, sort_keys=True).encode()).hexdigest()})
-                            decision = cand
-                            break
-                        record["decision_attempts"] = attempts
-                        if decision is None:
-                            steps.append({"node": "decide", "routing": "fixed_model", "status": "FAILED",
-                                          "detail": f"{len(attempts)} attempt(s) rejected: {attempts[-1].get('failure') if attempts else 'none'}"})
-                            steps.append({"node": "verify", "routing": "zero_model", "status": "FAILED", "detail": "no verified decision; nothing committed"})
-                            note = "Run failed: the model's answer could not be verified against the excerpts; no result committed."
-                        else:
-                            steps.append({"node": "decide", "routing": "fixed_model", "status": "COMMITTED",
-                                          "detail": f"1 atomic Q2 call ({attempts[-1]['served']}), {attempts[-1]['ms']} ms, attempt {len(attempts)}"})
-                            steps.append({"node": "verify", "routing": "zero_model", "status": "COMMITTED",
-                                          "detail": f"{len(decision['quotes'])} quote(s) verbatim-checked against path:line"})
-        if bad:
-            note = (note + " " if note else "") + f"Integrity problems excluded {len(bad)} file(s): " + ", ".join(f"{p} ({st})" for _, p, st in bad[:5])
-        if stale:
-            note = (note + " " if note else "") + (f"{', '.join(f'`{s}`' for s in stale)} was uploaded before ZIP ingestion was enabled and is held as "
-                                                  "plain text; re-attach the archive in a new message to get the per-file manifest.")
-        failed = want_qa and decision is None
-        record["status"] = "FAILED" if failed else "COMMITTED"
-        record["decision"] = decision
-        record["stages"].append("run_failed" if failed else "atomic_commit")
+        injection = bool(want_qa and attach.INJECTION_INTENT_RE.search(question))
+        describing = bool(want_qa and not injection and not paths and attach.is_describe_request(question))
+        n_files = sum(len(i.included) for i in ings)
+        n_ing = lg.add("ingest", "zero_model", "forge-zip.v1 manifest parser + SHA-256 block check")
+        lg.finish("ingest", "COMMITTED", f"{len(ings)} archive(s), {n_files} readable file(s), "
+                                         f"{sum(len(i.skipped) for i in ings)} skipped, {len(bad)} integrity problem(s)")
+        if listing:
+            lg.add("manifest", "zero_model", "manifest table rendered from the parsed archive")
         if want_qa:
-            parts.append(attach.render_answer(run_id, ctx, decision, hits, steps, note=note))
-        else:
-            if note:
-                parts.append(f"_{note}_\n")
-            parts.append(attach.render_log(run_id, steps, []) + attach.render_graph_html(run_id, steps))
-        log.info("attachment run %s: %s listing=%s qa=%s hits=%d", run_id, record["status"], listing, want_qa, len(hits))
-        return _text_response(body, run_id, "\n".join(p for p in parts if p), headers)
+            if injection:
+                lg.add("scan", "zero_model", "instruction lexicon scan (regex); no neural NLP model")
+            elif describing:
+                lg.add("overview", "zero_model", "first heading per file (deterministic digest)")
+            else:
+                lg.add("retrieve", "zero_model", "token-overlap line retriever; no neural NLP model")
+            lg.add("decide", "fixed_model", llm_engine)
+            lg.add("verify", "zero_model", "verbatim quote check against path:line (SHA-verified text)")
+        record["steps"] = lg.steps()
+
+        state: dict[str, Any] = {"decision": None, "hits": [], "note": "", "failed": False}
+
+        async def body_gen():
+            """Yields ('text', md) and ('snap', html-block) pieces in run order; LLM call is visibly bracketed."""
+            decision: dict[str, Any] | None = None
+            hits: list[attach.Hit] = []
+            note = ""
+            yield "text", (f"**forge-2b attachment lane** · run `{run_id}` · backend `{cfg.backend_model}`  \n"
+                           "Nodes run top-down; only `decide` is an LLM call — everything else is deterministic Python "
+                           "(no embedding/NER/classifier models are used in this PoC).\n")
+            yield "snap", lg.snapshot_html()
+            yield "text", "\n**Live timeline:**\n" + lg.line(n_ing, "end")
+            if listing:
+                n = lg.start("manifest")
+                yield "text", lg.line(n, "start")
+                md = "".join(zipingest.render_manifest_markdown(ing) for ing in ings)
+                if not terms and not paths and not attach.is_list_request(query):
+                    md += ("Ask about the contents, e.g. *\"What does `README.md` say about …?\"*, *\"Quote the exact … from `<path>`\"*, "
+                           "or *\"Extract the most impactful statements from the SEC 10-K form in this archive.\"*\n")
+                lg.finish("manifest", "COMMITTED", f"{sum(len(i.entries) for i in ings)} entries listed")
+                record["stages"].append("manifest_rendered")
+                yield "text", lg.line(n, "end")
+                yield "text", "\n" + md
+            if want_qa:
+                if injection:
+                    # Questions about embedded instructions are answered by a deterministic scan: the suspicious lines are
+                    # reported verbatim as evidence and never shown to the model, so there is nothing to "follow".
+                    n = lg.start("scan")
+                    yield "text", lg.line(n, "start")
+                    hits = attach.scan_injections(ings)
+                    record["injection_hits"] = [{"path": h.path, "line": h.line} for h in hits]
+                    lg.finish("scan", "COMMITTED", f"{len(hits)} instruction-like line(s) found by lexicon scan")
+                    yield "text", lg.line(n, "end")
+                    files = sorted({h.path for h in hits})
+                    decision = {"found": True,
+                                "answer": f"Yes. {len(hits)} line(s) in {', '.join(f'`{f}`' for f in files)} contain instruction-like text addressed to the assistant. "
+                                          "They were identified by a deterministic scan, treated as untrusted data and not followed.",
+                                "quotes": [{"path": h.path, "line": h.line, "text": h.text} for h in hits]}
+                    lg.finish("decide", "SKIPPED", "injection question answered zero-model from the scan; LLM not called")
+                    yield "text", lg.line(lg.get("decide"), "end")
+                    lg.finish("verify", "COMMITTED", f"{len(hits)} quote(s) are file lines by construction")
+                    yield "text", lg.line(lg.get("verify"), "end")
+                else:
+                    q = question
+                    if describing:
+                        n = lg.start("overview")
+                        yield "text", lg.line(n, "start")
+                        yield "text", "\n" + attach.render_overview(ings) + "\n"
+                        hits = attach.overview_hits(ings)
+                        q = ("Based only on these headline lines, what is this archive about? Answer in one sentence "
+                             "and quote the lines that support it.")
+                        lg.finish("overview", "COMMITTED", f"{len(hits)} headline line(s) (first heading per file) as the model's only input")
+                    else:
+                        n = lg.start("retrieve")
+                        yield "text", lg.line(n, "start")
+                        hits = attach.retrieve(ings, q)
+                        lg.finish("retrieve", "COMMITTED", f"{len(hits)} excerpt(s) for {len(terms)} term(s), {len(paths)} named path(s)")
+                    yield "text", lg.line(n, "end")
+                    record["question"] = q[:500]
+                    record["hits"] = [{"path": h.path, "line": h.line, "score": h.score} for h in hits]
+                    if not hits:
+                        names = [f"`{e.path}`" for i in ings for e in i.included][:12]
+                        decision = {"found": False, "quotes": [],
+                                    "answer": "No file line shares a word with the question, so nothing was sent to the model. "
+                                              f"Attached text: {', '.join(names) or 'none'}. Ask about something those files contain, "
+                                              "e.g. *\"What does `<path>` say about <topic>?\"* or *\"Quote the exact <thing> from `<path>`\"*."}
+                        lg.finish("decide", "SKIPPED", "no excerpts -> zero-model not-found; LLM not called")
+                        yield "text", lg.line(lg.get("decide"), "end")
+                        lg.finish("verify", "COMMITTED", "nothing to verify")
+                        yield "text", lg.line(lg.get("verify"), "end")
+                    else:
+                        async with run_sem:
+                            async with httpx.AsyncClient(transport=transport, timeout=cfg.llm_timeout, follow_redirects=False) as client:
+                                try:
+                                    trace_meta = await check_backend(client)
+                                except POCError as ex:
+                                    record["status"] = "FAILED"
+                                    raise POCError(ex.status, ex.code, f"{ex.message} (run {run_id})") from ex
+                                record["upstream_catalog"] = trace_meta.get("catalog_trace")
+                                hint: str | None = None
+                                attempts: list[dict[str, Any]] = []
+                                nd = lg.start("decide", f"{len(hits)} excerpt(s) in prompt, max_tokens 400")
+                                for attempt in range(1, cfg.max_attempts + 1):
+                                    msgs = attach.qa_messages(q, hits, retry_hint=hint)
+                                    nd.detail = f"attempt {attempt}/{cfg.max_attempts} · {len(hits)} excerpt(s) in prompt · max_tokens 400"
+                                    yield "text", lg.line(nd, "start")
+                                    yield "snap", lg.snapshot_html()  # the LLM is in flight: timer ticks in the artifact
+                                    t0 = time.monotonic()
+                                    try:
+                                        answer = await call(client, "POST", cfg.llm_url.rstrip("/") + "/chat/completions", cfg.llm_key,
+                                                            json={"model": cfg.backend_model, "messages": msgs, "temperature": 0, "max_tokens": 400, "stream": False})
+                                        served = str(answer.get("model", ""))
+                                        content = str(answer["choices"][0]["message"]["content"])
+                                    except (POCError, KeyError, IndexError, TypeError) as ex:
+                                        attempts.append({"attempt": attempt, "failure": f"UPSTREAM:{type(ex).__name__}"})
+                                        hint = "upstream error"
+                                        yield "text", f"  - ✗ upstream error ({type(ex).__name__}); retrying\n"
+                                        continue
+                                    ms = int((time.monotonic() - t0) * 1000)
+                                    if not _backend_matches(served, cfg.backend_model):
+                                        attempts.append({"attempt": attempt, "failure": "BACKEND_MODEL_MISMATCH", "served": served})
+                                        yield "text", f"  - ✗ served model `{served}` is not the pinned backend; aborting\n"
+                                        break
+                                    try:
+                                        cand = attach.parse_qa(content)
+                                    except (ValueError, json.JSONDecodeError) as ex:
+                                        attempts.append({"attempt": attempt, "failure": f"DECISION_INVALID:{str(ex)[:60]}", "raw": content[:400], "ms": ms})
+                                        hint = str(ex)[:80]
+                                        yield "text", f"  - ✗ {ms} ms, output not valid JSON ({str(ex)[:60]}); retrying\n"
+                                        continue
+                                    problems = attach.verify_quotes(cand, hits)
+                                    if problems:
+                                        attempts.append({"attempt": attempt, "failure": "QUOTE_NOT_VERBATIM", "problems": problems, "raw": content[:400], "ms": ms})
+                                        hint = problems[0]
+                                        yield "text", f"  - ✗ {ms} ms, quote not verbatim ({problems[0][:60]}); retrying\n"
+                                        continue
+                                    cand["found"] = bool(cand["quotes"])  # verified evidence decides the flag, not the model's opinion
+                                    cand["model_output"] = {"served": served, "ms": ms, "attempt": attempt, "raw": content[:600],
+                                                            "label": "Model summary" if describing else "Model answer"}
+                                    attempts.append({"attempt": attempt, "status": "COMMITTED", "ms": ms, "served": served,
+                                                     "prompt_sha256": hashlib.sha256(json.dumps(msgs, sort_keys=True).encode()).hexdigest()})
+                                    decision = cand
+                                    break
+                                record["decision_attempts"] = attempts
+                                if decision is None:
+                                    lg.finish("decide", "FAILED", f"{len(attempts)} attempt(s) rejected: {attempts[-1].get('failure') if attempts else 'none'}")
+                                    yield "text", lg.line(nd, "end")
+                                    lg.finish("verify", "FAILED", "no verified decision; nothing committed")
+                                    note = "Run failed: the model's answer could not be verified against the excerpts; no result committed."
+                                else:
+                                    lg.finish("decide", "COMMITTED", f"1 atomic Q2 call ({attempts[-1]['served']}), {attempts[-1]['ms']} ms, attempt {len(attempts)}")
+                                    yield "text", lg.line(nd, "end")
+                                    nv = lg.start("verify")
+                                    lg.finish("verify", "COMMITTED", f"{len(decision['quotes'])} quote(s) verbatim-checked against path:line")
+                                yield "text", lg.line(lg.get("verify"), "end")
+            if bad:
+                note = (note + " " if note else "") + f"Integrity problems excluded {len(bad)} file(s): " + ", ".join(f"{p} ({st})" for _, p, st in bad[:5])
+            if stale:
+                note = (note + " " if note else "") + (f"{', '.join(f'`{s}`' for s in stale)} was uploaded before ZIP ingestion was enabled and is held as "
+                                                      "plain text; re-attach the archive in a new message to get the per-file manifest.")
+            failed = want_qa and decision is None
+            state.update(decision=decision, hits=hits, note=note, failed=failed)
+            record["status"] = "FAILED" if failed else "COMMITTED"
+            record["decision"] = decision
+            record["steps"] = lg.steps()
+            record["stages"].append("run_failed" if failed else "atomic_commit")
+            lg.close(record["status"])
+            yield "text", f"- ■ `{lg.elapsed_ms() / 1000:6.2f} s` run {record['status']}\n\n"
+            if want_qa:
+                yield "text", attach.render_answer(run_id, ctx, decision, hits, lg.steps(), note=note)
+            else:
+                if note:
+                    yield "text", f"_{note}_\n"
+                yield "text", attach.render_log(run_id, lg.steps(), [])
+            yield "snap", lg.snapshot_html(final=True)
+            log.info("attachment run %s: %s listing=%s qa=%s hits=%d %dms", run_id, record["status"], listing, want_qa, len(hits), lg.elapsed_ms())
+
+        if not stream:
+            parts: list[str] = []
+            last_snap = ""
+            async for kind, piece in body_gen():
+                if kind == "snap":
+                    last_snap = piece  # JSON clients get the final graph only
+                else:
+                    parts.append(piece)
+            return _text_response(body, run_id, "".join(parts) + last_snap, headers)
+
+        created = int(time.time())
+        response_id = "chatcmpl-" + run_id
+
+        def chunk(delta: dict[str, str], finish: str | None = None) -> str:
+            frame = {"id": response_id, "object": "chat.completion.chunk", "created": created, "model": MODEL_ALIAS,
+                     "choices": [{"index": 0, "delta": delta, "finish_reason": finish}]}
+            return "data: " + json.dumps(frame, ensure_ascii=False, separators=(",", ":")) + "\n\n"
+
+        async def generate():
+            yield chunk({"role": "assistant"})
+            try:
+                async for _kind, piece in body_gen():
+                    yield chunk({"content": piece})
+            except POCError as ex:
+                record["status"] = "FAILED"
+                record["stages"].append("run_failed")
+                lg.close("FAILED")
+                yield chunk({"content": f"\n\n**Run failed:** `{ex.code}` — {ex.message}. No result committed.\n"})
+                yield chunk({"content": lg.snapshot_html(final=True)})
+            yield chunk({}, "stop")
+            yield "data: [DONE]\n\n"
+
+        return StreamingResponse(generate(), media_type="text/event-stream", headers=headers)
 
     @app.post("/v1/chat/completions")
     async def completion(request: Request):

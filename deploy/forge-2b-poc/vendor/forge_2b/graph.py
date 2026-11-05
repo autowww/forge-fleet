@@ -310,7 +310,7 @@ def render_markdown_header(run_id: str, plan_hash: str, source: dict[str, Any], 
         f"DCS plan `{plan_hash}` · source `{source.get('file_id')}@{source.get('version')}` "
         f"({triage_counts['total']} paragraphs → {triage_counts['kept']} kept by deterministic triage, "
         f"signal ≥ {threshold} → {n_windows} atomic windows)\n\n"
-        "<details><summary>Execution log (one line per atomic Qwen3.5-2B decision)</summary>\n\n"
+        "**Execution log** (one line per atomic Qwen3.5-2B decision; a compact live graph is re-emitted as an artifact every ~20 s)\n\n"
     )
 
 
@@ -324,7 +324,7 @@ def render_progress_line(w: Window) -> str:
 def render_result_markdown(result: list[dict[str, Any]], windows: list[Window], run_id: str) -> str:
     committed = sum(1 for w in windows if w.status == "COMMITTED")
     failed = len(windows) - committed
-    lines = ["\n</details>\n\n", f"## Most impactful statements (top {len(result)})\n\n"]
+    lines = ["\n---\n\n", f"## Most impactful statements (top {len(result)})\n\n"]
     for c in result:
         lines.append(f"{c['rank']}. **[{c['category']}·{c['impact']}]** {c['text']}  \n   <sub>node `{c['node_id']}` · {', '.join(c['fragment_ids'][:3])}{'…' if len(c['fragment_ids']) > 3 else ''}</sub>\n")
     lines.append(
