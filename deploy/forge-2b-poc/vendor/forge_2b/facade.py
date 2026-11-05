@@ -580,7 +580,8 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
             body = s.body.strip("\n")
             if not body.strip():
                 continue
-            name = s.name or f"source-{s.sid or len(out) + 1}"
+            rid = s.attrs.get("resource-id", "")
+            name = s.name or (f"attachment-{rid[:8]}.txt" if rid else f"source-{s.sid or len(out) + 1}.txt")
             ing = zipingest.Ingest(archive_id=zipingest._sha(body.encode("utf-8")), filename=name)
             ing.entries.append(zipingest.Entry(path=name, normalized_name=name, mime="text/plain", bytes=len(body.encode()),
                                                sha256=ing.archive_id, status="INCLUDED", lines=body.count("\n") + 1,
@@ -650,7 +651,9 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
         hits: list[attach.Hit] = []
         note = ""
         if want_qa:
-            hits = attach.retrieve(ings, query)
+            question = attach.qa_question(query)  # listing / guidance sentences are handled zero-model, not by the model
+            record["question"] = question[:500]
+            hits = attach.retrieve(ings, question)
             record["hits"] = [{"path": h.path, "line": h.line, "score": h.score} for h in hits]
             steps.append({"node": "retrieve", "routing": "zero_model", "status": "COMMITTED",
                           "detail": f"{len(hits)} excerpt(s) for {len(terms)} term(s), {len(paths)} named path(s)"})
@@ -670,7 +673,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                         hint: str | None = None
                         attempts: list[dict[str, Any]] = []
                         for attempt in range(1, cfg.max_attempts + 1):
-                            msgs = attach.qa_messages(query, hits, retry_hint=hint)
+                            msgs = attach.qa_messages(question, hits, retry_hint=hint)
                             t0 = time.monotonic()
                             try:
                                 answer = await call(client, "POST", cfg.llm_url.rstrip("/") + "/chat/completions", cfg.llm_key,
@@ -696,6 +699,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                                 attempts.append({"attempt": attempt, "failure": "QUOTE_NOT_VERBATIM", "problems": problems, "raw": content[:400], "ms": ms})
                                 hint = problems[0]
                                 continue
+                            cand["found"] = bool(cand["quotes"])  # verified evidence decides the flag, not the model's opinion
                             attempts.append({"attempt": attempt, "status": "COMMITTED", "ms": ms, "served": served,
                                              "prompt_sha256": hashlib.sha256(json.dumps(msgs, sort_keys=True).encode()).hexdigest()})
                             decision = cand
