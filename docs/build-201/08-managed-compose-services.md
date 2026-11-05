@@ -150,6 +150,7 @@ curl -fsS -X POST "$FLEET/v1/container-services/market-studio/start" \
 2. On the host: create `~/.config/forge-2b-poc/forge-2b.env` from `forge-2b.env.example` (mode 600), then `scripts/rollout-forge-2b-poc.sh` — builds the image, `up -d --force-recreate`, waits for both health checks.
 3. Register once: `POST /v1/container-services` with `type_id: forge_2b_poc`, `compose_root: <fleet>/deploy/forge-2b-poc`; start/stop then work through the Fleet API (they do not rebuild — rerun the rollout script after code changes).
 4. Open WebUI: append `http://forge-2b:9085/v1` + the shim's `FORGE_2B_API_KEY` to `openai.api_base_urls` / `openai.api_keys`, add `openai.api_configs[<index>] = {"enable": true, "prefix_id": "forge-2b-poc", "provider": "openai"}`, and raise `AIOHTTP_CLIENT_TIMEOUT` (graph runs over a full 10-K take minutes). The model appears as `forge-2b-poc.forge-2b`.
+5. ZIP attachments (P03): point Open WebUI's document extraction at the shim — `rag.content_extraction_engine = "external"`, `rag.external_document_loader_url = "http://forge-2b:9085/v1/forge/ingest"`, `rag.external_document_loader_api_key = <FORGE_2B_API_KEY>`, `rag.bypass_embedding_and_retrieval = true`. The shim's `PUT /v1/forge/ingest/process` extracts ZIP/text uploads deterministically (limits via `FORGE_2B_ZIP_MAX_*`) and rejects other binaries with 415; with the external engine **every** upload goes through this endpoint, so PDF/Office extraction is off while it is enabled. Rollback = restore the four `config` rows and restart the container.
 
 ## Implementation map
 

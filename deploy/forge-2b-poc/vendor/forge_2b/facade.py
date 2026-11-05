@@ -24,7 +24,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from jsonschema import Draft202012Validator
 
-from . import edgar, graph
+from . import attach, edgar, graph, zipingest
 
 log = logging.getLogger("forge_2b")
 if not logging.getLogger().handlers:  # uvicorn configures only its own loggers; make node progress visible
@@ -32,7 +32,8 @@ if not logging.getLogger().handlers:  # uvicorn configures only its own loggers;
 
 MODEL_ALIAS = "forge-2b"
 SOURCE_FILE_ID = "forge-2b-note"
-MAX_BODY_BYTES = 262144
+MAX_BODY_BYTES = 8 * 1024 * 1024  # Open WebUI prepends attached-file content to the last user message
+TEN_K_MARK = re.compile(r"\bFORM\s+10-K\b|\bANNUAL REPORT PURSUANT TO SECTION 13 OR 15\(d\)", re.I)
 SOURCE_PATTERN = re.compile(
     r"\AExtract project and deadline from this note:\r?\n"
     r"SOURCE:\r?\nProject: ([^\r\n]{1,64})\r?\n"
@@ -86,13 +87,24 @@ class Config:
     max_windows: int = 240
     top_n: int = 80
     llm_timeout: float = 120.0
+    zip_limits: zipingest.Limits = zipingest.Limits()
 
     @classmethod
     def from_env(cls) -> "Config":
         dcs = _require_http_url("DCS_BASE_URL", os.environ.get("DCS_BASE_URL", "http://127.0.0.1:9793"))
         llm = _require_http_url("FORGE_2B_LLM_BASE_URL", os.environ.get("FORGE_2B_LLM_BASE_URL", ""))
         cache = os.environ.get("FORGE_2B_CACHE_DIR", "")
+        d = zipingest.Limits()
+        limits = zipingest.Limits(
+            max_archive_bytes=int(os.environ.get("FORGE_2B_ZIP_MAX_ARCHIVE_MB", d.max_archive_bytes // 1048576)) * 1048576,
+            max_total_uncompressed=int(os.environ.get("FORGE_2B_ZIP_MAX_TOTAL_MB", d.max_total_uncompressed // 1048576)) * 1048576,
+            max_file_bytes=int(os.environ.get("FORGE_2B_ZIP_MAX_FILE_MB", d.max_file_bytes // 1048576)) * 1048576,
+            max_files=int(os.environ.get("FORGE_2B_ZIP_MAX_FILES", d.max_files)),
+            max_path_len=int(os.environ.get("FORGE_2B_ZIP_MAX_PATH", d.max_path_len)),
+            max_ratio=int(os.environ.get("FORGE_2B_ZIP_MAX_RATIO", d.max_ratio)),
+        )
         return cls(
+            zip_limits=limits,
             enabled=os.environ.get("FORGE_2B_ENABLE_LIVE") == "1",
             incoming_key=os.environ.get("FORGE_2B_API_KEY", ""),
             dcs_url=dcs,
@@ -202,6 +214,31 @@ def _headers(key: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {key}"}
 
 
+def _text_response(body: dict[str, Any], run_id: str, content: str, headers: dict[str, str]):
+    """Single-shot OpenAI chat response (JSON or one-chunk SSE) for lanes whose result is already final."""
+    created = int(time.time())
+    response_id = "chatcmpl-" + run_id
+    if body.get("stream"):
+
+        def chunk(delta: dict[str, str], finish: str | None = None) -> str:
+            frame = {"id": response_id, "object": "chat.completion.chunk", "created": created, "model": MODEL_ALIAS,
+                     "choices": [{"index": 0, "delta": delta, "finish_reason": finish}]}
+            return "data: " + json.dumps(frame, ensure_ascii=False, separators=(",", ":")) + "\n\n"
+
+        async def generate():
+            yield chunk({"role": "assistant"})
+            yield chunk({"content": content})
+            yield chunk({}, "stop")
+            yield "data: [DONE]\n\n"
+
+        return StreamingResponse(generate(), media_type="text/event-stream", headers=headers)
+    return JSONResponse(
+        content={"id": response_id, "object": "chat.completion", "created": created, "model": MODEL_ALIAS,
+                 "choices": [{"index": 0, "message": {"role": "assistant", "content": content}, "finish_reason": "stop"}]},
+        headers=headers,
+    )
+
+
 def _backend_matches(served: str, expected: str) -> bool:
     if served == expected:
         return True
@@ -301,11 +338,23 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
             raise POCError(404, "RUN_NOT_FOUND", "No such run in this PoC process")
         return dict(traces[run_id])
 
-    async def graph_run(request: Request, body: dict[str, Any], user_text: str):
+    async def edgar_source(client: httpx.AsyncClient, ticker: str | None, accession: str | None) -> tuple[str, bytes, dict[str, Any]]:
+        assert ticker is not None
+        try:
+            ref = await edgar.resolve_filing(client, ticker, accession, user_agent=cfg.edgar_user_agent)
+            data = await edgar.fetch_filing_text(client, ref, user_agent=cfg.edgar_user_agent, cache_dir=cfg.cache_dir)
+        except edgar.EdgarError as ex:
+            raise POCError(502, ex.code, ex.message) from ex
+        return ref.file_id, data, edgar.filing_meta(ref, data)
+
+    async def graph_run(request: Request, body: dict[str, Any], user_text: str, *, directive: tuple[str | None, str | None] | None = None,
+                        source_loader=None, extra_record: dict[str, Any] | None = None):
         """10-K directive -> forge-dcs plan -> windowed atomic Q2 decisions -> deterministic reduce."""
-        directive = edgar.parse_directive(user_text)
+        if directive is None:
+            directive = edgar.parse_directive(user_text)
         assert directive is not None
         ticker, accession = directive
+        load_source = source_loader or (lambda client: edgar_source(client, ticker, accession))
         run_id = uuid.uuid4().hex
         created = int(time.time())
         response_id = "chatcmpl-" + run_id
@@ -332,6 +381,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
             "stages": ["accepted"],
             "windows": [],
             "result": [],
+            **(extra_record or {}),
         }
         if len(traces) >= 100:
             traces.pop(next(iter(traces)))
@@ -343,16 +393,12 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                 async with httpx.AsyncClient(transport=transport, timeout=cfg.llm_timeout, follow_redirects=False) as client:
                     trace_meta = await check_backend(client)
                     record["upstream_catalog"] = trace_meta.get("catalog_trace")
-                    try:
-                        ref = await edgar.resolve_filing(client, ticker, accession, user_agent=cfg.edgar_user_agent)
-                        data = await edgar.fetch_filing_text(client, ref, user_agent=cfg.edgar_user_agent, cache_dir=cfg.cache_dir)
-                    except edgar.EdgarError as ex:
-                        raise POCError(502, ex.code, ex.message) from ex
+                    source_file_id, data, source_meta = await load_source(client)
                     if len(data) > cfg.max_source_bytes:
                         raise POCError(413, "SOURCE_TOO_LARGE", "Filing text exceeds DCS source cap")
-                    record["source"] = edgar.filing_meta(ref, data)
-                    record["stages"].append("edgar_resolved")
-                    file_ref = await ingest_source(client, data, ref.file_id)
+                    record["source"] = source_meta
+                    record["stages"].append("source_resolved")
+                    file_ref = await ingest_source(client, data, source_file_id)
                     record["source"].update(file_ref)
                     req = {
                         "prompt": "Extract the most impactful statements from the attached document.",
@@ -485,6 +531,203 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
             headers={"X-Forge-Run-Id": run_id, "Cache-Control": "no-store"},
         )
 
+    @app.put("/v1/forge/ingest/process")
+    async def ingest_process(request: Request):
+        """Open WebUI External Document Loader contract: raw file bytes in, {page_content, metadata} out.
+
+        Deterministic, no inference, nothing persisted here. ZIP -> bounded in-memory extraction + manifest;
+        text files pass through; other binaries are rejected explicitly (415) so the uploader sees why.
+        """
+        require_access(request)
+        from urllib.parse import unquote
+
+        raw = await request.body()
+        if len(raw) > cfg.zip_limits.max_archive_bytes:
+            raise POCError(413, "ZIP_TOO_LARGE", f"Upload exceeds {cfg.zip_limits.max_archive_bytes} bytes")
+        filename = unquote(request.headers.get("x-filename", "")) or "upload"
+        mime = request.headers.get("content-type", "").split(";")[0].strip().lower()
+        owner = request.headers.get("x-openwebui-user-id", "")
+        is_zip = raw[:4] in (b"PK\x03\x04", b"PK\x05\x06") or mime in ("application/zip", "application/x-zip-compressed") or filename.lower().endswith(".zip")
+        t0 = time.monotonic()
+        if is_zip:
+            try:
+                ing = zipingest.ingest_zip(raw, filename, cfg.zip_limits, html_to_text=edgar.html_to_paragraph_text)
+            except zipingest.ZipIngestError as ex:
+                log.info("ingest %s user=%s zip rejected %s", filename, owner, ex.code)
+                raise POCError(422, ex.code, ex.message) from ex
+            content = zipingest.render(ing)
+            log.info("ingest %s user=%s archive=%s entries=%d included=%d skipped=%d rendered=%dB %dms", filename, owner,
+                     ing.archive_id[:19], len(ing.entries), len(ing.included), len(ing.skipped), len(content), int((time.monotonic() - t0) * 1000))
+            meta = {"forge_zip": True, "archive_id": ing.archive_id, "file_count": len(ing.entries), "included": len(ing.included),
+                    "skipped": len(ing.skipped), "truncated": ing.truncated, "source": filename}
+            return JSONResponse({"page_content": content, "metadata": meta}, headers={"Cache-Control": "no-store"})
+        if zipingest._is_text_type(filename) or mime.startswith("text/") or mime in ("application/json", "application/xml", "application/yaml"):
+            decoded = zipingest.decode_text(raw)
+            if decoded is None:
+                raise POCError(415, "UNSUPPORTED_MEDIA", "File declared as text but contains binary content")
+            text, how = decoded
+            if filename.lower().endswith((".html", ".htm")):
+                text, how = edgar.html_to_paragraph_text(text), "html_text"
+            log.info("ingest %s user=%s text passthrough %dB (%s)", filename, owner, len(text), how)
+            return JSONResponse({"page_content": text, "metadata": {"forge_zip": False, "source": filename, "rendered": how}},
+                                headers={"Cache-Control": "no-store"})
+        raise POCError(415, "UNSUPPORTED_MEDIA", f"Forge 2B ingestion handles .zip archives and text files; '{mime or 'unknown'}' is not extracted")
+
+    def _text_sources_as_ingests(ctx: attach.Context) -> list[zipingest.Ingest]:
+        """Plain (non-ZIP) attachments become single-file pseudo-archives so retrieval and provenance are uniform."""
+        out = []
+        for s in ctx.texts:
+            body = s.body.strip("\n")
+            if not body.strip():
+                continue
+            name = s.name or f"source-{s.sid or len(out) + 1}"
+            ing = zipingest.Ingest(archive_id=zipingest._sha(body.encode("utf-8")), filename=name)
+            ing.entries.append(zipingest.Entry(path=name, normalized_name=name, mime="text/plain", bytes=len(body.encode()),
+                                               sha256=ing.archive_id, status="INCLUDED", lines=body.count("\n") + 1,
+                                               content_sha256=ing.archive_id, rendered="text"))
+            ing.files[name] = body
+            ing.integrity[name] = "OK"
+            out.append(ing)
+        return out
+
+    async def attachment_run(request: Request, body: dict[str, Any], user_text: str, ctx: attach.Context):
+        """Attachment lane: manifest/listing and retrieval are zero-model; at most one atomic Q2 decision, quote-verified."""
+        run_id = uuid.uuid4().hex
+        query = ctx.query or "List the files."
+        ings = ctx.zips + _text_sources_as_ingests(ctx)
+        steps: list[dict[str, Any]] = []
+        record: dict[str, Any] = {
+            "run_id": run_id, "kind": "attachment", "model_alias": MODEL_ALIAS, "backend_model": cfg.backend_model,
+            "raw_prompt_sha256": hashlib.sha256(user_text.encode()).hexdigest(), "query": query[:500],
+            "archives": [{"archive_id": i.archive_id, "filename": i.filename, "entries": len(i.entries), "included": len(i.included),
+                          "integrity": dict(i.integrity)} for i in ings],
+            "status": "RUNNING", "stages": ["accepted"], "steps": steps,
+        }
+        if len(traces) >= 100:
+            traces.pop(next(iter(traces)))
+        traces[run_id] = record
+        headers = {"X-Forge-Run-Id": run_id, "Cache-Control": "no-store"}
+        if not ings:
+            record["status"] = "FAILED"
+            raise POCError(422, "ATTACHMENT_EMPTY", f"Attached context carried no readable files (run {run_id})")
+        bad = [(i.filename, p, st) for i in ings for p, st in i.integrity.items() if st != "OK"]
+        steps.append({"node": "ingest", "routing": "zero_model", "status": "COMMITTED",
+                      "detail": f"{len(ings)} archive(s), {sum(len(i.included) for i in ings)} readable file(s), "
+                                f"{sum(len(i.skipped) for i in ings)} skipped, {len(bad)} integrity problem(s)"})
+        record["stages"].append("attachment_parsed")
+
+        # 10-K inside the archive -> existing graph executor with the attached file as DCS source (no EDGAR fetch).
+        directive = edgar.parse_directive(query)
+        if directive or re.search(r"\b10-?K\b", query, re.I):
+            for ing in ings:
+                for e in ing.included:
+                    txt = ing.files.get(e.path)
+                    if txt and ing.integrity.get(e.path) == "OK" and TEN_K_MARK.search(txt[:60000]):
+                        data = txt.encode("utf-8")
+                        fid = f"sec-zip-{ing.archive_id[7:19]}-{e.sha256[7:15]}" if e.sha256 else f"sec-zip-{ing.archive_id[7:19]}"
+
+                        async def zip_source(client, _data=data, _fid=fid, _e=e, _ing=ing):
+                            return _fid, _data, {"kind": "attachment", "archive": _ing.filename, "archive_id": _ing.archive_id,
+                                                 "path": _e.path, "sha256": _e.sha256, "bytes": len(_data)}
+
+                        traces.pop(run_id, None)
+                        return await graph_run(request, body, user_text, directive=directive or (None, None), source_loader=zip_source,
+                                               extra_record={"attachment_run": run_id})
+            if directive:
+                record["status"] = "FAILED"
+                raise POCError(422, "NO_MATERIAL_CONTENT", f"No 10-K document found inside the attachment (run {run_id})")
+
+        parts: list[str] = []
+        terms, paths = attach.query_terms(query)
+        listing = attach.is_list_request(query)
+        if listing:
+            for ing in ings:
+                parts.append(zipingest.render_manifest_markdown(ing))
+            steps.append({"node": "manifest", "routing": "zero_model", "status": "COMMITTED", "detail": "listing rendered from manifest"})
+            record["stages"].append("manifest_rendered")
+        want_qa = not listing or bool(paths) or len(terms) >= 2
+        decision: dict[str, Any] | None = None
+        hits: list[attach.Hit] = []
+        note = ""
+        if want_qa:
+            hits = attach.retrieve(ings, query)
+            record["hits"] = [{"path": h.path, "line": h.line, "score": h.score} for h in hits]
+            steps.append({"node": "retrieve", "routing": "zero_model", "status": "COMMITTED",
+                          "detail": f"{len(hits)} excerpt(s) for {len(terms)} term(s), {len(paths)} named path(s)"})
+            if not hits:
+                decision = {"found": False, "answer": "No file line matches the question; nothing was sent to the model.", "quotes": []}
+                steps.append({"node": "decide", "routing": "fixed_model", "status": "SKIPPED", "detail": "no excerpts -> zero-model not-found"})
+                steps.append({"node": "verify", "routing": "zero_model", "status": "COMMITTED", "detail": "nothing to verify"})
+            else:
+                async with run_sem:
+                    async with httpx.AsyncClient(transport=transport, timeout=cfg.llm_timeout, follow_redirects=False) as client:
+                        try:
+                            trace_meta = await check_backend(client)
+                        except POCError as ex:
+                            record["status"] = "FAILED"
+                            raise POCError(ex.status, ex.code, f"{ex.message} (run {run_id})") from ex
+                        record["upstream_catalog"] = trace_meta.get("catalog_trace")
+                        hint: str | None = None
+                        attempts: list[dict[str, Any]] = []
+                        for attempt in range(1, cfg.max_attempts + 1):
+                            msgs = attach.qa_messages(query, hits, retry_hint=hint)
+                            t0 = time.monotonic()
+                            try:
+                                answer = await call(client, "POST", cfg.llm_url.rstrip("/") + "/chat/completions", cfg.llm_key,
+                                                    json={"model": cfg.backend_model, "messages": msgs, "temperature": 0, "max_tokens": 400, "stream": False})
+                                served = str(answer.get("model", ""))
+                                content = str(answer["choices"][0]["message"]["content"])
+                            except (POCError, KeyError, IndexError, TypeError) as ex:
+                                attempts.append({"attempt": attempt, "failure": f"UPSTREAM:{type(ex).__name__}"})
+                                hint = "upstream error"
+                                continue
+                            ms = int((time.monotonic() - t0) * 1000)
+                            if not _backend_matches(served, cfg.backend_model):
+                                attempts.append({"attempt": attempt, "failure": "BACKEND_MODEL_MISMATCH", "served": served})
+                                break
+                            try:
+                                cand = attach.parse_qa(content)
+                            except (ValueError, json.JSONDecodeError) as ex:
+                                attempts.append({"attempt": attempt, "failure": f"DECISION_INVALID:{str(ex)[:60]}", "raw": content[:400], "ms": ms})
+                                hint = str(ex)[:80]
+                                continue
+                            problems = attach.verify_quotes(cand, hits)
+                            if problems:
+                                attempts.append({"attempt": attempt, "failure": "QUOTE_NOT_VERBATIM", "problems": problems, "raw": content[:400], "ms": ms})
+                                hint = problems[0]
+                                continue
+                            attempts.append({"attempt": attempt, "status": "COMMITTED", "ms": ms, "served": served,
+                                             "prompt_sha256": hashlib.sha256(json.dumps(msgs, sort_keys=True).encode()).hexdigest()})
+                            decision = cand
+                            break
+                        record["decision_attempts"] = attempts
+                        if decision is None:
+                            steps.append({"node": "decide", "routing": "fixed_model", "status": "FAILED",
+                                          "detail": f"{len(attempts)} attempt(s) rejected: {attempts[-1].get('failure') if attempts else 'none'}"})
+                            steps.append({"node": "verify", "routing": "zero_model", "status": "FAILED", "detail": "no verified decision; nothing committed"})
+                            note = "Run failed: the model's answer could not be verified against the excerpts; no result committed."
+                        else:
+                            steps.append({"node": "decide", "routing": "fixed_model", "status": "COMMITTED",
+                                          "detail": f"1 atomic Q2 call ({attempts[-1]['served']}), {attempts[-1]['ms']} ms, attempt {len(attempts)}"})
+                            steps.append({"node": "verify", "routing": "zero_model", "status": "COMMITTED",
+                                          "detail": f"{len(decision['quotes'])} quote(s) verbatim-checked against path:line"})
+        if bad:
+            note = (note + " " if note else "") + f"Integrity problems excluded {len(bad)} file(s): " + ", ".join(f"{p} ({st})" for _, p, st in bad[:5])
+        failed = want_qa and decision is None
+        record["status"] = "FAILED" if failed else "COMMITTED"
+        record["decision"] = decision
+        record["stages"].append("run_failed" if failed else "atomic_commit")
+        if want_qa:
+            parts.append(attach.render_answer(run_id, ctx, decision, hits, steps, note=note))
+        else:
+            if note:
+                parts.append(f"_{note}_\n")
+            parts.append(f"\n<details><summary>Execution log (run `{run_id}`)</summary>\n\n" +
+                         "\n".join(f"- `{s['node']}` ({s['routing']}) — {s['status']}: {s['detail']}" for s in steps) + "\n\n</details>\n" +
+                         attach.render_graph_html(run_id, steps))
+        log.info("attachment run %s: %s listing=%s qa=%s hits=%d", run_id, record["status"], listing, want_qa, len(hits))
+        return _text_response(body, run_id, "\n".join(p for p in parts if p), headers)
+
     @app.post("/v1/chat/completions")
     async def completion(request: Request):
         require_access(request)
@@ -506,6 +749,12 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
             raise POCError(422, "UNSUPPORTED_FEATURE", "Tools and client-supplied output schemas are outside first PoC")
         if body.get("stream") not in (None, True, False):
             raise POCError(422, "INVALID_REQUEST", "stream must be boolean")
+        ctx = attach.parse_openwebui_context(user_text)
+        if ctx is not None and ctx.sources:
+            return await attachment_run(request, body, user_text, ctx)
+        task_answer = attach.task_response(user_text)
+        if task_answer is not None:  # Open WebUI housekeeping prompts: zero-model, never inference
+            return _text_response(body, uuid.uuid4().hex, task_answer, {"Cache-Control": "no-store", "X-Forge-Lane": "task"})
         if edgar.parse_directive(user_text) and "SOURCE:" not in user_text:
             return await graph_run(request, body, user_text)
         expected, source = parse_fixture(user_text)
