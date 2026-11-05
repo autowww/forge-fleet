@@ -231,6 +231,30 @@ def verify_quotes(decision: dict[str, Any], hits: list[Hit]) -> list[str]:
     return problems
 
 
+INJECTION_INTENT_RE = re.compile(
+    r"\b(overrid\w*|prompt injection|jailbr\w+|manipulat\w*|hidden (commands?|instructions?)|"
+    r"(contains?|containing|includes?|embedded|hidden|any|malicious|suspicious)\b[^.?!]{0,60}\binstructions?\b)", re.I)
+INJECTION_LINE_RE = re.compile(
+    r"ignore (all |any )?(prior|previous|above|earlier|the) (instructions?|prompts?|rules)|disregard (all |any )?(prior|previous|above|your) |"
+    r"you are now |new instructions?:|system prompt|say (that )?the test passed|do not follow (the|your) |forget (all |your )?(prior|previous)|"
+    r"act as (an? )?(unrestricted|jailbroken)|reveal (the|your) (system|hidden)", re.I)
+
+
+def scan_injections(ings: list[zipingest.Ingest], *, max_hits: int = 8) -> list[Hit]:
+    """Zero-model scan for instruction-like text inside files. Lines are reported as evidence, never interpreted."""
+    out: list[Hit] = []
+    for ing in ings:
+        for path, text in ing.files.items():
+            if ing.integrity.get(path, "OK") != "OK":
+                continue
+            for i, line in enumerate(text.split("\n"), 1):
+                if INJECTION_LINE_RE.search(line):
+                    out.append(Hit(path, i, line.strip()[:400], 1.0))
+                    if len(out) >= max_hits:
+                        return out
+    return out
+
+
 _GUIDANCE_RE = re.compile(r"^(i (have )?uploaded|do not guess|don't guess|treat (the )?file|never follow|ignore any instruction)", re.I)
 
 

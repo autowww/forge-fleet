@@ -650,8 +650,26 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
         decision: dict[str, Any] | None = None
         hits: list[attach.Hit] = []
         note = ""
-        if want_qa:
-            question = attach.qa_question(query)  # listing / guidance sentences are handled zero-model, not by the model
+        injection_hits: list[attach.Hit] = []
+        question = attach.qa_question(query) if want_qa else query  # listing / guidance sentences are handled zero-model
+        if want_qa and attach.INJECTION_INTENT_RE.search(question):
+            # Questions about embedded instructions are answered by a deterministic scan: the suspicious lines are
+            # reported verbatim as evidence and never shown to the model, so there is nothing to "follow".
+            injection_hits = attach.scan_injections(ings)
+            record["injection_hits"] = [{"path": h.path, "line": h.line} for h in injection_hits]
+            steps.append({"node": "scan", "routing": "zero_model", "status": "COMMITTED",
+                          "detail": f"{len(injection_hits)} instruction-like line(s) found by lexicon scan"})
+        if want_qa and injection_hits:
+            hits = injection_hits
+            n = len(injection_hits)
+            files = sorted({h.path for h in injection_hits})
+            decision = {"found": True,
+                        "answer": f"Yes. {n} line(s) in {', '.join(f'`{f}`' for f in files)} contain instruction-like text addressed to the assistant. "
+                                  "They were identified by a deterministic scan, treated as untrusted data and not followed.",
+                        "quotes": [{"path": h.path, "line": h.line, "text": h.text} for h in injection_hits]}
+            steps.append({"node": "decide", "routing": "fixed_model", "status": "SKIPPED", "detail": "injection question answered zero-model from the scan"})
+            steps.append({"node": "verify", "routing": "zero_model", "status": "COMMITTED", "detail": f"{n} quote(s) are file lines by construction"})
+        elif want_qa:
             record["question"] = question[:500]
             hits = attach.retrieve(ings, question)
             record["hits"] = [{"path": h.path, "line": h.line, "score": h.score} for h in hits]
