@@ -287,6 +287,9 @@ def render_answer(run_id: str, ctx: Context, decision: dict[str, Any] | None, hi
         if decision and decision.get("answer"):
             out.append(f"\n{decision['answer']}")
     else:
+        mo = decision.get("model_output")
+        if mo:
+            out.append(f"**Model answer** (`{mo['served']}`, 1 atomic call, {mo['ms']} ms, quote-verified):\n")
         out.append(decision["answer"])
         if decision["quotes"]:
             out.append("\n**Evidence (verbatim, path:line):**")
@@ -294,15 +297,24 @@ def render_answer(run_id: str, ctx: Context, decision: dict[str, Any] | None, hi
                 out.append(f"- `{q['path']}:{q['line']}` — \"{q['text']}\"")
     if note:
         out.append(f"\n_{note}_")
-    out.append(f"\n<details><summary>Execution log (run `{run_id}`)</summary>\n")
+    out.append(render_log(run_id, steps, hits, raw=(decision or {}).get("model_output", {}).get("raw")))
+    out.append(render_graph_html(run_id, steps))
+    return "\n".join(out)
+
+
+def render_log(run_id: str, steps: list[dict[str, Any]], hits: list[Hit], *, raw: str | None = None) -> str:
+    """Plain Markdown (Open WebUI shows raw <details> tags literally)."""
+    out = [f"\n---\n**Execution log** (run `{run_id}`)\n"]
     for s in steps:
         out.append(f"- `{s['node']}` ({s['routing']}) — {s['status']}: {s['detail']}")
     if hits:
-        out.append("\nRetrieved excerpts (zero-model):")
+        out.append("\nRetrieved excerpts (zero-model, what the model saw):")
         for i, h in enumerate(hits, 1):
             out.append(f"{i}. `{h.path}:{h.line}` score={h.score:g} — {h.text[:160]}")
-    out.append("\n</details>\n")
-    out.append(render_graph_html(run_id, steps))
+    if raw:
+        out.append("\nRaw model output (before verification):\n")
+        out.append("```json\n" + raw.strip().replace("```", "'''") + "\n```")
+    out.append("")
     return "\n".join(out)
 
 

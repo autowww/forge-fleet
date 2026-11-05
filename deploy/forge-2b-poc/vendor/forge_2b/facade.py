@@ -152,7 +152,10 @@ def err(exc: POCError) -> JSONResponse:
 def parse_fixture(prompt: str) -> tuple[dict[str, str], bytes]:
     match = SOURCE_PATTERN.fullmatch(prompt)
     if not match:
-        raise POCError(422, "UNSUPPORTED_INPUT", "First PoC supports only the documented SOURCE/END_SOURCE fixture")
+        raise POCError(422, "UNSUPPORTED_INPUT",
+                       "Forge 2B has no free chat. Either (1) attach a ZIP or text file and ask about its contents, "
+                       "(2) send a SEC directive such as 'Extract the most impactful statements from the latest NVDA 10-K', "
+                       "or (3) send the documented SOURCE/END_SOURCE fixture.")
     project, deadline = match.groups()
     if not project.strip():
         raise POCError(422, "INVALID_SOURCE", "Empty project")
@@ -595,7 +598,11 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
         """Attachment lane: manifest/listing and retrieval are zero-model; at most one atomic Q2 decision, quote-verified."""
         run_id = uuid.uuid4().hex
         query = ctx.query or "List the files."
-        ings = ctx.zips + _text_sources_as_ingests(ctx)
+        ings_all = ctx.zips + _text_sources_as_ingests(ctx)
+        seen: set[str] = set()
+        ings = [i for i in ings_all if not (i.archive_id in seen or seen.add(i.archive_id))]  # Open WebUI repeats chat files per turn
+        # A text source named *.zip was extracted by Open WebUI's own pipeline before the external ZIP ingestion was enabled.
+        stale = sorted({i.filename for i in ings if i not in ctx.zips and i.filename.lower().endswith(tuple(zipingest.ARCHIVE_EXTENSIONS))})
         steps: list[dict[str, Any]] = []
         record: dict[str, Any] = {
             "run_id": run_id, "kind": "attachment", "model_alias": MODEL_ALIAS, "backend_model": cfg.backend_model,
@@ -679,7 +686,11 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
             steps.append({"node": "retrieve", "routing": "zero_model", "status": "COMMITTED",
                           "detail": f"{len(hits)} excerpt(s) for {len(terms)} term(s), {len(paths)} named path(s)"})
             if not hits:
-                decision = {"found": False, "answer": "No file line matches the question; nothing was sent to the model.", "quotes": []}
+                names = [f"`{e.path}`" for i in ings for e in i.included][:12]
+                decision = {"found": False, "quotes": [],
+                            "answer": "No file line shares a word with the question, so nothing was sent to the model. "
+                                      f"Attached text: {', '.join(names) or 'none'}. Ask about something those files contain, "
+                                      "e.g. *\"What does `<path>` say about <topic>?\"* or *\"Quote the exact <thing> from `<path>`\"*."}
                 steps.append({"node": "decide", "routing": "fixed_model", "status": "SKIPPED", "detail": "no excerpts -> zero-model not-found"})
                 steps.append({"node": "verify", "routing": "zero_model", "status": "COMMITTED", "detail": "nothing to verify"})
             else:
@@ -721,6 +732,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                                 hint = problems[0]
                                 continue
                             cand["found"] = bool(cand["quotes"])  # verified evidence decides the flag, not the model's opinion
+                            cand["model_output"] = {"served": served, "ms": ms, "attempt": attempt, "raw": content[:600]}
                             attempts.append({"attempt": attempt, "status": "COMMITTED", "ms": ms, "served": served,
                                              "prompt_sha256": hashlib.sha256(json.dumps(msgs, sort_keys=True).encode()).hexdigest()})
                             decision = cand
@@ -738,6 +750,9 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                                           "detail": f"{len(decision['quotes'])} quote(s) verbatim-checked against path:line"})
         if bad:
             note = (note + " " if note else "") + f"Integrity problems excluded {len(bad)} file(s): " + ", ".join(f"{p} ({st})" for _, p, st in bad[:5])
+        if stale:
+            note = (note + " " if note else "") + (f"{', '.join(f'`{s}`' for s in stale)} was uploaded before ZIP ingestion was enabled and is held as "
+                                                  "plain text; re-attach the archive in a new message to get the per-file manifest.")
         failed = want_qa and decision is None
         record["status"] = "FAILED" if failed else "COMMITTED"
         record["decision"] = decision
@@ -747,9 +762,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
         else:
             if note:
                 parts.append(f"_{note}_\n")
-            parts.append(f"\n<details><summary>Execution log (run `{run_id}`)</summary>\n\n" +
-                         "\n".join(f"- `{s['node']}` ({s['routing']}) — {s['status']}: {s['detail']}" for s in steps) + "\n\n</details>\n" +
-                         attach.render_graph_html(run_id, steps))
+            parts.append(attach.render_log(run_id, steps, []) + attach.render_graph_html(run_id, steps))
         log.info("attachment run %s: %s listing=%s qa=%s hits=%d", run_id, record["status"], listing, want_qa, len(hits))
         return _text_response(body, run_id, "\n".join(p for p in parts if p), headers)
 
