@@ -342,6 +342,7 @@ def render_graph_html(trace: dict[str, Any]) -> str:
         "```html\n<!doctype html><html><head><meta charset='utf-8'><title>forge-2b execution graph</title>"
         "<style>body{font:13px system-ui,sans-serif;margin:0;display:grid;grid-template-columns:1fr 380px;height:100vh}"
         "#g{overflow:auto;padding:10px}#d{border-left:1px solid #ddd;padding:10px;overflow:auto;background:#fafafa}"
+        "@media(max-width:760px){body{grid-template-columns:1fr;grid-template-rows:auto 1fr}#d{border-left:0;border-top:1px solid #ddd}}"
         "rect{cursor:pointer}pre{white-space:pre-wrap;font-size:11px;background:#fff;border:1px solid #eee;padding:6px;max-height:40vh;overflow:auto}"
         ".k{color:#666}h3{margin:4px 0}</style></head><body><div id='g'></div><div id='d'><h3>forge-2b graph</h3>"
         "<div class='k'>Click a node. Green = committed window, red = failed, grey = zero-model stage.</div></div>"

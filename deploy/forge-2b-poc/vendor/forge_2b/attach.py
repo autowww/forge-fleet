@@ -134,6 +134,74 @@ def is_list_request(query: str) -> bool:
     return bool(LIST_RE.search(query))
 
 
+_THING = r"(archive|zip|package|packet|bundle|upload|attachment|files?|documents?|contents?)"
+DESCRIBE_RE = re.compile(
+    r"\b(describe|summar(y|i[sz]e)|overview|tell me about|explain (this|the|what)"
+    r"|what(['’]s| is) (happening|going on|inside|in (this|the|here)|(this|it)( (all|here|about|" + _THING + r"))?\s*[?.!]*$)"
+    r"|what (does|do) (this|the|these) \w* ?" + _THING + r" (contain|include|cover|do)"
+    r"|what (is|are|['’]s) (this|the|these) \w* ?" + _THING + r" (about|for))",
+    re.I)
+_HEADING_RE = re.compile(r"^#{1,3} +(.+)$")
+
+
+def is_describe_request(query: str) -> bool:
+    return bool(DESCRIBE_RE.search(query))
+
+
+def _first_lines(text: str) -> tuple[int, str] | None:
+    """First Markdown heading, else first non-empty line that is not fence/front-matter noise."""
+    for i, line in enumerate(text.split("\n"), 1):
+        s = line.strip()
+        m = _HEADING_RE.match(s)
+        if m:
+            return i, m.group(1).strip()
+    for i, line in enumerate(text.split("\n"), 1):
+        s = line.strip()
+        if s and not s.startswith(("```", "---", "<!doctype", "<html", "{", "[", "<?xml")):
+            return i, s
+    return None
+
+
+def _overview_order(path: str) -> tuple[int, str]:
+    lp = path.lower()
+    base = lp.rsplit("/", 1)[-1]
+    rank = 0 if base.startswith("readme") else 1 if base.endswith(("result.md", "summary.md", "index.md")) else 2 if lp.startswith("docs") else 3 if lp.endswith(".md") else 4
+    return rank, lp
+
+
+def overview_hits(ings: list[zipingest.Ingest], *, max_hits: int = 10) -> list[Hit]:
+    """Zero-model digest for description requests: one headline line per file, README/RESULT/docs first."""
+    files = sorted(((ing, p) for ing in ings for p in ing.files if ing.integrity.get(p, "OK") == "OK"), key=lambda t: _overview_order(t[1]))
+    out: list[Hit] = []
+    for ing, p in files:
+        fl = _first_lines(ing.files[p])
+        if fl:
+            out.append(Hit(p, fl[0], fl[1][:200], 1.0))
+        if len(out) >= max_hits:
+            break
+    return out
+
+
+def render_overview(ings: list[zipingest.Ingest]) -> str:
+    inc = [(ing, e) for ing in ings for e in ing.included]
+    skipped = sum(len(ing.skipped) for ing in ings)
+    by_ext: dict[str, int] = {}
+    tops: dict[str, int] = {}
+    for _, e in inc:
+        ext = e.path.rsplit(".", 1)[-1].lower() if "." in e.path.rsplit("/", 1)[-1] else "(none)"
+        by_ext[ext] = by_ext.get(ext, 0) + 1
+        top = e.path.split("/", 1)[0] + "/" if "/" in e.path else "(root)"
+        tops[top] = tops.get(top, 0) + 1
+    exts = ", ".join(f"{n}× .{x}" if x != "(none)" else f"{n}× no-ext" for x, n in sorted(by_ext.items(), key=lambda t: -t[1])[:8])
+    dirs = ", ".join(f"`{d}` ({n})" for d, n in sorted(tops.items(), key=lambda t: -t[1])[:8])
+    out = [f"**Archive overview (deterministic):** {len(ings)} archive(s), {len(inc)} readable file(s) ({exts}), {skipped} skipped. Top-level: {dirs}.\n",
+           "| file | first heading / line |", "|---|---|"]
+    for h in overview_hits(ings, max_hits=15):
+        out.append(f"| `{h.path}:{h.line}` | {h.text[:110].replace('|', '/')} |")
+    out.append("")
+    return "\n".join(out)
+
+
 def retrieve(ings: list[zipingest.Ingest], query: str, *, max_hits: int = 8, max_chars: int = 3200) -> list[Hit]:
     terms, paths = query_terms(query)
     hits: list[Hit] = []
@@ -289,7 +357,7 @@ def render_answer(run_id: str, ctx: Context, decision: dict[str, Any] | None, hi
     else:
         mo = decision.get("model_output")
         if mo:
-            out.append(f"**Model answer** (`{mo['served']}`, 1 atomic call, {mo['ms']} ms, quote-verified):\n")
+            out.append(f"**{mo.get('label', 'Model answer')}** (`{mo['served']}`, 1 atomic call, {mo['ms']} ms, quote-verified):\n")
         out.append(decision["answer"])
         if decision["quotes"]:
             out.append("\n**Evidence (verbatim, path:line):**")
@@ -319,27 +387,32 @@ def render_log(run_id: str, steps: list[dict[str, Any]], hits: list[Hit], *, raw
 
 
 def render_graph_html(run_id: str, steps: list[dict[str, Any]]) -> str:
-    w = 190
+    """Vertical node list (fits the narrow Open WebUI Artifacts pane without horizontal scroll)."""
+    bw, bh, gap, x = 440, 74, 26, 8
     boxes = []
     for i, s in enumerate(steps):
-        x = 10 + i * (w + 30)
+        y = 8 + i * (bh + gap)
         color = {"COMMITTED": "#2e7d32", "FAILED": "#c62828", "SKIPPED": "#9e9e9e"}.get(s["status"], "#1565c0")
         fill = "#e8f5e9" if s["status"] == "COMMITTED" else "#ffebee" if s["status"] == "FAILED" else "#f5f5f5"
+        detail = s.get("detail", "")
+        detail = detail if len(detail) <= 68 else detail[:65] + "…"
         boxes.append(
-            f'<rect x="{x}" y="20" width="{w}" height="70" rx="8" fill="{fill}" stroke="{color}" stroke-width="2"/>'
-            f'<text x="{x + 10}" y="45" font-family="monospace" font-size="13" font-weight="bold">{html.escape(s["node"])}</text>'
-            f'<text x="{x + 10}" y="63" font-family="sans-serif" font-size="11" fill="#555">{html.escape(s["routing"])}</text>'
-            f'<text x="{x + 10}" y="80" font-family="sans-serif" font-size="11" fill="{color}">{html.escape(s["status"])}</text>'
+            f'<rect x="{x}" y="{y}" width="{bw}" height="{bh}" rx="8" fill="{fill}" stroke="{color}" stroke-width="2"/>'
+            f'<text x="{x + 12}" y="{y + 22}" font-family="monospace" font-size="14" font-weight="bold">{html.escape(s["node"])}</text>'
+            f'<text x="{x + 12}" y="{y + 41}" font-family="sans-serif" font-size="11" fill="#555">{html.escape(s["routing"])} · '
+            f'<tspan fill="{color}" font-weight="bold">{html.escape(s["status"])}</tspan></text>'
+            f'<text x="{x + 12}" y="{y + 60}" font-family="sans-serif" font-size="11" fill="#333">{html.escape(detail)}</text>'
         )
         if i:
-            boxes.append(f'<line x1="{x - 30}" y1="55" x2="{x}" y2="55" stroke="#555" stroke-width="2" marker-end="url(#a)"/>')
-    width = 20 + len(steps) * (w + 30)
+            cx = x + bw // 2
+            boxes.append(f'<line x1="{cx}" y1="{y - gap}" x2="{cx}" y2="{y}" stroke="#555" stroke-width="2" marker-end="url(#a)"/>')
+    width, height = bw + 2 * x, 16 + len(steps) * (bh + gap) - gap
     svg = (
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="110" viewBox="0 0 {width} 110">'
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 {width} {height}" style="max-width:{width}px;display:block">'
         '<defs><marker id="a" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#555"/></marker></defs>'
         + "".join(boxes) + "</svg>"
     )
     return (
         "\n```html\n<!doctype html><html><head><meta charset=\"utf-8\"><title>Forge 2B attachment run</title></head>"
-        f"<body style=\"font-family:sans-serif;margin:8px\"><div style=\"font-size:12px;color:#555\">attachment lane · run {run_id}</div>{svg}</body></html>\n```\n"
+        f"<body style=\"font-family:sans-serif;margin:8px\"><div style=\"font-size:12px;color:#555;margin-bottom:6px\">attachment lane · run {run_id}</div>{svg}</body></html>\n```\n"
     )

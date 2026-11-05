@@ -680,11 +680,22 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
             steps.append({"node": "decide", "routing": "fixed_model", "status": "SKIPPED", "detail": "injection question answered zero-model from the scan"})
             steps.append({"node": "verify", "routing": "zero_model", "status": "COMMITTED", "detail": f"{n} quote(s) are file lines by construction"})
         elif want_qa:
+            describing = not paths and attach.is_describe_request(question)
+            if describing:
+                # "Describe / what is this?" is not a lookup: show a deterministic digest and let the model write ONE
+                # sentence that must be backed by verbatim headline lines (quote-verified like any other answer).
+                parts.append(attach.render_overview(ings))
+                hits = attach.overview_hits(ings)
+                question = ("Based only on these headline lines, what is this archive about? Answer in one sentence "
+                            "and quote the lines that support it.")
+                steps.append({"node": "overview", "routing": "zero_model", "status": "COMMITTED",
+                              "detail": f"{len(hits)} headline line(s) (first heading per file) as the model's only input"})
+            else:
+                hits = attach.retrieve(ings, question)
+                steps.append({"node": "retrieve", "routing": "zero_model", "status": "COMMITTED",
+                              "detail": f"{len(hits)} excerpt(s) for {len(terms)} term(s), {len(paths)} named path(s)"})
             record["question"] = question[:500]
-            hits = attach.retrieve(ings, question)
             record["hits"] = [{"path": h.path, "line": h.line, "score": h.score} for h in hits]
-            steps.append({"node": "retrieve", "routing": "zero_model", "status": "COMMITTED",
-                          "detail": f"{len(hits)} excerpt(s) for {len(terms)} term(s), {len(paths)} named path(s)"})
             if not hits:
                 names = [f"`{e.path}`" for i in ings for e in i.included][:12]
                 decision = {"found": False, "quotes": [],
@@ -732,7 +743,8 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                                 hint = problems[0]
                                 continue
                             cand["found"] = bool(cand["quotes"])  # verified evidence decides the flag, not the model's opinion
-                            cand["model_output"] = {"served": served, "ms": ms, "attempt": attempt, "raw": content[:600]}
+                            cand["model_output"] = {"served": served, "ms": ms, "attempt": attempt, "raw": content[:600],
+                                                    "label": "Model summary" if describing else "Model answer"}
                             attempts.append({"attempt": attempt, "status": "COMMITTED", "ms": ms, "served": served,
                                              "prompt_sha256": hashlib.sha256(json.dumps(msgs, sort_keys=True).encode()).hexdigest()})
                             decision = cand
