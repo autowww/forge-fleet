@@ -640,12 +640,15 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
 
         parts: list[str] = []
         terms, paths = attach.query_terms(query)
-        listing = attach.is_list_request(query)
+        listing = attach.is_list_request(query) or (not terms and not paths)  # small talk ("hi") with a file -> show the manifest
         if listing:
             for ing in ings:
                 parts.append(zipingest.render_manifest_markdown(ing))
             steps.append({"node": "manifest", "routing": "zero_model", "status": "COMMITTED", "detail": "listing rendered from manifest"})
             record["stages"].append("manifest_rendered")
+            if not terms and not paths and not attach.is_list_request(query):
+                parts.append("Ask about the contents, e.g. *\"What does `README.md` say about …?\"*, *\"Quote the exact … from `<path>`\"*, "
+                             "or *\"Extract the most impactful statements from the SEC 10-K form in this archive.\"*\n")
         want_qa = not listing or bool(paths) or len(terms) >= 2
         decision: dict[str, Any] | None = None
         hits: list[attach.Hit] = []
