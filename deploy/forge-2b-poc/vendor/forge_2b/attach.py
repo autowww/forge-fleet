@@ -83,11 +83,14 @@ def parse_openwebui_context(user_text: str) -> Context | None:
         return None
     inner = m.group(1)
     query = user_text[m.end():].strip()
+    spans: list[tuple[int, int]] = []
+    zips = zipingest.parse_rendered(inner, spans)
     sources: list[Source] = []
     for sm in SOURCE_RE.finditer(inner):
+        if any(a <= sm.start() < b for a, b in spans):
+            continue  # a literal <source> tag quoted inside an extracted file, not an Open WebUI source
         attrs = dict(ATTR_RE.findall(sm.group(1)))
         sources.append(Source(sid=attrs.get("id", ""), name=html.unescape(attrs.get("name", "")), body=sm.group(2), attrs=attrs))
-    zips = zipingest.parse_rendered(inner)
     texts = [s for s in sources if not zipingest._BEGIN_RE.search(s.body)]
     return Context(sources=sources, query=query, zips=zips, texts=texts,
                    preamble_sha256=hashlib.sha256(user_text[: m.start()].encode()).hexdigest())

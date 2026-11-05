@@ -266,10 +266,17 @@ def render(ing: Ingest) -> str:
     return "\n".join(out) + "\n"
 
 
-def parse_rendered(text: str) -> list[Ingest]:
-    """Rebuild Ingest objects from rendered text (as echoed back by Open WebUI); verifies block integrity."""
+def parse_rendered(text: str, spans: list[tuple[int, int]] | None = None) -> list[Ingest]:
+    """Rebuild Ingest objects from rendered text (as echoed back by Open WebUI); verifies block integrity.
+
+    When ``spans`` is given, the [start, end) character range of every accepted rendering is appended to it, so callers
+    can ignore anything (e.g. literal ``<source>`` tags quoted inside an extracted file) that lies within a rendering.
+    """
     results: list[Ingest] = []
+    spans = spans if spans is not None else []
     for m in _BEGIN_RE.finditer(text):
+        if any(a <= m.start() < b for a, b in spans):
+            continue  # a rendering quoted inside another rendering's file (evidence packets do this)
         nonce = m.group(1)
         end_mark = _MARK_END.format(nonce=nonce)
         end = text.find(end_mark, m.end())
@@ -314,6 +321,7 @@ def parse_rendered(text: str) -> list[Ingest]:
                 ing.integrity[e.path] = "MISMATCH"
             cursor = stop + len(fe)
         results.append(ing)
+        spans.append((m.start(), cursor))
     return results
 
 
