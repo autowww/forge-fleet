@@ -414,6 +414,30 @@ async def run_d2(r: NodeResult, n: Any, e: dict[str, Any], plan: Plan, ings: lis
             r.answer = (f"**{lead['label']}: {tv['value']}** (`{lead['path']}:{lead['line']}`; stated on {len(tv['entries'])} labelled line(s), read from the line)\n\n" + r.answer)
             r.spans = [{"path": en["path"], "line": en["line"], "text": en["text"]} for en in tv["entries"][:2]] + r.spans
             r.method += "+verdict_fact"
+            if verdicts._polarity(tv["value"]) == "negative":
+                _gates_fact(r, plan, named)
+
+
+def _gates_fact(r: NodeResult, plan: Plan, named: list[str]) -> None:
+    # a summary of a *failed* evaluation leads with what failed, read from the gate table (D0, `tables.typed_table_filter`),
+    # after the verdict line: "Summarize the sealed evaluation outcome in two sentences" (live L34 G1R3D, K41 G1R3A,
+    # 2026-11-06) wants the failure counts in a *stated* sentence, and the model's own two sentences are pruned by the
+    # strict D2 gate as often as they are kept. The filter is scoped to the named file when the summary names one; a
+    # package whose verdict table shows no failed row adds nothing.
+    from . import tables
+    q = "Which gates failed" + (f" in {named[0]}" if len(named) == 1 else "") + "?"
+    tf = tables.typed_table_filter(plan.amap, q)
+    if not tf or not tf["tables"] or not tf["tables"][0]["entries"]:
+        return
+    t = tf["tables"][0]
+    parts = []
+    for en in t["entries"][:8]:
+        cells = "; ".join(f"{c['column']} {c['value']}" for c in en["cells"] if c["value"])
+        parts.append(f"{en['label']}" + (f" ({cells})" if cells else ""))
+    where = f"`{t['path']}:{t['entries'][0]['line']}`" + (f"–{t['entries'][-1]['line']}" if len(t["entries"]) > 1 else "")
+    r.answer = r.answer.replace("\n\n", f"\n\n**Failed gates** ({len(t['entries'])} of {t['rows_considered']} rows, read from the table {where}): " + "; ".join(parts) + ".\n\n", 1)
+    r.spans = r.spans + [{"path": t["path"], "line": en["line"], "text": "", "seg_id": en.get("seg_id", "")} for en in t["entries"][:8]]
+    r.method += "+gates_fact"
 
 
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+(?=[A-ZА-ЯІЇЄҐ\"'(*`\d])")
@@ -590,12 +614,15 @@ async def run_d1(r: NodeResult, n: Any, e: dict[str, Any], plan: Plan, call_llm:
         _number_entailment(r)
         if r.status == "COMMITTED":
             _pointer_answer_check(r, n)
+        if r.status == "COMMITTED" and n.kind != "verify":   # a polar node's empty sentence is read by _polar_line_read
+            _empty_answer_check(r)
     if n.kind == "compare" and dec and dec["quotes"] and r.method == "q2_verified_quotes" and r.status == "COMMITTED":
         # after the sentence checks: they judge the model's first sentence, not the second side's addendum
         sides, missing = compare_missing_side(n, plan, dec["quotes"], hits)
         if missing or len({(q["path"], q["line"]) for q in dec["quotes"]}) < 2:
             await _compare_complement(r, n, dec, hits, call_llm, calls, sides, missing)
     if n.kind == "verify" and r.status in ("COMMITTED", "PARTIAL") and r.method.startswith("q2_") and r.method != "q2_not_in_excerpts":
+        _polar_line_read(r, n, plan)
         _polar_qualification(r, n, plan, hits)
         _polar_completion(r, n, plan, hits)
 
@@ -622,7 +649,14 @@ async def _not_found_retry(r: NodeResult, n: Any, plan: Plan, hits: list[attach.
     calls.charge(att2)
     r.model_calls += len(att2)
     r.attempts = r.attempts + att2
-    if dec2 and dec2["quotes"]:
+    if dec2 and dec2["quotes"] and _VALUE_Q_RE.search(n.query) and not _VALUE_TOKEN_RE.search(dec2["answer"] or ""):
+        # "What is the production database password?" re-asked over the convention row that *mentions* rotating a
+        # password (live L32 G1R3D, 2026-11-06): the reply "rotate a password" quotes the line but names no value. A
+        # question for a credential / identifier / address is answered by a value token or not at all — the negative stands.
+        r.detail = (f"NOT_FOUND_IN_EXCERPTS; re-asked once over the {len(top)} excerpt(s) carrying most of the question's words — the reply "
+                    f"({(dec2['answer'] or '')[:60]!r}) quotes the line but carries no value, so the negative stands")
+        r.answer += " Re-asked once over the most relevant excerpt(s); the reply named no value, so no claim is made."
+    elif dec2 and dec2["quotes"]:
         r.method, r.answer, r.spans = "q2_coverage_retry", dec2["answer"], spans_of(hits, dec2["quotes"])
         r.detail = (f"first reply found nothing although {len(covering)} excerpt(s) carried {len(top[0][1])}/{len(content)} of the "
                     f"question's words; re-asked over those lines only")
@@ -632,6 +666,10 @@ async def _not_found_retry(r: NodeResult, n: Any, plan: Plan, hits: list[attach.
         r.answer += f" Re-asked once over the {len(top)} most relevant excerpt(s); the model again quoted nothing."
         if n.kind == "verify":
             _covering_read(r, n, top)
+
+
+_VALUE_Q_RE = re.compile(r"^\s*(what|which)\s+(is|was|are|were)\s+(the\s+)?(\w+[\s-]+){0,4}(password|passphrase|secret|token|api key|key|credential|hash|sha\d*|checksum|commit|version|port|url|uri|endpoint|address|hostname|host|id|identifier|path|filename|email|phone|number|count|value|threshold|date|time)\b", re.I)
+_VALUE_TOKEN_RE = re.compile(r"\d|[A-Za-z0-9]+[/._:@-][A-Za-z0-9]|\b[A-Z][A-Z0-9_]{2,}\b|`[^`]+`")   # a digit, a path/host/version-like token, an ALL_CAPS code, or a code span
 
 
 def _covering_read(r: NodeResult, n: Any, top: list[tuple[attach.Hit, list[str]]]) -> None:
@@ -789,7 +827,7 @@ def _which_file_completion(r: NodeResult, n: Any, plan: Plan) -> None:
     r.detail = (r.detail + "; " if r.detail else "") + "file names read from the quoted line"
 
 
-_POINTER_ANSWER_RE = re.compile(r"^[\s`'\"*]*(?:[\w.-]+/)*[\w.-]+\.[A-Za-z0-9]{1,6}(?::\d+)?[\s`'\"*.]*$")
+_POINTER_ANSWER_RE = re.compile(r"^[\s`'\"*]*(?:[\w.-]+/)*[\w.-]+\.[A-Za-z][A-Za-z0-9]{0,5}(?::\d+)?[\s`'\"*.]*$")   # `dce-g1r/0.6.1` is a version, not a file (live L16 G1R3D)
 
 
 def _pointer_answer_check(r: NodeResult, n: Any) -> None:
@@ -816,6 +854,24 @@ def _pointer_answer_check(r: NodeResult, n: Any) -> None:
     r.answer = f"The quoted line is the evidence; the model's sentence was only a file pointer (`{pointer}`), not an answer, and is not committed."
     r.method += "+pointer_answer"
     r.detail = (r.detail + "; " if r.detail else "") + "the model's sentence names a file location instead of what the line says"
+
+
+def _empty_answer_check(r: NodeResult) -> None:
+    # a salvaged (truncated) reply can verify its quotes and still carry no sentence — live L21 G1R3D after02 (2026-11-06):
+    # `answer` "" over four quoted lines, COMMITTED. Nothing was stated, so nothing is committed: one quoted line is read
+    # verbatim, several are shown unasserted as PARTIAL.
+    if str(r.answer or "").strip() not in ("", "[]", "{}", "None", "null"):
+        return
+    read = _line_statement(r.spans[0].get("text") or "") if len(r.spans) == 1 else ""
+    if read:
+        r.answer = f"From the quoted line, verbatim (the model's reply carried no sentence): {read}"
+        r.method += "+line_read"
+        r.detail = (r.detail + "; " if r.detail else "") + "the model's reply carried no sentence; the quoted line is shown verbatim instead"
+        return
+    r.status = "PARTIAL"
+    r.answer = f"The model's reply carried no sentence (truncated or empty); the {len(r.spans)} quoted line(s) below are the evidence it selected and are shown unasserted."
+    r.method += "+empty_answer"
+    r.detail = (r.detail + "; " if r.detail else "") + "empty answer over verified quotes is not committed"
 
 
 def _line_statement(text: str) -> str:
@@ -906,6 +962,46 @@ _NEGATIVE_ANSWER_RE = re.compile(r"^\W*(no|not|never|none)\b|\b(cannot|can't|can
 _POSITIVE_ANSWER_RE = re.compile(r"^\W*(yes|yeah|correct|indeed|true)\b", re.I)
 _PERMISSIVE_RE = re.compile(r"(?<!\bnot )(?<!\bnever )(?<!\bno )\b(may|can|could|allowed|permitted|is possible|are possible)\b", re.I)
 _RESTRICTIVE_RE = re.compile(r"\b(not|never|until|unless|only|provided (?:that )?|except|hold|cannot|no longer)\b", re.I)
+
+
+_NEGATOR_RE = re.compile(r"\b(never|not|no|cannot|can't|isn't|aren't|wasn't|weren't|without|neither|nor)\b", re.I)
+
+
+def _polar_line_read(r: NodeResult, n: Any, plan: Plan) -> None:
+    # the model's sentence against its own quoted line (live L18/L19 G1R3D, 2026-11-06): "TEXT_NOT_PROHIBITED is a
+    # permission" quoting `TEXT_NOT_PROHIBITED is **never** permission`, and an *empty* sentence quoting `DEFERRED — not
+    # removed`. When the single quoted line negates a content word of the question within its clause and the sentence
+    # carries no negation (or no words at all), the sentence is not what the line says: the line is stated verbatim as
+    # the answer — a deterministic read of verified text; the model's wording is dropped, not corrected.
+    quoted = [sp for sp in r.spans if sp.get("text")]
+    if len({(sp["path"], sp["line"]) for sp in quoted}) != 1:
+        return
+    line = quoted[0]["text"].strip()
+    answer = (r.answer or "").strip()
+    content, mentions, _anchors = _content_terms(plan, n.query)
+    if not content:
+        return
+    folded = retrieval.fold(retrieval.norm(line))
+    negated_term = None
+    for m in _NEGATOR_RE.finditer(folded):
+        window = folded[m.end(): m.end() + 60]
+        for t in content:
+            if mentions(window, t):
+                negated_term = t
+                break
+        if negated_term:
+            break
+    if answer and (not negated_term or _NEGATOR_RE.search(answer) or _NEGATIVE_ANSWER_RE.search(answer[:80])):
+        return
+    if not answer and not negated_term and not _PERMISSIVE_RE.search(line) and not _RESTRICTIVE_RE.search(line):
+        return
+    read = _line_statement(line)
+    if not read:
+        return
+    why = ("the model's sentence affirmed what the quoted line denies" if answer else "the model's sentence was empty")
+    r.answer = f"From the quoted line, verbatim ({why}): {read}"
+    r.method += "+line_read"
+    r.detail = (r.detail + "; " if r.detail else "") + why + "; the line is stated instead"
 
 
 def _polar_qualification(r: NodeResult, n: Any, plan: Plan, hits: list[attach.Hit]) -> None:

@@ -521,6 +521,36 @@ def _row_continuation(ir: RequestIR, amap: AttachmentMap, n: Any, done: list[dic
     return None
 
 
+_WHICH_FILE_RE = re.compile(r"^\s*(which|what)\s+(\w+\s+)?files?\b", re.I)
+
+
+def typed_file_which(ir: RequestIR, amap: AttachmentMap, n: Node) -> dict[str, Any] | None:
+    """"Which file lists the per-case blind results as CSV?" (live L30 G1R3D, 2026-11-06): the question asks for a *file*
+    and names file groups the IR resolved (``blind`` → the blind/ files, ``csv`` → the .csv files). The files that belong
+    to every named group are the answer, read from the manifest with no model call — one to six of them; a question
+    that names a file outright, or whose groups meet in no file or in too many, keeps the model path."""
+    if not n.query or not _WHICH_FILE_RE.match(n.query) or n.source_scope["files"]:
+        return None
+    g = next((g for g in ir.goals if g.id == n.goal_id), None)
+    if g is None:
+        return None
+    groups = [(t.value, set(t.candidates)) for t in g.targets if t.kind == "file_group" and t.candidates]
+    if not groups:
+        return None
+    paths = set.intersection(*(c for _v, c in groups))   # candidates are paths
+    by_path = {f.path: f for f in amap.files if f.status == "INCLUDED"}
+    files = [by_path[p] for p in sorted(paths) if p in by_path]
+    if not files or len(files) > 6:
+        return None
+    entries = []
+    for f in files:
+        segs = amap.segments_for(f.file_id)
+        if not segs:
+            return None
+        entries.append({"path": f.path, "line": segs[0].start_line, "seg_id": segs[0].seg_id, "segments": len(segs)})
+    return {"method": "typed_file_which", "groups": [v for v, _c in groups], "entries": entries}
+
+
 def plan_preview(ir: RequestIR, amap: AttachmentMap, scope: Scope, *, max_hits: int = 8, retriever: Retriever | None = None) -> dict[str, Any]:
     """Deterministic dry run: DAG + per-node retrieval (status, ranked verified spans) + untrusted-instruction scan. No model call."""
     dag = compile_dag(ir, amap)
@@ -551,6 +581,8 @@ def plan_preview(ir: RequestIR, amap: AttachmentMap, scope: Scope, *, max_hits: 
             # each abstains unless every content word of the question is explained by the table / patch it answers from
             typed_table = (tables.typed_commit_range(amap, n.query) or tables.typed_table_filter(amap, n.query) or tables.typed_table_extreme(amap, n.query) or tables.typed_table_row(amap, n.query)
                            or tables.typed_diff_rollup(amap, n.query)) if n.kind != "summarize" else None
+            if typed_table is None and n.kind == "lookup":
+                typed_table = typed_file_which(ir, amap, n)
             if typed_table is None and n.kind == "lookup":
                 # coordination ellipsis (live K09 2026-11-06): "What is the threshold for explicit-mutation recall and what was
                 # observed in the blind run?" splits into a row goal and an elliptical goal that names no row — the model

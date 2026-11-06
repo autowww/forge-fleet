@@ -44,7 +44,9 @@ _GENERIC = {"run", "runs", "value", "values", "number", "figure", "result", "res
             "compared", "comparison", "difference", "differ", "observed", "measured", "reported", "class", "which", "what",
             "had", "has", "have", "was", "were", "is", "are", "did", "does", "with", "and", "for", "the", "of", "in", "it",
             "its", "respectively", "both", "each", "per", "row", "table", "column", "entry", "across", "among", "all",
-            "one", "ms", "latency", "time", "score", "rate", "level"}
+            "one", "ms", "latency", "time", "score", "rate", "level",
+            "change", "changed", "changes", "move", "moved", "went", "go", "evolve", "evolved", "improve", "improved", "worsen", "worsened",
+            "carry", "carries", "carried", "hold", "holds", "held", "give", "gives", "given", "show", "shows", "shown", "stated"}
 _PATCH_Q_RE = re.compile(r"\b(patch|diff|changeset|commit)\b", re.I)
 _CHANGE_Q_RE = re.compile(r"\b(chang\w*|modif\w*|touch\w*|edit\w*|affect\w*|differ\w*)\b", re.I)
 _FILES_Q_RE = re.compile(r"\b(files?|sources?|modules?|paths?)\b", re.I)
@@ -136,6 +138,36 @@ def _explained(t: Table, extra: set[str]) -> set[str]:
     return ex
 
 
+def _sing(w: str) -> str:
+    """``overgrants`` ↔ ``over-grant``, ``inversions`` ↔ ``inversion``: a label's plural meets the question's singular
+    (live L04/L06 G1R3D, 2026-11-06); three-letter words and digits stay as they are."""
+    return w[:-1] if len(w) > 3 and w.endswith("s") and not w.endswith("ss") else w
+
+
+def _hyphen_parts(query: str, explained: set[str]) -> set[str]:
+    """The parts of a hyphenated question word whose collapsed form the table explains: ``over-grant`` is explained by
+    the label ``policy_overgrants`` as a whole, so its parts ``over`` and ``grant`` are not leftovers."""
+    out: set[str] = set()
+    ex_s = {_sing(e) for e in explained}
+    for h in _HYPHEN_RE.findall(norm(query)):
+        if _sing(fold(h.replace("-", ""))) in ex_s:
+            out |= {fold(p) for p in h.split("-")}
+    return out
+
+
+_COUNT_COLS = frozenset({"n", "count", "total", "cases", "size", "items", "rows", "samples"})
+_COUNTED_NOUNS = frozenset({"cases", "case", "items", "item", "entries", "entry", "records", "record", "rows", "row", "samples", "sample", "questions", "question", "sentences", "sentence", "examples", "example"})
+_HOW_MANY_RE = re.compile(r"^\s*how many\b|\bnumber of\b|\bhow much\b", re.I)
+_PERCENTILE_RE = re.compile(r"^p\d{1,2}$")
+_METRIC_DESCRIPTORS = frozenset({"latency", "request", "requests", "response", "time", "duration", "wall", "elapsed"})   # what a p95/ms label measures
+
+
+def _inflected_hit(col: str, qset: set[str]) -> bool:
+    cw = _words(col) - STOPWORDS
+    return any(w == e or (len(w) > 4 and len(e) > 4 and (w.startswith(e[:5]) or e.startswith(w[:5]))) or (len(w) > 3 and w.rstrip("s") == e.rstrip("s"))
+               for w in qset for e in cw)
+
+
 def _guard(words: list[str], explained: set[str]) -> list[str]:
     """Question words the table cannot account for (prefix match of ≥5 chars tolerates inflection: ``labelled``/``label``)."""
     return [w for w in words if w not in explained and not w.isdigit()
@@ -211,7 +243,7 @@ def typed_table_row(amap: AttachmentMap, query: str, *, continuation_of: dict[st
             lw = r.label_words - STOPWORDS - _UNIT_WORDS   # `short_p95_ms` answers "short-request p95 latency" (K13)
             if len(lw) < 1 or (len(lw) == 1 and len(next(iter(lw))) < 6):
                 continue
-            if lw <= qset:
+            if {_sing(w) for w in lw} <= {_sing(w) for w in qset}:
                 matches.append((t, r))
     if not matches:
         return None
@@ -221,18 +253,51 @@ def typed_table_row(amap: AttachmentMap, query: str, *, continuation_of: dict[st
     # … unless the longest-labelled tables alone cannot explain the question: "short-request p95 latency and its threshold"
     # matches `Short-request P95 latency` in a review table with no threshold column and `short_p95_ms` in the gate tables
     # that have one — then every matching table is kept and listed (K13 2026-11-06)
-    if _guard(words, set().union(*(r.label_words for _, r in longest)) | set().union(*(_explained(t, set()) for t, _r in longest))):
+    longest_explained = set().union(*(r.label_words for _, r in longest)) | set().union(*(_explained(t, set()) for t, _r in longest))
+    if _guard(words, longest_explained | _hyphen_parts(query, longest_explained)):
         longest = matches
     matches = longest
     label_words = set().union(*(r.label_words for _, r in matches))
+    # run qualifiers: a question word that is neither the label nor a column — "… on the *blind* run" — and that some
+    # matched tables carry affirmatively in their heading or path while others do not, keeps only those tables (live
+    # L04 G1R3D, 2026-11-06: eleven gate tables, one per run, all said `policy_overgrants`; the question said blind)
+    label_s = {_sing(w) for w in label_words}
+    qualifier_notes: list[str] = []
+    for w in words:
+        if _sing(w) in label_s or w in _GENERIC or w in _hyphen_parts(query, label_words) or w.isdigit():
+            continue
+        carrying = [(t, r) for t, r in matches if _affirmations(t, w) or any(w in _words(c) for c in t.columns)]
+        if carrying and len(carrying) < len(matches):
+            matches = carrying
+            qualifier_notes.append(f"only the tables whose heading, path or columns say `{w}`")
+    depth_note = ""
+    if len(matches) > 3:
+        shallowest = min(t.path.count("/") for t, _r in matches)
+        top_level = [(t, r) for t, r in matches if t.path.count("/") == shallowest]
+        if top_level and len(top_level) < len(matches):
+            depth_note = f"{len(matches) - len(top_level)} further table(s) with this row sit deeper in the package and are not listed"
+            matches = top_level
     # columns the question names (any header word besides the label column); none named → every cell
     picked_cols: dict[int, list[str]] = {}
     for i, (t, _r) in enumerate(matches):
         cols = [c for c in t.columns[1:] if (_words(c) - STOPWORDS) & qset]
+        if not cols or len(cols) < len([c for c in t.columns[1:] if _inflected_hit(c, qset)]):
+            # `repaired` names the column `After repair` as surely as `candidate` names `Frozen candidate`: inflection counts
+            # the same way the guard counts it, so a question that names two columns shows both (live L16 G1R3D, 2026-11-06)
+            cols = [c for c in t.columns[1:] if _inflected_hit(c, qset)]
         picked_cols[i] = cols
     explained = set(label_words)
     for t, _r in matches:
         explained |= _explained(t, set())
+    explained |= _hyphen_parts(query, explained)
+    if any(_PERCENTILE_RE.match(w) or w in ("ms", "sec", "secs", "seconds") for w in label_words | set(words)):
+        explained |= _METRIC_DESCRIPTORS   # `short_p95_ms` *is* the short-request latency: the descriptors name what it measures (live L09 G1R3D)
+    # "How many cases are in the pronoun_reference slice?" (live L23 G1R3D): a how-many question over a row is answered by
+    # the row's count column (`n`, `count`, `total`, `cases`, `size`); the counted noun is what that column counts
+    count_cols = {i: [c for c in t.columns[1:] if (_words(c) & _COUNT_COLS)] for i, (t, _r) in enumerate(matches)}
+    how_many = bool(_HOW_MANY_RE.search(query)) and any(count_cols.values())
+    if how_many:
+        explained |= _COUNTED_NOUNS
     leftover = _guard(words, explained)
     if leftover:
         return None
@@ -241,6 +306,8 @@ def typed_table_row(amap: AttachmentMap, query: str, *, continuation_of: dict[st
     # column — the named column(s) come first, the rest of the row follows (K13 2026-11-06)
     coordinated = bool(re.search(r"\b(and|with|plus|along with|as well as)\b", query, re.I))
     for i, (t, r) in enumerate(matches):
+        if how_many and not picked_cols[i] and count_cols[i]:
+            picked_cols[i] = count_cols[i][:1]
         cols = picked_cols[i] or [c for c in t.columns[1:]]
         if len(picked_cols[i]) == 1 and coordinated:   # two named columns: the "and" joins them, not the metric to a column
             cols = picked_cols[i] + [c for c in t.columns[1:] if c not in picked_cols[i]]
@@ -251,11 +318,15 @@ def typed_table_row(amap: AttachmentMap, query: str, *, continuation_of: dict[st
         entries = [e for e in entries if e["columns_named"]]   # tables without the named column do not answer the question
     entries.sort(key=lambda e: (e["path"], e["line"]))
     note = "" if len(entries) == 1 else f"the row appears in {len(entries)} tables; all shown, none chosen"
+    for qn in qualifier_notes:
+        note = (note + "; " if note else "") + qn
+    if depth_note:
+        note = (note + "; " if note else "") + depth_note
     if continuation_of is not None:
         if not any(e["columns_named"] for e in entries):
             return None   # the elliptical goal names no column of the row's tables: nothing deterministic to read
         note = (note + "; " if note else "") + f"read from the same row as the previous part of the question (`{continuation_of['label']}`)"
-    return {"method": "typed_table_row", "label": matches[0][1].label, "entries": entries, "note": note}
+    return {"method": "typed_table_row", "label": entries[0]["label"], "entries": entries, "note": note}
 
 
 # --- extreme over a column ---------------------------------------------------------------------------------------------------
@@ -291,6 +362,16 @@ def typed_table_extreme(amap: AttachmentMap, query: str) -> dict[str, Any] | Non
         return None
     top = max(o for o, *_ in cands)
     best = [x for x in cands if x[0] == top]
+    if len(best) > 1:
+        # "Which *slice* had the lowest op pass?": the table whose label column the question names (`slice`) beats the
+        # `Pass` columns of the gate tables (live L24 G1R3D, 2026-11-06); the same table repeated per run deeper in the
+        # package (public/*_REPORT.md) yields to the top-level copy
+        named = [x for x in best if (_words(x[1].columns[0]) - STOPWORDS) & qset]
+        if named:
+            best = named
+        if len(best) > 1:
+            shallowest = min(x[1].path.count("/") for x in best)
+            best = [x for x in best if x[1].path.count("/") == shallowest]
     if len(best) > 1:
         return None   # two columns explain the question equally well: not a deterministic choice
     _o, t, col, sub = best[0]
@@ -343,7 +424,10 @@ def _affirmations(t: Table, w: str) -> int:
     """How often a heading of the table or its path carries ``w`` *affirmatively*: "not a blind result" and
     ``POST_BLIND_PUBLIC/`` name blind only to deny it, so they count zero."""
     n = 0
-    for text in [*t.heading, t.path.replace("/", " ").replace(".", " ")]:
+    # a path quoted inside a heading (`gates (artifacts/…/blind/PROTOCOL.md §5)`) is a reference, not what the table is
+    # about: every burned report of G1R3D cited the blind protocol that way (live L04, 2026-11-06)
+    heads = [" ".join(tok for tok in h.split() if "/" not in tok) for h in t.heading]
+    for text in [*heads, t.path.replace("/", " ").replace(".", " ")]:
         low = norm(text).replace("_", " ").replace("-", " ")   # `g1r3a_gates` names g1r3a and gates (K08)
         n += max(0, len(re.findall(rf"(?<![\w]){re.escape(w)}(?![\w])", low)) - len(re.findall(_DENIAL_RE.format(w=re.escape(w)), low)))
     return n
@@ -391,19 +475,44 @@ def typed_table_filter(amap: AttachmentMap, query: str) -> dict[str, Any] | None
     # distinct question words a table carries affirmatively, then how often: the blind summary and the blind report both
     # say "blind" twice over, the public re-run names it once and only to deny it (live K06)
     scored = [((sum(1 for w in rest if _affirmations(t, w) or w in _words(c)), sum(_affirmations(t, w) for w in rest)), t, c) for t, c in cands]
+    # a question word that is the *value* of a categorical column in some rows and not all (`safety` in `Kind`) is a row
+    # filter — "Which safety gates failed?" keeps the safety rows (live L05 G1R3D, 2026-11-06); it also explains the word
+    def _categories(t: Table, col: str) -> dict[str, str]:
+        out: dict[str, str] = {}
+        for c in t.columns[1:]:
+            if c == col:
+                continue
+            vals = [fold(r.cells.get(c, "").strip().strip("*`_ ")) for r in t.rows]
+            for w in rest:
+                n = sum(1 for v in vals if v == w)
+                if 0 < n < len(vals):
+                    out[w] = c
+        return out
+    scored = [((sc[0] + sum(1 for w in rest if w in _categories(t, c) and not (_affirmations(t, w) or w in _words(c))), sc[1]), t, c) for sc, t, c in scored]
     top = max(sc for sc, *_ in scored)
     if top[0] == 0 and len(cands) > 1:
         return None   # nothing in the question says which verdict table
     best = [(t, c) for sc, t, c in scored if sc == top]
+    depth_note = ""
     if len(best) > 3:
-        return None
+        # a package that ships the same gate table for every run (blind, burned, baseline — live L05 G1R3D: nine tables):
+        # the ones in the shallowest folder are the package's own summary; the deeper copies are its supporting material
+        shallowest = min(t.path.count("/") for t, _c in best)
+        top_level = [(t, c) for t, c in best if t.path.count("/") == shallowest]
+        if len(top_level) > 3:
+            return None
+        depth_note = f"{len(best) - len(top_level)} further table(s) with the same verdict column sit deeper in the package and are not listed"
+        best = top_level
     extra = set(_FILTER_NEG | _FILTER_POS | {"gates", "gate", "rows", "checks", "criteria", "items"})
     out_tables = []
     for t, col in best:
-        if _guard(words, _explained(t, extra | _words(col))):
+        cats = _categories(t, col)
+        if _guard(words, _explained(t, extra | _words(col) | set(cats))):
             return None
         def _hit(r: Row) -> bool:
             cell = fold(r.cells.get(col, "").strip().strip("*`_ "))
+            if any(fold(r.cells.get(cc, "").strip().strip("*`_ ")) != w for w, cc in cats.items()):
+                return False
             return (cell not in avoid and bool(cell)) if avoid is not None else cell in want
         rows = [r for r in t.rows if _hit(r)]
         out_tables.append({"path": t.path, "column": col, "heading": t.heading[-1] if t.heading else "", "rows_considered": len(t.rows),
@@ -412,6 +521,8 @@ def typed_table_filter(amap: AttachmentMap, query: str) -> dict[str, Any] | None
     if not any(tb["entries"] for tb in out_tables):
         return None   # "none" would be a claim without a span to carry it; the verified-quote path answers that
     note = "" if len(out_tables) == 1 else f"{len(out_tables)} tables carry a verdict column the question fits equally well; each is listed and none is chosen"
+    if depth_note:
+        note = (note + "; " if note else "") + depth_note
     return {"method": "typed_table_filter", "want": "negative" if neg else "positive", "tables": out_tables, "note": note}
 
 

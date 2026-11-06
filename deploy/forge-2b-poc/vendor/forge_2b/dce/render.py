@@ -131,6 +131,14 @@ def typed_dated_sections(r: NodeResult, ts: dict[str, Any], plan: Plan) -> None:
 def typed_table(r: NodeResult, tt: dict[str, Any], plan: Plan) -> None:
     # D0 (Phase 2): a table row, a column extreme, a filtered column, a commit range or a patch rollup read from the map — no model call
     r.method = tt["method"]
+    if tt["method"] == "typed_file_which":
+        # the files that belong to every file group the question named, read from the manifest
+        groups = " ∩ ".join(f"`{g}`" for g in tt["groups"])
+        r.answer = (f"**{len(tt['entries'])} file(s)** in the archive match {groups}:\n"
+                    + "\n".join(f"- `{en['path']}` ({en['segments']} indexed segment(s))" for en in tt["entries"]))
+        for en in tt["entries"]:
+            r.spans.append(_span(plan, en["path"], en["line"], en["seg_id"]))
+        return
     if tt["method"] == "typed_table_row":
         parts = []
         for en in tt["entries"]:

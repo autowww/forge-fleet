@@ -101,9 +101,11 @@ def claims_and_evidence(content: str) -> tuple[str, str]:
 
 
 def _answer_regexes_hit(case: dict, text: str) -> bool:
-    ok_all = all(re.search(rx, text) for rx in case.get("answer_all", []))
+    # case-insensitive: a polar gold `\bno\b` must meet the lane's "No" (live L18 G1R3D after01, 2026-11-06 — the right
+    # one-word answer scored as a strict miss); gold tokens are values and words, never case-distinguished
+    ok_all = all(re.search(rx, text, re.I) for rx in case.get("answer_all", []))
     anys = case.get("answer_any", [])
-    return ok_all and (True if not anys else any(re.search(rx, text) for rx in anys))
+    return ok_all and (True if not anys else any(re.search(rx, text, re.I) for rx in anys))
 
 
 def score_detail(case: dict, content: str) -> dict:

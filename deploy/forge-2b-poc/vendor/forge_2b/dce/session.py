@@ -62,12 +62,14 @@ class Turn:
     goals: list[dict[str, Any]] = field(default_factory=list)   # sanitized: {kind, operator, status, method, spans[path:line]}
     answer_head: str = ""                         # first 300 chars of the stated answer (no evidence), for "it" = the answer value
     at: float = field(default_factory=time.time)
+    archives: list[str] = field(default_factory=list)   # attachment file names the turn was answered from (names only)
+    lane: str = "attachment"                      # attachment | chat
 
 
 class SessionStore:
     """In-memory, per conversation key, last ``depth`` turns, ``ttl_s`` seconds. Thread-safe; bounded by ``max_keys``."""
 
-    def __init__(self, *, depth: int = 2, ttl_s: float = 1800.0, max_keys: int = 500) -> None:
+    def __init__(self, *, depth: int = 4, ttl_s: float = 1800.0, max_keys: int = 500) -> None:
         self.depth, self.ttl_s, self.max_keys = depth, ttl_s, max_keys
         self._d: OrderedDict[str, list[Turn]] = OrderedDict()
         self._lock = threading.Lock()
@@ -79,7 +81,8 @@ class SessionStore:
         while len(self._d) > self.max_keys:
             self._d.popitem(last=False)
 
-    def last(self, key: str | None) -> Turn | None:
+    def last(self, key: str | None, lane: str | None = None) -> Turn | None:
+        """The most recent stored turn of the conversation — of the given ``lane`` when one is named."""
         if not key:
             return None
         with self._lock:
@@ -87,7 +90,9 @@ class SessionStore:
             turns = self._d.get(key)
             if turns:
                 self._d.move_to_end(key)
-                return turns[-1]
+                for t in reversed(turns):
+                    if lane is None or t.lane == lane:
+                        return t
             return None
 
     def push(self, key: str | None, turn: Turn) -> None:
@@ -108,8 +113,9 @@ class SessionStore:
 
 
 # --- follow-up resolution --------------------------------------------------------------------------------------------------
-_ELLIPTICAL_SCOPE_RE = re.compile(r"^\s*(?:and|what about|how about|also)?\s*(?:(?:in|for|on|at|under|during|with|within)\s+)(?P<scope>.+?)\s*\??\s*$", re.I)
-_PREV_SCOPE_RE = re.compile(r"\b(?P<prep>in|for|on|at|under|during|with|within)\s+(?P<scope>(?:the|a|an|this|that)\s+[^?]+?)\s*\??\s*$", re.I)
+_SCOPE_PREPS = r"in|for|on|at|under|during|with|within|after|before|since|across|per|from"
+_ELLIPTICAL_SCOPE_RE = re.compile(r"^\s*(?:and|what about|how about|also)?\s*(?P<prep>" + _SCOPE_PREPS + r")\s+(?P<scope>.+?)\s*\??\s*$", re.I)
+_PREV_SCOPE_RE = re.compile(r"\b(?P<prep>" + _SCOPE_PREPS + r")\s+(?P<scope>(?:the|a|an|this|that)\s+[^?]+?)\s*\??\s*$", re.I)
 _PRONOUN_RE = re.compile(r"\b(it|this|that|its|them|they|those|these)\b", re.I)
 _WH_LEAD_RE = re.compile(r"^\s*(?:what|which|who|whom|when|where|why|how(?:\s+many|\s+much)?)\b\s*(?:\w+\s+){0,3}?(?:is|are|was|were|did|does|do|has|have|had)\b\s*", re.I)
 _OBJECT_NP_RE = re.compile(r"\b(?:did|does|do|has|have|had|was|were|is|are)\s+(?P<np>(?:the|a|an|this|that)\s+.+?)\s+\w+\s*\??\s*$", re.I)
@@ -149,7 +155,9 @@ def resolve_follow_up(question: str, prev: Turn | None) -> FollowUp | None:
     if m and len(_NOUNISH_RE.findall(m.group("scope"))) <= 4 and not re.search(r"\b(is|are|was|were|did|does|do|has|have)\b", q, re.I):
         pm = _PREV_SCOPE_RE.search(prev.question)
         if pm:
-            new_q = prev.question[: pm.start("scope")] + m.group("scope").strip() + "?"
+            # the follow-up's own preposition travels with its scope: "… in the blind run" + "And after the repair?" →
+            # "… after the repair?" (live L08 G1R3D, 2026-11-06 — "in the repair" was read as a place, not a time)
+            new_q = prev.question[: pm.start("prep")] + m.group("prep").lower() + " " + m.group("scope").strip() + "?"
             return FollowUp(new_q, "scope_substitution",
                             f"read as “{new_q}” — the scope “{m.group('scope').strip()}” replaces “{pm.group('scope').strip()}” from your previous question")
         return None
@@ -167,8 +175,36 @@ def resolve_follow_up(question: str, prev: Turn | None) -> FollowUp | None:
     return None
 
 
-def turn_from_results(asked: str, question: str, results: list[dict[str, Any]], answer_head: str) -> Turn:
+_HEAD_SKIP_RE = re.compile(r"^(_D[012] · |_\d+ model attempt|\*\*forge-2b |Deterministic \(D0\) nodes|\*\*Live timeline|- [✓◐✗–■] `|### |\*\*Coverage gate|```)")
+
+
+def answer_head_of(rendered: str) -> str:
+    """The stated part of a rendered DCE answer — what the lane *said*, not its headers, status lines, evidence or artifact:
+    the lines after the first goal header up to the first `**Evidence` / `**Excerpts checked` block, 300 chars."""
+    out: list[str] = []
+    started = False
+    for ln in rendered.splitlines():
+        st = ln.strip()
+        if st.startswith("### "):
+            started = True
+            continue
+        if not started:
+            continue
+        if st.startswith("**Evidence") or st.startswith("**Excerpts checked") or st.startswith("**Coverage gate") or st.startswith("```"):
+            break
+        if not st or _HEAD_SKIP_RE.match(st):
+            continue
+        out.append(st)
+    return " ".join(out)[:300] if out else rendered[:300]
+
+
+def turn_from_results(asked: str, question: str, results: list[dict[str, Any]], answer_head: str, archives: list[str] | None = None) -> Turn:
     """Build the stored turn from the sanitized per-node trace (``results_trace`` rows): no file text, only pointers."""
     goals = [{"kind": r.get("kind"), "status": r.get("status"), "method": r.get("method"), "spans": list(r.get("spans") or [])[:4]}
              for r in results if str(r.get("node_id", "")).startswith("g")]
-    return Turn(question=question, asked=asked, goals=goals, answer_head=(answer_head or "")[:300])
+    return Turn(question=question, asked=asked, goals=goals, answer_head=answer_head_of(answer_head or ""), archives=list(archives or [])[:8])
+
+
+def chat_turn(asked: str, answer_head: str) -> Turn:
+    """A conversation-lane turn: the words asked and the head of the reply, no archives, no goals."""
+    return Turn(question=asked, asked=asked, answer_head=(answer_head or "")[:300], lane="chat")

@@ -26,10 +26,15 @@ from jsonschema import Draft202012Validator
 
 from . import attach, edgar, graph, live, zipingest
 from .chat_lane import (
+    attached_state_reply,
+    capabilities_reply,
     comprehend,
     conversation,
+    detached_follow_up_reply,
     footer,
     identity_reply,
+    previous_answer_reply,
+    previous_turn_note,
     refusal_text,
     scrub_self_claim,
     system_prompt,
@@ -1026,7 +1031,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
             if follow_up is not None:
                 yield "text", f"_Follow-up {follow_up.note}._\n\n"
             rendered = dce_shadow.render(run_id, plan, results, gate, backend_model=cfg.backend_model)
-            dce_store.push(sess_key, dce_session.turn_from_results(asked, query, record["dce"]["results"], rendered))
+            dce_store.push(sess_key, dce_session.turn_from_results(asked, query, record["dce"]["results"], rendered, [i.filename for i in ings]))
             yield "text", rendered
             yield "snap", lgd.snapshot_html(final=True)
             log.info("attachment run %s (dce): %s goals=%d calls=%d %dms", run_id, gate["status"], len(gate["goals"]), gate["model_calls_made"], lgd.elapsed_ms())
@@ -1067,7 +1072,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
 
         return StreamingResponse(generate(), media_type="text/event-stream", headers=headers)
 
-    async def free_chat(body: dict[str, Any], messages: Any, user_text: str):
+    async def free_chat(request: Request, body: dict[str, Any], messages: Any, user_text: str):
         """Ordinary conversation. A side-effect-only ask is answered from the reader; every other ask is one pinned-model reply.
 
         The lane is linear by design, and it shows that: a two-node live graph (`read` — the deterministic reader, no model;
@@ -1123,11 +1128,30 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
             lg.add("identity", "zero_model", "fixed self-description · no model")
             lg.start("identity")
             return _text_response(body, run_id, named + done("identity", "COMMITTED", "who-are-you answered without the model", "COMMITTED"), headers)
+        # Phase 5 grounding (2026-11-06): questions about the engine itself, about what is attached, about the previous turn, and
+        # elliptical follow-ups that arrived without their attachment are answered deterministically from the session store —
+        # the pinned model is never asked about files it cannot see or about capabilities it would invent.
+        sess_key, sess_source = dce_session.conversation_key(request.headers, messages)
+        prev = dce_store.last(sess_key)
+        prev_att = dce_store.last(sess_key, "attachment")   # the last turn answered from a file, even after chat turns in between
+        follow_up = dce_session.resolve_follow_up(user_text, prev_att) if prev_att is not None and prev is prev_att else None
+        record["session"] = {"source": sess_source, "user_ref": dce_session.user_ref(request.headers),
+                             "previous_turn": {"lane": prev.lane, "asked": prev.asked[:200], "archives": list(prev.archives)} if prev else None,
+                             "follow_up": {"kind": follow_up.kind, "asked": user_text[:200], "read_as": follow_up.rewritten[:300]} if follow_up else None}
+        for stage, text in (("capabilities", capabilities_reply(user_text)), ("attached_state", attached_state_reply(user_text, prev_att)),
+                            ("previous_answer", previous_answer_reply(user_text, prev)), ("detached_follow_up", detached_follow_up_reply(user_text, prev_att, follow_up))):
+            if text is not None:
+                record["status"] = "COMMITTED"
+                record["stages"].append(stage)
+                record["reading"]["decision"] = stage
+                lg.add(stage, "zero_model", "session store · no model")
+                lg.start(stage)
+                return _text_response(body, run_id, text + done(stage, "COMMITTED", f"{stage.replace('_', ' ')} answered without the model", "COMMITTED"), headers)
 
         conv = conversation(messages) or [{"role": "user", "content": user_text[:4000]}]
         llm_body = {
             "model": cfg.backend_model,
-            "messages": [{"role": "system", "content": system_prompt(reading)}, *conv],
+            "messages": [{"role": "system", "content": system_prompt(reading, previous_turn_note(prev))}, *conv],
             "temperature": 0,
             "max_tokens": 1024,
             "stream": False,
@@ -1168,7 +1192,9 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
             record["attempts"] = 1
             record["status"] = "COMMITTED"
             record["stages"].append("reply")
-            return visible_prefix(reading) + scrub_self_claim(content.strip()) + footer(reading) + done("reply", "COMMITTED", f"1 call · served {served}", "COMMITTED")
+            text = visible_prefix(reading) + scrub_self_claim(content.strip()) + footer(reading)
+            dce_store.push(sess_key, dce_session.chat_turn(user_text, text))
+            return text + done("reply", "COMMITTED", f"1 call · served {served}", "COMMITTED")
 
         lg.start("reply", "one pinned-model call over the conversation")
         if not body.get("stream"):
@@ -1224,7 +1250,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
         if edgar.parse_directive(user_text) and "SOURCE:" not in user_text:
             return await graph_run(request, body, user_text)
         if not SOURCE_PATTERN.fullmatch(user_text):
-            return await free_chat(body, messages, user_text)
+            return await free_chat(request, body, messages, user_text)
         expected, source = parse_fixture(user_text)
         run_id = uuid.uuid4().hex
 

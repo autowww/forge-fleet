@@ -128,7 +128,7 @@ def sanitized_trace(plan: Plan, mode: str) -> dict[str, Any]:
             n["typed_compare"] = {"verdict": e["typed_compare"]["verdict"], "differs": [d["key"] for d in e["typed_compare"]["differs"]]}
         if "typed_table" in e:
             tt = e["typed_table"]
-            n["typed_table"] = {"method": tt["method"], **({"label": tt["label"], "rows": len(tt["entries"])} if "entries" in tt else {}),
+            n["typed_table"] = {"method": tt["method"], **({"label": tt.get("label", ""), "rows": len(tt["entries"])} if "entries" in tt else {}),
                                 **({"column": tt["column"], "label": tt["label"]} if tt["method"] == "typed_table_extreme" else {}),
                                 **({"files": len(tt["files"])} if "files" in tt else {}),
                                 **({"commits": len(tt["commits"]), "path": tt["path"]} if "commits" in tt else {})}

@@ -64,6 +64,9 @@ def stems_of(word: str) -> set[str]:
             out.add(w[: -len(suf)])
     return out - {w}
 _RULE_ROW_RE = re.compile(r"^\s*(?:\|?\s*:?-{2,}:?\s*)+\|?\s*$|^\s*[-=*_]{3,}\s*$")   # markdown table rule / horizontal rule
+_LABEL_LINE_RE = re.compile(r"^\s*[-*]?\s*\**([A-Za-z][A-Za-z \-]{2,40}?)\**\s*:\s+\S")   # `Labeller: …`, `- **Owner**: …`
+_SOURCE_EXT_RE = re.compile(r"\.(?:py|js|ts|tsx|jsx|java|go|rs|c|cc|cpp|h|hpp|cs|rb|php|sh|bash|sql)$", re.I)   # program source
+_DUMP_EXT_RE = re.compile(r"\.(?:json|jsonl|ndjson|csv|tsv|log)$", re.I)   # machine result dumps — many near-identical leaves per case
 _PATH_RE = re.compile(r"[\w./\-\u00c0-\u024f\u0400-\u04ff\u3040-\u30ff\u4e00-\u9fff]+\.(?:md|txt|json|ya?ml|csv|py|js|ts|toml|xml|html?|sql|log|sh|ini|cfg|conf|rst|tsv)\b", re.I)
 
 
@@ -489,6 +492,15 @@ class Retriever:
                 feats["quoted"] = 3.0
             if nums and any(re.search(rf"(?<![\w.]){re.escape(n)}(?![\w.])", r.text) for n in nums):
                 feats["number"] = 1.0
+            if stem_terms and r.kind in ("paragraph", "item", "key"):
+                # a prose line that *labels* its value with a word of the question's family — `Labeller: AGENT_…` for
+                # "Who labelled the sealed set?" (live L12 G1R3D, 2026-11-06) — is the line that answers; the label is
+                # not a parsed key (the parser kept the identifier in the value), so the stem meets it here
+                lm = _LABEL_LINE_RE.match(r.text)
+                if lm:
+                    lab = fold(lm.group(1))
+                    if any(st in lab for st in stem_terms):
+                        feats["label_stem"] = 3.0
             if not self.use_fts and any(fold(t) in lowf for t in search_terms):
                 feats["substring"] = 1.0
             if terms:   # a line that covers more distinct question words beats a structural line matching one; a literal
@@ -496,10 +508,18 @@ class Retriever:
                 # "replicas", but can no longer let a ubiquitous key outrank the line that says the word)
                 lit = sum(1 for t in terms if any(w in lowf for w in term_words[t]))
                 via_alias = sum(1 for t in terms if alias_words[t] and not any(w in lowf for w in term_words[t]) and any(w in lowf for w in alias_words[t]))
-                if lit or via_alias:
-                    feats["term_coverage"] = round((3.0 * lit + 1.0 * via_alias) / len(terms), 3)
+                # a question word said by the line's *section heading* counts like a paraphrase: `| explicit-mutation
+                # recall | 0.864 | 0.977 |` under `## 5. Burned re-score after the repair` covers "after the repair"
+                # through its heading (live L08 G1R3D, 2026-11-06 — the row lost to source-code lines saying the same
+                # three metric words); the heading feature alone is a flat 1.0 and cannot tell two from zero
+                via_heading = 0
+                if r.heading_words and lit < len(terms):
+                    via_heading = sum(1 for t in terms if not any(w in lowf for w in term_words[t]) and not (alias_words[t] and any(w in lowf for w in alias_words[t]))
+                                      and (term_words[t] & r.heading_words))
+                if lit or via_alias or via_heading:
+                    feats["term_coverage"] = round((3.0 * lit + 1.0 * via_alias + 1.0 * via_heading) / len(terms), 3)
                     feats["_lit"] = lit
-                    feats["_cov"] = lit + via_alias
+                    feats["_cov"] = lit + via_alias + via_heading
             if explicit and r.file_id in explicit:
                 feats["path_scope"] = 2.0 if feats else (0.5 if scope_files else 0.0)
             score = sum(v for k, v in feats.items() if not k.startswith("_"))
@@ -546,6 +566,22 @@ class Retriever:
         per_file_cap = max_hits if explicit else max(2, max_hits // 2)
         bulky_rows = 4 * max_hits
         per_file: dict[str, int] = {}
+        # machine dumps as a *class*: the per-file cap holds one dump to half the slots, but a package that ships
+        # thirteen result dumps (G1R3D, 2026-11-06: 280k of 294k indexed lines were JSON) fills every slot with them —
+        # live L36 showed eight `"apply_change"` / `"change request"` leaves from six files and no prose at all. All
+        # bulky dump files (json/csv/log …) together may fill at most half of the excerpt slots, and a dump leaf whose
+        # text already appears in the excerpts (the same key repeated per case, per run) takes no further slot; prose
+        # and markdown files are not dumps and keep the per-file rule only.
+        dump_group_cap = max_hits if explicit else max(2, max_hits // 2)
+        dump_used = 0
+        dump_texts_seen: set[str] = set()
+        # source code as a class: for a *prose* question (no identifier, quoted literal, code or number anchor) the
+        # lines of program files together take at most a quarter of the slots — `f"expl.mut.recall {a['explicit_…']}"`
+        # in four scoring scripts outranked the results table (live L08 G1R3D). A question that names an identifier,
+        # a literal or a file is about code and keeps every slot open.
+        prose_question = not idents and not quoted and not nums and not scope_files
+        source_group_cap = max_hits if (explicit or not prose_question) else max(1, max_hits // 4)
+        source_used = 0
         by_loc = {(rr.file_id, rr.line): rr for rr in in_scope.values()}
         # context companions (header for a row, heading for a line, body for a label) ride along in their own bounded
         # budget: they never displace a scored excerpt (oracle C064 regressed when five CSV rows pushed out the one
@@ -570,6 +606,25 @@ class Retriever:
                 if "file_diversity_cap" not in strategy:
                     strategy.append("file_diversity_cap")
                 continue
+            if _SOURCE_EXT_RE.search(h.path) is not None and not (explicit and h.file_id in explicit):
+                if source_used >= source_group_cap:
+                    if "source_group_cap" not in strategy:
+                        strategy.append("source_group_cap")
+                    continue
+                source_used += 1
+            is_dump = _DUMP_EXT_RE.search(h.path) is not None and self._index.rows_per_file.get(h.file_id, 0) > bulky_rows
+            if is_dump and not (explicit and h.file_id in explicit):
+                tkey = " ".join(h.text.split())
+                if tkey in dump_texts_seen:
+                    if "dump_duplicate_line_skipped" not in strategy:
+                        strategy.append("dump_duplicate_line_skipped")
+                    continue
+                if dump_used >= dump_group_cap:
+                    if "dump_group_cap" not in strategy:
+                        strategy.append("dump_group_cap")
+                    continue
+                dump_texts_seen.add(tkey)
+                dump_used += 1
             per_file[h.file_id] = per_file.get(h.file_id, 0) + 1
             out.append(h)
             n_scored += 1
