@@ -17,19 +17,22 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Awaitable, Callable
 
 from .. import attach, zipingest
-from .attachment_map import AttachmentMap, Scope, build_attachment_map
+from .attachment_map import AttachmentMap, Scope, build_attachment_map, warm_parse_cache
 from .dag import TaskDAG, compile_dag, plan_preview
 from .ir import RequestIR
 from .parse import parse_request
 from . import aliases, lexicon, retrieval
 from .retrieval import Retriever
 from .untrusted import Finding, refusal_text, scan_text
+
+log = logging.getLogger("forge_2b.dce")
 
 MODES = ("off", "shadow", "on")
 TRACE_VERSION = "forge-2b.dce-trace.v1"
@@ -44,7 +47,7 @@ def normalize_mode(value: str | None) -> str:
 
 @dataclass(frozen=True)
 class Budget:
-    plan_ms: float = 400.0        # deterministic stage (parse + map + DAG + dry-run retrieval) wall-clock cap
+    plan_ms: float = 1500.0       # deterministic stage (parse + map + DAG + dry-run retrieval) wall-clock cap; warm map ≈ 0.2 s
     max_hits: int = 8
     max_model_calls: int = 3      # per run, all D1/D2 nodes together
     max_attempts: int = 2         # per node, same as the legacy Q2 loop
@@ -60,6 +63,17 @@ class Plan:
     preview: dict[str, Any]
     retriever: Retriever
     elapsed_ms: float
+
+
+def warm_caches(ing: zipingest.Ingest) -> dict[str, Any]:
+    """Called at ingest time (upload), off the question path: parse every file into the content-addressed parse cache
+    and build the retrieval index once so the first question's plan stage is a lookup, not a multi-second build.
+    Pure CPU, no model, nothing persisted; both caches are keyed by content, never by scope."""
+    t0 = time.perf_counter()
+    cold_files = warm_parse_cache(ing)
+    amap = build_attachment_map([ing], Scope("forge-2b", "-", "warm"))
+    Retriever(amap)
+    return {"files_parsed_cold": cold_files, "segments": len(amap.segments), "ms": round((time.perf_counter() - t0) * 1000, 1)}
 
 
 def build_plan(ings: list[zipingest.Ingest], query: str, run_id: str, *, budget: Budget = Budget(), tenant: str = "forge-2b", user: str = "-") -> Plan:
@@ -95,6 +109,7 @@ def sanitized_trace(plan: Plan, mode: str) -> dict[str, Any]:
         nodes.append(n)
     return {"version": TRACE_VERSION, "mode": mode, "status": "PLANNED", "model_calls_made": 0,
             "plan_ms": round(plan.elapsed_ms, 2), "map_id": plan.amap.map_id, "map_files": len(plan.amap.files), "map_segments": len(plan.amap.segments),
+            "map_bounds_hit": plan.amap.bounds.get("hit", []),
             "ir": {"route": plan.ir.routing.route, "goals": goals, "unresolved": len(plan.ir.unresolved), "ambiguities": len(plan.ir.ambiguities),
                    "language_hint": plan.ir.language_hint},
             "dag": {"nodes": nodes, "order": plan.preview["order"], "model_calls_planned": plan.dag.model_calls_planned,
@@ -155,18 +170,23 @@ class NodeResult:
     attempts: list[dict[str, Any]] = field(default_factory=list)
 
 
-LlmCall = Callable[[list[dict[str, str]]], Awaitable[tuple[str, str]]]   # messages -> (content, served_model)
+LlmCall = Callable[..., Awaitable[tuple[str, str]]]   # (messages, *, max_tokens=Q2_MAX_TOKENS) -> (content, served_model)
+Q2_MAX_TOKENS = 400          # the legacy contract's completion budget
+Q2_MAX_TOKENS_RETRY = 900    # second attempt after an object the token limit cut (qwen3.5 spends part of the budget on reasoning)
 
 
 async def q2_decide(call_llm: LlmCall, question: str, hits: list[attach.Hit], *, max_attempts: int) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
     """The existing fixed-model Q2 contract (JSON {found, answer, quotes}) with verbatim-quote verification. Unchanged schema."""
     hint: str | None = None
+    json_only = False
+    user_tail: str | None = None
+    max_tokens = Q2_MAX_TOKENS
     attempts: list[dict[str, Any]] = []
     for attempt in range(1, max_attempts + 1):
-        msgs = attach.qa_messages(question, hits, retry_hint=hint)
+        msgs = attach.qa_messages(question, hits, retry_hint=hint, json_only=json_only, user_tail=user_tail)
         t0 = time.monotonic()
         try:
-            content, served = await call_llm(msgs)
+            content, served = await call_llm(msgs, max_tokens=max_tokens)
         except Exception as ex:  # noqa: BLE001 — upstream failure is recorded, never raised into the response body
             attempts.append({"attempt": attempt, "failure": f"UPSTREAM:{type(ex).__name__}"})
             hint = "upstream error"
@@ -175,17 +195,31 @@ async def q2_decide(call_llm: LlmCall, question: str, hits: list[attach.Hit], *,
         try:
             cand = attach.parse_qa(content)
         except (ValueError, json.JSONDecodeError) as ex:
-            attempts.append({"attempt": attempt, "failure": f"DECISION_INVALID:{str(ex)[:60]}", "ms": ms})
-            hint = str(ex)[:80]
+            reason = str(ex)
+            attempts.append({"attempt": attempt, "failure": f"DECISION_INVALID:{reason[:60]}", "ms": ms, "max_tokens": max_tokens})
+            # server log only (never the trace): the shape of what the 2B model emitted instead of the JSON object
+            log.warning("dce q2 attempt %d rejected %s: served=%s chars=%d head=%r", attempt, reason[:60], served, len(content), content[:160])
+            hint = reason[:80]
+            # the retry must differ from the first call in what the model *sees*, or a temperature-0 model repeats itself
+            # byte for byte (live 2026-11-06): prose → the JSON-only directive at the end of the user turn; an object cut
+            # by the token limit → a larger completion budget. Both stay within the node's call budget (this is attempt 2).
+            json_only = True   # prose, prose around a half-object, wrong shape: the directive is the one lever that changed the live answer
+            if reason.startswith("truncated JSON object"):
+                max_tokens = Q2_MAX_TOKENS_RETRY
             continue
+        salvaged = cand.pop("salvaged", None)
         problems = attach.verify_quotes(cand, hits)
         if problems:
             attempts.append({"attempt": attempt, "failure": "QUOTE_NOT_VERBATIM", "problems": problems[:3], "ms": ms})
             hint = problems[0]
+            # same lesson as above: the system-prompt hint alone left the second reply identical (live K18 2026-11-06:
+            # `found: true`, `quotes: []`, twice) — the quoting directive goes at the end of the user turn
+            user_tail = attach.QUOTE_TAIL
             continue
         cand["found"] = bool(cand["quotes"])
         attempts.append({"attempt": attempt, "status": "COMMITTED", "ms": ms, "served": served,
-                         "prompt_sha256": hashlib.sha256(json.dumps(msgs, sort_keys=True).encode()).hexdigest()})
+                         "prompt_sha256": hashlib.sha256(json.dumps(msgs, sort_keys=True).encode()).hexdigest(),
+                         **({"salvaged": salvaged} if salvaged else {}), **({"max_tokens": max_tokens} if max_tokens != Q2_MAX_TOKENS else {})})
         return cand, attempts
     return None, attempts
 
@@ -210,6 +244,12 @@ def quote_relevance_gap(plan: Plan, question: str, quoted: list[dict[str, Any]],
     'find README.md, quote its exact sentinel' quoted the README title line). Returns a detail string when none of the
     quoted lines shares a content term (or its alias / typo-corrected / 5-char-stem variant) with the question while at
     least one retrieved excerpt does; None otherwise (no content terms, or the quote is on topic). Never calls a model."""
+    return quote_relevance(plan, question, quoted, hits)[0]
+
+
+def quote_relevance(plan: Plan, question: str, quoted: list[dict[str, Any]], hits: list[attach.Hit]) -> tuple[str | None, list[attach.Hit]]:
+    """`quote_relevance_gap` plus the on-topic excerpts it found (the lines that share a content term with the question and
+    were not quoted). The executor re-asks the model once over exactly those lines (`q2_on_topic_retry`)."""
     # what the user excluded ("other than the health endpoint", "but not the README") is not a content term to look for
     q = lexicon.EXCLUSION_RE.sub(" ", question)
     q = lexicon.NEGATION_RE.sub(" ", q)
@@ -221,7 +261,7 @@ def quote_relevance_gap(plan: Plan, question: str, quoted: list[dict[str, Any]],
                 file_words.add(part)
     content = [t for t in terms if t not in _REQUEST_WORDS and t not in file_words and not t.isdigit()]
     if not content:
-        return None
+        return None, []
 
     table = getattr(plan.retriever, "alias_table", None)
 
@@ -242,41 +282,63 @@ def quote_relevance_gap(plan: Plan, question: str, quoted: list[dict[str, Any]],
         return False
 
     quoted_texts = [str(q.get("text", "")) for q in quoted]
+    # a table header quoted for a question that names a row by its code ("item B1", "case E040"; live K25 2026-11-06:
+    # `| # | item | acceptance … |` quoted, the `| B1 | … |` row was the first excerpt): the header is a label, the row
+    # carrying the code is the on-topic line → re-ask over the rows that carry it
+    codes = {retrieval.fold(c) for c in retrieval._CODE_RE.findall(question)} | {retrieval.fold(i) for i in retrieval._IDENT_RE.findall(question)}
+    if codes and all(txt.lstrip().startswith("|") for txt in quoted_texts) and not any(c in retrieval.fold(retrieval.norm(txt)) for c in codes for txt in quoted_texts):
+        rows = [h for h in hits if h.text.lstrip().startswith("|") and any(c in retrieval.fold(retrieval.norm(h.text)) for c in codes)
+                and not any(h.path == q.get("path") and h.line == q.get("line") for q in quoted)]
+        if rows:
+            return (f"quoted table header carries none of the question's identifiers ({', '.join(sorted(codes)[:3])}); row "
+                    + ", ".join(f"`{h.path}:{h.line}`" for h in rows[:3]) + " does — the quote is verbatim but is the label, not the row"), rows
     if any(mentions(txt, t) for txt in quoted_texts for t in content):
-        return None
+        return None, []
     # anchors (versions, identifiers, quoted strings, numbers) in the quote make it on-topic even without a shared word
     if any(retrieval.fold(a) in retrieval.fold(retrieval.norm(txt)) for a in _anchors for txt in quoted_texts):
-        return None
+        return None, []
     # the question names a category; the quote is an instance of it (a heading for "which section", a date for "which month")
     cset = set(content)
     if cset & {"section", "sections", "heading", "headings", "title", "chapter"} and any(_HEADING_RE.match(txt) for txt in quoted_texts):
-        return None
+        return None, []
     if cset & {"month", "date", "dates", "year", "day", "when", "released", "release", "time"} and any(_DATE_RE.search(txt) for txt in quoted_texts):
-        return None
+        return None, []
     if cset & {"version", "versions", "release", "released"} and any(_VERSION_RE.search(txt) for txt in quoted_texts):
-        return None
+        return None, []
     # only the observed failure mode fires: every quoted line is a bare title/heading (no values), never a content line
     if not all(_HEADING_RE.match(txt) or _is_bare_title(txt) for txt in quoted_texts):
-        return None
+        return None, []
     better = [h for h in hits if any(mentions(h.text, t) for t in content) and not any(h.path == q.get("path") and h.line == q.get("line") for q in quoted)]
     if not better:
-        return None
+        return None, []
     return (f"quoted line(s) share no term with the question ({', '.join(content[:4])}); retrieved excerpt "
-            + ", ".join(f"`{h.path}:{h.line}`" for h in better[:3]) + " does — the quote is verbatim but may be off-topic, so the goal is not committed")
+            + ", ".join(f"`{h.path}:{h.line}`" for h in better[:3]) + " does — the quote is verbatim but may be off-topic, so the goal is not committed"), better
 
 
-def _hits_from_spans(plan: Plan, entry: dict[str, Any], *, max_chars: int = 3200) -> list[attach.Hit]:
+_BLOCK_SPAN_LINES = 4   # excerpt lines a multi-line (block) span may contribute: the lines that carry a question token, else its head
+
+
+def _hits_from_spans(plan: Plan, entry: dict[str, Any], *, max_chars: int = 3200, question: str = "") -> list[attach.Hit]:
     """Map-verified spans → excerpt *lines* (the Q2 contract is path:line: text). A span that is a sub-line structure
-    (JSON key, CSV cell) yields its whole source line; a multi-line span yields each of its lines. Lines the untrusted-
-    instruction lexicon flags are withheld from the model (they stay citable through the audit node, never as context)."""
+    (JSON key, CSV cell) yields its whole source line; a multi-line span yields the lines that carry a question token
+    (else its first lines), at most ``_BLOCK_SPAN_LINES`` — live K25 2026-11-06: one 28-line `HASHES.txt` block matched
+    on the word "next" and flooded the prompt. Lines the untrusted-instruction lexicon flags are withheld from the model
+    (they stay citable through the audit node, never as context)."""
     hits: list[attach.Hit] = []
     seen: set[tuple[str, int]] = set()
     total = 0
+    toks = {retrieval.fold(w) for w in re.findall(r"[^\W_]+", question) if len(w) > 2 and w.casefold() not in retrieval.STOPWORDS} if question else set()
     for s in entry.get("spans", []):
         loc = plan.amap.resolve(s["seg_id"], plan.scope)          # raises if the pointer does not round-trip → node FAILED
         text = plan.amap.text_of(loc["file_id"])
         lines = text.split("\n") if text is not None else loc["text"].split("\n")
-        for ln in range(loc["start_line"], loc["end_line"] + 1):
+        span_lines = list(range(loc["start_line"], loc["end_line"] + 1))
+        if len(span_lines) > _BLOCK_SPAN_LINES:
+            def _line(ln: int) -> str:
+                return lines[ln - 1] if text is not None and 0 < ln <= len(lines) else loc["text"].split("\n")[ln - loc["start_line"]]
+            carrying = [ln for ln in span_lines if toks and (toks & {retrieval.fold(w) for w in re.findall(r"[^\W_]+", _line(ln))})]
+            span_lines = (carrying or [ln for ln in span_lines if _line(ln).strip()])[:_BLOCK_SPAN_LINES]
+        for ln in span_lines:
             line = lines[ln - 1] if text is not None and 0 < ln <= len(lines) else loc["text"].split("\n")[ln - loc["start_line"]]
             if not line.strip() or (loc["path"], ln) in seen or scan_text(line):
                 continue
@@ -285,6 +347,35 @@ def _hits_from_spans(plan: Plan, entry: dict[str, Any], *, max_chars: int = 3200
             if total > max_chars:
                 return hits
             hits.append(attach.Hit(loc["path"], ln, line, float(s["score"])))
+    return hits
+
+
+_RULE_LINE_RE = re.compile(r"^\s*(?:\|?\s*:?-{2,}:?\s*)+\|?\s*$|^\s*[-=*_]{3,}\s*$")   # markdown table rules / horizontal rules
+
+
+def _file_head_hits(plan: Plan, paths: list[str], *, max_lines: int = 8, max_chars: int = 3200) -> list[attach.Hit]:
+    """Leading content lines of named files (headings first, then prose) as excerpts — the D2 fallback when a
+    recommend/summarize goal is scoped to a file but its question carries no retrievable word ("What should we do
+    next?" → `06_NEXT_RECOMMENDATION.md`; live K24 2026-11-06 failed with zero calls). Lines the untrusted lexicon
+    flags are withheld, as everywhere else."""
+    hits: list[attach.Hit] = []
+    total = 0
+    by_path = {f.path: f for f in plan.amap.files if f.status == "INCLUDED"}
+    for p in paths:
+        f = by_path.get(p)
+        text = plan.amap.text_of(f.file_id) if f else None
+        if text is None:
+            continue
+        lines = text.split("\n")
+        picked = [ln for ln, line in enumerate(lines, 1) if line.strip() and not _RULE_LINE_RE.match(line)][:max_lines]
+        for ln in picked:
+            line = lines[ln - 1]
+            if scan_text(line):
+                continue
+            total += len(line)
+            if total > max_chars:
+                return hits
+            hits.append(attach.Hit(p, ln, line[:400], 1.0))
     return hits
 
 
@@ -297,6 +388,41 @@ def _spans_of(hits: list[attach.Hit], quotes: list[dict[str, Any]]) -> list[dict
 
 def _manifest(ings: list[zipingest.Ingest]) -> str:
     return "".join(zipingest.render_manifest_markdown(i) for i in ings)
+
+
+_FOLDER_MENTION_RE = re.compile(r"(?:in|inside|under|within|of|does)\s+(?:the\s+)?`?([\w./-]+?)`?\s+(?:folder|directory|dir|subfolder)\b", re.I)
+
+
+def folder_inventory(ings: list[zipingest.Ingest], question: str) -> tuple[str, str] | None:
+    """D0 answer for a folder question ("What is in the PUBLIC folder?"): the manifest rows under that folder, resolved
+    case-insensitively against the directory components of the archive paths. Returns (method, markdown) or None when
+    the question names no folder; a folder that is not in the archive gets the honest list of folders that are."""
+    m = _FOLDER_MENTION_RE.search(question)
+    if not m:
+        return None
+    want = m.group(1).strip("/").casefold()
+    dirs: dict[str, str] = {}   # casefolded dir path -> as written
+    for ing in ings:
+        for e in ing.entries:
+            parts = e.path.split("/")[:-1]
+            for i in range(1, len(parts) + 1):
+                d = "/".join(parts[:i])
+                dirs.setdefault(d.casefold(), d)
+    match = dirs.get(want) or next((d for k, d in dirs.items() if k.endswith("/" + want) or k.split("/")[-1] == want), None)
+    if match is None:
+        top = sorted({d for d in dirs.values() if "/" not in d})
+        return "manifest_folder", (f"**Not found in the attached archive(s)** — no folder named `{m.group(1)}`. Top-level folders: "
+                                   + (", ".join(f"`{d}/`" for d in top) if top else "none (all files are at the archive root)") + ".")
+    rows = ["| # | path | status | bytes | lines | type | note |", "|---|---|---|---|---|---|---|"]
+    n = 0
+    for ing in ings:
+        for e in ing.entries:
+            if e.path == match or e.path.startswith(match + "/"):
+                n += 1
+                rows.append(f"| {n} | `{e.path}` | {e.status} | {e.bytes} | {e.lines or ''} | {e.mime} | {e.skip_reason or ing.integrity.get(e.path, '')} |")
+    sub = sorted({d for d in dirs.values() if d.startswith(match + "/") and d.count("/") == match.count("/") + 1})
+    head = f"**Folder** `{match}/` · {n} file(s)" + (f" · subfolders: " + ", ".join(f"`{d.split('/')[-1]}/`" for d in sub) if sub else "") + "\n\n"
+    return "manifest_folder", head + "\n".join(rows) + "\n"
 
 
 def _structure(plan: Plan) -> str:
@@ -331,7 +457,9 @@ async def execute(plan: Plan, ings: list[zipingest.Ingest], call_llm: LlmCall | 
         r = NodeResult(nid, n.kind, n.goal_id, e.get("route_pref", n.route_pref), "FAILED")
         try:
             if n.kind == "inventory":
-                r.route, r.status, r.method, r.answer = "D0", "COMMITTED", "manifest", _manifest(ings)
+                folder = folder_inventory(ings, n.query) if n.goal_id and n.query else None
+                r.route, r.status = "D0", "COMMITTED"
+                r.method, r.answer = folder if folder else ("manifest", _manifest(ings))
             elif n.kind == "parse_structure":
                 r.route, r.status, r.method, r.answer = "D0", "COMMITTED", "attachment_map", _structure(plan)
             elif "untrusted_scan" in e:
@@ -346,7 +474,11 @@ async def execute(plan: Plan, ings: list[zipingest.Ingest], call_llm: LlmCall | 
             elif "typed_count" in e:
                 tc = e["typed_count"]
                 r.route, r.status, r.method = "D0", "COMMITTED", tc["method"]
-                r.answer = f"**{tc['value']}** ({tc['method'].replace(':', ': ')}) in `{tc['path']}`"
+                if tc["method"].startswith("manifest_count"):
+                    r.answer = (f"**{tc['value']}** {tc['method'].split(':')[1]} in the attached archive(s)" + (f" — {tc['detail']}" if tc.get("detail") else "")
+                                + " (counted from the archive manifest; no file content was read and no model was called).")
+                else:
+                    r.answer = f"**{tc['value']}** ({tc['method'].replace(':', ': ')}) in `{tc['path']}`"
                 for seg_id, line in zip(tc["spans"], tc["lines"]):
                     loc = plan.amap.resolve(seg_id, plan.scope)
                     r.spans.append({"path": loc["path"], "line": line, "text": loc["text"].split("\n")[0][:200], "seg_id": seg_id})
@@ -398,7 +530,11 @@ async def execute(plan: Plan, ings: list[zipingest.Ingest], call_llm: LlmCall | 
             elif n.kind in ("summarize", "recommend"):
                 # D2: one bounded Q2 call over spans already verified by the nodes it depends on (fallback: its own retrieval)
                 deps_spans = [s for d in n.depends_on for s in results.get(d, NodeResult("", "", "", "", "")).spans if results.get(d) and results[d].status == "COMMITTED"]
-                hits = [attach.Hit(s["path"], s["line"], s["text"], 1.0) for s in deps_spans][:8] or (_hits_from_spans(plan, e) if e.get("status") == "FOUND" else [])
+                hits = [attach.Hit(s["path"], s["line"], s["text"], 1.0) for s in deps_spans][:8] or (_hits_from_spans(plan, e, question=n.query) if e.get("status") == "FOUND" else [])
+                named = list(n.source_scope.get("files") or n.source_scope.get("focus") or [])   # hard scope, else the inferred file
+                if not hits and named:
+                    hits = _file_head_hits(plan, named)   # the named file's leading lines (deterministic, bounded)
+                    r.method = "file_head_lines" if hits else ""
                 if not hits and n.kind == "summarize":
                     hits = [h for h in attach.overview_hits(ings) if not scan_text(h.text)]   # headline line per file, as the legacy overview
                     r.method = "overview_lines"
@@ -423,7 +559,7 @@ async def execute(plan: Plan, ings: list[zipingest.Ingest], call_llm: LlmCall | 
                 r.route = "D1"
                 if e.get("status") == "FOUND" and e.get("spans"):
                     r.status, r.method = "COMMITTED", "retrieval_verified_spans"
-                    r.spans = [{"path": h.path, "line": h.line, "text": h.text, "seg_id": ""} for h in _hits_from_spans(plan, e)]
+                    r.spans = [{"path": h.path, "line": h.line, "text": h.text, "seg_id": ""} for h in _hits_from_spans(plan, e, question=n.query)]
                 else:
                     r.status, r.detail = "FAILED", n.failure
             elif n.kind == "compare" and any(_SIDE_RE.search(d) for d in n.depends_on):
@@ -469,14 +605,14 @@ async def execute(plan: Plan, ings: list[zipingest.Ingest], call_llm: LlmCall | 
                 status = e.get("status")
                 if status == "NOT_FOUND":
                     r.route, r.status, r.method = "D0", "COMMITTED", "exhaustive_literal_scan"
-                    r.answer = (f"Not found: {_anchor_of(e)} does not occur in any readable attached file "
+                    r.answer = (f"**Not found in the attached archive(s).** {_anchor_of(e)} does not occur in any readable attached file "
                                 f"({sum(1 for f in plan.amap.files if f.status == 'INCLUDED')} file(s) scanned literally; nothing was sent to the model).")
                 elif status == "SOURCE_UNREADABLE":
                     r.status, r.detail = "FAILED", "the file(s) in scope are unreadable (skipped, binary or integrity failure)"
                 elif status != "FOUND" or not e.get("spans"):
                     # honest negative, distinct from NOT_FOUND: nothing in the map matched, so nothing went to the model
                     r.route, r.status, r.method = "D0", "COMMITTED", "not_retrieved"
-                    r.answer = (f"No evidence retrieved: no line in the {sum(1 for f in plan.amap.files if f.status == 'INCLUDED')} readable attached file(s) "
+                    r.answer = (f"**Not found in the attached archive(s)** — no evidence retrieved: no line in the {sum(1 for f in plan.amap.files if f.status == 'INCLUDED')} readable attached file(s) "
                                 "matches this question (deterministic retrieval; nothing was sent to the model). This is *not retrieved*, not proof of absence — "
                                 "name the file or the exact term to narrow it.")
                     r.detail = "NOT_RETRIEVED"
@@ -484,7 +620,7 @@ async def execute(plan: Plan, ings: list[zipingest.Ingest], call_llm: LlmCall | 
                     r.status, r.detail = "SKIPPED", f"model-call budget exhausted ({calls_used}/{budget.max_model_calls})"
                     r.spans = [{"path": s["path"], "line": s["line"], "text": "", "seg_id": s["seg_id"]} for s in e["spans"]]
                 else:
-                    hits = _hits_from_spans(plan, e)
+                    hits = _hits_from_spans(plan, e, question=n.query)
                     r.route = "D1"
                     dec, r.attempts = await q2_decide(call_llm, n.query, hits, max_attempts=budget.max_attempts)
                     calls_used += len(r.attempts)
@@ -494,14 +630,28 @@ async def execute(plan: Plan, ings: list[zipingest.Ingest], call_llm: LlmCall | 
                     elif not dec["quotes"]:
                         # the legacy contract's honest negative: excerpts were verified, the model found no answer in them
                         r.status, r.method, r.detail = "COMMITTED", "q2_not_in_excerpts", "NOT_FOUND_IN_EXCERPTS"
-                        r.answer = (f"Not found in the {len(hits)} retrieved excerpt(s): the model reported no answer there and quoted nothing, so no claim is made."
+                        r.answer = (f"**Not found in the attached archive(s)** — not in the {len(hits)} retrieved excerpt(s): the model reported no answer there and quoted nothing, so no claim is made."
                                     + (f" Model note: {dec['answer']}" if dec.get("answer") else ""))
                         r.spans = [{"path": h.path, "line": h.line, "text": "", "seg_id": ""} for h in hits[:8]]
                     else:
                         r.status, r.method, r.answer, r.spans = "COMMITTED", "q2_verified_quotes", dec["answer"], _spans_of(hits, dec["quotes"])
-                        gap = quote_relevance_gap(plan, n.query, dec["quotes"], hits)
+                        gap, on_topic = quote_relevance(plan, n.query, dec["quotes"], hits)
                         if gap:
-                            r.status, r.detail = "PARTIAL", gap
+                            # the model quoted a bare title although an excerpt sharing the question's term was in front of it
+                            # (live 2026-11-05/06, Granite `on`: "quote its exact sentinel" → the README title). One bounded
+                            # re-ask over *only* the on-topic excerpts; its quote is verified verbatim like any other, and the
+                            # off-topic first quote is dropped. No usable second quote → PARTIAL with the guard's explanation.
+                            dec2, att2 = (None, [])
+                            if on_topic and calls_used < budget.max_model_calls:
+                                dec2, att2 = await q2_decide(call_llm, n.query, on_topic[:8], max_attempts=1)
+                                calls_used += len(att2)
+                                r.model_calls += len(att2)
+                                r.attempts = r.attempts + att2
+                            if dec2 and dec2["quotes"] and not quote_relevance_gap(plan, n.query, dec2["quotes"], on_topic):
+                                r.method, r.answer, r.spans = "q2_on_topic_retry", dec2["answer"], _spans_of(hits, dec2["quotes"])
+                                r.detail = "first quote was an off-topic title; re-asked over the on-topic excerpt(s) only"
+                            else:
+                                r.status, r.detail = "PARTIAL", gap
                         elif n.kind == "compare" and len({(q["path"], q["line"]) for q in dec["quotes"]}) < 2:
                             # a comparison with one quoted side is a guess about the other (live finding 2026-11-05: "Yes" citing
                             # example.py only). One bounded complement call over the *remaining* excerpts asks for the other side;

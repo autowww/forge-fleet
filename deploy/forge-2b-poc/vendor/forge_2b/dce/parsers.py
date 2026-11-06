@@ -15,6 +15,8 @@ Parsers:
   html      title / headings / paragraphs / list items by tag (rendered html_text falls back to text)
   js/ts     regex: imports/requires and top-level symbols (Tree-sitter optional, not bundled)
   text      paragraphs; ``key: value`` / ``key = value`` files get key segments
+  diff      git / unified patches: one ``diff_file`` per changed path (status, +/- counts) and one ``hunk`` per ``@@``
+  jsonl     JSON Lines: one ``record`` per line with top-level keys and a best-effort id (nothing nested is expanded)
 """
 from __future__ import annotations
 
@@ -212,6 +214,15 @@ class _JsonPos:
     def __init__(self, text: str):
         self.t = text
         self.segs: list[Seg] = []
+        self.dropped = 0
+
+    def emit(self, seg: Seg) -> None:
+        # Large result dumps can hold 10^5 leaves; beyond the per-file cap we keep parsing (to validate and reach the
+        # end) but stop materialising leaf segments — fill_gaps then covers the tail as plain ``block`` lines.
+        if len(self.segs) < MAX_SEGMENTS_PER_FILE:
+            self.segs.append(seg)
+        else:
+            self.dropped += 1
 
     def ws(self, i: int) -> int:
         while i < len(self.t) and self.t[i] in self._WS:
@@ -248,7 +259,7 @@ class _JsonPos:
             raise _JsonError("unexpected end")
         c = self.t[i]
         if c == "{":
-            self.segs.append(Seg("key", key_start if key_start is not None else i, i + 1,
+            self.emit(Seg("key", key_start if key_start is not None else i, i + 1,
                                  {"pointer": pointer, "parent_keys": parents, "key": key, "value_type": "object"}, aliases_for(key or "")))
             i = self.ws(i + 1)
             if self.t[i] == "}":
@@ -269,7 +280,7 @@ class _JsonPos:
                     return i + 1
                 raise _JsonError(f"expected ',' or '}}' at {i}")
         if c == "[":
-            self.segs.append(Seg("key", key_start if key_start is not None else i, i + 1,
+            self.emit(Seg("key", key_start if key_start is not None else i, i + 1,
                                  {"pointer": pointer, "parent_keys": parents, "key": key, "value_type": "array"}, aliases_for(key or "")))
             i = self.ws(i + 1)
             if self.t[i] == "]":
@@ -297,7 +308,7 @@ class _JsonPos:
             i = m.end()
             val = raw
             vt = "null" if raw == "null" else "boolean" if raw in ("true", "false") else "number"
-        self.segs.append(Seg("key", key_start if key_start is not None else start, i,
+        self.emit(Seg("key", key_start if key_start is not None else start, i,
                              {"pointer": pointer, "parent_keys": parents, "key": key, "value": val, "value_type": vt}, aliases_for(key or "")))
         return i
 
@@ -629,10 +640,120 @@ def _parse_ini(text: str) -> list[Seg]:
     return segs
 
 
+# --- unified diff / git patch -----------------------------------------------------------------------------------
+_DIFF_GIT_RE = re.compile(r"^diff --git a/(\S+) b/(\S+)\s*$")
+_DIFF_OLD_RE = re.compile(r"^--- (?:a/)?(\S+)")
+_DIFF_NEW_RE = re.compile(r"^\+\+\+ (?:b/)?(\S+)")
+_HUNK_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@ ?(.*)$")
+
+
+def parse_diff(text: str) -> list[Seg]:
+    """One ``diff_file`` segment per changed file (path, status, added/removed counts) and one ``hunk`` per ``@@`` block.
+
+    The hunk text itself (the +/- lines) is covered by the hunk segment, so a cited ``path:line`` still maps to a
+    segment; the per-file segment covers the header lines only (``diff --git`` … ``+++``), keeping it short enough to
+    quote. Counting is textual (lines starting with ``+``/``-`` outside the header) — no patch is applied anywhere.
+    """
+    segs: list[Seg] = []
+    lines = _lines(text)
+    file_seg: Seg | None = None
+    hunk: Seg | None = None
+    header_end_idx = -1
+    i = 0
+
+    def close_hunk(end: int) -> None:
+        nonlocal hunk
+        if hunk is not None:
+            hunk.end = end
+            hunk = None
+
+    while i < len(lines):
+        start, end, content = lines[i]
+        gm = _DIFF_GIT_RE.match(content)
+        if gm or (file_seg is None and _DIFF_OLD_RE.match(content) and i + 1 < len(lines) and _DIFF_NEW_RE.match(lines[i + 1][2])):
+            close_hunk(lines[i - 1][1] if i else start)
+            path = gm.group(2) if gm else _DIFF_NEW_RE.match(lines[i + 1][2]).group(1)
+            if path == "/dev/null" and gm is None:
+                path = _DIFF_OLD_RE.match(content).group(1)
+            file_seg = Seg("diff_file", start, end, {"path": path, "status": "modified", "added": 0, "removed": 0, "hunks": 0}, aliases_for(path.rsplit("/", 1)[-1]))
+            segs.append(file_seg)
+            header_end_idx = i
+            i += 1
+            continue
+        if file_seg is not None and hunk is None and header_end_idx == i - 1 and not _HUNK_RE.match(content):
+            # still inside the per-file header (index / mode / --- / +++ lines)
+            if content.startswith("new file mode"):
+                file_seg.context["status"] = "added"
+            elif content.startswith("deleted file mode"):
+                file_seg.context["status"] = "deleted"
+            elif content.startswith("rename ") or content.startswith("similarity index"):
+                file_seg.context["status"] = "renamed"
+            elif content.startswith("+++ ") and _DIFF_NEW_RE.match(content) and _DIFF_NEW_RE.match(content).group(1) != "/dev/null":
+                file_seg.context["path"] = _DIFF_NEW_RE.match(content).group(1)
+            file_seg.end = end
+            header_end_idx = i
+            i += 1
+            continue
+        hm = _HUNK_RE.match(content)
+        if hm and file_seg is not None:
+            close_hunk(lines[i - 1][1] if i else start)
+            file_seg.context["hunks"] += 1
+            hunk = Seg("hunk", start, end, {"path": file_seg.context["path"], "old_start": int(hm.group(1)), "new_start": int(hm.group(3)),
+                                            "section": hm.group(5).strip(), "added": 0, "removed": 0})
+            segs.append(hunk)
+            i += 1
+            continue
+        if hunk is not None:
+            if content.startswith("+") and not content.startswith("+++ "):
+                hunk.context["added"] += 1
+                file_seg.context["added"] += 1
+            elif content.startswith("-") and not content.startswith("--- "):
+                hunk.context["removed"] += 1
+                file_seg.context["removed"] += 1
+            hunk.end = end
+        i += 1
+    close_hunk(lines[-1][1] if lines else 0)
+    return segs
+
+
+# --- json lines -------------------------------------------------------------------------------------------------
+def parse_jsonl(text: str) -> list[Seg]:
+    """One ``record`` segment per non-blank line; top-level keys and a best-effort ``id`` are carried as context.
+
+    Lines that are not a JSON object become malformed ``line`` segments. Only the top level is decoded (``json.loads``
+    builds dicts/lists/scalars; nothing is executed); nested values are described by type, not expanded.
+    """
+    import json as _json
+
+    segs: list[Seg] = []
+    idx = 0
+    for s, e, c in _lines(text):
+        if not c.strip():
+            continue
+        try:
+            obj = _json.loads(c)
+        except ValueError as ex:
+            segs.append(Seg("line", s, e, {"error": f"jsonl: {ex}"}, malformed=True))
+            continue
+        idx += 1
+        if isinstance(obj, dict):
+            keys = [str(k) for k in obj.keys()]
+            rid = next((str(obj[k]) for k in ("id", "case_id", "name", "key") if isinstance(obj.get(k), (str, int))), "")
+            scalars = {k: v for k, v in obj.items() if isinstance(v, (str, int, float, bool)) and len(str(v)) <= 80}
+            segs.append(Seg("record", s, e, {"index": idx, "keys": keys[:32], "id": rid, "scalars": {k: str(v) for k, v in list(scalars.items())[:12]}},
+                            ([rid.lower()] if rid else []) + [a for k in keys[:8] for a in aliases_for(k)[:1]]))
+        else:
+            segs.append(Seg("record", s, e, {"index": idx, "keys": [], "id": "", "value_type": type(obj).__name__}))
+    if segs:
+        segs[0].context["records"] = idx
+    return segs
+
+
 # --- dispatch ---------------------------------------------------------------------------------------------------
 LANGUAGE_BY_EXT = {".md": "markdown", ".rst": "markdown", ".json": "json", ".yaml": "yaml", ".yml": "yaml", ".csv": "csv", ".tsv": "tsv",
                    ".py": "python", ".html": "html", ".htm": "html", ".js": "javascript", ".ts": "typescript", ".toml": "toml", ".ini": "ini",
-                   ".cfg": "ini", ".env.example": "ini", ".txt": "text", ".log": "text", ".sql": "sql", ".sh": "shell", ".xml": "xml"}
+                   ".cfg": "ini", ".env.example": "ini", ".txt": "text", ".log": "text", ".sql": "sql", ".sh": "shell", ".xml": "xml",
+                   ".patch": "diff", ".diff": "diff", ".jsonl": "jsonl", ".ndjson": "jsonl", ".properties": "ini", ".gradle": "text"}
 
 
 def language_for(path: str, rendered: str) -> str:
@@ -670,6 +791,10 @@ def parse_file(text: str, language: str) -> list[Seg]:
         segs = parse_js(text)
     elif language in ("ini", "toml"):
         segs = _parse_ini(text) if "=" in text else parse_yaml_subset(text)
+    elif language == "diff":
+        segs = parse_diff(text)
+    elif language == "jsonl":
+        segs = parse_jsonl(text)
     else:
         segs = parse_text(text)
     return fill_gaps(text, segs)

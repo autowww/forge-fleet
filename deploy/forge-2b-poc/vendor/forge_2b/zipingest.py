@@ -22,13 +22,16 @@ MANIFEST_VERSION = "forge-zip.v1"
 TEXT_EXTENSIONS = {
     ".md", ".txt", ".json", ".yaml", ".yml", ".csv", ".py", ".js", ".ts", ".toml", ".xml", ".html", ".htm",
     ".sql", ".log", ".sh", ".ini", ".cfg", ".rst", ".tsv", ".env.example",
+    ".patch", ".diff", ".jsonl", ".ndjson", ".properties", ".gradle",
 }
-TEXT_BASENAMES = {"README", "LICENSE", "NOTICE", "Dockerfile", "Makefile", ".gitignore", ".dockerignore", "CHANGELOG"}
+TEXT_BASENAMES = {"README", "LICENSE", "NOTICE", "Dockerfile", "Makefile", ".gitignore", ".dockerignore", "CHANGELOG", "SHA256SUMS"}
 ARCHIVE_EXTENSIONS = {".zip", ".jar", ".war", ".tar", ".gz", ".tgz", ".bz2", ".xz", ".7z", ".rar", ".zst"}
 TEXT_MIME = {".md": "text/markdown", ".txt": "text/plain", ".json": "application/json", ".yaml": "application/yaml",
              ".yml": "application/yaml", ".csv": "text/csv", ".py": "text/x-python", ".js": "text/javascript",
              ".ts": "text/typescript", ".toml": "application/toml", ".xml": "application/xml", ".html": "text/html",
-             ".htm": "text/html", ".sql": "application/sql", ".log": "text/plain", ".sh": "text/x-shellscript"}
+             ".htm": "text/html", ".sql": "application/sql", ".log": "text/plain", ".sh": "text/x-shellscript",
+             ".patch": "text/x-diff", ".diff": "text/x-diff", ".jsonl": "application/x-ndjson", ".ndjson": "application/x-ndjson",
+             ".properties": "text/plain", ".gradle": "text/plain"}
 
 _MARK_BEGIN = "===== FORGE-ZIP MANIFEST {nonce} ====="
 _MARK_END = "===== END FORGE-ZIP MANIFEST {nonce} ====="

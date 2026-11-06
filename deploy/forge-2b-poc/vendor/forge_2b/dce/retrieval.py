@@ -12,8 +12,10 @@ Outcome classes (owner decision Q4, 2026-11-05):
 """
 from __future__ import annotations
 
+import hashlib
 import re
 import sqlite3
+import threading
 import unicodedata
 from dataclasses import asdict, dataclass, field
 from typing import Any, Iterable
@@ -33,9 +35,17 @@ STOPWORDS = {
     "какой", "какая", "какие", "сколько", "что", "кто", "где", "який", "яка", "які", "скільки", "що", "хто", "де", "jaki", "jaka", "jakie", "ile", "co",
 }
 _WORD_RE = re.compile(r"\w+", re.UNICODE)
+# language name (folded) -> ISO 639-1 code, the form evaluation reports use ("languages en 70 · uk 39"); applied only
+# when the code is a token of the indexed files, so "it"/"no"/"is" can never be injected into an unrelated question
+LANGUAGE_CODES = {"english": "en", "ukrainian": "uk", "german": "de", "french": "fr", "spanish": "es", "polish": "pl", "italian": "it",
+                  "dutch": "nl", "russian": "ru", "portuguese": "pt", "japanese": "ja", "chinese": "zh", "czech": "cs", "swedish": "sv",
+                  "norwegian": "no", "danish": "da", "finnish": "fi", "turkish": "tr", "arabic": "ar", "hebrew": "he", "korean": "ko",
+                  "hindi": "hi", "greek": "el", "hungarian": "hu", "romanian": "ro", "bulgarian": "bg"}
 _QUOTED_RE = re.compile(r"[\"“”'‘’`]([^\"“”'‘’`]{2,80})[\"“”'‘’`]")
 _IDENT_RE = re.compile(r"\b[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+\b|\b[A-Z]{2,}_[A-Z0-9_]+\b|\b[a-z]+[A-Z][A-Za-z0-9]+\b")
 _NUM_RE = re.compile(r"(?<![\w.])\d+(?:\.\d+)?(?![\w.])")
+_CODE_RE = re.compile(r"\b(?=[A-Z0-9]*\d)(?=[A-Z0-9]*[A-Z])[A-Z0-9]{2,8}\b")   # short codes: B1, E040, G1R3A — exact anchors like identifiers
+_RULE_ROW_RE = re.compile(r"^\s*(?:\|?\s*:?-{2,}:?\s*)+\|?\s*$|^\s*[-=*_]{3,}\s*$")   # markdown table rule / horizontal rule
 _PATH_RE = re.compile(r"[\w./\-\u00c0-\u024f\u0400-\u04ff\u3040-\u30ff\u4e00-\u9fff]+\.(?:md|txt|json|ya?ml|csv|py|js|ts|toml|xml|html?|sql|log|sh|ini|cfg|conf|rst|tsv)\b", re.I)
 
 
@@ -94,6 +104,49 @@ class _Row:
     heading: str            # heading ancestry (normalized, space-joined)
     header_line: int | None # for CSV rows: the header line
     heading_line: int | None = None  # for markdown lines: the nearest enclosing heading line
+    # precomputed normal forms (pure functions of the fields above; computed once at index build, not per question)
+    textn: str = ""         # norm(text)
+    textf: str = ""         # fold(text)
+    keysf: frozenset[str] = frozenset()        # {fold(k) for k in keys}
+    key_aliasesf: frozenset[str] = frozenset() # {fold(a) for a in key_aliases}
+    heading_words: frozenset[str] = frozenset()  # set(heading.split())
+
+
+class _Index:
+    """The built line index: rows, vocabulary and the FTS5 connection. Shared between Retrievers for maps with the
+    same content (the index depends on file texts and segments only, never on the scope), so the per-question cost
+    of a large package is a dictionary lookup instead of a multi-second rebuild. The connection is created with
+    ``check_same_thread=False`` and every query takes ``lock``: the plan stage runs in worker threads."""
+
+    def __init__(self) -> None:
+        self.rows: list[_Row] = []
+        self.rows_per_file: dict[str, int] = {}
+        self.rows_by_file: dict[str, list[_Row]] = {}   # line order, for section-body / table-row companions
+        self.vocab: set[str] = set()
+        self.db = sqlite3.connect(":memory:", check_same_thread=False)
+        self.db.execute("CREATE VIRTUAL TABLE lines USING fts5(text, ctx, al, tokenize='unicode61 remove_diacritics 2')")
+        self.lock = threading.Lock()
+
+
+_INDEX_CACHE: "dict[str, _Index]" = {}
+INDEX_CACHE_MAX = 32
+INDEX_CACHE_STATS = {"hits": 0, "misses": 0}
+
+
+def _content_key(amap: AttachmentMap, flags: tuple) -> str:
+    h = hashlib.sha256(repr(flags).encode())
+    for f in amap.files:
+        # ``_build`` only distinguishes "indexed" from "excluded" (MISSING / MISMATCH): the zip-time map carries
+        # integrity "" and the chat-time map rebuilt from the rendered page carries "OK" — same index, same key, or the
+        # warm-at-ingest index is never hit and the first question of every chat pays the cold build (live: K01/K02 PLAN_TIMEOUT)
+        indexed = f.status == "INCLUDED" and f.integrity not in ("MISSING", "MISMATCH")
+        h.update(f"{f.file_id}|{f.path}|{f.content_sha256}|{int(indexed)}|{f.duplicate_of}|{f.segments}\n".encode())
+    return h.hexdigest()
+
+
+def clear_index_cache() -> None:
+    _INDEX_CACHE.clear()
+    INDEX_CACHE_STATS["hits"] = INDEX_CACHE_STATS["misses"] = 0
 
 
 class Retriever:
@@ -103,16 +156,39 @@ class Retriever:
         self.use_aliases = use_aliases
         self.use_structure = use_structure
         self.use_fts = use_fts
+        self.narrow_candidates = True   # FTS pre-selection of rows worth scoring (see ``search``); False = full sweep (tests, A/B)
         self.alias_table = alias_table if alias_table is not None else A.ALIASES
-        self.rows: list[_Row] = []
-        self.vocab: set[str] = set()
-        self.db = sqlite3.connect(":memory:")
-        self.db.execute("CREATE VIRTUAL TABLE lines USING fts5(text, ctx, al, tokenize='unicode61 remove_diacritics 2')")
-        self._build()
+        key = _content_key(amap, (use_aliases, use_structure, use_fts, id(self.alias_table) if alias_table is not None else "default"))
+        idx = _INDEX_CACHE.get(key)
+        if idx is None:
+            INDEX_CACHE_STATS["misses"] += 1
+            idx = _Index()
+            self._index = idx
+            self._build()
+            while len(_INDEX_CACHE) >= INDEX_CACHE_MAX:
+                _INDEX_CACHE.pop(next(iter(_INDEX_CACHE)))
+            _INDEX_CACHE[key] = idx
+        else:
+            INDEX_CACHE_STATS["hits"] += 1
+            _INDEX_CACHE[key] = _INDEX_CACHE.pop(key)   # LRU touch
+            self._index = idx
+
+    @property
+    def rows(self) -> list[_Row]:
+        return self._index.rows
+
+    @property
+    def vocab(self) -> set[str]:
+        return self._index.vocab
+
+    @property
+    def db(self) -> sqlite3.Connection:
+        return self._index.db
 
     # --- index -------------------------------------------------------------------------------------------------------
     def _build(self) -> None:
         cur = self.db.cursor()
+        batch: list[tuple[int, str, str, str]] = []
         for f in self.amap.files:
             if f.status != "INCLUDED" or f.integrity in ("MISSING", "MISMATCH"):
                 continue
@@ -122,10 +198,22 @@ class Retriever:
             segs = self.amap.segments_for(f.file_id)
             header_line = next((s.start_line for s in segs if s.kind == "header"), None)
             heading_lines = sorted(s.start_line for s in segs if s.kind == "heading")
+            table_headers = sorted(s.start_line for s in segs if s.kind == "table_header")   # markdown: nearest header above a row
+            # sweep: segments become active at start_line and drop out after end_line — O(lines + segments) instead
+            # of the O(lines × segments) scan that made a 5000-leaf JSON dump cost seconds per file
+            by_start: dict[int, list] = {}
+            order = {id(s): i for i, s in enumerate(segs)}
+            for s in segs:
+                by_start.setdefault(s.start_line, []).append(s)
+            active: list = []
             for ln, line in enumerate(text.split("\n"), 1):
+                if ln in by_start:
+                    active.extend(by_start[ln])
+                if active:
+                    active = [s for s in active if s.end_line >= ln]
                 if not line.strip():
                     continue
-                covering = [s for s in segs if s.start_line <= ln <= s.end_line]
+                covering = sorted(active, key=lambda s: order[id(s)]) if active else []   # same order as the original scan
                 keys: set[str] = set()
                 heading_parts: list[str] = []
                 kind = covering[0].kind if covering else "line"
@@ -160,12 +248,20 @@ class Retriever:
                 al = " ".join(sorted(key_aliases)) if self.use_aliases else ""
                 rowid = len(self.rows) + 1
                 seg_id = covering[0].seg_id if covering else ""
-                self.rows.append(_Row(rowid, f.file_id, f.path, ln, seg_id, line, kind, keys if self.use_structure else set(),
-                                      key_aliases, heading if self.use_structure else "", header_line if kind in ("row",) else None,
-                                      next((hl for hl in reversed(heading_lines) if hl < ln), None)))
-                cur.execute("INSERT INTO lines(rowid, text, ctx, al) VALUES (?,?,?,?)", (rowid, line, ctx, al))
+                row_keys = keys if self.use_structure else set()
+                row_heading = heading if self.use_structure else ""
+                self._index.rows_per_file[f.file_id] = self._index.rows_per_file.get(f.file_id, 0) + 1
+                self.rows.append(_Row(rowid, f.file_id, f.path, ln, seg_id, line, kind, row_keys,
+                                      key_aliases, row_heading,
+                                      header_line if kind == "row" else next((hl for hl in reversed(table_headers) if hl < ln), None) if kind == "table_row" else None,
+                                      next((hl for hl in reversed(heading_lines) if hl < ln), None),
+                                      textn=norm(line), textf=fold(line), keysf=frozenset(fold(k) for k in row_keys),
+                                      key_aliasesf=frozenset(fold(a) for a in key_aliases), heading_words=frozenset(row_heading.split())))
+                self._index.rows_by_file.setdefault(f.file_id, []).append(self.rows[-1])
+                batch.append((rowid, line, ctx, al))
                 self.vocab.update(fold(w) for w in _WORD_RE.findall(line))
                 self.vocab.update(fold(w) for k in keys for w in k.replace("_", " ").split())
+        cur.executemany("INSERT INTO lines(rowid, text, ctx, al) VALUES (?,?,?,?)", batch)
         self.db.commit()
 
     # --- query analysis ----------------------------------------------------------------------------------------------
@@ -177,6 +273,12 @@ class Retriever:
         typo: dict[str, str] = {}
         for t in list(terms):
             ft = fold(t)
+            # a language name in the question, its ISO 639-1 code in the files ("Ukrainian" ↔ `uk 39`, live K19 2026-11-06):
+            # the code is a literal variant of the word, like a typo repair, but only when the files actually use it
+            code = LANGUAGE_CODES.get(ft)
+            if code and code in self.vocab:
+                typo[t] = code
+                continue
             if ft in self.vocab or len(ft) < 5 or ft.isdigit():
                 continue
             cand = self._nearest(ft)
@@ -210,6 +312,43 @@ class Retriever:
                 best = (d, v)
         return best[1] if best else None
 
+    def _label_body(self, r: "_Row", literal_f: set[str], idents: set[str], nums: set[str], seen: set[tuple[str, int]],
+                    *, max_lines: int = 3, window: int = 14) -> list[tuple[int, str, str]]:
+        """Body lines labelled by a heading / table header row: the rows that follow in the same file until the next
+        heading (headings) or until the table ends (header rows), bounded by ``window``. Up to ``max_lines``; rows that
+        mention a literal question word, identifier or number rank first, then document order."""
+        rows = self._index.rows_by_file.get(r.file_id, [])
+        i = next((k for k, rr in enumerate(rows) if rr.line == r.line), None)
+        if i is None:
+            return []
+        is_table = r.kind in ("table_header", "header")
+        label, strat = ("rows_for_header", "table_rows_companion") if is_table else ("section_body", "heading_body_companion")
+        cands: list[_Row] = []
+        for rr in rows[i + 1:]:
+            if rr.line - r.line > window:
+                break
+            if _RULE_ROW_RE.match(rr.text):
+                continue   # the `|---|` rule between a markdown header and its rows (kind block)
+            if is_table:
+                if rr.kind not in ("table_row", "row"):
+                    break
+            elif rr.kind == "heading":
+                break
+            if (rr.file_id, rr.line) in seen:
+                continue
+            cands.append(rr)
+        if not cands:
+            return []
+
+        def rank(rr: "_Row") -> tuple[int, int]:
+            lowf = rr.textf
+            hit = any(w in lowf for w in literal_f) or any(i_ in rr.textn for i_ in idents) or \
+                any(re.search(rf"(?<![\w.]){re.escape(n)}(?![\w.])", rr.text) for n in nums)
+            return (0 if hit else 1, rr.line)
+
+        limit = max_lines + 2 if is_table else max_lines   # a small table is cheap and often needs every row ("highest p95")
+        return [(rr.line, label, strat) for rr in sorted(cands, key=rank)[:limit]]
+
     # --- search ------------------------------------------------------------------------------------------------------
     def search(self, query: str, *, scope_files: Iterable[str] | None = None, focus_files: Iterable[str] | None = None,
                exclude_files: Iterable[str] | None = None, max_hits: int = 8, max_chars: int = 3200) -> RetrievalResult:
@@ -236,15 +375,23 @@ class Retriever:
         if typo:
             strategy.append("typo:" + ",".join(f"{k}>{v}" for k, v in sorted(typo.items())))
         search_terms = [t for t in dict.fromkeys(search_terms) if t not in STOPWORDS]
+        # Only literal question words (plus typo repairs) go to FTS. The paraphrase path is the ``al`` column: a row
+        # whose key is `status` carries "verdict" in ``al``, so the literal word already finds it at alias weight;
+        # also querying the alias key `status` itself matched the *text* of every `"status": "ok"` leaf at full
+        # weight — in the G1R3A package (thousands of such leaves) `"verdict": "HOLD"` ranked 411th (live K02,
+        # 2026-11-06) and the bm25 ceiling belonged to a one-token leaf.
+        literal_terms = [t for t in dict.fromkeys([*terms, *typo.values()]) if t not in STOPWORDS]
         quoted_raw = _QUOTED_RE.findall(query)
         ident_raw = _IDENT_RE.findall(query)
         quoted = [norm(a) for a in quoted_raw]
         bm25: dict[int, float] = {}
-        if self.use_fts and search_terms:
+        if self.use_fts and literal_terms:
             strategy.append("fts5_bm25")
-            match = " OR ".join('"' + t.replace('"', '""') + '"' for t in search_terms)
+            match = " OR ".join('"' + t.replace('"', '""') + '"' for t in literal_terms)
             try:
-                for rowid, score in self.db.execute("SELECT rowid, bm25(lines, 1.0, 0.5, 0.4) FROM lines WHERE lines MATCH ? ", (match,)):
+                with self._index.lock:
+                    fts_rows = self.db.execute("SELECT rowid, bm25(lines, 1.0, 0.5, 0.4) FROM lines WHERE lines MATCH ? ", (match,)).fetchall()
+                for rowid, score in fts_rows:
                     if rowid in in_scope:
                         bm25[rowid] = -float(score)
             except sqlite3.OperationalError:
@@ -253,34 +400,59 @@ class Retriever:
             strategy.append("structure:keys/headings/identifiers")
         hits: list[Hit] = []
         key_terms = {fold(t) for t in terms} | {fold(v) for v in typo.values()}   # literal anchors only — alias expansions score via alias_key
-        idents = {norm(i) for i in _IDENT_RE.findall(query)}
+        idents = {norm(i) for i in _IDENT_RE.findall(query)} | {norm(c) for c in _CODE_RE.findall(query)}
         nums = set(_NUM_RE.findall(query))
         explicit = scope["explicit"]
         bm_max = max(bm25.values(), default=0.0)
         alias_terms = {fold(t) for t in terms}
+        literal_f = {fold(t) for t in literal_terms}
         term_words: dict[str, set[str]] = {t: {fold(t)} | ({fold(typo[t])} if t in typo else set()) for t in terms}
+        alias_words: dict[str, set[str]] = {t: set() for t in terms}   # paraphrase coverage, scored below literal coverage
         if self.use_aliases:
             for key, phrases in expanded.items():
                 words = {fold(w) for p in A.expansions_for_key(key, self.alias_table) for w in p.split() if len(w) > 2 and w not in STOPWORDS}
                 for t in terms:
                     if any(t in p.split() for p in phrases):
-                        term_words[t] |= words
+                        alias_words[t] |= words - term_words[t]
+        # Candidate narrowing: the feature sweep below is exact (substring, folded, regex) but O(rows × terms) — ~0.5 s
+        # for the 33k-row G1R3A index, which with a loaded host pushed the plan stage over its budget (live K38
+        # 2026-11-06, 1 513 ms of 1 500). Every feature needs *some* token of the question in the row's text, keys/
+        # heading (``ctx``) or aliases (``al``); FTS finds those rows (prefix-matched, so inflections count) in
+        # milliseconds. Rows of a named file are kept whole (the path-scope feature needs no token). Scoring itself
+        # is unchanged; a FTS syntax error falls back to the full sweep.
+        cand: set[int] | None = None
+        if self.use_fts and self.narrow_candidates:
+            toks = [t for t in dict.fromkeys([*literal_terms, *(w for ws in alias_words.values() for w in ws), *expanded.keys()]) if t]
+            parts = ['"' + t.replace('"', '""') + '"*' for t in toks]
+            parts += ['"' + a.replace('"', '""') + '"' for a in dict.fromkeys([*quoted_raw, *ident_raw, *_CODE_RE.findall(query), *_NUM_RE.findall(query)]) if a.strip()]
+            if parts:
+                try:
+                    with self._index.lock:
+                        cand = {rid for (rid,) in self.db.execute("SELECT rowid FROM lines WHERE lines MATCH ?", (" OR ".join(parts),)).fetchall()}
+                    cand |= set(bm25)
+                    if explicit:
+                        cand |= {r.rowid for fid in explicit for r in self._index.rows_by_file.get(fid, [])}
+                    strategy.append(f"candidates:{len(cand)}/{len(in_scope)}")
+                except sqlite3.OperationalError:
+                    cand = None
         for rowid, r in in_scope.items():
+            if cand is not None and rowid not in cand:
+                continue
             feats: dict[str, float] = {}
             base = bm25.get(rowid, 0.0)
             if base:
                 feats["bm25"] = round(4.0 * base / bm_max, 3)   # scaled to [0, 4] so structure features stay comparable
-            low = norm(r.text)
-            lowf = fold(r.text)
+            low = r.textn
+            lowf = r.textf
             if self.use_structure:
-                matched_keys = {k for k in r.keys if fold(k) in key_terms}
+                matched_keys = {k for k in r.keys if fold(k) in key_terms} if (r.keysf & key_terms) else set()
                 if matched_keys:
                     feats["exact_key"] = round(3.0 * max(self._rarity(k) for k in matched_keys), 3)   # rare keys count more than a 6-row column
                 if idents and any(i in low for i in idents):
                     feats["identifier"] = 2.5
-                if r.heading and any(fold(t) in r.heading.split() for t in search_terms):
+                if r.heading and (literal_f & r.heading_words):
                     feats["heading"] = 1.0
-            if self.use_aliases and r.key_aliases and (alias_terms & {fold(a) for a in r.key_aliases}):
+            if self.use_aliases and r.key_aliases and (alias_terms & r.key_aliasesf):
                 feats["alias_key"] = round(2.0 * max(self._rarity(k) for k in r.keys) if r.keys else 2.0, 3)
             if quoted and any(qv in low for qv in quoted):
                 feats["quoted"] = 3.0
@@ -288,10 +460,13 @@ class Retriever:
                 feats["number"] = 1.0
             if not self.use_fts and any(fold(t) in lowf for t in search_terms):
                 feats["substring"] = 1.0
-            if terms:   # a line that covers more distinct question words (literally or via a curated alias) beats a structural line matching one
-                covered = sum(1 for t in terms if any(w in lowf for w in term_words[t]))
-                if covered:
-                    feats["term_coverage"] = round(3.0 * covered / len(terms), 3)
+            if terms:   # a line that covers more distinct question words beats a structural line matching one; a literal
+                # question word counts 3.0, a curated-alias paraphrase 1.0 (the alias path stays open for "instances" ↔
+                # "replicas", but can no longer let a ubiquitous key outrank the line that says the word)
+                lit = sum(1 for t in terms if any(w in lowf for w in term_words[t]))
+                via_alias = sum(1 for t in terms if alias_words[t] and not any(w in lowf for w in term_words[t]) and any(w in lowf for w in alias_words[t]))
+                if lit or via_alias:
+                    feats["term_coverage"] = round((3.0 * lit + 1.0 * via_alias) / len(terms), 3)
             if explicit and r.file_id in explicit:
                 feats["path_scope"] = 2.0 if feats else (0.5 if scope_files else 0.0)
             score = sum(feats.values())
@@ -301,27 +476,70 @@ class Retriever:
         out: list[Hit] = []
         used = 0
         seen: set[tuple[str, int]] = set()
+        # file diversity: unless the question names the file, a *bulky* file (more indexed lines than a few excerpt
+        # windows) may fill at most half of the excerpt slots, so a 1500-leaf JSON dump cannot crowd the prose that
+        # actually answers (live finding 2026-11-06: 7 of 8 excerpts for "Which gates failed in the blind run?" were
+        # `BLIND/blind_v1.json` leaves; the markdown table line was 6th). Small files are never sampled: a 5-line
+        # changelog must stay whole (oracle C063 regressed when the cap dropped the one line that answered).
+        per_file_cap = max_hits if explicit else max(2, max_hits // 2)
+        bulky_rows = 4 * max_hits
+        per_file: dict[str, int] = {}
+        by_loc = {(rr.file_id, rr.line): rr for rr in in_scope.values()}
+        # context companions (header for a row, heading for a line, body for a label) ride along in their own bounded
+        # budget: they never displace a scored excerpt (oracle C064 regressed when five CSV rows pushed out the one
+        # prose line that answered), and everything stays under max_chars
+        extra_slots = max(3, max_hits * 3 // 4)   # 6 for the default 8
+        # share the companion budget between the labels that will be selected, so the first table's rows cannot starve a
+        # second table (live K11: `| mechanism | ids | assessment |` ranked 6th, its rows never shown). Every selected
+        # table keeps its first TABLE_ROWS rows — a three-row gate table cut to two rows lost the very row asked about
+        # (live K06: `negation inversions` was the third row of both tables) — and the headings share what is left.
+        TABLE_ROWS = 3
+        n_tables = sum(1 for h in hits[:max_hits] if by_loc[(h.file_id, h.line)].kind in ("table_header", "header"))
+        n_heads = sum(1 for h in hits[:3] if by_loc[(h.file_id, h.line)].kind == "heading")
+        extra_slots = max(extra_slots, TABLE_ROWS * n_tables + n_heads)
+        per_heading = max(1, (extra_slots - TABLE_ROWS * n_tables) // max(1, n_heads))
+        n_scored = n_extra = 0
         for h in hits:
-            if len(out) >= max_hits or used + len(h.text) > max_chars:
+            if n_scored >= max_hits or used + len(h.text) > max_chars:
                 break
             if (h.file_id, h.line) in seen:
                 continue
+            if per_file.get(h.file_id, 0) >= per_file_cap and self._index.rows_per_file.get(h.file_id, 0) > bulky_rows:
+                if "file_diversity_cap" not in strategy:
+                    strategy.append("file_diversity_cap")
+                continue
+            per_file[h.file_id] = per_file.get(h.file_id, 0) + 1
             out.append(h)
+            n_scored += 1
             seen.add((h.file_id, h.line))
             used += len(h.text)
-            r = in_scope[next(rid for rid, rr in in_scope.items() if rr.file_id == h.file_id and rr.line == h.line)]
-            companion = None
+            r = by_loc[(h.file_id, h.line)]
+            companions: list[tuple[int, str, str]] = []
             if self.use_structure and r.header_line and (h.file_id, r.header_line) not in seen:
-                companion = (r.header_line, "header_for_row", "csv_header_companion")
-            elif self.use_structure and r.heading_line and len(out) <= 3 and (h.file_id, r.heading_line) not in seen and r.kind != "heading":
-                companion = (r.heading_line, "heading_for_line", "heading_companion")   # dated/section heading is context for the top hits
-            if companion and len(out) < max_hits:
-                hr = next(rr for rr in in_scope.values() if rr.file_id == h.file_id and rr.line == companion[0])
-                out.append(Hit(hr.file_id, hr.path, hr.line, hr.seg_id, hr.text, h.score, {companion[1]: 1.0}, companion_of=f"{h.path}:{h.line}"))
+                companions.append((r.header_line, "header_for_row", "csv_header_companion"))
+            elif self.use_structure and r.heading_line and n_scored <= 3 and (h.file_id, r.heading_line) not in seen and r.kind != "heading":
+                companions.append((r.heading_line, "heading_for_line", "heading_companion"))   # dated/section heading is context for the top hits
+            if self.use_structure and r.kind in ("heading", "table_header", "header") and (n_scored <= 3 or r.kind != "heading"):
+                # the hit is a *label* (section heading, table header row): the answer is in the lines it labels. Without
+                # them the model quotes the label itself ("## 4. What must not happen", a header row) — live G1R3A
+                # K25/K26/K31/K40, 2026-11-06. Body lines carrying a question word / identifier / number come first.
+                # A table header matched at any rank brings its rows (the row cells rarely repeat the header's words:
+                # live K11 — `| mechanism | ids | assessment |` was 6th and the `E040, E086, E118` row never shown);
+                # section headings below rank 3 do not, their bodies are too broad. The companion budget caps it all.
+                share = TABLE_ROWS if r.kind != "heading" else min(per_heading, 3 if n_scored <= 3 else 2)
+                companions += self._label_body(r, literal_f, idents, nums, seen, max_lines=share)[:share]
+            for ln, label, strat in companions:
+                if n_extra >= extra_slots:
+                    break
+                hr = by_loc[(h.file_id, ln)]
+                if used + len(hr.text) > max_chars:
+                    break
+                out.append(Hit(hr.file_id, hr.path, hr.line, hr.seg_id, hr.text, h.score, {label: 1.0}, companion_of=f"{h.path}:{h.line}"))
                 seen.add((h.file_id, hr.line))
                 used += len(hr.text)
-                if companion[2] not in strategy:
-                    strategy.append(companion[2])
+                n_extra += 1
+                if strat not in strategy:
+                    strategy.append(strat)
         coverage = {"files_in_scope": len(scope["file_ids"]), "files_total_included": sum(1 for f in self.amap.files if f.status == "INCLUDED"),
                     "files_unreadable_in_scope": scope["unreadable"], "lines_searched": len(in_scope), "lines_indexed": len(self.rows),
                     "explicit_scope": bool(explicit), "excluded": sorted(scope["excluded"])}

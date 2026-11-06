@@ -259,6 +259,81 @@ class AttachmentMap:
                 raise ValueError(f"segment {s.seg_id} does not round-trip")
 
 
+# --- parse cache (content-addressed, scope-independent) ------------------------------------------------------------
+# ``parsers.parse_file`` is a pure function of (rendered text, language); its result carries no scope, so caching it by
+# content hash leaks nothing across scopes (the hash is never exposed as a credential, and the text itself must already
+# be in hand to look it up). The cache is bounded by entries and by characters of cached text; it holds parsed
+# structure only, never file text. It exists because a real proof package (60+ files, several large JSON dumps) costs
+# ~1.3 s to parse cold, which blew the deterministic plan budget and silently sent every question to the legacy lane.
+_PARSE_CACHE: "dict[tuple[str, str], tuple[list[parsers.Seg], list[int], int]]" = {}
+_PARSE_CACHE_CHARS = 0
+PARSE_CACHE_MAX_ENTRIES = 2048
+PARSE_CACHE_MAX_CHARS = 48 * 1024 * 1024
+PARSE_CACHE_STATS = {"hits": 0, "misses": 0}
+
+
+def _parsed(text: str, lang: str, content_sha256: str) -> tuple[list[parsers.Seg], list[int], bool]:
+    """(segments, line_starts, cached) for one file; cached entries are returned as-is (callers must not mutate)."""
+    global _PARSE_CACHE_CHARS
+    key = (content_sha256 or hashlib.sha256(text.encode("utf-8", "surrogateescape")).hexdigest(), lang)
+    hitc = _PARSE_CACHE.get(key)
+    if hitc is not None:
+        _PARSE_CACHE[key] = _PARSE_CACHE.pop(key)   # LRU touch
+        PARSE_CACHE_STATS["hits"] += 1
+        return hitc[0], hitc[1], True
+    PARSE_CACHE_STATS["misses"] += 1
+    segs = parsers.parse_file(text, lang)
+    starts = parsers.line_starts(text)
+    while _PARSE_CACHE and (len(_PARSE_CACHE) >= PARSE_CACHE_MAX_ENTRIES or _PARSE_CACHE_CHARS + len(text) > PARSE_CACHE_MAX_CHARS):
+        oldest = next(iter(_PARSE_CACHE))          # insertion order == LRU order thanks to the touch above
+        _PARSE_CACHE_CHARS -= _PARSE_CACHE.pop(oldest)[2]
+    if len(text) <= PARSE_CACHE_MAX_CHARS:
+        _PARSE_CACHE[key] = (segs, starts, len(text))
+        _PARSE_CACHE_CHARS += len(text)
+    return segs, starts, False
+
+
+def warm_parse_cache(ing: zipingest.Ingest) -> int:
+    """Parse every included file of an ingest into the cache (used at upload time, off the question path). Returns the
+    number of files parsed cold."""
+    cold = 0
+    for e in ing.entries:
+        if e.status == "INCLUDED" and e.path in ing.files:
+            _, _, cached = _parsed(ing.files[e.path], parsers.language_for(e.path, e.rendered), e.content_sha256)
+            cold += int(not cached)
+    return cold
+
+
+def clear_parse_cache() -> None:
+    global _PARSE_CACHE_CHARS
+    _PARSE_CACHE.clear()
+    _PARSE_CACHE_CHARS = 0
+    PARSE_CACHE_STATS["hits"] = PARSE_CACHE_STATS["misses"] = 0
+
+
+def _fair_allowances(counts: list[int], total: int) -> list[int]:
+    """Per-file segment allowances summing to ≤ ``total``: small files keep every segment, the remainder is shared
+    equally among the large ones (water-filling). Order-independent, so a big JSON dump early in the archive can no
+    longer starve a small CSV or patch that sorts after it."""
+    if sum(counts) <= total:
+        return list(counts)
+    allow = list(counts)
+    remaining = total
+    open_idx = list(range(len(counts)))
+    while open_idx:
+        share = remaining // len(open_idx)
+        fits = [i for i in open_idx if counts[i] <= share]
+        if not fits:
+            for k, i in enumerate(sorted(open_idx)):
+                allow[i] = share + (1 if k < remaining - share * len(open_idx) else 0)
+            break
+        for i in fits:
+            allow[i] = counts[i]
+            remaining -= counts[i]
+        open_idx = [i for i in open_idx if i not in fits]
+    return allow
+
+
 # --- builder --------------------------------------------------------------------------------------------------------
 def build_attachment_map(ingests: Iterable[zipingest.Ingest], scope: Scope, limits: MapLimits = MapLimits()) -> AttachmentMap:
     ingests = list(ingests)
@@ -267,6 +342,7 @@ def build_attachment_map(ingests: Iterable[zipingest.Ingest], scope: Scope, limi
     texts: dict[str, str] = {}
     seen_content: dict[str, str] = {}      # index_key → canonical file_id (dedupe inside this scope only)
     hit: list[str] = []
+    parsed: list[tuple[SourceFile, str, list[parsers.Seg], list[int]]] = []
     for ai, ing in enumerate(ingests, 1):
         for fi, e in enumerate(ing.entries, 1):
             fid = f"a{ai}/f{fi}"
@@ -287,28 +363,42 @@ def build_attachment_map(ingests: Iterable[zipingest.Ingest], scope: Scope, limi
                 sf.role_hints = list(next(f for f in files if f.file_id == sf.duplicate_of).role_hints)
                 continue
             seen_content[sf.index_key] = fid
-            raw = parsers.parse_file(text, lang)
+            raw, starts, _cached = _parsed(text, lang, e.content_sha256)
             if len(raw) > limits.max_segments_per_file:
                 raw = raw[: limits.max_segments_per_file]
-                hit.append(f"{fid}:max_segments_per_file")
-            starts = parsers.line_starts(text)
-            n = 0
-            for seg in raw:
-                for piece in _split_oversize(seg, text, starts, limits.max_segment_chars):
-                    if len(segments) >= limits.max_segments_total:
-                        hit.append("max_segments_total")
-                        break
-                    n += 1
-                    piece_text = text[piece.start:piece.end]
-                    segments.append(Segment(seg_id=f"{fid}#s{n}", file_id=fid, kind=piece.kind, start=piece.start, end=piece.end,
-                                            start_line=parsers.line_of(starts, piece.start), end_line=parsers.line_of(starts, max(piece.start, piece.end - 1)),
-                                            text=piece_text, tokens_est=max(1, math.ceil(len(piece_text) / 4)), context=piece.context,
-                                            aliases=piece.aliases[: limits.max_aliases_per_segment], malformed=piece.malformed))
-                if len(segments) >= limits.max_segments_total:
-                    break
-            sf.segments = n
+                hit.append(f"{sf.file_id}:max_segments_per_file")
             sf.malformed = any(s.malformed for s in raw)
             sf.role_hints = _role_hints(e.path, lang, raw)
+            parsed.append((sf, text, raw, starts))
+    allowances = _fair_allowances([len(raw) for _, _, raw, _ in parsed], limits.max_segments_total)
+    n_regular = 0   # segments counted against max_segments_total (coarse tail blocks are bounded by text size instead)
+    for (sf, text, raw, starts), allow in zip(parsed, allowances):
+        fid = sf.file_id
+        kept = list(raw[:allow])
+        if allow < len(raw):
+            hit.append("max_segments_total")
+            hit.append(f"{fid}:max_segments_total")
+            # Source-map invariant: every non-blank line still belongs to a segment. The dropped fine-grained segments
+            # are replaced by one coarse ``block`` over the tail (split by line length below), so a retrieval hit on a
+            # truncated file still resolves to a verifiable pointer instead of an empty seg_id.
+            tail_start = max((s.end for s in kept), default=0)
+            if tail_start < len(text) and text[tail_start:].strip():
+                kept.append(parsers.Seg("block", tail_start, len(text), {"truncated_tail": True, "dropped_segments": len(raw) - allow}))
+        n = 0
+        for seg in kept:
+            for piece in _split_oversize(seg, text, starts, limits.max_segment_chars):
+                is_tail = bool(piece.context.get("truncated_tail"))
+                if n_regular >= limits.max_segments_total and not is_tail:
+                    hit.append("max_segments_total")
+                    break
+                n_regular += 0 if is_tail else 1
+                n += 1
+                piece_text = text[piece.start:piece.end]
+                segments.append(Segment(seg_id=f"{fid}#s{n}", file_id=fid, kind=piece.kind, start=piece.start, end=piece.end,
+                                        start_line=parsers.line_of(starts, piece.start), end_line=parsers.line_of(starts, max(piece.start, piece.end - 1)),
+                                        text=piece_text, tokens_est=max(1, math.ceil(len(piece_text) / 4)), context=dict(piece.context),
+                                        aliases=list(piece.aliases[: limits.max_aliases_per_segment]), malformed=piece.malformed))
+        sf.segments = n
     collisions = _collisions(files)
     refs = _references(files, segments, limits.max_references, hit)
     digest = hashlib.sha256()
@@ -369,6 +459,13 @@ def _role_hints(path: str, lang: str, segs: list[parsers.Seg]) -> list[str]:
         add("results")
     if lang in ("python", "javascript", "typescript", "shell", "sql"):
         add("code")
+    if lang == "diff":
+        add("code")
+        add("changelog")
+    if lang == "jsonl":
+        add("tabular")
+        if "result" in base or "report" in base or "cases" in base or "probes" in base:
+            add("results")
     if lang == "html" or (lang == "text" and low.endswith((".html", ".htm"))) or "web" in parts[:-1]:
         add("web")
     if lang == "markdown" and any(s.kind == "heading" and re.search(r"requirement|must|shall|acceptance", s.context.get("title", ""), re.I) for s in segs):
@@ -390,7 +487,7 @@ def _collisions(files: list[SourceFile]) -> list[dict[str, Any]]:
     return out
 
 
-_PATH_TOKEN_RE = re.compile(r"(?<![\w/])((?:[\w.\-]+/)*[\w\-][\w.\-]*\.(?:md|markdown|ya?ml|json|csv|tsv|py|txt|html?|js|ts|toml|ini|cfg|bin|sh|sql|log|xml|rst))(?![\w/])", re.UNICODE)
+_PATH_TOKEN_RE = re.compile(r"(?<![\w/])((?:[\w.\-]+/)*[\w\-][\w.\-]*\.(?:md|markdown|ya?ml|json|jsonl|ndjson|csv|tsv|py|txt|html?|js|ts|toml|ini|cfg|bin|sh|sql|log|xml|rst|patch|diff))(?![\w/])", re.UNICODE)
 _IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]{2,}")
 
 
@@ -463,6 +560,15 @@ def _structure_summary(f: SourceFile, segs: list[Segment]) -> str:
     if f.language == "html":
         t = next((s.context.get("text_plain") for s in segs if s.context.get("tag") == "title"), None)
         return f"title: {t}" if t else ""
+    if f.language == "diff":
+        files = [s for s in segs if s.kind == "diff_file"]
+        paths = [s.context.get("path", "") for s in files]
+        added = sum(int(s.context.get("added", 0)) for s in files)
+        removed = sum(int(s.context.get("removed", 0)) for s in files)
+        return (f"changed files: {len(files)} (+{added} −{removed}): " + ", ".join(paths[:10]) + (" …" if len(paths) > 10 else "")) if files else ""
+    if f.language == "jsonl":
+        first = next((s for s in segs if s.kind == "record"), None)
+        return f"records: {first.context.get('records', 0)} · keys: {', '.join(first.context.get('keys', [])[:10])}" if first else ""
     return ""
 
 

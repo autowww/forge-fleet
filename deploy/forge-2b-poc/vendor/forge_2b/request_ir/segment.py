@@ -38,6 +38,9 @@ _PATH_RE = re.compile(
     r"(?<![\w@])(?:~|\.{1,2})?/(?:[\w.\-~%+]+/)*[\w.\-~%+]+|"                                   # /usr/bin, ./a/b.c, ~/x
     r"\b[A-Za-z]:\\[^\s\"'<>|]+|"                                                                    # C:\dir\file
     r"(?<![\w./])[\w\-]+(?:/[\w.\-]+)+\.(?:[a-z0-9]{1,5})\b|"                                        # config/service.yaml
+    # Git refs and well-known repo directories without an extension: hotfix/queue-timeout, release/1.9, docs/incidents (DCE-G1R3B)
+    r"(?<![\w./@-])(?:feature|feat|hotfix|bugfix|fix|release|releases|chore|refactor|users?|v?\d+\.\d+(?:\.\d+)?|src|docs|tests?|lib|bin|etc|var|opt|config|configs|"
+    r"scripts?|deploy|infra|k8s|charts?|services?|apps?|packages?|modules?|data|assets|tools?|ops|migrations?)/[\w.\-]+(?:/[\w.\-]+)*(?![\w/])|"
     r"(?<![\w./@])[\w\-\u00c0-\u024f\u0400-\u04ff]+(?:\.[\w\-]+)*\.(?:md|txt|json|ya?ml|csv|py|js|ts|tsx|jsx|toml|xml|html?|sql|log|sh|bash|ini|cfg|conf|rst|tsv|zip|tar|gz|pdf|docx?|xlsx?|pptx?|png|jpe?g|svg|gif|java|go|rs|c|cc|cpp|h|hpp|env|lock|mjs|cjs|exe|dll|so|bin|dat|db|sqlite|parquet)\b", re.I)
 # quotations: opening quote at start or after whitespace/punct, closing followed by non-letter; straight single quotes
 # excluded (apostrophes). Spans ≤ MAX_PROTECTED_REGION_CHARS code points.
@@ -199,6 +202,8 @@ def sentences(text: str, mask: Mask) -> list[tuple[int, int]]:
         if tok == "." and (R.ABBREV_RE.search(text[max(0, b_start - 8):b_start + 1])
                            or R.LIST_MARKER_BEFORE_DOT_RE.search(text[max(0, b_start - 6):b_start])):
             continue
+        if tok.strip() in ("—", "--") and R.DELIVERABLES_HEAD_RE.match(text, pos):
+            continue                                   # "I need three outputs — the risk list, the owner table, …" is one deliverables clause
         if text[pos:b_start].strip():
             spans.append((pos, b_start))
         pos = b_end

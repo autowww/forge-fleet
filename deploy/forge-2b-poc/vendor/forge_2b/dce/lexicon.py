@@ -40,7 +40,12 @@ OPERATOR_RULES: list[tuple[str, re.Pattern[str]]] = [
     ("list", re.compile(
         r"\blist(?: (?:the|all|every|me|its|their|all the))?(?: (?:extracted|included|attached|contained|uploaded|available|readable))? (?:files?|contents?|entries|paths|everything|them|the archive|the zip|the bundle)\b|\Alist\s*$|"
         r"\b(enumerate (the )?files|show (me )?(all )?(the )?(files|contents?|entries|paths)|what files|which files|name the files|print the files|"
-        r"(files?|contents?) (are )?(in|of) (this|the) (zip|archive|bundle))\b", re.I)),
+        r"(files?|contents?) (are )?(in|of) (this|the) (zip|archive|bundle))\b|"
+        # a folder question is an inventory question scoped to that folder (live K30 2026-11-06: "What is in the PUBLIC
+        # folder?" went to the model as a lookup and came back as prose); the folder itself is resolved against the map
+        r"\b(what(?:'s| is| are)(?: all)? (?:in|inside|under|within) (?:the )?[\w./-]+ (?:folder|directory|dir|subfolder)|"
+        r"(?:files?|contents?|entries) (?:in|of|under|inside) (?:the )?[\w./-]+ (?:folder|directory|dir|subfolder)|"
+        r"what does (?:the )?[\w./-]+ (?:folder|directory|dir) contain)\b", re.I)),
     ("summarize", re.compile(
         r"\b(summari[sz]e|summary|overview|describe|tell me about|walk me through|what('s| is) (happening|going on|inside|in (this|here))|"
         r"what does (this|the) (archive|zip|bundle|file) contain|what is this (bundle|archive|zip) about|what is (this|here)|explain (this|the archive|what))\b", re.I)),
@@ -50,7 +55,11 @@ OPERATOR_RULES: list[tuple[str, re.Pattern[str]]] = [
         r"as (a |an )?(table|json|csv|yaml|markdown|list|bullet points?)|in (json|csv|yaml|markdown) format)\b", re.I)),
     ("validate", re.compile(
         r"\b(validate|verify|confirm|check (whether|if|that)|is it true|are all|were all|did (all|the|every)|does (it|this|that) (pass|hold|comply)|"
-        r"is (there|it) (any )?(compliant|valid)|comply|complies)\b", re.I)),
+        r"is (there|it) (any )?(compliant|valid)|comply|complies)\b|"
+        # polar (yes/no) question: a clause opening with an auxiliary/modal is a claim to verify against the attachment
+        # (live K27 2026-11-06: "Can the effect projection be consumed in shadow now?" was no_operator → manifest listing).
+        # "is/are there" stays with `find` (existence), questions opening with a wh-word never reach here.
+        r"\A\W*(?:is|are|was|were|does|do|did|can|could|has|have|had|will|would|should|must|may|might)\b(?!\s+there\b)(?=\s+\w)", re.I)),
     ("inspect", re.compile(r"\b(inspect|look at|look into|open|examine|review|check)\b", re.I)),
     ("find", re.compile(
         r"\b(find|search( for)?|locate|where (is|does|are)|is there|are there|does\b[^?;,]{0,40}?\b(mention|contain|include|say|refer)|"

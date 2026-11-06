@@ -179,7 +179,8 @@ def compile_dag(ir: RequestIR, amap: AttachmentMap) -> TaskDAG:
                               "fewer than two verified sides → verdict undetermined (never guessed)", g.id, g.span.text, gcons))
         else:
             route = _ROUTE[kind]
-            if kind == "aggregate" and _typed_count_possible(scope_files, amap) and typed_count(amap, scope_files, g.span.text) is not None:
+            if kind == "aggregate" and ((not scope_files and manifest_count(amap, g.span.text) is not None)
+                                        or (_typed_count_possible(scope_files, amap) and typed_count(amap, scope_files, g.span.text) is not None)):
                 route = "D0"   # only when the deterministic count will actually fire; otherwise the model path keeps its call budget
             if kind == "verify" and g.operator == "audit":
                 route = "D0"
@@ -254,9 +255,37 @@ def typed_compare(amap: AttachmentMap, files: list[str]) -> dict[str, Any] | Non
 _NEG_SOURCE_RE = re.compile(r"\b(quote|quoting|use|using|read|reading|cite|citing|include|including|consult|look at|rely on|open)\b", re.I)
 
 
+_MANIFEST_COUNT_RE = re.compile(r"\b(files?|documents?|entries|folders?|directories)\b", re.I)
+_PACKAGE_NOUN_RE = re.compile(r"\b(package|archive|zip|bundle|attachment|upload(?:ed)?|does (?:it|this) (?:contain|have|hold|include))\b", re.I)
+_CONTENT_COUNT_RE = re.compile(r"\b(patch|diff|commit|chang\w*|modif\w*|touch\w*|delet\w*|add\w*|remov\w*|renam\w*|fail\w*|pass\w*|in\s+(?:the\s+)?[\w.-]+\.\w{1,5})\b", re.I)
+
+
+def manifest_count(amap: AttachmentMap, query: str) -> dict[str, Any] | None:
+    """D0 count of the archive itself ("How many files does the package contain?", live K29 2026-11-06: 153 JSON leaves
+    went to the model, which found no answer). Files, or folders, from the attachment map — never from file contents.
+    Guarded: the question must be about the package (archive/zip/bundle/"does it contain") and not about what a patch,
+    commit or a named file changed/contains — those are content questions and stay with the retriever."""
+    m = _MANIFEST_COUNT_RE.search(query)
+    if not m or not _PACKAGE_NOUN_RE.search(query) or _CONTENT_COUNT_RE.search(query):
+        return None
+    noun = m.group(1).casefold()
+    if noun.startswith(("folder", "director")):
+        dirs = {"/".join(f.path.split("/")[:i]) for f in amap.files for i in range(1, f.path.count("/") + 1)}
+        return {"value": len(dirs), "method": "manifest_count:folders", "spans": [], "lines": [], "path": "", "detail": ", ".join(f"`{d}/`" for d in sorted(dirs)[:12])}
+    inc = [f for f in amap.files if f.status == "INCLUDED"]
+    skipped = [f for f in amap.files if f.status != "INCLUDED"]
+    detail = f"{len(inc)} readable" + (f", {len(skipped)} skipped ({', '.join(sorted({f.status for f in skipped}))})" if skipped else "")
+    return {"value": len(amap.files), "method": "manifest_count:files", "spans": [], "lines": [], "path": "", "detail": detail}
+
+
 def typed_count(amap: AttachmentMap, files: list[str], query: str) -> dict[str, Any] | None:
     """Deterministic D0 count over CSV rows: rows whose cells equal a query word (casefold) — e.g. 'failed' → status=failed.
-    Without a matching filter word, counts all data rows. Returns None when no CSV is in scope."""
+    Without a matching filter word, counts all data rows. Returns None when no CSV is in scope. A count of the archive's
+    own files/folders (no file named) is answered from the map (``manifest_count``)."""
+    if not files:
+        mc = manifest_count(amap, query)
+        if mc is not None:
+            return mc
     words = {w.casefold() for w in re.findall(r"\w+", query)}
     for f in amap.files:
         if f.status != "INCLUDED" or f.language not in ("csv", "tsv") or (files and f.path not in files):
@@ -300,6 +329,8 @@ _RECENT_RE = re.compile(r"\b(latest|newest|most recent|current)\b", re.I)
 _OLDER_RE = re.compile(r"\b(older|oldest|previous|earlier|old)\b", re.I)
 _KEY_SPLIT_RE = re.compile(r"[^0-9a-z]+")
 _UNIT_WORDS = frozenset("mb gb kb megabytes gigabytes kilobytes bytes ms s sec secs seconds minutes min mins hours days percent".split())
+_BOOL_NULL_VALUES = frozenset({"true", "false", "yes", "no", "on", "off", "null", "none", "~", ""})
+_YES_NO_Q_RE = re.compile(r"^(?:is|are|was|were|does|do|did|has|have|had|can|could|should|will|would|must|чи|is it|whether)\b", re.I)
 _ISO_DATE_RE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
 _SEMVER_RE = re.compile(r"(?<![\w.])v?(\d+)\.(\d+)(?:\.(\d+))?(?![\w.])")
 _NEWEST_RE = re.compile(r"\b(newest|latest|most recent|current|last)\b", re.I)
@@ -402,13 +433,19 @@ def typed_key_lookup(amap: AttachmentMap, hits: list[Any], query: str, retriever
     if not hits or getattr(hits[0], "seg_id", None) not in {s.seg_id for _, s in rows}:
         return None   # the best-ranked line is not that key: leave the decision to the verified-quote path
     files = {f.file_id: f for f in amap.files}
-    # every content word of the question must be explained by the key, its aliases, a unit or a file path
+    # a boolean / null leaf cannot answer a who / which / what-value question — only a yes-no question
+    # (live finding 2026-11-06, G1R3A package: "Who labelled the blind set?" was answered `labelled = true`,
+    # "Which commit froze the blind set?" with three `frozen: true` leaves)
+    if all(str(s.context.get("value", "")).strip().casefold() in _BOOL_NULL_VALUES for _, s in rows) and not _YES_NO_Q_RE.match(query.strip()):
+        return None
+    # every content word of the question must be explained by the key, its aliases, a unit or the path of a file that
+    # carries the key (not every path in the archive: in a 60-file package that explains almost any word)
     explained = set(_KEY_SPLIT_RE.split(key)) | _UNIT_WORDS | {"older", "oldest", "previous", "earlier", "old", "latest", "newest", "recent", "current"}
     table = getattr(retriever, "alias_table", None)
     for ph in _al.expansions_for_key(key, table) if table is not None else _al.expansions_for_key(key):
         explained |= set(_KEY_SPLIT_RE.split(norm(ph)))
-    for f in amap.files:
-        explained |= set(_KEY_SPLIT_RE.split(f.path.casefold()))
+    for fid in {s.file_id for _, s in rows}:
+        explained |= set(_KEY_SPLIT_RE.split(files[fid].path.casefold()))
     if retriever is not None:
         terms, expanded, typo, _anchors = retriever.analyze(query)
         for k, phrases in expanded.items():

@@ -370,11 +370,17 @@ def _project_unresolved(ir: RequestIR, u: Unresolved) -> Optional[EffectIntent]:
                         u.source_span, [reason])
 
 
+_PUBLISH_VERB_RE = re.compile(_W + r"(?:publish\w*|post\w*|send\w*|e-?mail\w*|upload\w*|push\w*|force[- ]?push\w*|merge\w*|rebas\w*|cherry[- ]?pick\w*|squash\w*|amend\w*|tag\w*|опублік\w*|надішл\w*|надісла\w*|надсила\w*|відправ\w*|відішл\w*|запост\w*|залий|залива\w*|завантаж\w*|запуш\w*|пуш\w*|змерж\w*|мерж\w*|злий|злива\w*|перебаз\w*|ребейз\w*)\b", _I)
+
+
 def _prohibited_classes(c: Constraint) -> list[str]:
     """Which effect classes a prohibition/exclusion forbids, from its action and object."""
     obj = c.target_object.text if c.target_object is not None else ""
     act = c.target_action
     if act == "run":
+        verb = c.text if c.target_object is None else c.text[: max(0, c.target_object.source_span.start - c.source_span.start)] or c.text
+        if _PUBLISH_VERB_RE.search(verb):                               # "do not merge the release branch" / "send nothing to Slack" — repository / service state
+            return [ENVIRONMENT_MUTATION, COMMAND_EXECUTION]            # (sheet v3 rule 13; the execution class is kept as the conservative superset)
         return [COMMAND_EXECUTION]
     if act == "remove":
         k, _ = _destination(obj, c.id, 0) if obj else (None, [])

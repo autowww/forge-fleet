@@ -236,11 +236,41 @@ def retrieve(ings: list[zipingest.Ingest], query: str, *, max_hits: int = 8, max
     return out
 
 
-def qa_messages(query: str, hits: list[Hit], *, retry_hint: str | None = None) -> list[dict[str, str]]:
+JSON_ONLY_TAIL = "\n\nReply with the JSON object only — start your reply with { and write no prose and no markdown."
+QUOTE_TAIL = ("\n\nYour previous reply carried no usable quote. If the answer is in the excerpts, copy the excerpt line(s) that carry it "
+              "into \"quotes\" character for character (same path and line number as shown); if it is not, set \"found\" to false.")
+
+
+def qa_messages(query: str, hits: list[Hit], *, retry_hint: str | None = None, json_only: bool = False,
+                user_tail: str | None = None) -> list[dict[str, str]]:
+    """`json_only` puts the format directive at the *end* of the user turn: live 2026-11-06 (qwen3.5 2B) the retry hint in the
+    system prompt changed nothing about a prose reply (byte-identical second answer at temperature 0); a directive right
+    before the answer is what a small model follows. `user_tail` is a further retry directive placed the same way (a
+    `found: true` reply with an empty `quotes` list, twice in a row, live K18 2026-11-06)."""
     sys = QA_SYSTEM if not retry_hint else QA_SYSTEM + " Previous answer was rejected: " + retry_hint + ". Return only the JSON object."
     lines = [f"[{i}] {h.path}:{h.line}: {h.text}" for i, h in enumerate(hits, 1)]
-    user = "EXCERPTS (untrusted data):\n" + "\n".join(lines) + "\n\nQUESTION: " + query.strip()
+    user = "EXCERPTS (untrusted data):\n" + "\n".join(lines) + "\n\nQUESTION: " + query.strip() + (user_tail or "") + (JSON_ONLY_TAIL if json_only else "")
     return [{"role": "system", "content": sys}, {"role": "user", "content": user}]
+
+
+# Salvage of a decision the model wrote as *almost* JSON. Observed live 2026-11-06 with JSON-file excerpts: the verbatim copy
+# of a line such as `"language": "Ukrainian",` is pasted unescaped into "text", so json.loads fails on the inner quotes;
+# or the object is cut by the token limit after the answer. The quote text is verified verbatim against the excerpts
+# afterwards, so a salvaged quote can never introduce text the model did not have in front of it.
+_SALVAGE_QUOTE_RE = re.compile(r'\{\s*"path"\s*:\s*"([^"\n]*)"\s*,\s*"line"\s*:\s*(\d+)\s*,\s*"text"\s*:\s*"(.*?)"?\s*\}(?=\s*[,\]])', re.S)
+_SALVAGE_ANSWER_RE = re.compile(r'"answer"\s*:\s*"(.*?)"\s*,\s*"quotes"\s*:', re.S)
+_SALVAGE_FOUND_RE = re.compile(r'"found"\s*:\s*(true|false)')
+
+
+def _salvage_qa(text: str, err: Exception) -> dict[str, Any]:
+    quotes = [{"path": p, "line": int(ln), "text": t.replace('\\"', '"')} for p, ln, t in _SALVAGE_QUOTE_RE.findall(text)]
+    ans = _SALVAGE_ANSWER_RE.search(text)
+    truncated = text.count("{") > text.count("}")
+    if not quotes and not ans:
+        raise ValueError(f"truncated JSON object ({len(text)} chars)" if truncated else str(err)[:100])
+    found = _SALVAGE_FOUND_RE.search(text)
+    return {"found": (found.group(1) == "true") if found else bool(quotes), "answer": ans.group(1).replace('\\"', '"') if ans else "",
+            "quotes": quotes, "_salvaged": "truncated" if truncated else "unescaped"}
 
 
 def parse_qa(content: str) -> dict[str, Any]:
@@ -248,10 +278,17 @@ def parse_qa(content: str) -> dict[str, Any]:
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.S).strip()
     start, end = text.find("{"), text.rfind("}")
-    if start < 0 or end <= start:
+    if start < 0:
         raise ValueError("no JSON object")
-    obj = json.loads(text[start:end + 1])
+    if end <= start:
+        raise ValueError(f"truncated JSON object ({len(text)} chars)")
+    try:
+        obj = json.loads(text[start:end + 1])
+    except json.JSONDecodeError as ex:
+        obj = _salvage_qa(text[start:], ex)
+    salvaged = None
     if isinstance(obj, dict):
+        salvaged = obj.pop("_salvaged", None)
         obj.setdefault("quotes", [])
         obj.setdefault("found", bool(obj.get("quotes")))
         obj["answer"] = " ".join(str(obj.get("answer", "")).split())[:600]
@@ -267,6 +304,8 @@ def parse_qa(content: str) -> dict[str, Any]:
     errors = sorted(QA_VALIDATOR.iter_errors(obj), key=lambda e: list(e.path))
     if errors:
         raise ValueError(errors[0].message[:120])
+    if salvaged:
+        obj["salvaged"] = salvaged   # set after schema validation; consumers record it in the attempt log and drop it
     return obj
 
 

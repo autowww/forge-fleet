@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 from . import rules as R
-from .schema import (ACTION_CLASS, MAX_CLAUSES, MAX_UTTERANCE_CHARS, PARSER_VERSION, SCHEMA_VERSION, Condition, Constraint,
+from .schema import (ACTION_CLASS, DEFAULT_LANGUAGE_SCOPE, LANGUAGE_SCOPES, MAX_CLAUSES, MAX_UTTERANCE_CHARS, PARSER_VERSION, SCHEMA_VERSION, Condition, Constraint,
                      ContextStatement, IntentGraph, Link, Mention, Objective, ProtectedRegion, ReadOnlyContext, Reference, RequestIR,
                      Span, Unresolved, utterance_digest)
 from .segment import Mask, protected_regions, sentences, trim
@@ -100,6 +100,11 @@ class _State:
         self.cst_sent: dict[str, int] = {}                                   # constraint id → sentence index (same-sentence antecedents)
         self.last_mention: Optional[tuple[str, Optional[Mention]]] = None    # most recent operation named anywhere ("Do not do so" refers to it)
         self.immediate_clause = False     # "…, meanwhile describe the plan" — the clause is exempt from the sentence-initial condition
+        self.language_scope = DEFAULT_LANGUAGE_SCOPE
+        self.diacritic_clauses: list[tuple[int, int]] = []                  # Latin clauses with non-ASCII letters (uncertain language)
+        self.sent_spans: list[tuple[int, int]] = []
+        self.sent_script: dict[int, str] = {}                                # sentence index → latin | diacritic | non_latin (en scope)
+        self.unsupported_sents: set[int] = set()
         self.covered: list[tuple[int, int]] = []
         self.block_ids = [f"p{i}" for i, r in enumerate(mask.regions, 1) if r.kind in _BLOCK_KINDS]
 
@@ -120,7 +125,26 @@ class _State:
             return max(objs, key=lambda n: n.source_span.start)
         csts = [c for c in self.g.constraints if c.kind in ("prohibition", "exclusion") and c.target_object is not None
                 and c.breadth == "narrow" and self.cst_sent.get(c.id) == sent]
-        return max(csts, key=lambda n: n.source_span.start) if csts else None
+        if csts:
+            return max(csts, key=lambda n: n.source_span.start)
+        # "Here is the migration dry-run output. … execute it" — a single earlier context statement naming exactly one material /
+        # operation noun is the antecedent (DCE-G1R3B rule 11); zero or several candidates keep the pronoun unresolved
+        if self.block_ids:                                    # a quoted / fenced block outranks a statement as the referent of "it"
+            return None
+        cands = []
+        for k in self.g.context_statements:
+            groups, last_end = 0, None
+            ktext = "".join(" " if self.mask.covers(k.source_span.start + j) else ch for j, ch in enumerate(k.text))   # protected text is opaque
+            for m in R.ANTECEDENT_NOUN_RE.finditer(ktext):        # "the migration dry-run output" is one phrase, "the log and the script" are two
+                gap = ktext[last_end:m.start()] if last_end is not None else None
+                if gap is None or len(gap) > 14 or re.search(r"[,;]|\b(?:and|or|та|і|й|або)\b", gap):
+                    groups += 1
+                last_end = m.end()
+            if groups:
+                cands.append((k, groups))
+        if len(cands) == 1 and cands[0][1] == 1:
+            return cands[0][0]
+        return None
 
     def for_each(self, sent: int) -> Optional[str]:
         """The for_each condition governing this sentence, if any ("For every service, state its image tag" → *its* = q1)."""
@@ -143,17 +167,28 @@ class _State:
 
 # --- public API ----------------------------------------------------------------------------------------------------
 
-def parse_request(utterance: str, context: Optional[ReadOnlyContext] = None, *, strict: bool = False) -> RequestIR:
+def parse_request(utterance: str, context: Optional[ReadOnlyContext] = None, *, strict: bool = False,
+                  language_scope: str = DEFAULT_LANGUAGE_SCOPE) -> RequestIR:
     """Parse one utterance. ``strict=True`` additionally runs full JSON-Schema validation on the result (tests do this
-    for every corpus case); the span/digest integrity check always runs."""
+    for every corpus case); the span/digest integrity check always runs.
+
+    ``language_scope`` (DCE-G1R3C): ``"en"`` (default) interprets **English** user-authored instructions only. A clause whose
+    instruction text — outside protected regions (code, quotes, URLs, paths, attachments) — contains letters of a non-Latin
+    script is recorded as ``unresolved(kind="unsupported_language")`` and yields no objective, constraint or condition; a
+    Latin-script clause with diacritics that produces no recognised English action is recorded the same way (uncertain,
+    never assumed English). ``"legacy-multilingual"`` is an explicit opt-in that keeps the pre-0.5 behaviour for historical
+    regression material (deferred scope); it is never the default and no consumer uses it. The result is descriptive only.
+    """
     if not isinstance(utterance, str):
         raise TypeError("utterance must be str")
     if context is not None and not isinstance(context, ReadOnlyContext):
         raise TypeError("context must be ReadOnlyContext or None")
+    if language_scope not in LANGUAGE_SCOPES:
+        raise ValueError(f"language_scope must be one of {LANGUAGE_SCOPES}")
     digest = utterance_digest(utterance)
     base = dict(schema_version=SCHEMA_VERSION, parser_version=PARSER_VERSION, digest=digest, utterance_chars=len(utterance),
                 limits={"max_utterance_chars": MAX_UTTERANCE_CHARS, "max_clauses": MAX_CLAUSES},
-                context_digest=context.digest() if context else None)
+                context_digest=context.digest() if context else None, language_scope=language_scope)
     if _LONE_SURROGATE_RE.search(utterance) or _CONTROL_RE.search(utterance):
         return _finish(RequestIR(status="rejected_invalid_text", language_hint="und", graph=IntentGraph(), stats=_stats(IntentGraph(), 0, 0), **base), utterance, strict)
     if len(utterance) > MAX_UTTERANCE_CHARS:
@@ -165,11 +200,15 @@ def parse_request(utterance: str, context: Optional[ReadOnlyContext] = None, *, 
     regions = protected_regions(utterance)
     mask = Mask(regions)
     st = _State(utterance, mask, context)
+    st.language_scope = language_scope
     for i, r in enumerate(regions, 1):
         st.g.protected_regions.append(ProtectedRegion(f"p{i}", r.kind, Span(r.start, r.end)))
 
     clauses: list[_Clause] = []
     sents = sentences(utterance, mask)
+    st.sent_spans = list(sents)
+    if language_scope == "en":
+        st.sent_script = {si: _instruction_script(st, a, b) for si, (a, b) in enumerate(sents)}
     for si, (a, b) in enumerate(sents):
         clauses.extend(_split_clauses(utterance, a, b, si, mask))
     truncated_from: Optional[int] = None
@@ -198,6 +237,10 @@ def parse_request(utterance: str, context: Optional[ReadOnlyContext] = None, *, 
         a, b = trim(utterance, truncated_from, len(utterance))
         st.g.unresolved.append(Unresolved(st.nid("u"), "truncated", utterance[a:b], Span(a, b), "limit.max_clauses"))
         st.covered.append((a, b))
+    for i, u in enumerate(st.g.unresolved):       # a diacritic Latin clause with no recognised English action: uncertain language, not "English"
+        if u.kind == "no_recognized_action" and any(a <= u.source_span.start < b for a, b in st.diacritic_clauses):
+            st.g.unresolved[i] = Unresolved(u.id, "unsupported_language", u.text, u.source_span, "scope.language.uncertain", referent=u.referent,
+                                            objective_id=u.objective_id)
 
     stats = _stats(st.g, len(clauses) + (1 if truncated_from is not None else 0), len(utterance.strip()), st.covered)
     status = "partial" if truncated_from is not None else ("ok_with_unresolved" if st.g.unresolved else "ok")
@@ -247,6 +290,8 @@ def _coord_opens_unknown(text: str, pos: int, end: int, mask: Mask, sentence: st
 
 
 def _condition_kind(marker: str) -> Optional[str]:
+    if marker.strip().lower() == "should":          # inverted conditional "Should X exceed Y, …" (lookahead-guarded in CONDITION_MARKERS)
+        return "if"
     for kind, pat in R.CONDITION_MARKERS:
         for probe in (marker, marker + " x", marker + ","):   # markers may carry a lookahead on what follows ("for each <noun>", "for those,")
             m = re.match(pat, probe, re.I)
@@ -368,7 +413,8 @@ def _split_clauses(text: str, s_start: int, s_end: int, sent: int, mask: Mask) -
         nxt = out[idx + 1] if idx + 1 < len(out) else None
         # likewise "Do not," / "Never, for any reason," stranded ahead of the verb — the prohibition marker belongs to the next clause
         if nxt is not None and body and (R.FIRST_RE.fullmatch(body + " ") or R.SEQUENCE_START_RE.fullmatch(body + " ") or
-                                         R.PROHIBITION_START_RE.fullmatch(body + " ") or R.INSTEAD_RE.fullmatch(body + " ")):
+                                         R.PROHIBITION_START_RE.fullmatch(body + " ") or R.INSTEAD_RE.fullmatch(body + " ") or
+                                         R.ELSE_START_RE.fullmatch(body + " ")):          # "otherwise, describe the failure"
             if R.SEQUENCE_START_RE.fullmatch(body + " "):
                 wa, wb = trim(text, cl.start, cl.end, strip_leading_punct=True)
                 out[idx + 1] = _Clause(cl.start, nxt.end, nxt.sent, "sequence", (wa, wb))
@@ -525,7 +571,21 @@ def _process_clause(st: _State, c: _Clause) -> None:
         st.covered.append((cs, ce))
         return
     seg = text[cs:ce]
-    lang = R.lang_of(seg)
+    if st.language_scope == "en":
+        script = st.sent_script.get(c.sent, "latin")
+        if script == "non_latin":                  # Ukrainian / Russian / mixed / any non-Latin instruction text in the sentence: out of scope, never guessed
+            if c.sent not in st.unsupported_sents:  # one node per sentence, spanning the whole sentence (every clause of it is withheld)
+                st.unsupported_sents.add(c.sent)
+                sa, sb = trim(text, *st.sent_spans[c.sent])
+                _unresolved(st, c.sent, sa, sb, "unsupported_language", "scope.language.non_latin_script")
+            else:
+                st.covered.append((cs, ce))
+            return
+        if script == "diacritic":
+            st.diacritic_clauses.append((cs, ce))
+        lang = "en"
+    else:
+        lang = R.lang_of(seg)
     # "Would you delete the cluster if I asked?" — a modal question about a side-effecting operation is hypothetical when it
     # carries a hypothetical condition or adverb; decided after the trigger is known (see step 2)
     hypo = R.HYPO_PREFIX_RE.match(seg)
@@ -553,6 +613,12 @@ def _process_clause(st: _State, c: _Clause) -> None:
         i += me.end()
         i += _strip_prefixes(seg[i:])                  # "інакше просто підтверди …" — politeness after the else-marker
     mc = R.CONDITION_START_RE.match(seg[i:])
+    mt = R.UNTIL_THEN_RE.match(seg[i:])
+    if mt and _match_action(seg[i + mt.end():], interrogative=False) is not None:
+        # "until then show a summary" — the anaphoric marker is the whole condition; the imperative that follows is a governed objective
+        _emit_condition(st, c, "until", cs + i, cs + i + mt.end(), f"{lang}.condition.until.anaphoric", sentence_level=True)
+        i += mt.end()
+        mc = None
     if mc:
         kind = _condition_kind(mc.group(0).strip(" ,\t\n").lower())
         body = seg[i + mc.end():]
@@ -578,7 +644,7 @@ def _process_clause(st: _State, c: _Clause) -> None:
         after = seg[i + hit_lead[1].end():]
         sep = R.LEADING_SEP_RE.match(after)
         if not after.strip(" \t\r\n.!…,;:"):          # the clause *is* the constraint ("…, не більше десяти." / "Answer in Ukrainian.")
-            if hit_lead[0] != "scope_only":
+            if hit_lead[0] != "scope_only" or re.search(r"nothing|нічого", hit_lead[1].group(0), re.I):   # "…, and nothing else."
                 leading.append((cs + i, cs + i + hit_lead[1].end(), hit_lead[0]))
                 i += len(after) + hit_lead[1].end()
             break
@@ -646,12 +712,41 @@ def _process_clause(st: _State, c: _Clause) -> None:
             parts.append((pos, sm.start())); pos = sm.end()
         parts.append((pos, ce))
         parts = [(a, b) for a, b in parts if text[a:b].strip(" .;,")]
+        want = R.DELIVERABLE_COUNTS.get(md_.group("count").lower()) if md_.group("count") else None
+        if want is not None and len(parts) < want:
+            # "Two things: a risk table and a mitigation checklist" / "план, оцінку і коротку відповідь" — the declared count says the
+            # last comma-part still holds two items: split it at its last bare "and"
+            la, lb = parts[-1]
+            ands = [sm for sm in R.DELIVERABLE_LAST_AND_RE.finditer(text, la, lb) if not st.mask.overlaps(sm.start(), sm.end())]
+            if ands:
+                parts = parts[:-1] + [(la, ands[-1].start()), (ands[-1].end(), lb)]
+                parts = [(a, b) for a, b in parts if text[a:b].strip(" .;,")]
         if len(parts) >= 2:
             for a, b in parts:
                 a, b = trim(text, a, b, strip_leading_punct=True)
                 nm = R.NOMINAL_RE.match(text[a:b])
                 act = R.NOMINAL_ACTION.get(nm.group("noun").lower()) if nm and nm.group("noun").lower() in R.NOMINAL_ACTION else "compose"
                 _emit_objective(st, c, a, b, lang, (act, "nominal", 0), a)
+            return
+    mu = None if modal_q else R.UK_INF_NOT_NEEDED_RE.match(rest)
+    if mu and not st.mask.overlaps(cs + i, cs + i + mu.end()):
+        # "Виконувати нічого не треба" / "Застосовувати його не треба" — infinitive-first impersonal prohibition
+        hit = _match_action(mu.group("inf"), interrogative=False, gerund=True)
+        act = hit[0] if hit else None
+        if act is None:
+            for action, pat in R.MENTION_FORMS:
+                if pat.match(mu.group("inf")):
+                    act = action; break
+        if act is not None:
+            og = "obj" if mu.group("obj") else ("obj0" if mu.group("obj0") else None)
+            null_obj = og is None or mu.group(og).lower().startswith(("нічого", "жодних"))
+            obj = None if null_obj else st.mention(cs + i + mu.start(og), cs + i + mu.end(og))
+            v_end, trailing = _trailing_conditions(st, cs + i + mu.end(), ce)
+            st.last_mention = (act, obj)
+            cst = _clause_constraint(st, c, cs, ce, "prohibition", f"{lang}.prohibition.infinitive_first", target_action=act,
+                                     value=st.mention(cs + i, v_end), target_object=obj, breadth="global" if null_obj else _breadth(obj))
+            for kind_q, qa, qb, ment_q in trailing:
+                _emit_condition(st, c, kind_q, qa, qb, f"{lang}.condition.{kind_q}.trailing", mentioned=ment_q, applies=[cst.id])
             return
     m = None if modal_q else R.PROHIBITION_START_RE.match(rest)
     if m and not R.WHETHER_OR_NOT_RE.match(rest):
@@ -716,6 +811,31 @@ def _process_clause(st: _State, c: _Clause) -> None:
         _clause_constraint(st, c, cs, ce, "prohibition", f"{lang}.prohibition.passive", target_action=_participle_action(mp.group("part")),
                            value=st.mention(cs + i, ce), breadth="global")
         return
+    mna = None if modal_q else R.NEG_ADJ_PROHIBITION_RE.match(rest)              # "Nothing destructive, obviously." / "Нічого незворотного."
+    if mna:
+        _clause_constraint(st, c, cs, ce, "prohibition", f"{lang}.prohibition.negative_adjective", target_action=None,
+                           value=st.mention(cs + i, cs + i + mna.end()), breadth="global")
+        return
+    msp = None if modal_q else R.SUBJECT_PASSIVE_NEG_RE.match(rest)              # "prod must not be modified" / "база не повинна змінюватися"
+    if msp:
+        act = _participle_action(msp.group("part")) or _mentioned_action(msp.group("part").lower().replace("тися", "ти").replace("тись", "ти"))
+        act = act[0] if isinstance(act, tuple) else act
+        if act:
+            a0 = cs + i + msp.start("subj")
+            _clause_constraint(st, c, cs, ce, "prohibition", f"{lang}.prohibition.subject_passive", target_action=act,
+                               target_object=st.mention(a0, a0 + len(msp.group("subj"))), breadth="narrow")
+            return
+    ma = None if modal_q else R.NEG_SUBJECT_ACTIVE_RE.match(rest)                # "Nothing in prod may change" / "Ніщо на проді не має змінюватися"
+    if ma:
+        ment = _mentioned_action(ma.group("verb"))
+        if ment:
+            v_end, trailing = _trailing_conditions(st, cs + i + ma.end(), ce)
+            st.last_mention = (ment[0], None)
+            cst = _clause_constraint(st, c, cs, ce, "prohibition", f"{lang}.prohibition.negative_subject", target_action=ment[0],
+                                     value=st.mention(cs + i, v_end), breadth="global")
+            for kind_q, qa, qb, ment_q in trailing:
+                _emit_condition(st, c, kind_q, qa, qb, f"{lang}.condition.{kind_q}.trailing", mentioned=ment_q, applies=[cst.id])
+            return
     for kind, pat in (("requirement", R.REQUIREMENT_START_RE), ("exclusion", R.EXCLUSION_START_RE)):
         m = None if modal_q else pat.match(rest)
         if m:
@@ -826,6 +946,12 @@ def _process_clause(st: _State, c: _Clause) -> None:
             _clause_constraint(st, c, cs, ce, "prohibition", f"{lang}.prohibition.declarative", target_action=t_act,
                                value=st.mention(na, nb), target_object=obj, breadth=_breadth(obj) if (ment or obj) else "global")
             return
+        ml = R.LABEL_ONLY_RE.match(rest)
+        if ml and st.mask.covers(cs + i + ml.end()) and st.mask.covers(max(cs + i + ml.end(), trim(text, cs, ce)[1] - 1)):
+            a, b = trim(text, cs, ce)                  # "Text in quotes: "…"" — the payload is data, never an instruction
+            st.g.context_statements.append(ContextStatement(st.nid("k"), text[a:b], Span(a, b), f"{lang}.declarative.labelled_quote"))
+            st.covered.append((a, b))
+            return
         if R.DECLARATIVE_RE.match(rest):
             a, b = trim(text, cs, ce)
             st.g.context_statements.append(ContextStatement(st.nid("k"), text[a:b], Span(a, b), f"{lang}.declarative"))
@@ -875,6 +1001,9 @@ def _emit_objective(st: _State, c: _Clause, cs: int, ce: int, lang: str, hit: tu
         _clause_constraint(st, c, cs, ce, "prohibition", f"{lang}.prohibition.null_object", target_action=action, value=target, breadth="global")
         st.last_mention = (action, None)
         return
+    if target is not None and ACTION_CLASS[action] in _MUTATING and R.VAGUE_OBJECT_RE.match(target.text) and not st.mask.covers(target_a):
+        _unresolved(st, c.sent, cs, ce, "vague_object", f"{lang}.vague_object")       # "Do something with the queue" / "Зроби щось із чергою"
+        return
     neg = R.NEG_OBJECT_RE.match(target.text) if target is not None else None
     if neg and not st.mask.covers(target_a):                          # "Run no scripts" / "Delete no files" / "Execute zero commands" → prohibition
         obj = st.mention(target_a + neg.start("noun"), target_a + neg.end("noun"))
@@ -891,6 +1020,13 @@ def _emit_objective(st: _State, c: _Clause, cs: int, ce: int, lang: str, hit: tu
         ra = R.REPLY_ARTEFACT_RE.search(target.text)
         if ra and not st.mask.covers(target_a + ra.start()) and not _REPLY_ARTEFACT_NOT_RE.match(target.text, ra.end()):
             action, rule = "compose", f"{lang}.{fam}.compose.reply_artefact"
+    if action == "compose" and target is not None and fam in ("imperative", "nominal"):
+        # "Create a Markdown note at docs/runbook.md" — a named persisted destination makes the artefact a file, not answer text
+        pd = R.PERSIST_DESTINATION_RE.search(target.text)
+        if pd and pd.group(0).split()[0].lower() in ("in", "у", "в") and re.search(r"\b(?:for|of|about|regarding|describing|covering|on|для|про|щодо|стосовно)\s+(?:the|this|that|a|an|our|my|цього|цієї|цих)?\b", target.text[: pd.start()], re.I):
+            pd = None                                  # "a unified diff for the change to the retry logic in client.py" — "in" locates the subject, not a destination
+        if pd and not R.REPLY_ARTEFACT_RE.search(target.text):
+            action, rule = "create", f"{lang}.{fam}.create.persisted_artefact"
     second: Optional[tuple[int, int, str]] = None
     if action == "compose" and target is not None and fam in ("imperative", "nominal"):
         # "a table of endpoints and, separately, a list of risks" → two deliverables
@@ -1131,6 +1267,26 @@ def _references(st: _State, target: Optional[Mention], sent: int) -> tuple[list[
 
 
 # --- helpers --------------------------------------------------------------------------------------------------------
+
+def _instruction_script(st: _State, a: int, b: int) -> str:
+    """Script of the user-authored instruction text in [a, b): ``latin`` · ``diacritic`` (Latin with non-ASCII letters) ·
+    ``non_latin``. Protected regions (code, quotes, URLs, paths, attachments) are data and are skipped."""
+    diacritic = False
+    for i in range(a, b):
+        if st.mask.covers(i):
+            continue
+        ch = st.text[i]
+        if not ch.isalpha():
+            continue
+        o = ord(ch)
+        if o < 0x80:
+            continue
+        if (0xC0 <= o <= 0x24F or 0x1E00 <= o <= 0x1EFF) and ch not in "×÷":
+            diacritic = True
+            continue
+        return "non_latin"
+    return "diacritic" if diacritic else "latin"
+
 
 def _language_hint(text: str) -> str:
     cyr, lat = bool(R.CYRILLIC_RE.search(text)), len(R.EN_FUNCTION_RE.findall(text)) >= 1

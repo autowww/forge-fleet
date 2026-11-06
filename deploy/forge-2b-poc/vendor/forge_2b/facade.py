@@ -103,7 +103,7 @@ class Config:
     zip_limits: zipingest.Limits = zipingest.Limits()
     # DCE-04: off (default, legacy only) | shadow (DCE planned beside legacy, trace only) | on (DCE answers tested attachment ops)
     dce_mode: str = "off"
-    dce_plan_ms: float = 400.0
+    dce_plan_ms: float = 1500.0   # parse cache is warmed at ingest; 1.5 s tolerates a cold 60-file package once
     dce_max_model_calls: int = 3
     dce_concurrency: int = 2
 
@@ -636,8 +636,17 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                 log.info("ingest %s user=%s zip rejected %s", filename, owner, ex.code)
                 raise POCError(422, ex.code, ex.message) from ex
             content = zipingest.render(ing)
-            log.info("ingest %s user=%s archive=%s entries=%d included=%d skipped=%d rendered=%dB %dms", filename, owner,
-                     ing.archive_id[:19], len(ing.entries), len(ing.included), len(ing.skipped), len(content), int((time.monotonic() - t0) * 1000))
+            warmed: dict[str, Any] = {}
+            if cfg.dce_mode != "off":
+                # Parse structure and build the retrieval index now, while the uploader is already waiting, so the
+                # first question's deterministic plan stage is a cache lookup instead of a multi-second cold build
+                # that blows its budget and silently sends the question to the legacy lane.
+                try:
+                    warmed = await asyncio.to_thread(dce_shadow.warm_caches, ing)
+                except Exception as ex:  # noqa: BLE001 — warming is an optimisation; ingest must still succeed
+                    warmed = {"error": f"{type(ex).__name__}: {str(ex)[:120]}"}
+            log.info("ingest %s user=%s archive=%s entries=%d included=%d skipped=%d rendered=%dB dce_warm=%s %dms", filename, owner,
+                     ing.archive_id[:19], len(ing.entries), len(ing.included), len(ing.skipped), len(content), json.dumps(warmed), int((time.monotonic() - t0) * 1000))
             meta = {"forge_zip": True, "archive_id": ing.archive_id, "file_count": len(ing.entries), "included": len(ing.included),
                     "skipped": len(ing.skipped), "truncated": ing.truncated, "source": filename}
             return JSONResponse({"page_content": content, "metadata": meta}, headers={"Cache-Control": "no-store"})
@@ -719,8 +728,11 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                         return await graph_run(request, body, user_text, directive=directive or (None, None), source_loader=zip_source,
                                                extra_record={"attachment_run": run_id})
             if directive:
-                record["status"] = "FAILED"
-                raise POCError(422, "NO_MATERIAL_CONTENT", f"No 10-K document found inside the attachment (run {run_id})")
+                # The question *mentions* a 10-K and a ticker but the archive holds no 10-K: it is a question about
+                # the attached files (e.g. "what was the recall on the NVDA 10-K etalon?"), not an extraction order.
+                # Fall through to the attachment lane instead of failing the turn; the trace keeps the reason.
+                record["stages"].append("no_10k_in_attachment")
+                record["directive_ignored"] = {"ticker": directive[0], "accession": directive[1], "reason": "no 10-K document inside the attachment"}
 
         # ---- DCE-04: shadow / on (10-K requests above stay on the legacy graph lane in every mode) -------------
         plan: dce_shadow.Plan | None = None
@@ -952,9 +964,9 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                     raise POCError(ex.status, ex.code, f"{ex.message} (run {run_id})") from ex
                 record["upstream_catalog"] = trace_meta.get("catalog_trace")
 
-                async def call_llm(msgs: list[dict[str, str]]) -> tuple[str, str]:
+                async def call_llm(msgs: list[dict[str, str]], *, max_tokens: int = dce_shadow.Q2_MAX_TOKENS) -> tuple[str, str]:
                     answer = await call(client, "POST", cfg.llm_url.rstrip("/") + "/chat/completions", cfg.llm_key,
-                                        json={"model": cfg.backend_model, "messages": msgs, "temperature": 0, "max_tokens": 400, "stream": False})
+                                        json={"model": cfg.backend_model, "messages": msgs, "temperature": 0, "max_tokens": max_tokens, "stream": False})
                     served = str(answer.get("model", ""))
                     if not _backend_matches(served, cfg.backend_model):
                         raise POCError(502, "BACKEND_MODEL_MISMATCH", "Gateway returned a different served model")

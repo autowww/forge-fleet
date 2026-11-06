@@ -19,7 +19,8 @@ from typing import Any, Optional
 from jsonschema import Draft202012Validator
 
 SCHEMA_VERSION = "forge.models.request_ir.v0.1"   # v0 + conditions[], constraint.target_object/breadth, alternative_to, new verbs
-PARSER_VERSION = "dce-g1r/0.4.3"   # bump whenever a rule change alters output for any frozen corpus case
+PARSER_VERSION = "dce-g1r/0.5.0"   # bump whenever a rule change alters output for any frozen corpus case
+# 0.5.0 (DCE-G1R3C): English-only instruction scope by default; `language_scope` field; `unsupported_language` unresolved kind
 
 # --- documented limits (code points / counts) ------------------------------------------------------------------
 MAX_UTTERANCE_CHARS = 8_000     # above: status=rejected_too_large, empty graph, no parsing performed
@@ -49,11 +50,15 @@ CONSTRAINT_SCOPES = ("objective", "request")
 CONSTRAINT_BREADTHS = ("global", "narrow")    # prohibition/exclusion: whole action vs. a specific action+object pair
 LINK_KINDS = ("depends_on", "alternative_to")
 CONDITION_KINDS = ("if", "unless", "until", "before", "after", "else", "for_each")
-UNRESOLVED_KINDS = ("ambiguous_referent", "no_recognized_action", "unsupported_script", "truncated")
+UNRESOLVED_KINDS = ("ambiguous_referent", "no_recognized_action", "unsupported_script", "truncated", "vague_object", "unsupported_language")
 REFERENCE_STATUSES = ("resolved_intra_utterance", "resolved_context", "unresolved")
 PROTECTED_KINDS = ("code_fence", "inline_code", "quotation", "url", "path", "json_like", "yaml_like", "command_like", "attachment")
 STATUSES = ("ok", "ok_with_unresolved", "partial", "empty", "rejected_too_large", "rejected_invalid_text")
 LANGUAGE_HINTS = ("en", "uk", "mixed", "und")
+# DCE-G1R3C: the parser interprets user-authored instructions in English only. "legacy-multilingual" is an explicit opt-in kept
+# for historical regression material (deferred scope) — never the default, never used by a consumer.
+LANGUAGE_SCOPES = ("en", "legacy-multilingual")
+DEFAULT_LANGUAGE_SCOPE = "en"
 
 
 @dataclass(frozen=True)
@@ -190,6 +195,7 @@ class RequestIR:
     graph: IntentGraph
     stats: dict[str, int]
     context_digest: Optional[str] = None
+    language_scope: str = DEFAULT_LANGUAGE_SCOPE   # LANGUAGE_SCOPES (v0.1 additive field, DCE-G1R3C)
 
     # -- serialisation -----------------------------------------------------------------------------------------
     def to_dict(self, *, redact_text: bool = False) -> dict[str, Any]:
@@ -206,7 +212,7 @@ class RequestIR:
     def summary(self) -> dict[str, Any]:
         """Text-free one-liner: safe for logs."""
         return {"schema_version": self.schema_version, "parser_version": self.parser_version, "digest": self.digest,
-                "status": self.status, "language_hint": self.language_hint, **self.stats}
+                "status": self.status, "language_hint": self.language_hint, "language_scope": self.language_scope, **self.stats}
 
     def __repr__(self) -> str:  # never leak utterance text through repr/logging
         return f"RequestIR({self.summary()})"
@@ -325,6 +331,7 @@ SCHEMA: dict[str, Any] = {
         "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
         "status": {"enum": list(STATUSES)},
         "language_hint": {"enum": list(LANGUAGE_HINTS)},
+        "language_scope": {"enum": list(LANGUAGE_SCOPES)},
         "utterance_chars": {"type": "integer", "minimum": 0},
         "limits": {"type": "object", "additionalProperties": False, "required": ["max_utterance_chars", "max_clauses"],
                    "properties": {"max_utterance_chars": {"type": "integer"}, "max_clauses": {"type": "integer"}}},
