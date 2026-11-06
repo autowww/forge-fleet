@@ -120,7 +120,7 @@ Feature docs (details beyond this table): [CONTAINER-TEMPLATES.md](../build-201/
 | POST | `/v1/cooldown-events` | bearer | **`duration_s`** plus optional **`kind`**, **`meta`**. |
 | POST | `/v1/jobs` | bearer | **`kind: docker_argv`**; optional workspace / template fields — see WORKSPACE_UPLOAD. |
 | PUT | `/v1/jobs/{id}/workspace` | bearer | Raw gzip tarball; optional **`X-Workspace-Archive-Sha256`**. |
-| POST | `/v1/jobs/{id}/cancel` | bearer | Best-effort cancel. |
+| POST | `/v1/jobs/{id}/cancel` | bearer | Best-effort cancel: kills a running container; a **queued** job (incl. one still `pending_upload`) is marked `cancelled` in the store so it no longer blocks the upgrade drain, and a late workspace upload gets **409**. |
 | POST | `/v1/containers/dispose` | bearer | Body **`container_id`** — `docker rm -f`. |
 | POST | `/v1/admin/test-fleet` | bearer | Optional **`count`** — enqueue `host_cpu_probe` jobs. |
 | POST | `/v1/admin/git-self-update` | bearer | **Deprecated** — returns **400** `git_self_update_deprecated`. Use **`POST /v1/admin/upgrade`** after apt CDN publish. |

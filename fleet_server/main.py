@@ -2808,6 +2808,15 @@ class FleetHandler(BaseHTTPRequestHandler):
                 row = store.get_job(conn, jid)
                 if row and row["status"] == "running":
                     store.update_job(conn, jid, status="cancelled", stderr=(row.get("stderr") or "") + "\ncancel_requested")
+                elif row and row["status"] == "queued":
+                    # a queued job (e.g. one still waiting for its workspace upload) is cancelled in the store so it stops
+                    # counting as a drain blocker for /v1/admin/upgrade (2026-11-06: a pending_upload job held the
+                    # Fleet restart for the full 120 s wait and cancel reported false)
+                    if (row.get("meta") or {}).get("workspace_state") == "pending_upload":
+                        store.merge_job_meta(conn, jid, {"workspace_state": "cancelled"})
+                    store.update_job(conn, jid, status="cancelled", stderr=(row.get("stderr") or "") + "\ncancel_requested_while_queued")
+                    workspace_bundle.cleanup_job_workspace(Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve(), jid)
+                    ok = True
             finally:
                 conn.close()
             self._send(200, {"ok": True, "cancelled": ok})

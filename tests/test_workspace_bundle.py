@@ -316,3 +316,48 @@ def test_put_workspace_requires_auth(tmp_path: Path) -> None:
         httpd.shutdown()
         httpd.server_close()
         th.join(timeout=10)
+
+
+def test_cancel_of_a_queued_pending_upload_job_marks_it_cancelled_and_refuses_the_upload(tmp_path: Path) -> None:
+    """2026-11-06: a job whose workspace upload never arrived stayed `queued` and blocked the Fleet upgrade drain for the full
+    wait while `POST /cancel` answered `cancelled: false`. A queued job is now cancelled in the store (workspace_state →
+    `cancelled`), so it is neither a drain blocker nor picked up by the runner, and a late upload is refused with 409."""
+    data_dir = tmp_path / "fd"
+    data_dir.mkdir()
+    db = data_dir / "fleet.sqlite"
+    store.connect(db).close()
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), FleetHandler)
+    httpd.db_path = db
+    httpd.fleet_data_dir = str(data_dir)
+    httpd.listen_host = "127.0.0.1"
+    httpd.expected_token = ""
+    httpd.loopback_bind_skips_auth = True
+    httpd.fleet_started_epoch = time.time()
+    port = httpd.server_address[1]
+    th = threading.Thread(target=httpd.serve_forever, daemon=True)
+    th.start()
+    try:
+        base = f"http://127.0.0.1:{port}"
+        body = json.dumps({"kind": "docker_argv", "argv": ["docker", "run", "--rm", "alpine:latest", "echo", "ok"], "session_id": "t-cancel",
+                           "meta": {"workspace_upload_required": True, "workspace_profile": "generic", "container_class": "test"}}).encode()
+        with urllib.request.urlopen(urllib.request.Request(f"{base}/v1/jobs", data=body, headers={"Content-Type": "application/json"}, method="POST"), timeout=30) as resp:
+            jid = json.loads(resp.read().decode())["id"]
+        with urllib.request.urlopen(urllib.request.Request(f"{base}/v1/jobs/{jid}/cancel", data=b"{}", headers={"Content-Type": "application/json"}, method="POST"), timeout=30) as resp:
+            out = json.loads(resp.read().decode())
+        assert out == {"ok": True, "cancelled": True}
+        conn = store.connect(db)
+        try:
+            row = store.get_job(conn, jid)
+            assert row and row["status"] == "cancelled" and row["meta"].get("workspace_state") == "cancelled"
+            assert "cancel_requested_while_queued" in (row.get("stderr") or "")
+        finally:
+            conn.close()
+        blob = _tiny_tar_gz()
+        req = urllib.request.Request(f"{base}/v1/jobs/{jid}/workspace", data=blob, headers={"Content-Type": "application/octet-stream", "Content-Length": str(len(blob))}, method="PUT")
+        with pytest.raises(urllib.error.HTTPError) as ei:
+            urllib.request.urlopen(req, timeout=30)
+        assert ei.value.code == 409 and json.loads(ei.value.read().decode())["error"] == "job_not_queued"
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        th.join(timeout=10)
