@@ -57,6 +57,10 @@ services:
       ENABLE_CODE_INTERPRETER: ${ENABLE_CODE_INTERPRETER:-false}
       ENABLE_FUNCTIONS: ${ENABLE_FUNCTIONS:-false}
       ENABLE_TOOLS: ${ENABLE_TOOLS:-false}
+      # Upstream core feature (no fork): forwards X-OpenWebUI-User-{Name,Id,Email,Role} and X-OpenWebUI-Chat-Id on chat
+      # completions to OpenAI-compatible connections, so forge-2b can key follow-up turns per chat (decision 5, 2026-11-06).
+      # The shim keeps only a hash of the user id and the chat id; it never stores name or email.
+      ENABLE_FORWARD_USER_INFO_HEADERS: ${ENABLE_FORWARD_USER_INFO_HEADERS:-true}
     volumes:
       - webui_data:/app/backend/data
     extra_hosts:
