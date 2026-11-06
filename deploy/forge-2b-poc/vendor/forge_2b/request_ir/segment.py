@@ -21,6 +21,17 @@ class Region:
 
 
 _FENCE_RE = re.compile(r"(```|~~~)[^\n]*\n?.*?(?:\1|\Z)", re.S)
+# pasted attachments / documents with explicit delimiters: everything between the opening and the closing delimiter (or the end
+# of the text) is data — "--- attachment: run.log --- … --- end ---", "<attachment>…</attachment>", "[paste]…[/paste]",
+# "=== BEGIN LOG === … === END LOG ===", "-----BEGIN … ----- … -----END … -----"
+_ATTACHMENT_RE = re.compile(
+    r"(?:^|\n)[ \t]*(?:"
+    r"(?:-{3,}|={3,}|\*{3,}|#{3,})[ \t]*(?:begin[ \t]+)?(?:attachment|attached|paste|pasted|document|file|log|email|message|snippet|transcript|output|вкладення|вкладений файл|файл|лог|лист|документ)\b[^\n]*?(?:-{3,}|={3,}|\*{3,}|#{3,})?[ \t]*\n"
+    r".*?(?:\n[ \t]*(?:-{3,}|={3,}|\*{3,}|#{3,})[ \t]*(?:end|кінець)\b[^\n]*|\Z)"
+    r"|<(attachment|paste|document|file|log|email|quote|snippet)\b[^>]*>.*?(?:</\1>|\Z)"
+    r"|\[(attachment|paste|document|file|log|email|quote|snippet)\b[^\]]*\].*?(?:\[/\2\]|\Z)"
+    r"|-{5}BEGIN [A-Z ]+-{5}.*?(?:-{5}END [A-Z ]+-{5}|\Z)"
+    r")", re.S | re.I)
 _INLINE_CODE_RE = re.compile(r"`[^`\n]{1,400}`")
 _URL_RE = re.compile(r"(?:https?|ftp|file|ssh|git)://[^\s<>\"'“”«»()\[\]]+|\bwww\.[^\s<>\"'“”«»()\[\]]+", re.I)
 _PATH_RE = re.compile(
@@ -68,6 +79,10 @@ def protected_regions(text: str) -> list[Region]:
         if not covered(a, b):
             out.append(Region(a, b, kind))
 
+    for m in _ATTACHMENT_RE.finditer(text):
+        a = m.start() + (1 if text[m.start()] == "\n" else 0)
+        if m.end() - a > 0:
+            out.append(Region(a, m.end(), "attachment"))      # may exceed MAX_PROTECTED_REGION_CHARS like a fence
     for m in _FENCE_RE.finditer(text):
         add(m.start(), m.end(), "code_fence")
     for m in _INLINE_CODE_RE.finditer(text):

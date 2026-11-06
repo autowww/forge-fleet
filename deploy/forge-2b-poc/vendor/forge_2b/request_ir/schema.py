@@ -19,7 +19,7 @@ from typing import Any, Optional
 from jsonschema import Draft202012Validator
 
 SCHEMA_VERSION = "forge.models.request_ir.v0.1"   # v0 + conditions[], constraint.target_object/breadth, alternative_to, new verbs
-PARSER_VERSION = "dce-g1r/0.4.1"   # bump whenever a rule change alters output for any frozen corpus case
+PARSER_VERSION = "dce-g1r/0.4.3"   # bump whenever a rule change alters output for any frozen corpus case
 
 # --- documented limits (code points / counts) ------------------------------------------------------------------
 MAX_UTTERANCE_CHARS = 8_000     # above: status=rejected_too_large, empty graph, no parsing performed
@@ -51,7 +51,7 @@ LINK_KINDS = ("depends_on", "alternative_to")
 CONDITION_KINDS = ("if", "unless", "until", "before", "after", "else", "for_each")
 UNRESOLVED_KINDS = ("ambiguous_referent", "no_recognized_action", "unsupported_script", "truncated")
 REFERENCE_STATUSES = ("resolved_intra_utterance", "resolved_context", "unresolved")
-PROTECTED_KINDS = ("code_fence", "inline_code", "quotation", "url", "path", "json_like", "yaml_like", "command_like")
+PROTECTED_KINDS = ("code_fence", "inline_code", "quotation", "url", "path", "json_like", "yaml_like", "command_like", "attachment")
 STATUSES = ("ok", "ok_with_unresolved", "partial", "empty", "rejected_too_large", "rejected_invalid_text")
 LANGUAGE_HINTS = ("en", "uk", "mixed", "und")
 

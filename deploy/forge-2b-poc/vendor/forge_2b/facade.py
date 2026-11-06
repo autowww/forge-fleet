@@ -25,6 +25,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from jsonschema import Draft202012Validator
 
 from . import attach, edgar, graph, live, zipingest
+from .chat_lane import comprehend, conversation, footer, refusal_text, system_prompt, trace_reading, visible_prefix
 from .dce import shadow as dce_shadow
 
 log = logging.getLogger("forge_2b")
@@ -164,10 +165,7 @@ def err(exc: POCError) -> JSONResponse:
 def parse_fixture(prompt: str) -> tuple[dict[str, str], bytes]:
     match = SOURCE_PATTERN.fullmatch(prompt)
     if not match:
-        raise POCError(422, "UNSUPPORTED_INPUT",
-                       "Forge 2B has no free chat. Either (1) attach a ZIP or text file and ask about its contents, "
-                       "(2) send a SEC directive such as 'Extract the most impactful statements from the latest NVDA 10-K', "
-                       "or (3) send the documented SOURCE/END_SOURCE fixture.")
+        raise POCError(422, "UNSUPPORTED_INPUT", "Text is not the documented SOURCE/END_SOURCE fixture.")
     project, deadline = match.groups()
     if not project.strip():
         raise POCError(422, "INVALID_SOURCE", "Empty project")
@@ -1025,6 +1023,70 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
 
         return StreamingResponse(generate(), media_type="text/event-stream", headers=headers)
 
+    async def free_chat(body: dict[str, Any], messages: Any, user_text: str):
+        """Ordinary conversation. A side-effect-only ask is answered from the reader; every other ask is one pinned-model reply."""
+        reading = comprehend(user_text)
+        run_id = uuid.uuid4().hex
+        record: dict[str, Any] = {
+            "run_id": run_id,
+            "model_alias": MODEL_ALIAS,
+            "backend_model": cfg.backend_model,
+            "kind": "chat",
+            "raw_prompt_sha256": hashlib.sha256(user_text.encode()).hexdigest(),
+            "status": "RUNNING",
+            "attempts": 0,
+            "stages": ["accepted", "comprehended"],
+            "reading": trace_reading(reading),
+        }
+        if len(traces) >= 100:
+            traces.pop(next(iter(traces)))
+        traces[run_id] = record
+        headers = {"Cache-Control": "no-store", "X-Forge-Lane": "chat", "X-Forge-Run-Id": run_id}
+        if reading.decision() == "refuse":
+            record["status"] = "REFUSED_SIDE_EFFECT"
+            record["stages"].append("side_effect_refused")
+            return _text_response(body, run_id, refusal_text(reading), headers)
+
+        conv = conversation(messages) or [{"role": "user", "content": user_text[:4000]}]
+        llm_body = {
+            "model": cfg.backend_model,
+            "messages": [{"role": "system", "content": system_prompt(reading)}, *conv],
+            "temperature": 0,
+            "max_tokens": 1024,
+            "stream": False,
+        }
+        try:
+            async with run_sem:
+                async with httpx.AsyncClient(transport=transport, timeout=cfg.llm_timeout, follow_redirects=False) as client:
+                    models = await call(client, "GET", cfg.llm_url.rstrip("/") + "/models", cfg.llm_key)
+                    ids = {row.get("id") for row in models.get("data", []) if isinstance(row, dict)}
+                    if cfg.backend_model not in ids:
+                        raise POCError(503, "BACKEND_MODEL_NOT_ADVERTISED", "Backend model not advertised by authorized forge-llm gateway")
+                    answer = await call(client, "POST", cfg.llm_url.rstrip("/") + "/chat/completions", cfg.llm_key, json=llm_body)
+            content = answer["choices"][0]["message"]["content"]
+            served = str(answer.get("model", ""))
+        except POCError:
+            record["status"] = "FAILED"
+            record["stages"].append("run_failed")
+            raise
+        except (KeyError, IndexError, TypeError) as ex:
+            record["status"] = "FAILED"
+            record["stages"].append("run_failed")
+            raise POCError(502, "INVALID_GATEWAY_RESPONSE", "Gateway response has no assistant content") from ex
+        if not isinstance(content, str) or not content.strip():
+            record["status"] = "FAILED"
+            record["stages"].append("run_failed")
+            raise POCError(502, "INVALID_GATEWAY_RESPONSE", "Gateway response has no assistant content")
+        if not _backend_matches(served, cfg.backend_model):
+            record["status"] = "FAILED"
+            record["stages"].append("run_failed")
+            raise POCError(502, "BACKEND_MODEL_MISMATCH", "Gateway returned a different served model")
+        record["served_model"] = served
+        record["attempts"] = 1
+        record["status"] = "COMMITTED"
+        record["stages"].append("reply")
+        return _text_response(body, run_id, visible_prefix(reading) + content.strip() + footer(reading), headers)
+
     @app.post("/v1/chat/completions")
     async def completion(request: Request):
         require_access(request)
@@ -1054,6 +1116,8 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
             return _text_response(body, uuid.uuid4().hex, task_answer, {"Cache-Control": "no-store", "X-Forge-Lane": "task"})
         if edgar.parse_directive(user_text) and "SOURCE:" not in user_text:
             return await graph_run(request, body, user_text)
+        if not SOURCE_PATTERN.fullmatch(user_text):
+            return await free_chat(body, messages, user_text)
         expected, source = parse_fixture(user_text)
         run_id = uuid.uuid4().hex
 

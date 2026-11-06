@@ -47,7 +47,7 @@ _SEQ_NONCLAUSE_RE = re.compile(r"\s*(?:the|a|an|this|that|these|those|it|its|the
                                r"only|also|again|later|soon|immediately|once|twice|if|that|whether|which|when|how|why|because|since|so|but|or|and|not|as|\d|[\"“«`'(\[]|"
                                r"це|цей|ця|ці|той|та|те|ті|його|її|їх|їхні|мій|моя|мої|наш|наша|наші|ваш|ваша|ваші|всі|усі|кожен|кожна|кожне|лише|тільки|також|знову|пізніше|"
                                r"як|що|щоб|коли|якщо|чи|бо|тому|але|або|і|й|не)\b", re.I)
-_BLOCK_KINDS = ("code_fence", "inline_code", "json_like", "quotation", "yaml_like", "command_like")
+_BLOCK_KINDS = ("code_fence", "inline_code", "json_like", "quotation", "yaml_like", "command_like", "attachment")
 _MUTATING = ("mutate", "execute")
 # inside a sentence that is already a list of clauses, ", <unknown verb> <determiner/pronoun> …" opens a clause of its own
 # ("Read both logs, line up their timestamps, and identify …") — never a bare noun list (", the services, and the users")
@@ -61,6 +61,12 @@ _DEMONSTRATIVE_RE = re.compile(r"\s*(?:this|that|these|those|цей|ця|ці|т
 _WH_HEAD_RE = re.compile(r"\s*(?:which|what|who|whom|whose|where|when|why|how|whether|if|який|яка|яке|які|хто|що|де|коли|чому|як|чи|котр\w+)\b", re.I)
 _EMPHATIC_DO_RE = re.compile(r"\s*(?:but\s+)?do\s+(?!not\b|n't|so\b|it\b|that\b|this\b|nothing\b|anything\b|any\b|the\b|a\b|an\b|what\b|whatever\b)", re.I)
 _REPLY_SHAPE_NOUN_RE = re.compile(r"\b(?:bullets?|bullet points?|lines?|sentences?|words?|paragraphs?|rows?|pages?|слів|речень|рядків|абзац\w*|пункт\w*)\b", re.I)
+_PROHIBITED_COORD_RE = re.compile(r"(?:\b(?:must|should|shall|may|can|could|would|will|do|does|did|need)\s*n[o']t|\bnever|\bдо not|\bне(?:\s+(?:можна|треба|слід|варто))?)\s+(?:\w+(?:\s+\w+){0,3})\s*$", re.I)
+_DO_PRONOUN_RE = re.compile(r"(?:do|зроби|зробіть|виконай|виконайте) (?P<pro>it|that|this|so|these|those|the same|everything|all of (?:it|that|them)|це|те|так само|так|його|її|їх)\b", re.I)
+_WOULD_RE = re.compile(r"^\s*(?:would|might) you\b", re.I)
+_POLITE_REQUEST_RE = re.compile(r"\b(?:please|kindly|for me|for us|right away|asap|now|today|mind)\b", re.I)
+_WITHOUT_GERUND_RE = re.compile(r"\bwithout\s+(?:first\s+)?[a-z]+ing\b", re.I)
+_INDIRECT_OBJECT_RE = re.compile(r"(?:me|us|мені|нам)\s+(?=[^\W\d_]|\d)", re.I)   # indirect-object pronoun before the real object
 _WH_COMPLEMENT_RE = re.compile(r"\b(?:how|what|whether|why|which|where|who|whom|that|if|як|що|чи|чому|який|яка|які|де|хто)\b", re.I)
 _WH_WORDS = frozenset("what where who whom whose when which why how whether що де хто кого чий коли який яка яке які чому як чи".split())
 _NOMINAL_NEG_MARKERS = frozenset(("жодних", "ніяких", "без", "without"))
@@ -93,6 +99,7 @@ class _State:
         self.pending_joiner: dict[int, tuple[str, tuple[int, int]]] = {}    # sentence index → (sequence|alt, marker span) carried over a condition clause
         self.cst_sent: dict[str, int] = {}                                   # constraint id → sentence index (same-sentence antecedents)
         self.last_mention: Optional[tuple[str, Optional[Mention]]] = None    # most recent operation named anywhere ("Do not do so" refers to it)
+        self.immediate_clause = False     # "…, meanwhile describe the plan" — the clause is exempt from the sentence-initial condition
         self.covered: list[tuple[int, int]] = []
         self.block_ids = [f"p{i}" for i, r in enumerate(mask.regions, 1) if r.kind in _BLOCK_KINDS]
 
@@ -125,6 +132,8 @@ class _State:
     def govern(self, sent: int, node_id: str) -> None:
         """Attach a freshly emitted node to every sentence-level condition of its sentence — except a condition whose
         complement branch has already opened ("if …, say so; otherwise confirm" → *confirm* belongs to the else only)."""
+        if self.immediate_clause:
+            return
         conds = self.sent_conditions.get(sent, [])
         negated = {q.negates for q in conds if q.kind == "else" and q.negates}
         for q in conds:
@@ -270,6 +279,9 @@ def _split_clauses(text: str, s_start: int, s_end: int, sent: int, mask: Mask) -
     def opens(b: int, *, imperative_only: bool) -> bool:
         if _opens_clause(text, b, s_end, imperative_only=imperative_only):
             return True
+        mm = R.MEANWHILE_RE.match(text, b, s_end)           # ", а поки опиши план" / ", in the meantime summarize …"
+        if mm and _opens_clause(text, mm.end(), s_end, imperative_only=imperative_only):
+            return True
         cc = _condition_opens(text, b, s_end, mask)        # ", then if they pass, deploy …" — a condition opens the clause
         if cc:
             cond_cuts.append(cc)
@@ -295,6 +307,9 @@ def _split_clauses(text: str, s_start: int, s_end: int, sent: int, mask: Mask) -
     for m in R.ALTERNATIVE_RE.finditer(sentence):
         a, b = s_start + m.start(), s_start + m.end()
         if mask.overlaps(a, b) or not opens(b, imperative_only=True):
+            continue
+        seg_start = max([s_start] + [cb for _, cb, *_ in cuts if cb <= a] + [cb for _, cb in cond_cuts if cb <= a])
+        if _PROHIBITED_COORD_RE.search(text, seg_start, a):           # "you must not detach or edit a policy" — "or edit" continues the prohibition
             continue
         if _WHETHER_BEFORE_RE.search(text, s_start, a) or _NOT_DET_RE.match(text, b, s_end):   # "whether or not the service …"
             continue
@@ -515,9 +530,21 @@ def _process_clause(st: _State, c: _Clause) -> None:
     # carries a hypothetical condition or adverb; decided after the trigger is known (see step 2)
     hypo = R.HYPO_PREFIX_RE.match(seg)
     is_question = "?" in text[ce:ce + 3]
+    mw = R.MEANWHILE_RE.match(seg)
+    st.immediate_clause = bool(mw) and bool(st.sent_conditions.get(c.sent))
     i = _strip_prefixes(seg)
+    if mw and mw.end() > i:
+        i = mw.end() + _strip_prefixes(seg[mw.end():])
     if hypo and is_question and hypo.end() > i:
         i = hypo.end()
+    ma = R.APPROVAL_NP_CONDITION_RE.match(seg[i:] + " ")     # "After my approval, change the config" → an *after* condition over the sentence
+    if ma:
+        if not seg[i + ma.end():].strip(" \t\r\n.,;:—–-"):    # the clause *is* the condition ("After your approval, …" cut at the comma)
+            _emit_condition(st, c, "after", cs + i, ce, f"{lang}.condition.after.approval_np", sentence_level=True)
+            return
+        _emit_condition(st, c, "after", cs + i, cs + i + ma.end(), f"{lang}.condition.after.approval_np", sentence_level=True)
+        i += ma.end()
+        i += _strip_prefixes(seg[i:])
 
     # 0. "otherwise …" opens the complement branch of the last condition; a condition-initial clause is a Condition node
     me = R.ELSE_START_RE.match(seg[i:])
@@ -580,6 +607,52 @@ def _process_clause(st: _State, c: _Clause) -> None:
             rest = seg[i:]
     # 1. clause-level constraints — never inside a modal question ("Could you ever drop X if asked?" is a question, not a constraint)
     modal_q = bool(hypo and is_question)
+    mdp = None if (modal_q or is_question) else _DO_PRONOUN_RE.match(rest)
+    if mdp:                                            # "Do it." / "Зроби це." — an operation named only by a pronoun: unresolved head, no objective
+        _unresolved(st, c.sent, cs + i, ce, "ambiguous_referent", f"{lang}.referent.do_pronoun", referent=mdp.group("pro"))
+        return
+    mnu = None if modal_q else R.NOT_UNTIL_RE.match(rest)
+    if mnu:                                            # "Not until sign-off should you delete stale branches" → prohibition + until-condition
+        ment = _mentioned_action(mnu.group("rest"))
+        r0 = cs + i + mnu.start("rest")
+        obj = st.mention(r0 + ment[1], ce) if ment else st.mention(r0, ce)
+        t_act = ment[0] if ment else None
+        cst = _clause_constraint(st, c, cs, ce, "prohibition", f"{lang}.prohibition.not_until", target_action=t_act, value=st.mention(r0, ce),
+                                 target_object=obj, breadth=_breadth(obj))
+        if t_act:
+            st.last_mention = (t_act, obj)
+        _emit_condition(st, c, mnu.group("kind").lower(), cs + i + mnu.start("cond"), cs + i + mnu.end("cond"), f"{lang}.condition.{mnu.group('kind').lower()}.not_until",
+                        applies=[cst.id])
+        return
+    mg = None if modal_q else R.NO_GERUND_RE.match(rest)
+    if mg:                                             # "No touching live cluster settings until approval"
+        ment = _mentioned_action(mg.group("ger") + " " + mg.group("obj"))
+        if ment:
+            v_end, trailing = _trailing_conditions(st, cs + i + mg.start("ger"), ce)
+            obj = st.mention(cs + i + mg.start("ger") + ment[1], v_end)
+            cst = _clause_constraint(st, c, cs, ce, "prohibition", f"{lang}.prohibition.no_gerund", target_action=ment[0], value=st.mention(cs + i + mg.start("ger"), v_end),
+                                     target_object=obj, breadth=_breadth(obj))
+            st.last_mention = (ment[0], obj)
+            for kind_q, qa, qb, ment_q in trailing:
+                _emit_condition(st, c, kind_q, qa, qb, f"{lang}.condition.{kind_q}.trailing", mentioned=ment_q, applies=[cst.id])
+            return
+    md_ = None if modal_q else R.DELIVERABLES_RE.match(rest)
+    if md_ and not st.mask.overlaps(cs + i, cs + i + md_.start("list")):   # "Give two separate outputs: a risk table and an action checklist"
+        l0 = cs + i + md_.start("list")
+        parts, pos = [], l0
+        for sm in R.DELIVERABLE_SPLIT_RE.finditer(text, l0, ce):
+            if st.mask.overlaps(sm.start(), sm.end()):
+                continue
+            parts.append((pos, sm.start())); pos = sm.end()
+        parts.append((pos, ce))
+        parts = [(a, b) for a, b in parts if text[a:b].strip(" .;,")]
+        if len(parts) >= 2:
+            for a, b in parts:
+                a, b = trim(text, a, b, strip_leading_punct=True)
+                nm = R.NOMINAL_RE.match(text[a:b])
+                act = R.NOMINAL_ACTION.get(nm.group("noun").lower()) if nm and nm.group("noun").lower() in R.NOMINAL_ACTION else "compose"
+                _emit_objective(st, c, a, b, lang, (act, "nominal", 0), a)
+            return
     m = None if modal_q else R.PROHIBITION_START_RE.match(rest)
     if m and not R.WHETHER_OR_NOT_RE.match(rest):
         marker = m.group(0).strip().lower()
@@ -705,6 +778,10 @@ def _process_clause(st: _State, c: _Clause) -> None:
             v_end, trailing = _trailing_conditions(st, cs + i + hit[2], ce)
             hypothetical = bool(R.HYPO_ADVERB_RE.search(seg[:hypo.end()])) or any(
                 k == "if" and R.HYPO_CONDITION_RE.match(text[qa:qb]) for k, qa, qb, _ in trailing)
+            # "Would you deploy that code without checking the tests?" — *would* + a reproach clause is a question about conduct, not a request;
+            # "Could you restart the pods, please?" stays a request
+            if not hypothetical and (_WOULD_RE.match(seg) and not _POLITE_REQUEST_RE.search(seg) or _WITHOUT_GERUND_RE.search(seg)):
+                hypothetical = True
             if hypothetical:
                 st.last_mention = (hit[0], st.mention(cs + i + hit[2], v_end))
                 _emit_objective(st, c, cs, ce, lang, ("assess", "interrogative", 0), cs, leading=leading, keep_mention=True)
@@ -777,6 +854,9 @@ def _emit_objective(st: _State, c: _Clause, cs: int, ce: int, lang: str, hit: tu
     trigger = st.mention(content_start, t0) if trig_end > 0 else None
     t_end, trailing = _trailing_conditions(st, t0, ce)
     target_a, target_b = trim(text, t0, t_end, strip_leading_punct=True)
+    io = _INDIRECT_OBJECT_RE.match(text, target_a, target_b)       # "Write me a script" → the object is "a script"
+    if io and io.end() < target_b:
+        target_a = io.end()
 
     # 3. inline constraints inside the target; only those after the target's head word are trimmed off the target
     inline = _inline_constraints(st, target_a, target_b, lang)
