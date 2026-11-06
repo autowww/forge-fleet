@@ -24,6 +24,9 @@ from typing import Any, Mapping
 
 HEADER_CHAT_ID = "x-openwebui-chat-id"
 HEADER_FORGE_CHAT_ID = "x-forge-chat-id"
+# Open WebUI's placeholder chat ids for API calls that belong to no chat (`local`) or serialised absent values: never a
+# session key — every API caller would otherwise share one conversation
+_PLACEHOLDER_IDS = frozenset({"local", "none", "null", "undefined"})
 HEADER_USER_ID = "x-openwebui-user-id"
 
 
@@ -41,7 +44,7 @@ def conversation_key(headers: Mapping[str, str], messages: list[dict[str, Any]] 
     """``(key, source)``: the Open WebUI chat id → an explicit ``X-Forge-Chat-Id`` → a hash of the prior assistant turns in
     the request history → ``(None, "none")`` for a first turn with no history (no session is created for it)."""
     cid = (headers.get(HEADER_CHAT_ID) or "").strip()
-    if cid:
+    if cid and cid.lower() not in _PLACEHOLDER_IDS:
         return _h("owui-chat:" + cid), "openwebui_chat_id"
     fid = (headers.get(HEADER_FORGE_CHAT_ID) or "").strip()
     if fid:
