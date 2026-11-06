@@ -34,7 +34,7 @@ __all__ = ["EffectIntent", "ProhibitedEffect", "EffectEvidence", "EffectProjecti
            "REPLY_ONLY", "ARTIFACT_WRITE", "ENVIRONMENT_MUTATION", "COMMAND_EXECUTION", "UNKNOWN", "SIDE_EFFECT_CLASSES",
            "DENY", "REQUIRE_RESOLUTION", "TEXT_NOT_PROHIBITED", "PROJECTION_VERSION"]
 
-PROJECTION_VERSION = "dce-g1r3a/0.1.1"
+PROJECTION_VERSION = "dce-g1r3c/0.2.0"
 
 REPLY_ONLY, ARTIFACT_WRITE, ENVIRONMENT_MUTATION, COMMAND_EXECUTION, UNKNOWN = \
     "reply_only", "artifact_write", "environment_mutation", "command_execution", "unknown"
@@ -87,6 +87,9 @@ _TEXT_ARTEFACT_RE = re.compile(_W + r"(?:scripts?|patch(?:es)?|diffs?|sql|quer(?
 _PRONOUN_OBJECT_RE = re.compile(r"^\s*(?:it|them|this|that|these|those|one|його|її|їх|це|цей|ці|той|ті|них|ними)\b", _I)
 _GENERIC_CHANGE_RE = re.compile(_W + r"(?:anything|everything|nothing|something|any changes?|changes?|edits?|modifications?|writes?|"
                                 r"нічого|щось|будь-що|все|усе|зміни|змін|правки|правок|редагуван\w*)\b", _I)
+_ARTICLE_RE = re.compile(r"(?:(?:the|a|an|this|that|these|those|all|any|some|my|our|your|its)\s+)+", _I)
+_UNIVERSAL_CHANGE_RE = re.compile(r"\s*(?:anything|everything|nothing|something|any changes?|нічого|щось|будь-що|все|усе)\b", _I)
+_CONFIG_NOUN_RE = re.compile(r"(?:config(?:s|uration|urations)?|settings?|setup)$", _I)
 _APPROVAL_RE = pv._APPROVAL_RE
 
 
@@ -177,6 +180,19 @@ _PURPOSE_RE = re.compile(r"\s(?:for|to|that|which|who|so that|in order to|about|
 _THAT_CLAUSE_RE = re.compile(r"^\s*,?\s*(?:that|whether|how|why|what|which|що|чи|як|чому|скільки)\b", _I)
 
 
+_SUBJECT_PURPOSE_RE = re.compile(r"\s(?:for|about|regarding|concerning|against|covering|describing|of|on)\s", _I)
+_LOCATIVE_RE = re.compile(r"\s(?:to|into|at|in|under|inside|onto|within)\s", _I)
+
+
+def _in_subject_phrase(text: str, pos: int) -> bool:
+    """True when ``text[pos]`` lies inside a non-locative purpose phrase ("… for <X>") with no locative preposition between the
+    purpose marker and ``pos`` — the file there is what the artefact is *about*, not where it goes."""
+    m = _SUBJECT_PURPOSE_RE.search(text)
+    if m is None or m.end() > pos:
+        return False
+    return _LOCATIVE_RE.search(text, m.end(), pos) is None
+
+
 def _destination(text: str, source: str, base: int) -> tuple[Optional[str], list[EffectEvidence]]:
     """Grounded persisted destination inside an object phrase → ``artifact_write`` (a configuration file such as
     ``config.yaml`` counts as ``environment_mutation``: editing it changes the running system). ``(None, [])`` when absent.
@@ -185,12 +201,19 @@ def _destination(text: str, source: str, base: int) -> tuple[Optional[str], list
     cleaning temp files", "скрипт для очищення файлів", "a job that writes to disk" describe content, not a destination)."""
     ev: list[EffectEvidence] = []
     ext = _FILE_EXT_RE.search(text)
+    # "a patch for src/api.py", "a fix for the regression in …" — a file named inside a non-locative purpose phrase is the *subject*
+    # of the artefact, not its destination (sheet v4 rule 18); "a note at docs/runbook.md", "the summary to docs/x.md" keep it
+    if ext and _in_subject_phrase(text, ext.start()):
+        ext = None
+    path = _PATH_RE.search(text)
+    if path and _in_subject_phrase(text, path.start()):
+        path = None
     if ext and (_CONFIG_FILE_RE.search(ext.group(0)) or (_ENV_NOUN_RE.search(text[:ext.start()]) and _CONFIG_EXT_RE.search(ext.group(0)))):
         ev.append(_ev("environment", ext, source, base))               # "config.yaml", "конфігурацію пошуку в search.yaml"
         return ENVIRONMENT_MUTATION, ev
     pm = _PURPOSE_RE.search(text)
     head = text[:pm.start()] if pm else text
-    hits = [m for m in (_PERSIST_RE.search(head), _PATH_RE.search(text), ext, _FILE_NOUN_RE.search(head)) if m]
+    hits = [m for m in (_PERSIST_RE.search(head), path, ext, _FILE_NOUN_RE.search(head)) if m]
     if hits:
         for m in hits:
             ev.append(_ev("destination", m, source, base))
@@ -207,11 +230,19 @@ def _classify_object(text: str, source: str, base: int, action: str = "modify") 
     * ``modify`` / ``remove``: any environment noun (the thing already exists somewhere) → ``environment_mutation``
     """
     ev: list[EffectEvidence] = []
-    gen = _GENERIC_CHANGE_RE.search(text)
-    if action in ("modify", "create") and gen and not (_FILE_EXT_RE.search(text) or _PATH_RE.search(text) or _FILE_NOUN_RE.search(text)):
-        ev.append(_ev("environment", gen, source, base))             # "make the changes in the repository", "внеси зміни у репозиторій"
-        return ENVIRONMENT_MUTATION, ev
+    off = len(text) - len(text.lstrip())
+    am = _ARTICLE_RE.match(text, off)
+    gen = _GENERIC_CHANGE_RE.match(text, am.end() if am else off)      # generic change noun as the object *head* only
     kind, ev2 = _destination(text, source, base)
+    if action in ("modify", "create") and gen is not None and kind is None:
+        # "make the change (to the config)", "apply the fix", "prepare the changes" — a generic change noun as the object head with no
+        # persisted destination: the medium is not established → unknown (sheet v4 rule 18 / 3.3a; DCE-G1R3C). Universal objects
+        # ("anything", "nothing", "everything") keep the environment reading for prohibitions and scope statements.
+        if _UNIVERSAL_CHANGE_RE.match(gen.group(0)):
+            ev.append(_ev("environment", gen, source, base))
+            return ENVIRONMENT_MUTATION, ev
+        ev.append(_ev("ambiguous_medium", gen, source, base))
+        return None, ev
     if kind is not None:
         return kind, ev + ev2
     pm = _PURPOSE_RE.search(text)
@@ -221,6 +252,9 @@ def _classify_object(text: str, source: str, base: int, action: str = "modify") 
     if action == "create":
         if art and (env is None or art.start() <= env.start()):
             ev.append(_ev("artefact_noun", art, source, base))
+            return None, ev
+        if env and _CONFIG_NOUN_RE.match(env.group(0).strip()):          # "prepare / draft a config" with no destination → medium unknown (sheet v4 3.3a)
+            ev.append(_ev("ambiguous_medium", env, source, base))
             return None, ev
     if env:
         ev.append(_ev("environment", env, source, base))

@@ -70,6 +70,14 @@ _INDIRECT_OBJECT_RE = re.compile(r"(?:me|us|мені|нам)\s+(?=[^\W\d_]|\d)",
 _WH_COMPLEMENT_RE = re.compile(r"\b(?:how|what|whether|why|which|where|who|whom|that|if|як|що|чи|чому|який|яка|які|де|хто)\b", re.I)
 _WH_WORDS = frozenset("what where who whom whose when which why how whether що де хто кого чий коли який яка яке які чому як чи".split())
 _NOMINAL_NEG_MARKERS = frozenset(("жодних", "ніяких", "без", "without"))
+# English evidence inside an otherwise unrecognised ASCII clause (function words, pronouns, common adverbs); none → uncertain language
+_EN_EVIDENCE_RE = re.compile(r"\b(?:the|a|an|and|or|but|is|are|was|were|be|to|of|in|on|at|for|with|by|from|into|onto|about|it|its|this|that|these|those|them|"
+                             r"their|they|you|your|we|our|i|me|my|us|he|she|him|her|who|what|which|how|when|where|why|not|no|don'?t|do|does|did|can|could|"
+                             r"should|would|will|may|must|instead|up|down|out|over|again|also|then|than|here|there|now|only|just|all|any|some|each|every|"
+                             r"please|if|unless|until|after|before|once|while|so|as|like|same|new|old|first|last|next|more|most|less|very|too|both|either|"
+                             r"neither|own|other|another|such|per|via|without|within|between|through|against|across|toward|towards|under|above|below)\b", re.I)
+_SUBJECT_FRONTED_RULES = frozenset(("en.prohibition.subject_active", "en.prohibition.subject_passive", "en.prohibition.off_limits"))
+_CONTRAST_NOT_RE = re.compile(r"(?:,|;)?\s+(?:though|although|but|yet|however)\s+(?:not|never)\b", re.I)   # G1R3C: ", though not to production"
 _TEMPORAL_TAIL_RE = re.compile(r"\s+(?:today|tonight|tomorrow|now|yet|for now|this (?:week|sprint|time)|at (?:this|the) (?:point|time|moment)|until further notice|"
                                r"сьогодні|зараз|поки що|наразі|цього тижня|до подальшого)\s*$", re.I)
 _HEAD_BEFORE_PREP_RE = re.compile(r"^(.+?)\s+(?:to|in|on|of|for|at|into|onto|against|towards|with|within|across|у|в|до|на|для|з|зі|по|щодо)\s+", re.I)
@@ -127,6 +135,19 @@ class _State:
                 and c.breadth == "narrow" and self.cst_sent.get(c.id) == sent]
         if csts:
             return max(csts, key=lambda n: n.source_span.start)
+        # "After sign-off on the migration bundle, apply it to prod-db-02." — a sentence-initial approval condition naming exactly
+        # one material / operation noun lends that noun (DCE-G1R3C); several candidates keep the pronoun unresolved
+        appr = [q for q in self.sent_conditions.get(sent, []) if q.rule.endswith(".approval_np")]
+        if len(appr) == 1:
+            nouns = list(R.ANTECEDENT_NOUN_RE.finditer(appr[0].text))
+            if len(nouns) == 1:
+                return appr[0]
+        # "The migration bundle must not change. Summarize what it contains." — a subject-fronted prohibition is syntactically a
+        # statement about its subject; when it is the only such statement the subject is the antecedent (DCE-G1R3C, sheet v4 rule 15)
+        fronted = [c for c in self.g.constraints if c.kind == "prohibition" and c.target_object is not None
+                   and c.rule in _SUBJECT_FRONTED_RULES and self.cst_sent.get(c.id, sent) < sent]
+        if len(fronted) == 1 and not self.g.context_statements and not self.block_ids:
+            return fronted[0]
         # "Here is the migration dry-run output. … execute it" — a single earlier context statement naming exactly one material /
         # operation noun is the antecedent (DCE-G1R3B rule 11); zero or several candidates keep the pronoun unresolved
         if self.block_ids:                                    # a quoted / fenced block outranks a statement as the referent of "it"
@@ -238,7 +259,15 @@ def parse_request(utterance: str, context: Optional[ReadOnlyContext] = None, *, 
         st.g.unresolved.append(Unresolved(st.nid("u"), "truncated", utterance[a:b], Span(a, b), "limit.max_clauses"))
         st.covered.append((a, b))
     for i, u in enumerate(st.g.unresolved):       # a diacritic Latin clause with no recognised English action: uncertain language, not "English"
-        if u.kind == "no_recognized_action" and any(a <= u.source_span.start < b for a, b in st.diacritic_clauses):
+        if u.kind != "no_recognized_action":
+            continue
+        uncertain = any(a <= u.source_span.start < b for a, b in st.diacritic_clauses)
+        if not uncertain and st.language_scope == "en" and not st.mask.overlaps(u.source_span.start, u.source_span.end):
+            # an ASCII-Latin clause of several words with *no* English function word and no recognised action ("Supprime les
+            # anciennes sauvegardes") is not evidence of English either → abstain as uncertain language rather than "English, unknown verb"
+            words = re.findall(r"[^\W\d_]+", u.text)
+            uncertain = len(words) >= 3 and not _EN_EVIDENCE_RE.search(u.text) and not R.ANTECEDENT_NOUN_RE.search(u.text)
+        if uncertain:
             st.g.unresolved[i] = Unresolved(u.id, "unsupported_language", u.text, u.source_span, "scope.language.uncertain", referent=u.referent,
                                             objective_id=u.objective_id)
 
@@ -346,7 +375,8 @@ def _split_clauses(text: str, s_start: int, s_end: int, sent: int, mask: Mask) -
     for m in R.COORD_RE.finditer(sentence):
         a, b = s_start + m.start(), s_start + m.end()
         if mask.overlaps(a, b) or not (opens(b, imperative_only=not question) or R.FIRST_PERSON_CLAUSE_RE.match(text, b) or
-                                       _coord_opens_unknown(text, b, s_end, mask, sentence)):
+                                       _coord_opens_unknown(text, b, s_end, mask, sentence) or
+                                       _CONTRAST_NOT_RE.match(text, a, s_end)):   # ", though not to production" — a contrast exclusion (G1R3C)
             continue                                   # "…, and I will run it myself" — the operator's own statement opens a clause too
         cuts.append((a, b, "coord", None))
     for m in R.ALTERNATIVE_RE.finditer(sentence):
@@ -478,6 +508,32 @@ def _mentioned_action(rest: str) -> Optional[tuple[str, int]]:
     return None
 
 
+def _coordinated_prohibition(st: "_State", text: str, after_verb: int, v_end: int, ment: Optional[tuple[str, int]], obj: Any,
+                             coord_actions: list[str]) -> tuple[Optional[tuple[str, int]], Any]:
+    """DCE-G1R3C: "do not save or run it" / "never push or merge to main" — coordinated prohibited verbs share one object.
+    Returns the (possibly recovered) first action and the shared object; extra actions are appended to *coord_actions*."""
+    mc = R.COORD_VERB_RE.match(text[after_verb:v_end])
+    if not mc:
+        return ment, obj
+    v2 = after_verb + mc.end()
+    ment2 = _mentioned_action(text[v2:v_end])
+    if not ment2:
+        return ment, obj
+    shared = st.mention(v2 + ment2[1], v_end)
+    if ment is None:                                   # "push" alone is not a verb we type; "push to main" is → recover it with the shared object
+        w0 = after_verb
+        while w0 > 0 and not text[w0 - 1].isspace():
+            w0 -= 1
+        first = text[w0:after_verb]
+        rec = _mentioned_action(f"{first} {text[v2 + ment2[1]:v_end].strip()}")
+        if not rec:
+            return ment, obj
+        ment = (rec[0], after_verb - w0)
+    if ment2[0] != ment[0]:
+        coord_actions.append(ment2[0])
+    return ment, shared
+
+
 def _participle_action(part: str) -> Optional[str]:
     """'deleted' → remove, 'executed' → run, … via the imperative rules (strip -ed / -d / UK participle endings)."""
     p = part.lower()
@@ -568,6 +624,9 @@ def _process_clause(st: _State, c: _Clause) -> None:
             _unresolved(st, c.sent, ra, rb, "no_recognized_action", "noise.punctuation_only")
         return
     if st.mask.inside(cs, ce):       # a clause that is entirely a code block / quotation is data, not an instruction
+        st.covered.append((cs, ce))
+        return
+    if R.STRANDED_JOINER_RE.match(text[cs:ce]):   # "; however, do not …" splits into a bare "however" — a joiner, not a request (G1R3C)
         st.covered.append((cs, ce))
         return
     seg = text[cs:ce]
@@ -758,6 +817,7 @@ def _process_clause(st: _State, c: _Clause) -> None:
         kind = "exclusion" if marker in ("not", "without", "без") or (marker == "не" and R.UK_PARTICIPLE_RE.match(value_text)) else "prohibition"
         passive = R.PASSIVE_PROHIBITION_RE.match(value_text)        # "not a single file may be deleted" → remove / global
         do_so = kind == "prohibition" and R.DO_SO_RE.match(value_text)   # "Do not do so" → the operation last named in the utterance
+        coord_actions: list[str] = []
         if passive:
             kind, ment = "prohibition", (_participle_action(passive.group("part")), len(value_text))
             obj = None
@@ -766,10 +826,13 @@ def _process_clause(st: _State, c: _Clause) -> None:
             obj = st.last_mention[1] if st.last_mention else None
         elif ment:                                 # recognised verb → object is what follows it
             obj = st.mention(v0 + ment[1], v_end)
+            ment, obj = _coordinated_prohibition(st, text, v0 + ment[1], v_end, ment, obj, coord_actions)   # "save or run it" (G1R3C)
         elif kind == "prohibition" and marker in _NOMINAL_NEG_MARKERS and value_text.strip():   # "жодних команд" → the noun phrase
             obj = st.mention(v0, v_end)
         elif kind == "prohibition" and value_text.split():   # "do not assume RAM is bottleneck": first word is the verb
-            obj = st.mention(v0 + len(value_text) - len(value_text.lstrip()) + len(value_text.split(None, 1)[0]), v_end)
+            w_end = v0 + len(value_text) - len(value_text.lstrip()) + len(value_text.split(None, 1)[0])
+            obj = st.mention(w_end, v_end)
+            ment, obj = _coordinated_prohibition(st, text, w_end, v_end, None, obj, coord_actions)   # "never push or merge to main" (G1R3C)
         elif kind == "exclusion" and value_text.strip():     # "not a migration" / "without screenshots": the nominal is the excluded object
             obj = st.mention(v0, v_end)
         else:
@@ -788,8 +851,12 @@ def _process_clause(st: _State, c: _Clause) -> None:
             st.last_mention = (ment[0], None if (null_obj or do_so) else obj)
         cst = _clause_constraint(st, c, cs, ce, kind, f"{lang}.{kind}.clause", target_action=ment[0] if ment else None,
                                  value=st.mention(v0, v_end), target_object=None if null_obj else obj, breadth=breadth)
+        csts = [cst]
+        for extra in coord_actions:                # one constraint per coordinated prohibited verb (sheet v4 rule 16)
+            csts.append(_clause_constraint(st, c, cs, ce, kind, f"{lang}.{kind}.clause.coordinated", target_action=extra,
+                                           value=st.mention(v0, v_end), target_object=None if null_obj else obj, breadth=breadth))
         for kind_q, qa, qb, ment_q in trailing:
-            _emit_condition(st, c, kind_q, qa, qb, f"{lang}.condition.{kind_q}.trailing", mentioned=ment_q, applies=[cst.id])
+            _emit_condition(st, c, kind_q, qa, qb, f"{lang}.condition.{kind_q}.trailing", mentioned=ment_q, applies=[x.id for x in csts])
         return
     m = None if modal_q else R.NO_NOUN_RE.match(rest)
     if m:
@@ -800,6 +867,16 @@ def _process_clause(st: _State, c: _Clause) -> None:
                                value=st.mention(cs + i, ce), breadth="global")
             return
         obj = st.mention(cs + i + m.start(1), cs + i + m.end(1))
+        mto = R.NO_NOUN_TO_RE.match(m.group(1).strip())
+        if mto:                                     # "No changes to the production database" → modify / the production database (G1R3C)
+            t_act = R.NOMINAL_ACTION.get(mto.group("noun").lower()) or _restricted_noun_action(mto.group("noun"))
+            o0 = cs + i + m.start(1) + (len(m.group(1)) - len(m.group(1).lstrip())) + mto.start("obj")
+            tgt = st.mention(o0, o0 + len(mto.group("obj")))
+            if t_act:
+                st.last_mention = (t_act, tgt)
+            _clause_constraint(st, c, cs, ce, "prohibition", f"{lang}.prohibition.nominal.to", target_action=t_act,
+                               value=obj, target_object=tgt, breadth=_breadth(tgt))
+            return
         t_act = R.NOMINAL_ACTION.get(noun) or _restricted_noun_action(noun)     # "No recommendations" → recommend; "No shell commands" → run
         if t_act:
             st.last_mention = (t_act, obj)
@@ -824,6 +901,42 @@ def _process_clause(st: _State, c: _Clause) -> None:
             a0 = cs + i + msp.start("subj")
             _clause_constraint(st, c, cs, ce, "prohibition", f"{lang}.prohibition.subject_passive", target_action=act,
                                target_object=st.mention(a0, a0 + len(msp.group("subj"))), breadth="narrow")
+            return
+    if not modal_q and lang == "en":                                            # DCE-G1R3C English prohibition grammar
+        msa = R.SUBJECT_ACTIVE_NEG_RE.match(rest)                               # "The migration bundle must not change."
+        if msa:
+            verb = msa.group("verb").lower()
+            act = R.SUBJECT_ACTIVE_VERB_ACTION.get(verb) or _participle_action(verb.split()[-1])
+            if act:
+                a0 = cs + i + msa.start("subj")
+                tgt = st.mention(a0, a0 + len(msa.group("subj")))
+                st.last_mention = (act, tgt)
+                _clause_constraint(st, c, cs, ce, "prohibition", "en.prohibition.subject_active", target_action=act,
+                                   target_object=tgt, breadth="narrow")
+                return
+        mpp = R.PREDICATIVE_PROHIBITION_RE.match(rest)                          # "Changes to the firewall are forbidden."
+        if mpp:
+            act = R.NOMINAL_ACTION.get(mpp.group("noun").lower()) or _restricted_noun_action(mpp.group("noun"))
+            tgt = st.mention(cs + i + mpp.start("obj"), cs + i + mpp.end("obj")) if mpp.group("obj") else None
+            if act:
+                st.last_mention = (act, tgt)
+            _clause_constraint(st, c, cs, ce, "prohibition", "en.prohibition.predicative", target_action=act,
+                               value=st.mention(cs + i, cs + i + mpp.end()), target_object=tgt, breadth=_breadth(tgt) if tgt else "global")
+            return
+        mol = R.SUBJECT_OFF_LIMITS_RE.match(rest)                               # "src/api.py is off-limits." / "prod is read-only"
+        if mol:
+            a0 = cs + i + mol.start("subj")
+            tgt = st.mention(a0, a0 + len(mol.group("subj")))
+            st.last_mention = ("modify", tgt)
+            _clause_constraint(st, c, cs, ce, "prohibition", "en.prohibition.off_limits", target_action="modify",
+                               value=st.mention(cs + i, cs + i + mol.end()), target_object=tgt, breadth="narrow")
+            return
+        mku = R.KEEP_UNTOUCHED_RE.match(rest)                                   # "Keep config.yaml as is" / "Leave the branch alone"
+        if mku:
+            tgt = st.mention(cs + i + mku.start("obj"), cs + i + mku.end("obj"))
+            st.last_mention = ("modify", tgt)
+            _clause_constraint(st, c, cs, ce, "prohibition", "en.prohibition.keep_untouched", target_action="modify",
+                               value=st.mention(cs + i, cs + i + mku.end()), target_object=tgt, breadth=_breadth(tgt))
             return
     ma = None if modal_q else R.NEG_SUBJECT_ACTIVE_RE.match(rest)                # "Nothing in prod may change" / "Ніщо на проді не має змінюватися"
     if ma:

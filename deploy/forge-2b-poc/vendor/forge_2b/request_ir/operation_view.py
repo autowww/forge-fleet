@@ -42,7 +42,7 @@ from .effect_view import (
 __all__ = ["OperationEffect", "OperationProjection", "ToolDeclaration", "OperationEvidence", "OPERATOR_REGISTRY",
            "project_operations", "operation_policy", "OPERATION_PROJECTION_VERSION"]
 
-OPERATION_PROJECTION_VERSION = "dce-g1r3b/0.2.0"
+OPERATION_PROJECTION_VERSION = "dce-g1r3c/0.3.0"
 
 _I = re.I | re.U
 _W = r"(?<![\w'’-])"
@@ -125,6 +125,9 @@ _CONFIG_OBJ_RE = _rx(r"(?:config\w*|settings?|setting|feature[- ]?flags?|flags?|
 _SOURCE_FILE_RE = re.compile(r"(?<![\w/])(?:[\w.-]+/)*[\w.-]+\.(?:py|js|ts|tsx|jsx|go|rs|java|kt|rb|php|c|h|cpp|cs|swift|scala|sql|sh|bash|md|rst|txt|html?|css|scss|csv|ipynb)\b", _I)
 _CONFIG_FILE_RE = re.compile(r"(?<![\w/])(?:[\w.-]+/)*[\w.-]+\.(?:ya?ml|json|toml|ini|cfg|conf|env|tf|hcl|properties)\b|\.env\b|dockerfile|docker-compose", _I)
 _WRITES_TO_RE = re.compile(r"(?:writes?|saves?|stores?|persists?|dumps?|exports?|appends?|outputs?|записує|зберігає|пише|експортує|вивантажує)\b[^.;]*?(?:to|into|in|у|в|до)\s+(?P<dst>[\w./-]+\.\w{1,6}|(?:a |the )?(?:files?|disk|файл\w*|диск)\b[\w./ -]*)", _I)
+_WRITES_ARTEFACT_RE = re.compile(r"(?:updates?|updating|regenerates?|rewrites?|writes?|generates?|emits?|produces?|creates?|refreshes?|records?|overwrites?)\b[^.;]*?"
+                                 r"\b(?:snapshots?|fixtures?|goldens?|golden files?|artifacts?|artefacts?|bundles?|files?|lock ?files?|reports?|coverage|"
+                                 r"build output|outputs?|logs? to disk|to disk|on disk)\b", _I)
 _MUTATES_RE = re.compile(r"(?:drops?|deletes?|truncates?|alters?|modif(?:y|ies)|changes?|updates?|rewrites?|resets?|restarts?|deploys?|rotates?|migrates?|pushes|"
                          r"видаля\w*|змін\w*|онов\w*|скида\w*|перезапуска\w*|деплоїть|мігру\w*)\b[^.;]*?(?P<obj>\b(?:tables?|databases?|db|schemas?|clusters?|services?|pods?|nodes?|config\w*|settings?|secrets?|"
                          r"records?|rows?|users?|permissions?|production|prod|staging|таблиц\w*|баз\w*|кластер\w*|сервіс\w*|конфіг\w*|записи|продакшн\w*|прод\b)\b)", _I)
@@ -153,10 +156,13 @@ class OperationEvidence:
 
 @dataclass(frozen=True)
 class ToolDeclaration:
-    """A trusted, scoped statement of what a tool can do (from the consumer, never inferred from the text).
+    """A consumer-supplied statement of what a tool can do (never inferred from the text).
 
-    ``pattern`` is matched against the operation's object text (and trigger); when it matches an execution-class operation, the
-    declared ``effects`` replace the syntactic guess and ``unknown_external_effects`` becomes False (``scope`` is recorded)."""
+    DCE-G1R3C: a declaration can only **widen** an operation. ``pattern`` is matched against the operation's object text (and
+    trigger); when it matches an execution-class operation, the declared ``effects`` are **unioned** with the registry / text
+    effects, and ``unknown_external_effects`` is left exactly as the registry and text establish it. A loosely matched or
+    unverified declaration can therefore never delete an inferred effect. Effect *narrowing* would require a separately
+    validated, identity- and version-bound, scope-specific trusted tool contract — not implemented in this increment."""
     name: str
     pattern: str
     effects: tuple[str, ...]
@@ -281,10 +287,31 @@ def _attributed_effects(o: Objective) -> list[tuple[str, OperationEvidence]]:
     m = _WRITES_TO_RE.search(obj)
     if m is not None:
         out.append((ARTIFACT_WRITE, _evd(o.id, _span_of(m, base), f"attributed:{ARTIFACT_WRITE}", m.group(0))))
+    else:
+        m = _WRITES_ARTEFACT_RE.search(obj)            # "tests that update the snapshots", "the build that generates the bundle"
+        if m is not None:
+            out.append((ARTIFACT_WRITE, _evd(o.id, _span_of(m, base), f"attributed:{ARTIFACT_WRITE}", m.group(0))))
     m = _MUTATES_RE.search(obj)
     if m is not None:
         out.append((ENVIRONMENT_MUTATION, _evd(o.id, _span_of(m, base), f"attributed:{ENVIRONMENT_MUTATION}", m.group(0))))
     return out
+
+
+_GENERIC_OBJ_RE = re.compile(r"^\s*(?:(?:the|a|an|this|that|these|those|my|our|your|its|all|any|some|pending|requested|proposed|necessary|needed|required)\s+)*"
+                             r"(?:fix(?:es)?|changes?|edits?|modifications?|updates?|adjustments?|tweaks?|amendments?|corrections?)\b", _I)
+_FILE_DEST_RE = re.compile(r"(?:" + ev._FILE_EXT_RE.pattern + r"|" + ev._PATH_RE.pattern + r"|" + ev._FILE_NOUN_RE.pattern + r")", _I)
+_ENV_TARGET_RE = re.compile(r"\b(?:to|on|in|into|against)\s+(?:the\s+)?(?:production|prod|staging|live|the cluster|cluster|servers?|hosts?|nodes?|fleet|environment|env)\b", _I)
+
+
+def _generic_change_object(o: Objective) -> Optional[OperationEvidence]:
+    """"make the change", "apply the fix", "prepare the changes" — the object is a generic change noun and names no file, path,
+    configuration or environment: the medium is not established (sheet v4 rule 18 / 3.3a). None otherwise."""
+    obj = o.target.text if o.target is not None else ""
+    m = _GENERIC_OBJ_RE.match(obj)
+    if m is None or _FILE_DEST_RE.search(obj) or _ENV_TARGET_RE.search(obj):   # "make the change in config.yaml", "apply the fix to production" are established
+        return None
+    base = o.target.source_span.start
+    return _evd(o.id, _span_of(m, base), "ambiguous_medium", m.group(0).strip())
 
 
 def _state_object(o: Objective) -> Optional[tuple[str, OperationEvidence]]:
@@ -298,13 +325,15 @@ def _state_object(o: Objective) -> Optional[tuple[str, OperationEvidence]]:
         if m is not None:
             return ENVIRONMENT_MUTATION, _evd(o.id, _span_of(m, base), f"object:{reason}", m.group(0))
     m = _CONFIG_FILE_RE.search(obj)
-    if m is not None:
+    if m is not None and not ev._in_subject_phrase(obj, m.start()):
         return ENVIRONMENT_MUTATION, _evd(o.id, _span_of(m, base), "object:config_file", m.group(0))
     m = _CONFIG_OBJ_RE.search(obj)
-    if m is not None:
+    if m is not None and o.action == "create" and not (_FILE_DEST_RE.search(obj) or _ENV_TARGET_RE.search(obj)):
+        return None            # "prepare a config for the worker pool" — a new configuration with no stated place → medium unknown (sheet v4 3.3a; G1R3C)
+    if m is not None and not (o.action == "create" and _GENERIC_OBJ_RE.match(obj) is None and ev._in_subject_phrase(obj, m.start())):
         return ENVIRONMENT_MUTATION, _evd(o.id, _span_of(m, base), "object:configuration", m.group(0))
     m = _SOURCE_FILE_RE.search(obj)
-    if m is not None and o.action in ("create", "modify"):
+    if m is not None and o.action in ("create", "modify") and not ev._in_subject_phrase(obj, m.start()):   # "a patch for src/api.py" names the subject
         return ARTIFACT_WRITE, _evd(o.id, _span_of(m, base), "object:source_file", m.group(0))
     return None
 
@@ -363,28 +392,36 @@ def _project_objective(ir: RequestIR, o: Objective, base: EffectProjection, tool
                 return mk(row.name, row.primary, list(row.potential), row.unknown_external, evidence + [_evd(o.id, None, f"registry:{row.name}", ante)],
                           extra_reasons=["pronoun_antecedent_typed"])
             return mk("unlisted_execution", COMMAND_EXECUTION, [COMMAND_EXECUTION], True, evidence, extra_reasons=["pronoun_antecedent_untyped"])
-        for t in tools:
-            if t.matches(obj_text):
-                return mk("tool_declared", COMMAND_EXECUTION, list(t.effects) + [COMMAND_EXECUTION], False,
-                          base_ev + [_evd(f"tool:{t.name}", None, f"tool_declaration:{t.name}", t.scope)], declared=t.name, extra_reasons=["tool_declaration"])
+        # declared tool effects are a conservative **union** with registry + text effects; they never narrow (DCE-G1R3C B1.1)
+        declared = [t for t in tools if t.matches(obj_text)]
+        decl_pot = [c for t in declared for c in t.effects]
+        decl_ev = [_evd(f"tool:{t.name}", None, f"tool_declaration:{t.name}", t.scope) for t in declared]
+        decl_name = ",".join(t.name for t in declared) or None
+        decl_reasons = ["tool_declaration"] if declared else []
+        if matched is not None and matched[0].name == "apply_change" and _generic_change_object(o) is not None:
+            # "apply the fix" — what is applied, and to what, is not established → unknown (never coerced into an environment change)
+            return mk(None, UNKNOWN, [UNKNOWN], False, base_ev + [_generic_change_object(o)], extra_reasons=["ambiguous_medium"])
         if matched is not None:
             row, evd = matched
-            pot = list(row.potential)
-            evidence = base_ev + [evd]
+            pot = list(row.potential) + decl_pot
+            evidence = base_ev + [evd] + decl_ev
             for c, e2 in _attributed_effects(o):
                 pot.append(c); evidence.append(e2)
-            return mk(row.name, row.primary, pot, row.unknown_external, evidence)
-        # an execute verb with an object the registry does not know: behaviour not established
-        evidence = base_ev + [_evd(o.id, o.trigger.source_span if o.trigger else o.source_span, "registry:unlisted_execution", o.trigger.text if o.trigger else o.text)]
-        pot = [COMMAND_EXECUTION]
+            return mk(row.name, row.primary, pot, row.unknown_external, evidence, declared=decl_name, extra_reasons=decl_reasons)
+        # an execute verb with an object the registry does not know: behaviour not established — a declaration does not establish it either
+        evidence = base_ev + [_evd(o.id, o.trigger.source_span if o.trigger else o.source_span, "registry:unlisted_execution", o.trigger.text if o.trigger else o.text)] + decl_ev
+        pot = [COMMAND_EXECUTION] + decl_pot
         for c, e2 in _attributed_effects(o):
             pot.append(c); evidence.append(e2)
-        return mk("unlisted_execution", COMMAND_EXECUTION, pot, True, evidence, extra_reasons=["unlisted_execution"])
+        return mk("unlisted_execution", COMMAND_EXECUTION, pot, True, evidence, declared=decl_name, extra_reasons=["unlisted_execution"] + decl_reasons)
 
     # create / modify / remove
     if matched is not None and matched[0].name in ("service_publish", "deploy"):
         row, evd = matched
         return mk(row.name, row.primary, list(row.potential), False, base_ev + [evd])
+    generic = _generic_change_object(o) if o.action in ("create", "modify") else None
+    if generic is not None:                        # "make the change", "prepare the changes" — medium not established (sheet v4 rule 18)
+        return mk(None, UNKNOWN, [UNKNOWN], False, base_ev + [generic], extra_reasons=["ambiguous_medium"])
     state = _state_object(o)
     if state is not None:
         c, evd = state

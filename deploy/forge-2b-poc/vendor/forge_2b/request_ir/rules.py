@@ -84,7 +84,7 @@ CLAUSE_AFTER_MARKER_RE = re.compile(
     r"fails?|failed|finish(?:es|ed)?|pass(?:es|ed)?|complete[sd]?|ends?|ended|runs?|ran|starts?|started|exists?|returns?|returned|breaks?|broke|"
     r"references?|mentions?|uses?|calls?|imports?|depends|contains?|includes?|matches|changes?|changed|touches|reports?|logs?|throws?|times out|hits?|exceeds?|"
     r"drops?|reaches|crosses|appears?|shows?|points?|refers?|needs?|requires?|lacks?|misses|fires?|triggers?|emits?|produces?|outputs?|receives?|gets?|sends?|"
-    r"detects?|finds?|encounters?|sees?|reads?|writes?|opens?|closes?|connects?|expires?|restarts?|crashes|hangs?|stalls?|succeeds?|goes|comes|becomes?|turns?|lands?|stabili[sz]es|clears?|"
+    r"detects?|finds?|encounters?|sees?|reads?|writes?|opens?|closes?|connects?|expires?|restarts?|crashes|hangs?|stalls?|succeeds?|goes|comes|becomes?|turns?|lands?|stabili[sz]es|clears?|confirms?|approves?|agrees?|replies|responds?|acknowledges?|okays?|green-?lights?|signs? off|says go|gives? (?:the )?go-?ahead|objects?|"
     r"посилається|згадує|використовує|містить|включає|змінюється|падає|перевищує|з'являється|потребує|вимагає|надсилає|отримує|виявляє|знаходить|відкриває|закриває|"
     r"є|буде|будуть|був|була|було|були|має|мають|падають|падає|впав|впали|завершиться|завершено|готовий|готова|готово|готові|пройде|пройдуть|пройшли|пройшов|впаде|зросте|перевищить|стане|стабілізується)\b|"
     # bare-noun subject: "When CI goes green", "once latency exceeds 300 ms", "коли тести пройдуть" (DCE-G1R3B)
@@ -92,7 +92,7 @@ CLAUSE_AFTER_MARKER_RE = re.compile(
     r"fails?|failed|finish(?:es|ed)?|pass(?:es|ed)?|complete[sd]?|ends?|ended|runs?|ran|starts?|started|exists?|returns?|returned|breaks?|broke|"
     r"references?|mentions?|uses?|calls?|imports?|depends|contains?|includes?|matches|changes?|changed|touches|reports?|logs?|throws?|times out|hits?|exceeds?|"
     r"drops?|reaches|crosses|appears?|shows?|points?|refers?|needs?|requires?|lacks?|misses|fires?|triggers?|emits?|produces?|outputs?|receives?|gets?|sends?|"
-    r"detects?|finds?|encounters?|sees?|reads?|writes?|opens?|closes?|connects?|expires?|restarts?|crashes|hangs?|stalls?|succeeds?|goes|comes|becomes?|turns?|lands?|arrives?|stabili[sz]es|clears?|"
+    r"detects?|finds?|encounters?|sees?|reads?|writes?|opens?|closes?|connects?|expires?|restarts?|crashes|hangs?|stalls?|succeeds?|goes|comes|becomes?|turns?|lands?|arrives?|stabili[sz]es|clears?|confirms?|approves?|agrees?|replies|responds?|acknowledges?|okays?|green-?lights?|signs? off|says go|gives? (?:the )?go-?ahead|objects?|"
     r"посилається|згадує|використовує|містить|включає|змінюється|падає|перевищує|з'являється|потребує|вимагає|надсилає|отримує|виявляє|знаходить|відкриває|закриває|"
     r"є|буде|будуть|був|була|було|були|має|мають|падають|падає|впав|впали|завершиться|завершено|готовий|готова|готово|готові)\b|"
     r"(?:needed|necessary|possible|applicable|required|relevant|потрібно|необхідно|можливо|треба)\b|"
@@ -152,7 +152,7 @@ MEANWHILE_RE = re.compile(r"\s*(?:in the meantime|in the interim|meanwhile|for n
 APPROVAL_NP_CONDITION_RE = re.compile(
     r"^\s*(?:(?P<after>after|upon|following|once|після|по|після того як отримаю)\s+(?:my |your |our |the |team |manager's |lead's |explicit |written |final |мого |вашого |твого |нашого |моєї |вашої |вашої )*"
     r"(?:approval|confirmation|sign[- ]?off|go[- ]?ahead|green light|authori[sz]ation|ok|okay|consent|review|підтвердження|схвалення|погодження|дозволу|узгодження|апруву|перевірки)"
-    r"(?:\s+(?:from|by|від)\s+[\w'’-]+(?:\s+[\w'’-]+)?)?|(?P<after2>once|when|after|після того,? як|коли|щойно)\s+(?:it is |this is |that is |це |ми |я )?(?:approved|confirmed|signed off|cleared|authori[sz]ed|green-?lit|схвалено|підтверджено|погоджено|дозволено|схвалю|підтверджу|погоджу))"
+    r"(?:\s+(?:from|by|від)\s+[\w'’-]+(?:\s+[\w'’-]+)?)?(?:\s+(?:on|for|of|about|regarding)\s+[^,;:—–-]+?(?=\s*(?:[,:—–-]|$)))?|(?P<after2>once|when|after|після того,? як|коли|щойно)\s+(?:it is |this is |that is |це |ми |я )?(?:approved|confirmed|signed off|cleared|authori[sz]ed|green-?lit|схвалено|підтверджено|погоджено|дозволено|схвалю|підтверджу|погоджу))"
     r"(?=[,:—–-]|\s)[,:—–-]?\s*", I)
 # "Not until sign-off should you delete stale branches" — a deferred prohibition: forbidden now, conditioned on the until-clause
 NOT_UNTIL_RE = re.compile(r"^\s*not (?P<kind>until|before|unless) (?P<cond>.+?)\s+(?:should|may|can|must|are|do|will|shall|would)\s+you\s+(?P<rest>.+)$", I)
@@ -178,7 +178,7 @@ DELIVERABLE_SPLIT_RE = re.compile(r"\s*(?:,\s*(?:and|та|і|й)\s+|,\s*|;\s*|\s
 FIRST_RE = re.compile(rf"^\s*(?:first(?:ly)?|to (?:start|begin)(?: with)?|start by|begin by|спочатку|спершу|перш за все|насамперед|по-перше)[,:]?\s+", I)
 
 # --- coordination split: connective followed by an imperative/negation/exclusion/requirement start ----------------
-COORD_RE = re.compile(rf"(?:,|;)?\s+{W}(?:and also|and|&|plus|as well as|also|but also|but|yet|та також|а також|також|та|і|й|але|проте|однак|а)\b(?:,\s*|\s+)", I)
+COORD_RE = re.compile(rf"(?:,|;)?\s+{W}(?:and also|and|&|plus|as well as|also|but also|but|yet|however|though|still|nonetheless|nevertheless|та також|а також|також|та|і|й|але|проте|однак|а)\b(?:,\s*|\s+)", I)
 FIRST_PERSON_CLAUSE_RE = re.compile(r"\s*(?:i|we)(?:'ll| will| am going to| are going to| can| could| would| shall|'d| myself| ourselves| just want| only want| want to know| need to know| am not| have not| haven't| pasted| attached| я| ми)\b|\s*(?:я|ми)\s+(?:сам|сама|самі|зроблю|зробимо|запущу|запустимо|буду|будемо)\b", I)
 COMMA_RE = re.compile(r",\s+|\s+[—–]\s+")     # a spaced dash separates clauses like a comma ("…: rm -rf x — explain …")
 
@@ -221,6 +221,31 @@ SUBJECT_PASSIVE_NEG_RE = re.compile(r"^\s*(?P<subj>(?!(?:nothing|nobody|no one|n
 # "Nothing destructive, obviously." / "No irreversible actions." / "Нічого деструктивного." — agentless adjective prohibition (every side-effect class)
 NEG_ADJ_PROHIBITION_RE = re.compile(r"^\s*(?:nothing|no)\s+(?:destructive|irreversible|risky|dangerous|permanent|harmful|invasive|disruptive|breaking|unsafe)(?:\s+(?:actions?|changes?|operations?|steps?|commands?))?\b|"
                                     r"^\s*(?:нічого|жодних)\s+(?:деструктивн\w+|незворотн\w+|ризикован\w+|небезпечн\w+|руйнівн\w+|шкідлив\w+|інвазивн\w+)(?:\s+(?:дій|змін|операцій|кроків|команд))?\b", I)
+# DCE-G1R3C (English-only grammar): subject-fronted active negation — "The migration bundle must not change", "X may not move"
+SUBJECT_ACTIVE_NEG_RE = re.compile(r"^\s*(?P<subj>(?!(?:nothing|nobody|no one|none|do|don't|never|please|you|we|i)\b)[\w'’/.-]+(?:\s+[\w'’/.-]+){0,5}?)\s+"
+                                   r"(?:(?:may|must|should|can|shall|will)\s+(?:not|never)|cannot|can't|mustn't|shouldn't|won't)\s+(?:ever\s+)?"
+                                   r"(?P<verb>change|move|shift|drift|vary|differ|grow|shrink|restart|reboot|run|execute|start|stop|fire|trigger|go live|go out|leave|disappear|vanish|"
+                                   r"be touched|be changed|be altered|be moved|be deleted|be removed|be deployed|be restarted|be run|be executed)\b", I)
+SUBJECT_ACTIVE_VERB_ACTION = {"change": "modify", "move": "modify", "shift": "modify", "drift": "modify", "vary": "modify", "differ": "modify", "grow": "modify",
+                              "shrink": "modify", "leave": "modify", "restart": "run", "reboot": "run", "run": "run", "execute": "run", "start": "run", "stop": "run",
+                              "fire": "run", "trigger": "run", "go live": "run", "go out": "run", "disappear": "remove", "vanish": "remove"}
+# "Changes to the firewall are forbidden" / "Edits are not allowed" / "Deployments to prod are off-limits"
+PREDICATIVE_PROHIBITION_RE = re.compile(r"^\s*(?P<noun>changes?|edits?|modifications?|alterations?|writes?|updates?|deletions?|removals?|deployments?|deploys|releases?|restarts?|"
+                                        r"pushes|merges?|commits?|rollbacks?|migrations?|installs?|installations?|executions?|runs|rotations?|uploads?|downloads?|tickets?|new tickets?)"
+                                        r"(?:\s+(?:to|in|on|of|against|into|for)\s+(?P<obj>[^,;.]+?))?\s+(?:are|is)\s+(?:strictly\s+|absolutely\s+|currently\s+)?"
+                                        r"(?:forbidden|prohibited|not allowed|not permitted|off[- ]limits|banned|disallowed|out of (?:scope|bounds|the question)|not an option|not on the table)\b", I)
+# "src/api.py is off-limits" / "the cluster is read-only for you" / "prod is not to be touched"
+SUBJECT_OFF_LIMITS_RE = re.compile(r"^\s*(?P<subj>(?!(?:nothing|nobody|no one|none|do|don't|never|please)\b)[\w'’/.-]+(?:\s+[\w'’/.-]+){0,5}?)\s+(?:is|are|stays?|remains?)\s+"
+                                   r"(?:off[- ]limits|out of bounds|read[- ]only|frozen|locked|hands[- ]off|not to be touched|not to be modified|not to be changed|untouchable|sacrosanct)\b", I)
+# "Keep X untouched / as is / intact" / "Leave X alone" → prohibition(modify X)
+KEEP_UNTOUCHED_RE = re.compile(r"^\s*(?:please\s+)?(?:keep|leave)\s+(?P<obj>.+?)\s+(?:untouched|intact|as is|as-is|as it is|as they are|unchanged|unmodified|frozen|alone|exactly as it is|the way it is|the way they are|read[- ]only)\b", I)
+# "No changes to X" / "No edits to src/api.py" — a nominal prohibition whose object is the thing after the preposition
+NO_NOUN_TO_RE = re.compile(r"^(?P<noun>changes?|edits?|modifications?|alterations?|writes?|updates?|deletions?|deployments?|pushes|merges?|commits?|restarts?|migrations?|rotations?)"
+                           r"\s+(?:to|in|on|of|against|into)\s+(?P<obj>.+)$", I)
+# "do not save or run it" / "never push or merge to main" — coordinated prohibited verbs share the object
+COORD_VERB_RE = re.compile(r"^\s*(?:or|nor|and|/|,\s*or|,\s*nor)\s+", I)
+# a clause that is only a contrast / sequence adverb: "; however, …" → merged into the clause it introduces
+STRANDED_JOINER_RE = re.compile(r"^\s*(?:however|otherwise|still|yet|though|nonetheless|nevertheless|instead|then|afterwards|after that|meanwhile|in the meantime)\s*[,;:]?\s*$", I)
 VAGUE_OBJECT_RE = re.compile(r"^\s*(?:something|anything|stuff|things|whatever|щось|що-небудь|чогось|що завгодно|все що треба|все, що треба)\b", I)
 PASSIVE_PARTICIPLES = {"deleted": "remove", "removed": "remove", "dropped": "remove", "erased": "remove", "wiped": "remove", "purged": "remove",
                        "modified": "modify", "changed": "modify", "edited": "modify", "touched": "modify", "renamed": "modify", "altered": "modify",
@@ -236,7 +261,7 @@ DECL_NEG_RE = re.compile(
 DONT_WANT_RE = re.compile(r"^\s*(?:i|we)\s+(?:don'?t|do not|didn'?t)\s+(?:want|need|expect)\s+(?P<noun>(?:(?:a|an|any|the|some)\s+)?[\w'’-]+(?:\s+[\w'’-]+){0,4}?)\s*[.!…]*\s*$", I)
 # "Is it safe to…", "Would it be possible to…" — expletive *it* is not a referent
 EXPLETIVE_IT_RE = re.compile(r"^(?:it|It)\s+(?:(?:is|was|would be|will be|might be|could be|seems|'s|’s)\s+)?(?:safe|possible|ok|okay|fine|worth|necessary|advisable|risky|dangerous|better|best|feasible|wise|a good idea|a bad idea|enough|likely|unlikely|true|clear)\b")
-NO_NOUN_RE = re.compile(rf"^\s*(?:no|без|жодних)\s+(?!(?:one|body|longer|matter|doubt|way|idea|problem|worries|thanks)\b)(\w[\w\s-]{{0,40}}?)(?:,?\s*(?:please|будь ласка))?\s*$", I)     # "No recommendations, please."
+NO_NOUN_RE = re.compile(rf"^\s*(?:no|без|жодних)\s+(?!(?:one|body|longer|matter|doubt|way|idea|problem|worries|thanks)\b)(\w[\w\s./-]{{0,60}}?)(?:,?\s*(?:please|будь ласка))?\s*$", I)     # "No recommendations, please." / "No edits to src/api.py"
 NO_NOUN_HEAD_RE = re.compile(r"no\s+(?!(?:one|body|longer|matter|doubt|way|idea|problem|worries|thanks)\b)\w", I)   # ", but no shell commands" opens a clause
 # "whether or not" is not a negation
 WHETHER_OR_NOT_RE = re.compile(r"\bwhether\s+or\s+not\b|\bчи\s+ні\b", I)
@@ -271,6 +296,12 @@ RESTRICTED_NOUN_ACTION = {
     "deletion": "remove", "deletions": "remove", "removal": "remove", "removals": "remove", "drop": "remove", "drops": "remove", "purge": "remove", "cleanup": "remove",
     "file creation": "create", "new file": "create", "new files": "create", "new branch": "create", "new branches": "create",
     "deployment today": "run",
+    # DCE-G1R3C (English service/git nominals): "no commit, no push, no merge, no release, no rollout, no rotation"
+    "commit": "run", "commits": "run", "push": "run", "pushes": "run", "merge": "run", "merges": "run", "release": "run", "releases": "run",
+    "rollout": "run", "rollouts": "run", "roll-out": "run", "rollback": "run", "rollbacks": "run", "rotation": "run", "rotations": "run", "upload": "run", "uploads": "run",
+    "download": "run", "downloads": "run", "reboot": "run", "reboots": "run", "migration": "run", "migrations": "run", "publish": "run", "publishing": "run",
+    "update": "modify", "updates": "modify", "alteration": "modify", "alterations": "modify", "file edit": "modify", "file edits": "modify", "file write": "modify", "file writes": "modify",
+    "ticket": "create", "tickets": "create", "new ticket": "create", "new tickets": "create", "new pr": "create", "new prs": "create", "pull request": "create", "pull requests": "create",
     "команд": "run", "команди": "run", "скриптів": "run", "скрипти": "run", "запусків": "run", "запуски": "run", "деплоїв": "run", "деплої": "run", "розгортань": "run",
     "змін": "modify", "зміни": "modify", "правок": "modify", "правки": "modify", "редагувань": "modify", "видалень": "remove", "видалення": "remove", "нових файлів": "create",
 }
@@ -470,7 +501,7 @@ ACTION_RULES: list[tuple[str, str, re.Pattern[str]]] = [
     ("count", "imperative", re.compile(_w(r"count(?: up)?|tally|(?:tell me|say|determine|work out|find out|скажи|скажіть|повідом|визнач),?(?=\s+(?:how many|how much|скільки)\b)|"
                                           r"порахуй(?:те)?|порахувати|полічи(?:ти)?|полічіть|підрахуй(?:те)?|підрахувати") + r"\s*", I)),
     ("compute", "imperative", re.compile(_w(r"calculate|compute|estimate|sum(?: up)?|add up|average|total|measure|обчисли(?:ти)?|обчисліть|розрахуй(?:те)?|розрахувати|виміряй(?:те)?") + r"\s*", I)),
-    ("classify", "imperative", re.compile(_w(r"classify|categori[sz]e|label|tag(?!\s+(?:(?:the|this|that|current|latest|a|an|new|our|поточний|останній)\s+){0,2}(?:commit|release|build|image|HEAD|version|snapshot|коміт|реліз|білд|образ|версі))|group|bucket|класифікуй(?:те)?|класифікувати|категоризуй(?:те)?|згрупуй(?:те)?") + r"\s*", I)),
+    ("classify", "imperative", re.compile(_w(r"classify|categori[sz]e|label|tag(?!\s+(?:(?:the|this|that|current|latest|a|an|new|our|поточний|останній)\s+){0,2}(?:commit|release|build|image|HEAD|version|snapshot|коміт|реліз|білд|образ|версі|v?\d+\.\d+))|group|bucket|класифікуй(?:те)?|класифікувати|категоризуй(?:те)?|згрупуй(?:те)?") + r"\s*", I)),
     ("translate", "imperative", re.compile(_w(r"translate|переклади|перекладіть|перекласти") + r"\s*", I)),
     ("transform", "imperative", re.compile(_w(r"convert|reformat|format|render|rewrite|rephrase|reword|paraphrase|transform|normali[sz]e|sort(?!\s+out\b)|tabulate|turn|reorganize|restructure|parse|break (?:down|up)|split(?: up)?|decompose|"
                                               r"перетвори(?:ти)?|перетворіть|конвертуй(?:те)?|конвертувати|відформатуй(?:те)?|перепиши|перепишіть|переписати|перефразуй(?:те)?|відсортуй(?:те)?|відсортувати|розбий(?:те)?|розбити|поділи(?:ти)?|поділіть|розклади(?:ти)?|розкладіть|декомпозуй(?:те)?") + r"\s*", I)),
@@ -495,7 +526,7 @@ ACTION_RULES: list[tuple[str, str, re.Pattern[str]]] = [
                                            r"збережи|збережіть|зберегти|зберігай(?:те)?") + r"\s*", I)),
     ("modify", "imperative", re.compile(_w(_SVC_CLOSE + r"|make|change|modify|edit|update|fix|repair|improve|optimi[sz]e|speed up|refactor|rename|replace|adjust|tune|increase|decrease|reduce|set|configure|enable|disable|upgrade|patch|correct|touch|alter|"
                                            r"внес(?:и|іть|ти) (?:зміни|правки|виправлення)|внос(?:ь|ьте|ити) (?:зміни|правки|виправлення)|зміни(?:ти)?|змініть|змінюй(?:те)?|редагуй(?:те)?|виправ(?:те)?|виправити|полагодь|полагодьте|покращ(?:и|іть)?|покращити|оптимізуй(?:те)?|оптимізувати|прискор(?:те)?|прискорити|пришвидш(?:и|іть)?|пришвидшити|перейменуй(?:те)?|заміни(?:ти)?|замініть|налаштуй(?:те)?|налаштувати|увімкни|увімкніть|вимкни|вимкніть|онови(?:ти)?|оновіть|зроби|зробіть|зробити|чіпай(?:те)?|чіпати|торкайся|торкайтеся|торкатися") + r"\s*", I)),
-    ("run", "imperative", re.compile(_w(r"run|execute|launch|start|restart|reboot|stop|kill|tag(?=\s+(?:(?:the|this|that|current|latest|a|an|new|our|поточний|останній)\s+){0,2}(?:commit|release|build|image|HEAD|version|snapshot|коміт|реліз|білд|образ|версі))|deploy|redeploy|merge|rebase|cherry[- ]pick|squash|force[- ]push|git push|push(?=\s+(?:the|this|that|my|our|a|an|it|them|to)\b)|roll ?out|migrate|rotate|scale(?: up| down| out| in)?|provision|install|uninstall|trigger|invoke|call|apply|roll back|rollback|follow(?: the| these| those| its| their)?(?: instructions?| steps| them| it)?|obey|comply with|do what|perform|send|email|post|publish|upload|download|"
+    ("run", "imperative", re.compile(_w(r"run|execute|launch|start|restart|reboot|stop|kill|tag(?=\s+(?:(?:the|this|that|current|latest|a|an|new|our|поточний|останній)\s+){0,2}(?:commit|release|build|image|HEAD|version|snapshot|коміт|реліз|білд|образ|версі|v?\d+\.\d+))|deploy|redeploy|merge|rebase|cherry[- ]pick|squash|force[- ]push|git push|push(?=\s+(?:the|this|that|my|our|a|an|it|them|to)\b)|roll ?out|migrate|rotate|scale(?: up| down| out| in)?|provision|install|uninstall|trigger|invoke|call|apply|roll back|rollback|follow(?: the| these| those| its| their)?(?: instructions?| steps| them| it)?|obey|comply with|do what|perform|send|email|post|publish|upload|download|"
                                         r"connect(?: to| into)?|ssh(?: into| to| in)?|log ?in(?: to| into)?|sign in(?: to| into)?|ping|curl|telnet(?: to)?|dial|"
                                         r"запусти(?:ти)?|запустіть|запускай(?:те)?|виконай(?:те)?|виконати|виконуй(?:те)?|розгорни(?:ти)?|розгорніть|розгортай(?:те)?|встанови(?:ти)?|встановіть|встановлюй(?:те)?|інсталюй(?:те)?|"
                                         r"перебазуй(?:те)?|перебазувати|ребейзни|зроби ребейз|черіпікни|накати(?:ти)?|накоти(?:ти)?|накатай(?:те)?|флашни|скинь кеш|очисти кеш|деплой(?:те)?|задеплой(?:те)?|задеплоїти|деплоїти|викоти(?:ти)?|викотіть|відкоти(?:ти)?|відкотіть|мігруй(?:те)?|застосуй(?:те)?|застосувати|перезавантаж(?:те)?|перезавантажити|"

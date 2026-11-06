@@ -1046,34 +1046,61 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
         return StreamingResponse(generate(), media_type="text/event-stream", headers=headers)
 
     async def free_chat(body: dict[str, Any], messages: Any, user_text: str):
-        """Ordinary conversation. A side-effect-only ask is answered from the reader; every other ask is one pinned-model reply."""
+        """Ordinary conversation. A side-effect-only ask is answered from the reader; every other ask is one pinned-model reply.
+
+        The lane is linear by design, and it shows that: a two-node live graph (`read` — the deterministic reader, no model;
+        then `reply` / `refuse` / `identity`) is emitted the way the attachment and 10-K lanes do, so the user sees what ran
+        and which step called the model (P1.3, 2026-11-06). JSON clients get the final graph only; streaming clients see the
+        `reply` node ticking while the model is in flight."""
         reading = comprehend(user_text)
         run_id = uuid.uuid4().hex
+        lg = live.LiveGraph(run_id, "chat")
+        lg.add("read", "zero_model", "chat_lane reader · side-effect lexicon, no model")
+        lg.start("read")
         record: dict[str, Any] = {
             "run_id": run_id,
             "model_alias": MODEL_ALIAS,
             "backend_model": cfg.backend_model,
             "kind": "chat",
+            "lane": "chat",
             "raw_prompt_sha256": hashlib.sha256(user_text.encode()).hexdigest(),
             "status": "RUNNING",
             "attempts": 0,
             "stages": ["accepted", "comprehended"],
             "reading": trace_reading(reading),
+            "steps": lg.steps(),
         }
         if len(traces) >= 100:
             traces.pop(next(iter(traces)))
         traces[run_id] = record
         headers = {"Cache-Control": "no-store", "X-Forge-Lane": "chat", "X-Forge-Run-Id": run_id}
-        if reading.decision() == "refuse":
+        timeline: list[str] = []
+
+        def done(node: str, status: str, detail: str, run_status: str) -> str:
+            """Close `node` and the run; returns the Live timeline + final graph that ends every chat answer."""
+            lg.finish(node, status, detail)
+            timeline.append(lg.line(lg.get(node), "end"))
+            lg.close(run_status)
+            record["steps"] = lg.steps()
+            return "\n\n**Live timeline:**\n" + "".join(timeline) + lg.snapshot_html(final=True)
+
+        decision = reading.decision()
+        lg.finish("read", "COMMITTED", f"decision {decision} · status {reading.status}")
+        timeline.append(lg.line(lg.get("read"), "end"))
+        if decision == "refuse":
             record["status"] = "REFUSED_SIDE_EFFECT"
             record["stages"].append("side_effect_refused")
-            return _text_response(body, run_id, refusal_text(reading), headers)
+            lg.add("refuse", "zero_model", "reader verdict · no model")
+            lg.start("refuse")
+            return _text_response(body, run_id, refusal_text(reading) + done("refuse", "COMMITTED", "side effect requested — not performed", "REFUSED_SIDE_EFFECT"), headers)
         named = identity_reply(user_text)
         if named is not None:
             record["status"] = "COMMITTED"
             record["stages"].append("identity")
             record["reading"]["decision"] = "identity"
-            return _text_response(body, run_id, named, headers)
+            lg.add("identity", "zero_model", "fixed self-description · no model")
+            lg.start("identity")
+            return _text_response(body, run_id, named + done("identity", "COMMITTED", "who-are-you answered without the model", "COMMITTED"), headers)
 
         conv = conversation(messages) or [{"role": "user", "content": user_text[:4000]}]
         llm_body = {
@@ -1083,37 +1110,67 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
             "max_tokens": 1024,
             "stream": False,
         }
-        try:
-            async with run_sem:
-                async with httpx.AsyncClient(transport=transport, timeout=cfg.llm_timeout, follow_redirects=False) as client:
-                    models = await call(client, "GET", cfg.llm_url.rstrip("/") + "/models", cfg.llm_key)
-                    ids = {row.get("id") for row in models.get("data", []) if isinstance(row, dict)}
-                    if cfg.backend_model not in ids:
-                        raise POCError(503, "BACKEND_MODEL_NOT_ADVERTISED", "Backend model not advertised by authorized forge-llm gateway")
-                    answer = await call(client, "POST", cfg.llm_url.rstrip("/") + "/chat/completions", cfg.llm_key, json=llm_body)
-            content = answer["choices"][0]["message"]["content"]
-            served = str(answer.get("model", ""))
-        except POCError:
+        lg.add("reply", "fixed_model", cfg.backend_model)
+
+        def failed() -> None:
             record["status"] = "FAILED"
             record["stages"].append("run_failed")
-            raise
-        except (KeyError, IndexError, TypeError) as ex:
-            record["status"] = "FAILED"
-            record["stages"].append("run_failed")
-            raise POCError(502, "INVALID_GATEWAY_RESPONSE", "Gateway response has no assistant content") from ex
-        if not isinstance(content, str) or not content.strip():
-            record["status"] = "FAILED"
-            record["stages"].append("run_failed")
-            raise POCError(502, "INVALID_GATEWAY_RESPONSE", "Gateway response has no assistant content")
-        if not _backend_matches(served, cfg.backend_model):
-            record["status"] = "FAILED"
-            record["stages"].append("run_failed")
-            raise POCError(502, "BACKEND_MODEL_MISMATCH", "Gateway returned a different served model")
-        record["served_model"] = served
-        record["attempts"] = 1
-        record["status"] = "COMMITTED"
-        record["stages"].append("reply")
-        return _text_response(body, run_id, visible_prefix(reading) + scrub_self_claim(content.strip()) + footer(reading), headers)
+            lg.finish("reply", "FAILED")
+            lg.close("FAILED")
+            record["steps"] = lg.steps()
+
+        async def reply_text() -> str:
+            try:
+                async with run_sem:
+                    async with httpx.AsyncClient(transport=transport, timeout=cfg.llm_timeout, follow_redirects=False) as client:
+                        models = await call(client, "GET", cfg.llm_url.rstrip("/") + "/models", cfg.llm_key)
+                        ids = {row.get("id") for row in models.get("data", []) if isinstance(row, dict)}
+                        if cfg.backend_model not in ids:
+                            raise POCError(503, "BACKEND_MODEL_NOT_ADVERTISED", "Backend model not advertised by authorized forge-llm gateway")
+                        answer = await call(client, "POST", cfg.llm_url.rstrip("/") + "/chat/completions", cfg.llm_key, json=llm_body)
+                content = answer["choices"][0]["message"]["content"]
+                served = str(answer.get("model", ""))
+            except POCError:
+                failed()
+                raise
+            except (KeyError, IndexError, TypeError) as ex:
+                failed()
+                raise POCError(502, "INVALID_GATEWAY_RESPONSE", "Gateway response has no assistant content") from ex
+            if not isinstance(content, str) or not content.strip():
+                failed()
+                raise POCError(502, "INVALID_GATEWAY_RESPONSE", "Gateway response has no assistant content")
+            if not _backend_matches(served, cfg.backend_model):
+                failed()
+                raise POCError(502, "BACKEND_MODEL_MISMATCH", "Gateway returned a different served model")
+            record["served_model"] = served
+            record["attempts"] = 1
+            record["status"] = "COMMITTED"
+            record["stages"].append("reply")
+            return visible_prefix(reading) + scrub_self_claim(content.strip()) + footer(reading) + done("reply", "COMMITTED", f"1 call · served {served}", "COMMITTED")
+
+        lg.start("reply", "one pinned-model call over the conversation")
+        if not body.get("stream"):
+            return _text_response(body, run_id, await reply_text(), headers)
+
+        created = int(time.time())
+        response_id = "chatcmpl-" + run_id
+
+        def chunk(delta: dict[str, str], finish: str | None = None) -> str:
+            frame = {"id": response_id, "object": "chat.completion.chunk", "created": created, "model": MODEL_ALIAS,
+                     "choices": [{"index": 0, "delta": delta, "finish_reason": finish}]}
+            return "data: " + json.dumps(frame, ensure_ascii=False, separators=(",", ":")) + "\n\n"
+
+        async def generate():
+            yield chunk({"role": "assistant"})
+            yield chunk({"content": lg.snapshot_html()})   # the model is in flight: the `reply` timer ticks in the artifact
+            try:
+                yield chunk({"content": await reply_text()})
+            except POCError as ex:
+                yield chunk({"content": f"\n\n**Run failed:** `{ex.code}` — {ex.message}. No reply committed.\n" + lg.snapshot_html(final=True)})
+            yield chunk({}, "stop")
+            yield "data: [DONE]\n\n"
+
+        return StreamingResponse(generate(), media_type="text/event-stream", headers=headers)
 
     @app.post("/v1/chat/completions")
     async def completion(request: Request):
