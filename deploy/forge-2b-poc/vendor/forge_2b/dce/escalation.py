@@ -132,6 +132,9 @@ def _is_title_like(text: str) -> bool:
 _ANSWER_NUM_RE = re.compile(r"(?<![\w.])\d+(?:[.,]\d+)*(?![\w.])")
 
 
+_ANSWER_HASH_RE = re.compile(r"(?<![\w/.-])(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}(?![\w/.-])", re.I)
+
+
 def numbers_not_in_quotes(answer: str, quoted_texts: list[str]) -> list[str]:
     """Numbers the answer states that occur in none of the quoted lines (decimal comma and dot, thousands separators
     folded; a bare integer also matches `n/m`, `n%` and `(n)` forms since they are substrings). Empty = every number
@@ -139,12 +142,15 @@ def numbers_not_in_quotes(answer: str, quoted_texts: list[str]) -> list[str]:
     hay = " ".join(quoted_texts).replace(",", ".").replace("\u00a0", " ")
     hay_tokens = set(re.findall(r"\d+(?:\.\d+)*", hay))
     loose = []
-    for m in _ANSWER_NUM_RE.findall(answer):
+    # a commit hash is a number in this sense (live K17 after30, 2026-11-06: "Commit 097b06a" quoting `frozen_utc: …`):
+    # a hash the answer states that no quoted line carries is as unsupported as a bare count
+    hashes = [h for h in _ANSWER_HASH_RE.findall(answer) if not any(h.casefold() in t.casefold() for t in quoted_texts)]
+    for m in _ANSWER_NUM_RE.findall(_ANSWER_HASH_RE.sub(" ", answer)):
         n = m.replace(",", ".")
         if n in hay_tokens or any(t.startswith(n + ".") or t.endswith("." + n) or t == n.strip("0") for t in hay_tokens):
             continue
         loose.append(m)
-    return list(dict.fromkeys(loose))
+    return list(dict.fromkeys(hashes + loose))
 
 
 def quote_relevance_gap(plan: Plan, question: str, quoted: list[dict[str, Any]], hits: list[attach.Hit]) -> str | None:
@@ -379,10 +385,24 @@ async def run_d2(r: NodeResult, n: Any, e: dict[str, Any], plan: Plan, ings: lis
     dec, r.attempts = await q2_decide(call_llm, q, hits, max_attempts=budget.max_attempts)
     calls.charge(r.attempts)
     r.model_calls = len(r.attempts)
-    if dec is None:
+    if dec is None and n.kind == "summarize":
+        # the model produced nothing verifiable in its attempts (live M01 G1R3E, 2026-11-06: two attempts, 20 s, FAILED and
+        # an empty page). A summary node does not fail silently: the lead lines the model was shown are stated verbatim
+        # as the package's own opening, PARTIAL, and the verdict lead below still applies — nothing generated.
+        shown = [h for h in hits if not _is_title_like(h.text)][:4] or hits[:4]
+        r.status, r.method = "PARTIAL", "lead_lines_verbatim" + ("_" + r.method if r.method else "")
+        r.answer = (f"The model gave no verifiable summary in {len(r.attempts)} attempt(s); the package's own opening lines, verbatim:\n"
+                    + "\n".join(f"- `{h.path}:{h.line}` — {_line_statement(h.text) or h.text.strip()[:300]}" for h in shown))
+        r.spans = [{"path": h.path, "line": h.line, "text": h.text} for h in shown]
+        r.detail = "no verifiable model output; lead lines shown verbatim, nothing generated"
+        dec = {"answer": r.answer, "quotes": []}
+        gated = False
+    elif dec is None:
         r.status, r.detail = "FAILED", "no verifiable model output"
         return
-    r.status, r.method = "PARTIAL", "q2_over_" + (r.method or "verified_spans")
+    else:
+        r.status, r.method = "PARTIAL", "q2_over_" + (r.method or "verified_spans")
+        gated = True
     quoted_texts = [str(qq.get("text", "")) for qq in dec["quotes"]]
     body_hits = [h for h in hits if not _is_title_like(h.text)]
     if quoted_texts and all(_is_title_like(t) for t in quoted_texts) and body_hits and not calls.exhausted:
@@ -396,9 +416,12 @@ async def run_d2(r: NodeResult, n: Any, e: dict[str, Any], plan: Plan, ings: lis
         if dec2 and dec2["quotes"]:
             dec = dec2
             r.method += "_body_retry"
-    r.answer, r.spans = dec["answer"], spans_of(hits, dec["quotes"])
-    r.detail = "quotes verified verbatim; the reasoning itself is model output and is not deterministically entailed"
-    if not r.answer.strip():
+    if gated:
+        r.answer, r.spans = dec["answer"], spans_of(hits, dec["quotes"])
+        r.detail = "quotes verified verbatim; the reasoning itself is model output and is not deterministically entailed"
+    if not gated:
+        pass
+    elif not r.answer.strip():
         r.answer = (f"The model produced no {'summary' if n.kind == 'summarize' else 'recommendation'} over the {len(hits)} excerpt(s) it was shown"
                     + (" and quoted nothing" if not dec["quotes"] else "") + "; nothing is claimed.")
         r.detail = "model returned an empty answer; " + r.detail
@@ -538,6 +561,14 @@ def _d2_sentence_gate(r: NodeResult, n: Any, plan: Plan, mode: str) -> None:
         r.answer = "\n".join(kept) + f"\n\n_{len(dropped)} sentence(s) removed: not carried by any quoted line_\n{removed}"
         r.detail = (f"quotes verified verbatim; {len(kept)} sentence(s) carried by the quoted lines are stated, "
                     f"{len(dropped)} removed and listed")
+    elif n.kind == "summarize" and any(sp.get("text", "").strip() for sp in r.spans):
+        # every sentence pruned (live M01 G1R3E after03, 2026-11-06): the quoted lines are verified text of the package —
+        # they are stated verbatim as the package's own words, the model's sentences listed as removed; nothing generated
+        shown = list(dict.fromkeys((sp["path"], sp["line"], sp["text"].strip()) for sp in r.spans if sp.get("text", "").strip()))[:6]
+        r.answer = ("None of the model's sentences is carried by a quoted line; the lines it quoted, verbatim:\n"
+                    + "\n".join(f"- `{p}:{ln}` — {_line_statement(t) or t[:300]}" for p, ln, t in shown)
+                    + f"\n\n_{len(dropped)} sentence(s) removed: not carried by any quoted line_\n{removed}")
+        r.detail = f"quotes verified verbatim; no sentence of the {label} is carried by a quoted line — the quoted lines are shown verbatim, nothing generated"
     else:
         r.answer = f"Nothing is claimed: none of the model's {len(dropped)} sentence(s) is carried by a quoted line.\n{removed}"
         r.detail = f"quotes verified verbatim; no sentence of the {label} is carried by a quoted line — nothing is claimed"
@@ -608,10 +639,15 @@ async def run_d1(r: NodeResult, n: Any, e: dict[str, Any], plan: Plan, call_llm:
         gap, on_topic = quote_relevance(plan, n.query, dec["quotes"], hits)
         if gap:
             await _off_topic_retry(r, n, plan, gap, on_topic, hits, call_llm, calls)
+        # Measured and reverted (lab 2026-11-06, G1R3E round 1): a "coverage-dominance" retry that re-asked whenever the
+        # first quote carried fewer question words than other excerpts replaced three right answers on the K set
+        # (K17, K39, K45 — a terse right line lost to wordier wrong ones) and fixed none of M14/M29. A verified
+        # quote that is on topic stands; wordiness is not evidence.
     if r.status == "COMMITTED" and r.method.startswith("q2_") and r.method != "q2_not_in_excerpts":
         _which_file_completion(r, n, plan)
         _adjacent_number_check(r, n, plan)
-        _number_entailment(r)
+        _number_entailment(r, n.query)
+        _bare_number_grounding(r, n, plan)
         if r.status == "COMMITTED":
             _pointer_answer_check(r, n)
         if r.status == "COMMITTED" and n.kind != "verify":   # a polar node's empty sentence is read by _polar_line_read
@@ -902,6 +938,15 @@ def _adjacent_number_check(r: NodeResult, n: Any, plan: Plan) -> None:
     # not a proof). Terms that are the counted noun itself (`cases`) or occur in every quoted line are not keys.
     if not _HOW_MANY_Q_RE.search(n.query):
         return
+    if not re.search(r"\d|\b(?:zero|none|no|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|dozen|all|every)\b", _ANSWER_HASH_RE.sub(" ", str(r.answer or "")), re.I):
+        # a how-many question answered without any count ("766cb08" for "How many sealed cases were in the blind set?" —
+        # live K42 after30, 2026-11-06): the sentence is not an answer to the question asked
+        r.status = "PARTIAL"
+        r.method += "+no_count"
+        said = str(r.answer or "").strip()[:80]
+        r.answer = f"No count is stated: the model's reply ({said!r}) carries no number, so it does not answer the question; the quoted line(s) are shown as the excerpts checked."
+        r.detail = (r.detail + "; " if r.detail else "") + "a how-many question was answered without a number; the quoted line(s) are shown, no count is claimed"
+        return
     content, mentions, _anchors = _content_terms(plan, n.query, keep_file_words=True)
     if not content:
         return
@@ -912,6 +957,12 @@ def _adjacent_number_check(r: NodeResult, n: Any, plan: Plan) -> None:
     token_of: dict[str, str] = {}   # question term → the line's word it matched (`ukrainian` → `uk`)
     for text in texts:
         toks = _TOKEN_SEP_RE.findall(text)
+        # a line that says only the counted noun (`"cases": 20,` in a dump, live M20 G1R3E 2026-11-06) counts *something*
+        # called cases, not what the question asks; the adjacency reading needs the line to carry a second question term
+        # (`124 cases (70 en / 39 uk …)` carries `uk` for "blind cases in Ukrainian") unless the question has only one
+        line_terms = {t for tok in toks if re.match(r"[^\W\d_]+$", tok) for t in content if mentions(tok, t)}
+        if len(line_terms) < min(2, len(content)):
+            continue
         for i, tok in enumerate(toks):
             if not re.match(r"[^\W\d_]+$", tok):
                 continue
@@ -946,16 +997,108 @@ def _adjacent_number_check(r: NodeResult, n: Any, plan: Plan) -> None:
     r.detail = (r.detail + "; " if r.detail else "") + f"the model's number did not match the one next to '{word}' in the quoted line"
 
 
-def _number_entailment(r: NodeResult) -> None:
+_TYPED_VALUE_Q_RE = re.compile(r"^\s*(?:in\s+|at\s+|under\s+)?(?:which|what)\s+(?:is\s+the\s+|was\s+the\s+)?(commit|hash|sha|version|date|port|tag|branch)\b", re.I)
+
+
+def _typed_value_from_quotes(r: NodeResult, query: str, loose: list[str]) -> bool:
+    """A "which commit / version / port …" question whose model value no quoted line carries: the quoted lines are the
+    verified evidence, so the value of the asked type they carry is read off them deterministically. Exactly one such
+    value → the lane states it (`+typed_value_from_quote`), the model's is named as dropped. Several → all are listed and
+    no claim is made. Live K17/K45 G1R3A after31, 2026-11-06: `| Hash-frozen … commit `c181630` |` quoted, the model said
+    `097b06a` (the *candidate* freeze on the next row). None → nothing changes (the PARTIAL stands)."""
+    m = _TYPED_VALUE_Q_RE.match(query or "")
+    if not m:
+        return False
+    type_word = m.group(1).lower()
+    if type_word in ("port", "branch"):
+        return False   # any 2–5-digit number / any word would qualify: nothing typed to read
+    val_re = re.compile(retrieval.VALUE_RE_FOR[type_word], re.I)
+    carried: list[str] = []
+    for sp in r.spans:
+        for v in val_re.findall(sp.get("text", "")):
+            if type_word in ("commit", "hash", "sha") and not (re.search(r"\d", v) and re.search(r"[a-f]", v, re.I)):
+                continue   # a hex hash has both digits and letters; a bare integer is not one
+            if v not in carried:
+                carried.append(v)
+    if not carried:
+        return False
+    said = ", ".join(loose[:3])
+    if len(carried) == 1:
+        r.status = "COMMITTED"
+        r.method += "+typed_value_from_quote"
+        r.answer = (f"**{carried[0]}** — the only {type_word} the quoted line(s) carry; the model's sentence said {said}, which no quoted "
+                    f"line carries, so it is dropped and the quoted value is stated instead.")
+        r.detail = (r.detail + "; " if r.detail else "") + f"the model's {type_word} {said} is in no quoted line; the one {type_word} the quotes carry is stated"
+        return True
+    r.status = "PARTIAL"
+    r.method += "+typed_values_listed"
+    r.answer = (f"The quoted line(s) carry {len(carried)} values of type {type_word}: {', '.join(f'`{v}`' for v in carried)}; the model's sentence said "
+                f"{said}, which none of them is. Which of the carried values answers the question is not stated — the lines are shown.")
+    r.detail = (r.detail + "; " if r.detail else "") + f"the model's {type_word} {said} is in no quoted line; {len(carried)} {type_word} values carried, none claimed"
+    return True
+
+
+def _number_entailment(r: NodeResult, query: str = "") -> None:
     # number entailment (Phase 3): a D1 answer may only state numbers its quoted lines carry. Live K13
     # 2026-11-06: the right row was quoted (`0.519 / 0.541 ms`) and the answer said "0.41 ms" — a
     # verified quote does not make the sentence around it true, so the node is PARTIAL and says which
     # number no quoted line carries. The quoted lines stay as the evidence.
     loose = numbers_not_in_quotes(r.answer, [sp.get("text", "") for sp in r.spans])
     if loose:
+        rest = re.sub(r"[-+]?\d[\d.,/%]*", " ", str(r.answer or ""))
+        if not re.search(r"[A-Za-z]{3,}", rest):
+            # the sentence *is* the unsupported number ("0.95" for a metric the package never reports — live M35 G1R3E,
+            # 2026-11-06): nothing verifiable was stated, so this is the honest negative, with the quoted lines shown as
+            # the excerpts that were checked, not as evidence for a value
+            r.status, r.method = "COMMITTED", "q2_not_in_excerpts"
+            r.answer = (f"**Not found in the attached archive(s)** — the model's reply was only the number {loose[0]}, which none of its quoted "
+                        f"line(s) carries; a value no excerpt states is not an answer, so no claim is made.")
+            r.detail = f"NOT_FOUND_IN_EXCERPTS; the reply was a bare number ({', '.join(loose[:3])}) carried by no quoted line"
+            return
+        if _typed_value_from_quotes(r, query, loose):
+            return
         r.status = "PARTIAL"
         r.detail = (f"the answer states {', '.join(loose[:3])} which no quoted line carries; the quoted line(s) are the evidence, "
                     f"the number in the sentence is the model's") + (f"; {r.detail}" if r.detail else "")
+
+
+def _bare_number_grounding(r: NodeResult, n: Any, plan: Plan) -> None:
+    # a reply that is only a number, carried by its quoted line, for a question whose qualifiers that line does not carry:
+    # "What was the weighted recall on the Ukrainian sealed slice?" → `"flag_recall": 0.961` under `sealed_run.gates`
+    # (live M35 G1R3E after02, 2026-11-06 — the package has no Ukrainian slice). The number is real, the line is on
+    # topic by one word, and the sentence claims it is the asked value. When the quoted lines — text, key path, heading
+    # ancestry and file name together — mention fewer than half of the question's content terms, the number is not shown
+    # to be the asked one and the node is the honest negative. A full row or a line under a heading that says the words
+    # (`| long_~3000 | 6.359 |` under `parse + projection p50 / p95`) is grounded and untouched.
+    if r.status != "COMMITTED" or r.method != "q2_verified_quotes":
+        return
+    rest = re.sub(r"[-+]?\d[\d.,/%]*", " ", str(r.answer or ""))
+    if re.search(r"[A-Za-z]{3,}", rest) or not re.search(r"\d", str(r.answer or "")):
+        return
+    content, mentions, _anchors = _content_terms(plan, n.query, keep_file_words=True)
+    if len(content) < 3:
+        return
+    quoted = [sp for sp in r.spans if sp.get("text")]
+    if not quoted:
+        return
+    by_loc = {(row.path, row.line): row for row in plan.retriever.rows} if getattr(plan, "retriever", None) is not None else {}
+    carried: set[str] = set()
+    for sp in quoted:
+        row = by_loc.get((sp["path"], sp["line"]))
+        texts = [str(sp["text"]), sp["path"].replace("/", " ").replace(".", " ").replace("_", " ")]
+        if row is not None:
+            texts += [row.heading, " ".join(sorted(row.keys)).replace("_", " ").replace(".", " ")]
+        for t in content:
+            if any(mentions(tx, t) for tx in texts if tx):
+                carried.add(t)
+    if len(carried) * 2 >= len(content):
+        return
+    missing = [t for t in content if t not in carried]
+    num = re.search(r"[-+]?\d[\d.,/%]*", str(r.answer)).group(0)
+    r.method = "q2_not_in_excerpts"
+    r.answer = (f"**Not found in the attached archive(s)** — the model's reply was only the number {num}, read from a line that says nothing of "
+                f"{', '.join(f'`{t}`' for t in missing[:4])}; a number whose line does not name what the question asks is not shown to be that value, so no claim is made.")
+    r.detail = f"NOT_FOUND_IN_EXCERPTS; bare number {num} from a line carrying {len(carried)} of the question's {len(content)} terms ({', '.join(sorted(carried)) or 'none'})"
 
 
 _NEGATIVE_ANSWER_RE = re.compile(r"^\W*(no|not|never|none)\b|\b(cannot|can't|can not|is not|isn't|are not|aren't|should not|shouldn't|must not|not yet)\b", re.I)

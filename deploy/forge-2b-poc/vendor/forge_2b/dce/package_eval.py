@@ -41,7 +41,9 @@ NOT_FOUND = re.compile(r"not found|Not found|not retrieved|does not (?:contain|m
 
 
 def load_cases(path: Path = SET) -> list[dict]:
-    return [json.loads(ln) for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    """Question rows only: a leading metadata row (``{"set": …, "sealed_utc": …}`` without ``id``/``question``) is skipped."""
+    rows = [json.loads(ln) for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    return [r for r in rows if isinstance(r, dict) and "id" in r and "question" in r]
 
 
 def visible(content: str) -> str:
@@ -100,12 +102,25 @@ def claims_and_evidence(content: str) -> tuple[str, str]:
     return "\n".join(claims), "\n".join(evidence)
 
 
+_PLAIN_RX = re.compile(r"^(?:[\w\s/:%,'-]|\\[b.]|\\s[+*]?)*$")
+
+
+def _form_tolerant(rx: str) -> str:
+    """A plain gold phrase (words, spaces, hyphens — no regex operators beyond ``\\b`` / ``\\s`` / ``\\.``) matches the
+    same words however the package spells the separators: `false side-effect` meets the row label `false_sideeffect_requests`
+    and `protected promotions` meets `protected_promotions` (live M08 / M09 G1R3E, 2026-11-06 — the engine read the right
+    rows and the strict score said miss over an underscore). Patterns with regex operators are used as written."""
+    if not _PLAIN_RX.match(rx):
+        return rx
+    return re.sub(r"(?:\\s[+*]?|[\s_-])+", r"[\\s_-]*", rx)
+
+
 def _answer_regexes_hit(case: dict, text: str) -> bool:
     # case-insensitive: a polar gold `\bno\b` must meet the lane's "No" (live L18 G1R3D after01, 2026-11-06 — the right
     # one-word answer scored as a strict miss); gold tokens are values and words, never case-distinguished
-    ok_all = all(re.search(rx, text, re.I) for rx in case.get("answer_all", []))
+    ok_all = all(re.search(_form_tolerant(rx), text, re.I) for rx in case.get("answer_all", []))
     anys = case.get("answer_any", [])
-    return ok_all and (True if not anys else any(re.search(rx, text, re.I) for rx in anys))
+    return ok_all and (True if not anys else any(re.search(_form_tolerant(rx), text, re.I) for rx in anys))
 
 
 def score_detail(case: dict, content: str) -> dict:

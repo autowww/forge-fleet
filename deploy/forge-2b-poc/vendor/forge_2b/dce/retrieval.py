@@ -32,6 +32,7 @@ STOPWORDS = {
     "any", "all", "each", "every", "only", "just", "also", "not", "no", "yes", "file", "files", "archive", "zip", "attachment", "attached",
     "configured", "set", "used", "use", "uses", "using", "value", "values", "many", "much", "number", "count", "one", "two", "three",
     "service", "according", "per", "within", "inside", "between", "both", "either", "neither", "nor", "some", "has", "have", "had", "get",
+    "under", "upon", "via", "against", "during",   # scope prepositions: "under rule 27" is about rule 27, not about `under` (live M29 G1R3E)
     "wie", "viele", "welche", "welcher", "welches", "ist", "sind", "der", "die", "das", "und", "für", "quel", "quelle", "est", "les", "des", "pour",
     "какой", "какая", "какие", "сколько", "что", "кто", "где", "який", "яка", "які", "скільки", "що", "хто", "де", "jaki", "jaka", "jakie", "ile", "co",
 }
@@ -63,9 +64,14 @@ def stems_of(word: str) -> set[str]:
         if w.endswith(suf) and len(w) - len(suf) >= 5:
             out.add(w[: -len(suf)])
     return out - {w}
+# value shapes for the head noun of a "which / what <noun>" question (shared with dag.typed_label_value)
+VALUE_RE_FOR = {"commit": r"\b[0-9a-f]{7,40}\b", "hash": r"\b[0-9a-f]{7,64}\b", "sha": r"\b[0-9a-f]{7,64}\b", "version": r"\bv?\d+\.\d+(?:\.\d+)*(?:[-+][\w.]+)?\b",
+                "date": r"\b\d{4}-\d{2}-\d{2}\b", "port": r"\b\d{2,5}\b", "tag": r"\bv?\d+\.\d+(?:\.\d+)*\b", "branch": r"\b[\w][\w./-]{2,}\b"}
 _RULE_ROW_RE = re.compile(r"^\s*(?:\|?\s*:?-{2,}:?\s*)+\|?\s*$|^\s*[-=*_]{3,}\s*$")   # markdown table rule / horizontal rule
-_LABEL_LINE_RE = re.compile(r"^\s*[-*]?\s*\**([A-Za-z][A-Za-z \-]{2,40}?)\**\s*:\s+\S")   # `Labeller: …`, `- **Owner**: …`
-_SOURCE_EXT_RE = re.compile(r"\.(?:py|js|ts|tsx|jsx|java|go|rs|c|cc|cpp|h|hpp|cs|rb|php|sh|bash|sql)$", re.I)   # program source
+_LABEL_LINE_RE = re.compile(r"^\s*[-*]?\s*\**([A-Za-z][A-Za-z_ \-]{2,40}?)\**\s*:\s+\S")   # `candidate_frozen_at: 21d608c` is a label too (live M13 G1R3E)   # `Labeller: …`, `- **Owner**: …`
+_SOURCE_EXT_RE = re.compile(r"\.(?:py|js|ts|tsx|jsx|java|go|rs|c|cc|cpp|h|hpp|cs|rb|php|sh|bash|sql|patch|diff)$", re.I)   # program source (a patch is code)
+_WHY_Q_RE = re.compile(r"^\s*(?:why|for what reason|what (?:is|was) the reason|how come)\b", re.I)
+_CAUSAL_RE = re.compile(r"\b(?:because|due to|since|as a result|owing to|caused by|reason|therefore|so that|failed|fails|failure|led to|given that)\b|\(\s*\d", re.I)
 _DUMP_EXT_RE = re.compile(r"\.(?:json|jsonl|ndjson|csv|tsv|log)$", re.I)   # machine result dumps — many near-identical leaves per case
 _PATH_RE = re.compile(r"[\w./\-\u00c0-\u024f\u0400-\u04ff\u3040-\u30ff\u4e00-\u9fff]+\.(?:md|txt|json|ya?ml|csv|py|js|ts|toml|xml|html?|sql|log|sh|ini|cfg|conf|rst|tsv)\b", re.I)
 
@@ -382,6 +388,10 @@ class Retriever:
         scope: a stem-like mention such as "the service" that *may* mean a file)."""
         terms, expanded, typo, anchors = self.analyze(query)
         strategy: list[str] = []
+        why_question = bool(_WHY_Q_RE.match(query))
+        q_words = {fold(w) for w in _WORD_RE.findall(norm(query).lower())}
+        if why_question:
+            strategy.append("why_question")
         scope = self._resolve_scope(scope_files, exclude_files)
         if focus_files and not scope_files:
             focus = self._resolve_scope(focus_files, None)["file_ids"]
@@ -434,6 +444,13 @@ class Retriever:
         literal_f = {fold(t) for t in literal_terms}
         term_words: dict[str, set[str]] = {t: {fold(t)} | ({fold(typo[t])} if t in typo else set()) | stems_of(t) for t in terms}
         stem_terms = sorted({st for t in terms for st in stems_of(t)})
+        # the head noun of a "which / what <noun>" question names the *type* of the value asked (commit, version, date), not
+        # its label: `candidate_commit:` must not become the label line for "Which commit froze the blind set?" (live K17
+        # regression 2026-11-06 — the label match was added for `candidate_frozen_at:` on "Which commit is the frozen candidate?")
+        head_m = re.match(r"^\s*(?:which|what|in which|in what)\s+(?:is\s+the\s+|was\s+the\s+)?([a-z]+)", query.strip(), re.I)
+        head_noun = fold(head_m.group(1)) if head_m else ""
+        head_value_re = re.compile(VALUE_RE_FOR[head_noun], re.I) if head_noun in VALUE_RE_FOR else None
+        long_terms = sorted({fold(t) for t in terms if len(t) >= 5 and not t.isdigit() and fold(t) != head_noun})
         if stem_terms:
             strategy.append("stems:" + ",".join(stem_terms))
         who_question = bool(_WHO_RE.match(query))
@@ -492,15 +509,18 @@ class Retriever:
                 feats["quoted"] = 3.0
             if nums and any(re.search(rf"(?<![\w.]){re.escape(n)}(?![\w.])", r.text) for n in nums):
                 feats["number"] = 1.0
-            if stem_terms and r.kind in ("paragraph", "item", "key"):
+            if (stem_terms or long_terms) and r.kind in ("paragraph", "item", "key"):
                 # a prose line that *labels* its value with a word of the question's family — `Labeller: AGENT_…` for
                 # "Who labelled the sealed set?" (live L12 G1R3D, 2026-11-06) — is the line that answers; the label is
                 # not a parsed key (the parser kept the identifier in the value), so the stem meets it here
                 lm = _LABEL_LINE_RE.match(r.text)
                 if lm:
                     lab = fold(lm.group(1))
-                    if any(st in lab for st in stem_terms):
-                        feats["label_stem"] = 3.0
+                    if any(st in lab for st in stem_terms) or any(t in lab for t in long_terms):   # `candidate_frozen_at:` says both words of "the frozen candidate" (live M13)
+                        # a label whose value is not of the asked type is not the line: `frozen_utc: 2026-11-06T07:34:20Z`
+                        # for "Which commit froze the blind set?" (live K17 after30/31 — the model read a commit off it)
+                        if head_value_re is None or head_value_re.search(r.text[lm.end() - 1:]):
+                            feats["label_stem"] = 3.0
             if not self.use_fts and any(fold(t) in lowf for t in search_terms):
                 feats["substring"] = 1.0
             if terms:   # a line that covers more distinct question words beats a structural line matching one; a literal
@@ -522,8 +542,25 @@ class Retriever:
                     feats["_cov"] = lit + via_alias + via_heading
             if explicit and r.file_id in explicit:
                 feats["path_scope"] = 2.0 if feats else (0.5 if scope_files else 0.0)
+            if why_question and feats:
+                # "Why was the verdict HOLD?" (live K04 2026-11-06, lab and Granite): `"verdict": "HOLD"` dump lines and a
+                # `+ verdict = "HOLD (…)" if …` patch line outranked `**Verdict: HOLD.** The one-time blind evaluation
+                # failed two of the three pre-registered safety gates (…)`. A reason is words *beyond* the question's:
+                # a line that only restates them explains nothing (−2.0); a line carrying a causal cue is the kind that
+                # answers (+2.0). Both are read from the line, not from the question's subject.
+                own = {w for w in _WORD_RE.findall(lowf) if len(w) > 2} - q_words - STOPWORDS
+                if len(own) < 2:
+                    # a restatement keeps its text match but no structure credit: being a key, heading or identifier
+                    # does not make `"verdict": "HOLD"` a reason
+                    for k in ("exact_key", "alias_key", "heading", "identifier", "label_stem"):
+                        feats.pop(k, None)
+                    feats["why_bare"] = -2.0
+                elif _CAUSAL_RE.search(r.text):
+                    feats["why_causal"] = 2.0
             score = sum(v for k, v in feats.items() if not k.startswith("_"))
-            if score > 0:
+            if score > 0 and r.seg_id:
+                # a line no segment covers has no verifiable pointer: it can be neither quoted nor cited, so it is not a
+                # hit (live M18 G1R3E, 2026-11-06: `source/tests/test_g1r3e_english.py:621` reached the node and failed it)
                 hits.append(Hit(r.file_id, r.path, r.line, r.seg_id, r.text, round(score, 3), feats))
         best_lit = max((h.features.get("_lit", 0) for h in hits), default=0)
         best_cov = max((h.features.get("_cov", 0) for h in hits), default=0)
@@ -579,7 +616,7 @@ class Retriever:
         # lines of program files together take at most a quarter of the slots — `f"expl.mut.recall {a['explicit_…']}"`
         # in four scoring scripts outranked the results table (live L08 G1R3D). A question that names an identifier,
         # a literal or a file is about code and keeps every slot open.
-        prose_question = not idents and not quoted and not nums and not scope_files
+        prose_question = (not idents and not quoted and not nums and not scope_files) or (why_question and not scope_files)
         source_group_cap = max_hits if (explicit or not prose_question) else max(1, max_hits // 4)
         source_used = 0
         by_loc = {(rr.file_id, rr.line): rr for rr in in_scope.values()}

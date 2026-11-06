@@ -20,7 +20,7 @@ from jsonschema import Draft202012Validator
 
 from .attachment_map import AttachmentMap, Scope
 from .ir import RequestIR
-from .retrieval import Retriever
+from .retrieval import VALUE_RE_FOR as _VALUE_RE_FOR, Retriever
 from . import tables, verdicts
 from .untrusted import scan_untrusted
 
@@ -144,7 +144,12 @@ def compile_dag(ir: RequestIR, amap: AttachmentMap) -> TaskDAG:
     goal_node: dict[str, str] = {}
     order_constraints: list[list[str]] = []
     prev_ordered: str | None = None
+    merged_into, query_override = _merge_pronoun_clauses(ir)
     for g in sorted(ir.goals, key=lambda g: (g.order_index, g.id)):
+        if g.id in merged_into:
+            goal_node[g.id] = goal_node[merged_into[g.id]]
+            continue
+        qtext = query_override.get(g.id, g.span.text)
         kind = _OP_TO_KIND.get(g.operator, "lookup")
         words = re.findall(r"\w+", g.span.text)
         if g.operator == "inspect" and not (any(t.kind == "file" for t in g.targets) and len(words) <= 4):
@@ -172,16 +177,16 @@ def compile_dag(ir: RequestIR, amap: AttachmentMap) -> TaskDAG:
                 sid = f"{g.id}_lookup_{i}"
                 nodes.append(Node(sid, "lookup", deps, [g.id], _SCHEMA_FOR["lookup"], {"files": [f], "exclude": scope["exclude"], "focus": []}, "D1",
                                   {"tokens": 800, "calls": 0}, {"min_spans": 1, "must_cite": True, "verified_pointers_only": True},
-                                  f"no span in {f} answers '{g.span.text[:60]}' → side undetermined", g.id, g.span.text, gcons))
+                                  f"no span in {f} answers '{qtext[:60]}' → side undetermined", g.id, qtext, gcons))
                 side_ids.append(sid)
             route = "D2" if g.operator == "reconcile" else "D1"
             nodes.append(Node(base_id, "compare", side_ids, side_ids, _SCHEMA_FOR["compare"], scope, route, {"tokens": 1200, "calls": 1},
                               {"min_spans": 2, "must_cite": True, "verified_pointers_only": True},
-                              "fewer than two verified sides → verdict undetermined (never guessed)", g.id, g.span.text, gcons))
+                              "fewer than two verified sides → verdict undetermined (never guessed)", g.id, qtext, gcons))
         else:
             route = _ROUTE[kind]
-            if kind == "aggregate" and ((not scope_files and manifest_count(amap, g.span.text) is not None)
-                                        or (_typed_count_possible(scope_files, amap) and typed_count(amap, scope_files, g.span.text) is not None)):
+            if kind == "aggregate" and ((not scope_files and manifest_count(amap, qtext) is not None)
+                                        or (_typed_count_possible(scope_files, amap) and typed_count(amap, scope_files, qtext) is not None)):
                 route = "D0"   # only when the deterministic count will actually fire; otherwise the model path keeps its call budget
             if kind == "verify" and g.operator == "audit":
                 route = "D0"
@@ -195,7 +200,7 @@ def compile_dag(ir: RequestIR, amap: AttachmentMap) -> TaskDAG:
                 route, calls = "D0", 0
             nodes.append(Node(base_id, kind, deps, [g.id], _SCHEMA_FOR[kind], scope, route, {"tokens": 0 if calls == 0 else (600 if kind != "summarize" else 1500), "calls": calls},
                               {"min_spans": 0 if kind in ("inventory", "parse_structure") or negated else 1, "must_cite": kind not in ("inventory", "parse_structure"),
-                               "verified_pointers_only": True}, failure, g.id, g.span.text, gcons))
+                               "verified_pointers_only": True}, failure, g.id, qtext, gcons))
         goal_node[g.id] = base_id
         if any(c.kind in ("order", "precondition") for c in g.constraints) or g.depends_on:
             if prev_ordered and prev_ordered != base_id:
@@ -311,8 +316,11 @@ def typed_count(amap: AttachmentMap, files: list[str], query: str) -> dict[str, 
         cols = [str(c) for c in (header.context.get("columns", []) if header else [])]
         explained = set().union(*(tables._words(c) for c in cols)) if cols else set()
         explained |= tables._words(f.path.replace("/", " ").replace(".", " ")) | set(filters.values()) | {"rows", "row", "entries", "entry", "records", "record", "lines", "line", "items", "item", "listed", "total"}
-        if tables._guard(tables._content_words(query), explained | tables._GENERIC):
+        cw = tables._content_words(query)
+        if tables._guard(cw, explained | tables._GENERIC):
             return None
+        if any(w in (tables._FILTER_POS | tables._FILTER_NEG) and w not in filters.values() for w in cw):
+            return None   # "passed" over a `public_pass` header is a verdict to filter by, not a header word (K08): the verdict-column filter answers it
         matched = [s for s in rows if all(str(s.context["cells"].get(c, "")).casefold() == v for c, v in filters.items())]
         return {"value": len(matched), "method": "row_count" + ("" if not filters else ":" + ",".join(f"{c}={v}" for c, v in sorted(filters.items()))),
                 "spans": [s.seg_id for s in matched], "path": f.path, "lines": [s.start_line for s in matched], "header_line": next((s.start_line for s in amap.segments_for(f.file_id) if s.kind == "header"), None)}
@@ -505,6 +513,65 @@ def typed_key_lookup(amap: AttachmentMap, hits: list[Any], query: str, retriever
             "ambiguous": len(chosen) > 1 and len(chosen_vals) > 1, "note": note}
 
 
+_TYPED_VALUE_Q_RE = re.compile(r"^\s*(?:which|what)\s+(?:is\s+the\s+|was\s+the\s+)?(commit|hash|sha|version|date|port|tag|branch)\b", re.I)
+
+
+def typed_label_value(amap: AttachmentMap, hits: list[Any], query: str) -> dict[str, Any] | None:
+    """Deterministic D0 answer for "which commit / version / date … is the X?" when the best-ranked line is a `label: value`
+    line of prose or a text file whose label words explain every content word of the question and whose value is of the
+    asked type (live M13 G1R3E, 2026-11-06: `candidate_frozen_at: 21d608c` ranked first for "Which commit is the frozen
+    candidate?", and the model quoted another commit's row of the commit table). Several such lines with different values
+    are all listed and none chosen; anything the label does not explain leaves the model path untouched."""
+    from .retrieval import _LABEL_LINE_RE, STOPWORDS, fold, norm
+    from . import tables as _tables
+    m = _TYPED_VALUE_Q_RE.match(query)
+    if not m or not hits:
+        return None
+    type_word = m.group(1).casefold()
+    val_re = re.compile(_VALUE_RE_FOR[type_word], re.I)
+    need = [w for w in _tables._content_words(query) if w != type_word and w not in ("commit", "commits")]
+    if not need:
+        return None
+
+    def _label_words(label: str) -> set[str]:
+        return {fold(w) for w in re.findall(r"[A-Za-z0-9]+", label) if len(w) > 1} - STOPWORDS
+
+    def _explains(lw: set[str], w: str) -> bool:
+        return any(w == e or (len(w) >= 4 and len(e) >= 4 and (w.startswith(e[:4]) or e.startswith(w[:4]))) for e in lw)
+
+    segs = {s.seg_id: s for s in amap.segments}
+    files = {f.file_id: f for f in amap.files}
+    found: list[dict[str, Any]] = []
+    for h in hits:
+        text = getattr(h, "text", "") or ""
+        lm = _LABEL_LINE_RE.match(text)
+        if not lm:
+            continue
+        lw = _label_words(lm.group(1))
+        if not all(_explains(lw, w) for w in need):
+            continue
+        rest = text[lm.end() - 1:]
+        vals = val_re.findall(rest)
+        if len(set(vals)) != 1:
+            continue
+        found.append({"path": h.path, "line": h.line, "seg_id": h.seg_id, "value": vals[0], "key": lm.group(1).strip()})
+    if not found or found[0]["seg_id"] != getattr(hits[0], "seg_id", None):
+        return None   # the best-ranked line is not such a label line: the verified-quote path decides
+    values = list({(v["path"], v["line"]): v for v in found}.values())
+    distinct = {v["value"] for v in values}
+    chosen = values if len(distinct) > 1 else values[:1]
+    note = "" if len(distinct) == 1 else f"{len(values)} labelled lines carry different {type_word}s and the question does not say which; all shown, none chosen"
+    corroborating = []
+    for h in hits:
+        if any(h.seg_id == v["seg_id"] for v in values):
+            continue
+        text = getattr(h, "text", "") or (segs[h.seg_id].text if h.seg_id in segs else "")
+        if len(distinct) == 1 and re.search(rf"(?<![\w-]){re.escape(next(iter(distinct)))}(?![\w-])", text):
+            corroborating.append({"path": h.path, "line": h.line, "seg_id": h.seg_id})
+    return {"method": "typed_label_value", "key": values[0]["key"], "values": chosen, "all_values": values, "corroborating": corroborating[:4],
+            "ambiguous": len(distinct) > 1, "note": note}
+
+
 # --- plan preview (GET-style, read-only) -----------------------------------------------------------------------------------
 def _row_continuation(ir: RequestIR, amap: AttachmentMap, n: Any, done: list[dict[str, Any]]) -> dict[str, Any] | None:
     goal = next((g for g in ir.goals if g.id == n.goal_id), None)
@@ -522,6 +589,36 @@ def _row_continuation(ir: RequestIR, amap: AttachmentMap, n: Any, done: list[dic
 
 
 _WHICH_FILE_RE = re.compile(r"^\s*(which|what)\s+(\w+\s+)?files?\b", re.I)
+
+
+_PRONOUN_CLAUSE_RE = re.compile(r"^\W*(?:and|,|;|then)?\s*(?:what|which|how many|how much|who|when|where)?\s*\w*\s*(?:\w+\s+){0,3}?\b(it|its|they|their|them|those|that one|the same)\b", re.I)
+
+
+def _merge_pronoun_clauses(ir: RequestIR) -> tuple[dict[str, str], dict[str, str]]:
+    """A coordinated clause whose subject is a pronoun of the previous clause is not a question of its own: "What was the
+    utterance of J165 **and what flag did it get**?" / "How many cases are in the sealed set **and what are their ids**?"
+    (live M21 / M18 G1R3E, 2026-11-06) were split into a goal and a pronoun goal that retrieved over the whole package with
+    `it` / `their` unresolved. The pronoun goal is merged into the previous goal of the same sentence: one node, whose
+    query is the sentence span from the first clause to the pronoun clause, so a table row with both named columns or a
+    line carrying both facts answers it. Clauses that name their own subject (K09's "what was observed in the blind run")
+    are left split; nothing crosses a sentence boundary."""
+    goals = sorted(ir.goals, key=lambda g: (g.order_index, g.id))
+    merged: dict[str, str] = {}
+    override: dict[str, str] = {}
+    for prev, g in zip(goals, goals[1:]):
+        if prev.id in merged:
+            continue
+        between = ir.text[prev.span.end:g.span.start]
+        if re.search(r"[.?!]", between) or len(between) > 12:
+            continue
+        if not _PRONOUN_CLAUSE_RE.match(g.span.text) or any(t.kind == "file" and t.resolved for t in g.targets):
+            continue
+        if _OP_TO_KIND.get(g.operator, "lookup") not in ("lookup", "aggregate", "verify") or _OP_TO_KIND.get(prev.operator, "lookup") not in ("lookup", "aggregate", "verify"):
+            continue
+        head = override.get(prev.id, prev.span.text)
+        override[prev.id] = (head + between + g.span.text).strip()
+        merged[g.id] = prev.id
+    return merged, override
 
 
 def typed_file_which(ir: RequestIR, amap: AttachmentMap, n: Node) -> dict[str, Any] | None:
@@ -579,7 +676,7 @@ def plan_preview(ir: RequestIR, amap: AttachmentMap, scope: Scope, *, max_hits: 
             entry["coverage"] = res.coverage
             # D0 typed operators over tables and patches (Phase 2): a named row, an extreme over a column, a patch rollup —
             # each abstains unless every content word of the question is explained by the table / patch it answers from
-            typed_table = (tables.typed_commit_range(amap, n.query) or tables.typed_table_filter(amap, n.query) or tables.typed_table_extreme(amap, n.query) or tables.typed_table_row(amap, n.query)
+            typed_table = (tables.typed_commit_range(amap, n.query) or tables.typed_table_filter(amap, n.query) or tables.typed_table_predicate(amap, n.query) or tables.typed_table_extreme(amap, n.query) or tables.typed_table_row(amap, n.query)
                            or tables.typed_diff_rollup(amap, n.query)) if n.kind != "summarize" else None
             if typed_table is None and n.kind == "lookup":
                 typed_table = typed_file_which(ir, amap, n)
@@ -604,7 +701,7 @@ def plan_preview(ir: RequestIR, amap: AttachmentMap, scope: Scope, *, max_hits: 
                     entry["typed_dated_sections"] = ts
                     entry["route_pref"] = "D0"
                 elif res.status == "FOUND" and res.hits:
-                    tk = typed_key_lookup(amap, res.hits, n.query, R)
+                    tk = typed_key_lookup(amap, res.hits, n.query, R) or typed_label_value(amap, res.hits, n.query)
                     if tk:
                         entry["typed_key_lookup"] = tk
                         entry["route_pref"] = "D0"

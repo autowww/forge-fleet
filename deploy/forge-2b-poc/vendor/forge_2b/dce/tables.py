@@ -46,7 +46,8 @@ _GENERIC = {"run", "runs", "value", "values", "number", "figure", "result", "res
             "its", "respectively", "both", "each", "per", "row", "table", "column", "entry", "across", "among", "all",
             "one", "ms", "latency", "time", "score", "rate", "level",
             "change", "changed", "changes", "move", "moved", "went", "go", "evolve", "evolved", "improve", "improved", "worsen", "worsened",
-            "carry", "carries", "carried", "hold", "holds", "held", "give", "gives", "given", "show", "shows", "shown", "stated"}
+            "carry", "carries", "carried", "hold", "holds", "held", "give", "gives", "given", "show", "shows", "shown", "stated",
+            "get", "gets", "got", "receive", "received", "receives"}
 _PATCH_Q_RE = re.compile(r"\b(patch|diff|changeset|commit)\b", re.I)
 _CHANGE_Q_RE = re.compile(r"\b(chang\w*|modif\w*|touch\w*|edit\w*|affect\w*|differ\w*)\b", re.I)
 _FILES_Q_RE = re.compile(r"\b(files?|sources?|modules?|paths?)\b", re.I)
@@ -155,6 +156,7 @@ def _hyphen_parts(query: str, explained: set[str]) -> set[str]:
     return out
 
 
+_WHY_ROW_RE = re.compile(r"^\s*(?:why|for what reason|what (?:is|was) the reason)\b", re.I)
 _COUNT_COLS = frozenset({"n", "count", "total", "cases", "size", "items", "rows", "samples"})
 _COUNTED_NOUNS = frozenset({"cases", "case", "items", "item", "entries", "entry", "records", "record", "rows", "row", "samples", "sample", "questions", "question", "sentences", "sentence", "examples", "example"})
 _HOW_MANY_RE = re.compile(r"^\s*how many\b|\bnumber of\b|\bhow much\b", re.I)
@@ -165,6 +167,7 @@ _METRIC_DESCRIPTORS = frozenset({"latency", "request", "requests", "response", "
 def _inflected_hit(col: str, qset: set[str]) -> bool:
     cw = _words(col) - STOPWORDS
     return any(w == e or (len(w) > 4 and len(e) > 4 and (w.startswith(e[:5]) or e.startswith(w[:5]))) or (len(w) > 3 and w.rstrip("s") == e.rstrip("s"))
+               or (len(e) >= 4 and w.startswith(e) and len(w) - len(e) <= 3)   # `flagged` ~ `flag(s)`
                for w in qset for e in cw)
 
 
@@ -172,6 +175,7 @@ def _guard(words: list[str], explained: set[str]) -> list[str]:
     """Question words the table cannot account for (prefix match of ≥5 chars tolerates inflection: ``labelled``/``label``)."""
     return [w for w in words if w not in explained and not w.isdigit()
             and not any(((w.startswith(e[:5]) or e.startswith(w[:5])) and len(e) > 4 and len(w) > 4) or (len(w) > 3 and w.rstrip("s") == e.rstrip("s"))
+                        or (len(e) >= 4 and w.startswith(e) and len(w) - len(e) <= 3)   # `flagged` ~ `flag(s)`, `passed` ~ `pass` (live M22 G1R3E)
                         for e in explained)]   # `test` ~ `tests` (oracle C081: "rows in the test results" over tests/results.csv)
 
 
@@ -237,13 +241,17 @@ def typed_table_row(amap: AttachmentMap, query: str, *, continuation_of: dict[st
     if keyed:
         return keyed
     qset = set(words)
+    # the label is matched against every question word, short ones included: `op pass` needs the `op` that
+    # _content_words drops (live M24 G1R3E); a one-word label must be long or carry a digit (`J165`, `H126` — ids are
+    # specific; `n` or `ms` is not)
+    qall = {fold(w) for w in _WORD_RE.findall(norm(query)) if len(w) > 1} | qset
     matches: list[tuple[Table, Row]] = []
     for t in tables_of(amap):
         for r in t.rows:
             lw = r.label_words - STOPWORDS - _UNIT_WORDS   # `short_p95_ms` answers "short-request p95 latency" (K13)
-            if len(lw) < 1 or (len(lw) == 1 and len(next(iter(lw))) < 6):
+            if len(lw) < 1 or (len(lw) == 1 and len(next(iter(lw))) < 6 and not any(ch.isdigit() for ch in next(iter(lw)))):
                 continue
-            if {_sing(w) for w in lw} <= {_sing(w) for w in qset}:
+            if {_sing(w) for w in lw} <= {_sing(w) for w in qall}:
                 matches.append((t, r))
     if not matches:
         return None
@@ -305,7 +313,10 @@ def typed_table_row(amap: AttachmentMap, query: str, *, continuation_of: dict[st
     # "the p95 latency *and* its threshold": a coordinated question asks for the metric's own cells as well as the named
     # column — the named column(s) come first, the rest of the row follows (K13 2026-11-06)
     coordinated = bool(re.search(r"\b(and|with|plus|along with|as well as)\b", query, re.I))
+    why_row = bool(_WHY_ROW_RE.match(query))   # "Why was J068 flagged?" — the whole adjudication row is the answer, not one cell (live M22 G1R3E)
     for i, (t, r) in enumerate(matches):
+        if why_row:
+            picked_cols[i] = []
         if how_many and not picked_cols[i] and count_cols[i]:
             picked_cols[i] = count_cols[i][:1]
         cols = picked_cols[i] or [c for c in t.columns[1:]]
@@ -433,6 +444,59 @@ def _affirmations(t: Table, w: str) -> int:
     return n
 
 
+_PRED_ZERO_RE = re.compile(r"\b(?:no|zero|without|none|clean(?:\s+on)?|free of)\b", re.I)
+_PRED_NONZERO_RE = re.compile(r"\b(?:any|at least one|some|nonzero|non-zero|one or more)\b", re.I)
+_SUBJECT_RE = re.compile(r"^\s*(?:which|what|list|name)\s+(?:of\s+the\s+)?([a-z][a-z_\-]+)", re.I)
+_PRED_WORDS = frozenset({"no", "zero", "without", "none", "clean", "free", "any", "least", "some", "nonzero", "non", "more", "every", "both", "all"})
+
+
+def typed_table_predicate(amap: AttachmentMap, query: str) -> dict[str, Any] | None:
+    """"Which slices had no over-grants and no cross-effects?" — the rows whose cells are zero (or non-zero) in **every**
+    column the question names; columns are matched by header words with inflection, the predicate is read once for the
+    question ("no / zero / without / clean" or "any / at least one"), and every other content word must be explained by
+    the table. A column the question does not name is not read, so "clean on every safety column" with no column named
+    `safety` yields nothing rather than a guess (live L25 G1R3D, kept as a miss). Output has the ``typed_table_filter``
+    shape so the renderer lists each row with the named cells and ``path:line``."""
+    if not _PLURAL_WHICH_RE.search(query):
+        return None
+    zero, nonzero = bool(_PRED_ZERO_RE.search(query)), bool(_PRED_NONZERO_RE.search(query))
+    if zero == nonzero:
+        return None
+    words = _content_words(query)
+    qset = {w for w in words if w not in _PRED_WORDS}
+    sm = _SUBJECT_RE.match(norm(query))
+    subject = fold(sm.group(1)) if sm else ""
+    out = []
+    for t in tables_of(amap):
+        # the rows asked for are the table's rows: "which slices" reads a table whose first column is `slice`, not the
+        # per-case CSV that merely has a `slice` column (live blind_v1.csv, 180 rows)
+        if not subject or not _inflected_hit(t.columns[0], {subject}):
+            continue
+        named = [c for c in t.columns[1:] if _inflected_hit(c, qset - {subject}) or (_hyphen_parts(query, _words(c)) & qset)]
+        numeric = [c for c in named if sum(1 for r in t.rows if _numbers(r.cells.get(c, ""))) >= max(1, len(t.rows) // 2)]
+        if not numeric:
+            continue
+        explained = _explained(t, set(_PRED_WORDS)) | set().union(*(_words(c) for c in numeric)) | _words(t.columns[0])
+        explained |= _hyphen_parts(query, explained)
+        if _guard([w for w in words if w not in _PRED_WORDS], explained):
+            continue
+        entries = []
+        for r in t.rows:
+            vals = [(c, _numbers(r.cells.get(c, ""))) for c in numeric]
+            if any(not v for _c, v in vals):
+                continue
+            ok = all(v[0] == 0 for _c, v in vals) if zero else all(v[0] != 0 for _c, v in vals)
+            if ok:
+                entries.append({"label": r.label, "line": r.seg.start_line, "seg_id": r.seg.seg_id, "cell": "; ".join(f"{c} {r.cells.get(c, '').strip()}" for c in numeric),
+                                "cells": [{"column": c, "value": r.cells.get(c, "").strip()} for c in t.columns[1:] if c not in numeric][:4]})
+        out.append({"path": t.path, "heading": " / ".join(t.heading[-1:]), "column": ", ".join(numeric), "rows_considered": len(t.rows), "entries": entries})
+    if not out:
+        return None
+    out.sort(key=lambda tb: (tb["path"].count("/"), tb["path"]))
+    note = "" if len(out) == 1 else f"{len(out)} tables name every column asked; the {min(3, len(out))} shallowest are listed, none chosen"
+    return {"method": "typed_table_filter", "op": "typed_table_predicate", "want": ("zero" if zero else "non-zero"), "tables": out[:3], "note": note}
+
+
 def typed_table_filter(amap: AttachmentMap, query: str) -> dict[str, Any] | None:
     """"Which gates failed (in the blind run)?" — the rows of the table(s) with a verdict column (``pass`` / ``status`` /
     ``result``) whose cell is a plain negative (``no``, ``fail``, ``✗``) or, for "passed", a plain positive. Tables are
@@ -500,8 +564,25 @@ def typed_table_filter(amap: AttachmentMap, query: str) -> dict[str, Any] | None
         shallowest = min(t.path.count("/") for t, _c in best)
         top_level = [(t, c) for t, c in best if t.path.count("/") == shallowest]
         if len(top_level) > 3:
-            return None
-        depth_note = f"{len(best) - len(top_level)} further table(s) with the same verdict column sit deeper in the package and are not listed"
+            # the same tier still holds several copies (live M09 G1R3E: blind_v1_REPORT, blind_v1_BURNED_postfix_REPORT and
+            # four public/burned_*_regression(_postfix)_REPORT tables): the ones whose path carries qualifiers the question
+            # does not name — burned, postfix, regression, g1r3c — are qualified copies; the plainest path is the run the
+            # unqualified question means. Ties stay unresolved.
+            qwords = set(words) | set(_WORD_RE.findall(norm(query)))
+            toks = {t.path: set(re.findall(r"[a-z0-9]+", t.path.casefold())) - qwords - STOPWORDS for t, _c in top_level}
+            common = set.intersection(*toks.values())
+            extra_ct = {pth: len(tk - common) for pth, tk in toks.items()}
+            fewest = min(extra_ct.values())
+            plain = [(t, c) for t, c in top_level if extra_ct[t.path] == fewest]
+            if len(plain) > 3 or (len(plain) == len(top_level)):
+                return None
+            plain_toks = set().union(*(toks[t.path] for t, _c in plain))
+            quals = sorted(set().union(*(toks[t.path] - common - plain_toks for t, _c in top_level if extra_ct[t.path] != fewest)))
+            depth_note = (f"{len(top_level) - len(plain)} further table(s) at the same depth carry qualifiers in their path the question does not name "
+                          f"({', '.join(quals)}) and are not listed")
+            top_level = plain
+        else:
+            depth_note = f"{len(best) - len(top_level)} further table(s) with the same verdict column sit deeper in the package and are not listed"
         best = top_level
     extra = set(_FILTER_NEG | _FILTER_POS | {"gates", "gate", "rows", "checks", "criteria", "items"})
     out_tables = []
