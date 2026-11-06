@@ -13,6 +13,9 @@ verified-quote model path:
 * ``typed_table_extreme`` — "highest / lowest <column>": the row whose cell is the extreme of the named column, the
   column chosen by header-word overlap (``p95`` + ``projection`` → ``0.4.3 parse + projection p50 / p95``), a
   ``p50 / p95`` compound cell split by the header's own ``/`` sub-labels (live K40).
+* ``typed_table_filter`` — "which gates failed": the rows of the table with a verdict column (``pass`` / ``status``)
+  whose cell is a plain negative (or positive for "passed"); several verdict tables are narrowed by heading words
+  (``blind``) and the operator abstains when the question does not single one out (live K06).
 * ``typed_diff_rollup`` — "which files did the patch change": every ``diff_file`` segment of the ``.patch`` /
   ``.diff`` files with status and ±counts (live K33).
 
@@ -144,10 +147,60 @@ def _numbers(cell: str) -> list[float]:
 
 
 # --- row lookup --------------------------------------------------------------------------------------------------------------
+_CODE_RE = re.compile(r"(?<![\w-])([A-Z]{1,3}\d{1,4})(?![\w-])")
+_WH_OTHER_RE = re.compile(r"^\s*(who|whom|whose|why|when|where)\b", re.I)
+
+
+def _keyed_row(amap: AttachmentMap, query: str, words: list[str]) -> dict[str, Any] | None:
+    """``What is the acceptance criterion for item B1 …`` (K25): an identifier-style label (``B1``, ``E040``) written in
+    the question that is the label of exactly one table row in the package, plus at least one named column of that
+    table, is a key lookup — the code pins the row, the column word pins the cell. The word guard is relaxed to the
+    words that could ask for another *kind* of data: a leftover word that is a column header word of another table
+    aborts (``… for item B1 in the latency table``); a common noun that merely occurs in another table's row label
+    (``increment`` in ``Post-blind safety increment``) cannot outrank the identifier and is let through."""
+    if _WH_OTHER_RE.match(query):
+        return None
+    codes = {c.casefold() for c in _CODE_RE.findall(query)}
+    if len(codes) != 1:
+        return None
+    code = next(iter(codes))
+    ts = tables_of(amap)
+    hits = [(t, r) for t in ts for r in t.rows if r.label.casefold() == code]
+    if len(hits) != 1:
+        return None
+    t, r = hits[0]
+    qset = set(words)
+    # ``item B1`` / ``case E040``: the word in front of the code names the row's kind, not a column to read
+    m = re.search(r"([^\W\d_]+)\s+" + re.escape(code), query, re.I)
+    determiner = {fold(m.group(1))} if m else set()
+    cols = [c for c in t.columns[1:] if (_words(c) - STOPWORDS) & qset]
+    narrowed = [c for c in cols if (_words(c) - STOPWORDS) & (qset - determiner)]
+    cols = narrowed or cols
+    if not cols:
+        return None
+    other_words: set[str] = set()
+    for o in ts:
+        if o is not t:
+            for c in o.columns:
+                other_words |= _words(c)
+    other_words -= STOPWORDS | _GENERIC | {code} | _explained(t, set())
+    leftover = [w for w in _guard(words, _explained(t, {code}) | r.label_words) if w in other_words]
+    if leftover:
+        return None
+    entry = {"path": t.path, "line": r.seg.start_line, "seg_id": r.seg.seg_id, "label": r.label,
+             "cells": [{"column": c, "value": r.cells.get(c, "").strip()} for c in cols if r.cells.get(c, "").strip()], "columns_named": True}
+    if not entry["cells"]:
+        return None
+    return {"method": "typed_table_row", "label": r.label, "entries": [entry], "note": "", "keyed": True}
+
+
 def typed_table_row(amap: AttachmentMap, query: str) -> dict[str, Any] | None:
     words = _content_words(query)
     if len(words) < 2:
         return None
+    keyed = _keyed_row(amap, query, words)
+    if keyed:
+        return keyed
     qset = set(words)
     matches: list[tuple[Table, Row]] = []
     for t in tables_of(amap):
@@ -252,6 +305,77 @@ def typed_table_extreme(amap: AttachmentMap, query: str) -> dict[str, Any] | Non
     return {"method": "typed_table_extreme", "extreme": "highest" if want_max else "lowest", "column": col, "sub": None if sub is None else col.split("/")[sub].strip(),
             "label": r.label, "value": val, "cell": cell.strip(), "path": t.path, "line": r.seg.start_line, "seg_id": r.seg.seg_id,
             "rows_considered": len(scored), "others": [{"label": x[1].label, "value": x[0], "line": x[1].seg.start_line} for x in sorted(scored, key=lambda x: -x[0] if want_max else x[0])[1:4]]}
+
+
+_FILTER_NEG = {"failed", "fail", "fails", "failing", "missed", "unmet", "red"}
+_FILTER_POS = {"passed", "pass", "passes", "passing", "met", "green"}
+_VERDICT_COLS = {"pass", "passed", "status", "result", "verdict", "ok", "met", "outcome"}
+_NEG_CELLS = {"no", "fail", "failed", "false", "✗", "❌", "x", "miss", "missed", "unmet", "red", "n"}
+_POS_CELLS = {"yes", "pass", "passed", "true", "✓", "✔", "✅", "ok", "met", "green", "y"}
+_PLURAL_WHICH_RE = re.compile(r"^\s*(which|what|list|name|how many)\b", re.I)
+_NEGATED_FILTER_RE = re.compile(r"\b(not|n't|never|no|without|didn.t|don.t|doesn.t)\b[^.?!]{0,24}?\b(" + "|".join(sorted(_FILTER_NEG | _FILTER_POS)) + r")\b", re.I)
+
+
+_DENIAL_RE = r"(?<![\w])(not|non|no|never|without|post|pre|after|before|ex)[ _-](a |an |the )?{w}(?![\w])"
+
+
+def _affirmations(t: Table, w: str) -> int:
+    """How often a heading of the table or its path carries ``w`` *affirmatively*: "not a blind result" and
+    ``POST_BLIND_PUBLIC/`` name blind only to deny it, so they count zero."""
+    n = 0
+    for text in [*t.heading, t.path.replace("/", " ").replace(".", " ")]:
+        low = norm(text)
+        n += max(0, len(re.findall(rf"(?<![\w]){re.escape(w)}(?![\w])", low)) - len(re.findall(_DENIAL_RE.format(w=re.escape(w)), low)))
+    return n
+
+
+def typed_table_filter(amap: AttachmentMap, query: str) -> dict[str, Any] | None:
+    """"Which gates failed (in the blind run)?" — the rows of the table(s) with a verdict column (``pass`` / ``status`` /
+    ``result``) whose cell is a plain negative (``no``, ``fail``, ``✗``) or, for "passed", a plain positive. Tables are
+    chosen by the verdict column and narrowed by the question words their headings / paths carry affirmatively ("not a
+    blind result" does not count as blind); when several tables tie, each is listed with its own ``path:line`` rows, as
+    ``typed_table_row`` does, and none is chosen. Every other content word must be explained by the table."""
+    words = _content_words(query)
+    if not _PLURAL_WHICH_RE.search(query):
+        return None
+    neg = {w for w in words if w in _FILTER_NEG}
+    pos = {w for w in words if w in _FILTER_POS}
+    if bool(neg) == bool(pos):
+        return None
+    if _NEGATED_FILTER_RE.search(norm(query)):
+        neg, pos = pos, neg   # "which tests did not pass" asks for the failures (oracle C025)
+    want = _NEG_CELLS if neg else _POS_CELLS
+    cands: list[tuple[Table, str]] = []
+    for t in tables_of(amap):
+        for c in t.columns[1:]:
+            if _words(c) & _VERDICT_COLS and any(fold(r.cells.get(c, "").strip().strip("*`_ ")) in (_NEG_CELLS | _POS_CELLS) for r in t.rows):
+                cands.append((t, c))
+                break
+    if not cands:
+        return None
+    rest = [w for w in words if w not in _FILTER_NEG | _FILTER_POS]
+    # distinct question words a table carries affirmatively, then how often: the blind summary and the blind report both
+    # say "blind" twice over, the public re-run names it once and only to deny it (live K06)
+    scored = [((sum(1 for w in rest if _affirmations(t, w) or w in _words(c)), sum(_affirmations(t, w) for w in rest)), t, c) for t, c in cands]
+    top = max(sc for sc, *_ in scored)
+    if top[0] == 0 and len(cands) > 1:
+        return None   # nothing in the question says which verdict table
+    best = [(t, c) for sc, t, c in scored if sc == top]
+    if len(best) > 3:
+        return None
+    extra = set(_FILTER_NEG | _FILTER_POS | {"gates", "gate", "rows", "checks", "criteria", "items"})
+    out_tables = []
+    for t, col in best:
+        if _guard(words, _explained(t, extra | _words(col))):
+            return None
+        rows = [r for r in t.rows if fold(r.cells.get(col, "").strip().strip("*`_ ")) in want]
+        out_tables.append({"path": t.path, "column": col, "heading": t.heading[-1] if t.heading else "", "rows_considered": len(t.rows),
+                           "entries": [{"label": r.label, "cell": r.cells.get(col, "").strip(), "line": r.seg.start_line, "seg_id": r.seg.seg_id,
+                                        "cells": [{"column": c, "value": v.strip()} for c, v in r.cells.items() if c != col and v.strip() and v.strip() != r.label][:3]} for r in rows]})
+    if not any(tb["entries"] for tb in out_tables):
+        return None   # "none" would be a claim without a span to carry it; the verified-quote path answers that
+    note = "" if len(out_tables) == 1 else f"{len(out_tables)} tables carry a verdict column the question fits equally well; each is listed and none is chosen"
+    return {"method": "typed_table_filter", "want": "negative" if neg else "positive", "tables": out_tables, "note": note}
 
 
 # --- patch rollup --------------------------------------------------------------------------------------------------------------

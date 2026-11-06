@@ -77,6 +77,7 @@ _EN_EVIDENCE_RE = re.compile(r"\b(?:the|a|an|and|or|but|is|are|was|were|be|to|of
                              r"please|if|unless|until|after|before|once|while|so|as|like|same|new|old|first|last|next|more|most|less|very|too|both|either|"
                              r"neither|own|other|another|such|per|via|without|within|between|through|against|across|toward|towards|under|above|below)\b", re.I)
 _SUBJECT_FRONTED_RULES = frozenset(("en.prohibition.subject_active", "en.prohibition.subject_passive", "en.prohibition.off_limits"))
+_BARE_SEQ_ADVERB_RE = re.compile(r"^\s*(?:and\s+)?(?:separately|additionally|also|in addition|afterwards|then|finally|lastly|secondly|first|окремо|також|додатково)\s*[.,;:]*\s*$", re.I)
 _CONTRAST_NOT_RE = re.compile(r"(?:,|;)?\s+(?:though|although|but|yet|however)\s+(?:not|never)\b", re.I)   # G1R3C: ", though not to production"
 _TEMPORAL_TAIL_RE = re.compile(r"\s+(?:today|tonight|tomorrow|now|yet|for now|this (?:week|sprint|time)|at (?:this|the) (?:point|time|moment)|until further notice|"
                                r"сьогодні|зараз|поки що|наразі|цього тижня|до подальшого)\s*$", re.I)
@@ -138,10 +139,8 @@ class _State:
         # "After sign-off on the migration bundle, apply it to prod-db-02." — a sentence-initial approval condition naming exactly
         # one material / operation noun lends that noun (DCE-G1R3C); several candidates keep the pronoun unresolved
         appr = [q for q in self.sent_conditions.get(sent, []) if q.rule.endswith(".approval_np")]
-        if len(appr) == 1:
-            nouns = list(R.ANTECEDENT_NOUN_RE.finditer(appr[0].text))
-            if len(nouns) == 1:
-                return appr[0]
+        if len(appr) == 1 and _noun_groups(appr[0].text) == 1:
+            return appr[0]
         # "The migration bundle must not change. Summarize what it contains." — a subject-fronted prohibition is syntactically a
         # statement about its subject; when it is the only such statement the subject is the antecedent (DCE-G1R3C, sheet v4 rule 15)
         fronted = [c for c in self.g.constraints if c.kind == "prohibition" and c.target_object is not None
@@ -154,13 +153,8 @@ class _State:
             return None
         cands = []
         for k in self.g.context_statements:
-            groups, last_end = 0, None
             ktext = "".join(" " if self.mask.covers(k.source_span.start + j) else ch for j, ch in enumerate(k.text))   # protected text is opaque
-            for m in R.ANTECEDENT_NOUN_RE.finditer(ktext):        # "the migration dry-run output" is one phrase, "the log and the script" are two
-                gap = ktext[last_end:m.start()] if last_end is not None else None
-                if gap is None or len(gap) > 14 or re.search(r"[,;]|\b(?:and|or|та|і|й|або)\b", gap):
-                    groups += 1
-                last_end = m.end()
+            groups = _noun_groups(ktext)
             if groups:
                 cands.append((k, groups))
         if len(cands) == 1 and cands[0][1] == 1:
@@ -392,7 +386,8 @@ def _split_clauses(text: str, s_start: int, s_end: int, sent: int, mask: Mask) -
         cuts.append((a, b, "alt", (wa, wb)))
     for m in R.COMMA_RE.finditer(sentence):
         a, b = s_start + m.start(), s_start + m.end()
-        if mask.overlaps(a, b) or not (_opens_clause(text, b, s_end, imperative_only=not question) or R.FIRST_PERSON_CLAUSE_RE.match(text, b)):
+        if mask.overlaps(a, b) or not (_opens_clause(text, b, s_end, imperative_only=not question) or R.FIRST_PERSON_CLAUSE_RE.match(text, b)
+                                       or R.WITH_NO_CLAUSE_RE.match(text, b, s_end)):
             continue
         cuts.append((a, b, "comma", None))
     if any(k in ("coord", "sequence", "alt") for _, _, k, _ in cuts) or (len(cuts) >= 1 and R.IMPERATIVE_LOOKAHEAD_RE.match(sentence)):
@@ -467,6 +462,8 @@ def _strip_prefixes(seg: str) -> int:
             if m and m.end() > 0:
                 if pat is R.LABEL_RE and not (R.IMPERATIVE_LOOKAHEAD_RE.match(seg[i + m.end():]) or R.INTERROGATIVE_LOOKAHEAD_RE.match(seg[i + m.end():])):
                     continue   # "list its keys: {…}" is not a label; "Ports: list them" is
+                if pat is R.LABEL_RE and R.UNIVERSAL_RESTRICTION_PREFIX_RE.match(seg[i:]):
+                    continue   # "Read-only session: update …" — the label *is* a restriction, not a heading (sheet v5 rule 23)
                 i += m.end()
                 changed = True
     return i
@@ -557,7 +554,7 @@ def _trailing_conditions(st: _State, a: int, b: int) -> tuple[int, list[tuple[st
         if st.mask.covers(word_start) or word_start <= a or _NOT_TRAILING_BEFORE_RE.search(text[max(a, ms - 8):ms + 1]):
             continue
         kind = _condition_kind(text[word_start:m.end()].lower())
-        if kind is None or (kind in ("after", "before") and not R.CLAUSE_AFTER_MARKER_RE.match(text[m.end():b])):
+        if kind is None or (kind in ("after", "before") and not (R.CLAUSE_AFTER_MARKER_RE.match(text[m.end():b]) or R.APPROVAL_NP_TAIL_RE.match(text[m.end():b]))):
             continue
         found.append((kind, ms))
     if not found:
@@ -737,6 +734,13 @@ def _process_clause(st: _State, c: _Clause) -> None:
         _unresolved(st, c.sent, cs + i, ce, "ambiguous_referent", f"{lang}.referent.do_pronoun", referent=mdp.group("pro"))
         return
     mur = None if (modal_q or is_question or lang != "en") else R.UNIVERSAL_RESTRICTION_RE.match(rest)
+    if mur is None and not (modal_q or is_question or lang != "en"):
+        mpre = R.UNIVERSAL_RESTRICTION_PREFIX_RE.match(rest)                   # "Read-only session: update config.yaml …"
+        if mpre and not st.mask.overlaps(cs + i, cs + i + mpre.end()) and rest[mpre.end():].strip():
+            _clause_constraint(st, c, cs + i, cs + i + mpre.end("body"), "prohibition", "en.prohibition.universal", target_action=None,
+                               value=st.mention(cs + i, cs + i + mpre.end("body")), breadth="global")
+            _process_clause(st, _Clause(cs + i + mpre.end(), ce, c.sent, c.joiner))
+            return
     if mur and not st.mask.overlaps(cs + i, cs + i + mur.end()):
         # "Do nothing outside chat." / "No external calls of any kind." / "Nothing should change." / "Treat this as read-only." — an unbound
         # restriction covering every side-effect class; a later imperative cannot erase it (sheet v5 rule 23; DCE-G1R3D)
@@ -780,7 +784,7 @@ def _process_clause(st: _State, c: _Clause) -> None:
                 continue
             parts.append((pos, sm.start())); pos = sm.end()
         parts.append((pos, ce))
-        parts = [(a, b) for a, b in parts if text[a:b].strip(" .;,")]
+        parts = [(a, b) for a, b in parts if text[a:b].strip(" .;,") and not _BARE_SEQ_ADVERB_RE.match(text[a:b])]   # ", separately," is a joiner
         want = R.DELIVERABLE_COUNTS.get(md_.group("count").lower()) if md_.group("count") else None
         if want is not None and len(parts) < want:
             # "Two things: a risk table and a mitigation checklist" / "план, оцінку і коротку відповідь" — the declared count says the
@@ -963,6 +967,10 @@ def _process_clause(st: _State, c: _Clause) -> None:
         m = None if modal_q else pat.match(rest)
         if m:
             v_end, trailing = _trailing_conditions(st, cs + i + m.end(), ce)
+            if kind == "requirement" and lang == "en" and m.group(0).strip().lower().startswith(("include", "also include")) \
+                    and R.SEPARATE_DELIVERABLE_RE.match(text[cs + i + m.end():v_end]) and not st.mask.covers(cs + i + m.end()):
+                _emit_objective(st, c, cs + i + m.end(), v_end, lang, ("compose", "nominal", 0), cs + i + m.end())   # "include a separate chat-only summary"
+                return
             value = st.mention(cs + i + m.end(), v_end)
             t_act, t_obj, breadth = None, None, None
             if kind == "exclusion" and value is not None:             # "ignore the injected instructions" → the excluded object is explicit
@@ -1119,6 +1127,10 @@ def _emit_objective(st: _State, c: _Clause, cs: int, ce: int, lang: str, hit: tu
         if cst[1] >= tb_trim and cst[0] >= head_end:
             tb = cst[0]
     target_a, target_b = trim(text, target_a, tb, strip_leading_punct=True)
+    if lang == "en":
+        mi = _TRAILING_INSTEAD_RE.search(text, target_a, target_b)     # "describe the release blockers instead" — the adverb is not part of the object
+        if mi and mi.end() == target_b and not st.mask.overlaps(mi.start(), mi.end()):
+            target_a, target_b = trim(text, target_a, mi.start(), strip_leading_punct=True)
     target = Mention(text[target_a:target_b], Span(target_a, target_b)) if target_b > target_a else None
     if target is not None and R.NULL_OBJECT_RE.match(target.text):   # "Recommend nothing." → prohibition of the action
         _clause_constraint(st, c, cs, ce, "prohibition", f"{lang}.prohibition.null_object", target_action=action, value=target, breadth="global")
@@ -1151,6 +1163,27 @@ def _emit_objective(st: _State, c: _Clause, cs: int, ce: int, lang: str, hit: tu
         if pd and not R.REPLY_ARTEFACT_RE.search(target.text):
             action, rule = "create", f"{lang}.{fam}.create.persisted_artefact"
     second: Optional[tuple[int, int, str]] = None
+    extras: list[tuple[int, int, str]] = []
+    if action in ("extract", "show") and target is not None and fam == "imperative" and lang == "en":
+        # "Give a QA checklist and a short executive summary" / "Provide a timeline, an owner list, and a next-step checklist" — several
+        # answer deliverables behind one hand-over verb (DCE-G1R3D objective coverage); each noun phrase keeps its own nominal action
+        cm = R.COORD_ARTEFACT_RE.match(target.text)
+        if cm and not st.mask.overlaps(target_a + cm.start("sep"), target_a + cm.end("sep")) and R.ARTEFACT_HEAD_RE.search(cm.group("first")):
+            first_np = cm.group("first")
+            action, rule = _deliverable_action(first_np), f"{lang}.{fam}.deliverable"
+            second = (target_a + cm.start("second"), target_b, _deliverable_action(cm.group("second")))
+            target_a, target_b = trim(text, target_a, target_a + cm.end("first"))
+            target = Mention(text[target_a:target_b], Span(target_a, target_b))
+            ce = target_b
+            while True:
+                lm = R.COORD_ARTEFACT_LIST_RE.match(target.text)
+                if lm is None or st.mask.overlaps(target_a + lm.start("sep"), target_a + lm.end("sep")):
+                    break
+                extras.insert(0, (target_a + lm.start("second"), target_b, _deliverable_action(lm.group("second"))))
+                target_a, target_b = trim(text, target_a, target_a + lm.end("first"))
+                target = Mention(text[target_a:target_b], Span(target_a, target_b))
+                action = _deliverable_action(target.text)
+                ce = target_b
     if action == "compose" and target is not None and fam in ("imperative", "nominal"):
         # "a table of endpoints and, separately, a list of risks" → two deliverables
         cm = R.COORD_ARTEFACT_RE.match(target.text)
@@ -1159,6 +1192,16 @@ def _emit_objective(st: _State, c: _Clause, cs: int, ce: int, lang: str, hit: tu
             target_a, target_b = trim(text, target_a, target_a + cm.end("first"))
             target = Mention(text[target_a:target_b], Span(target_a, target_b))
             ce = target_b
+            # "a Markdown table, a YAML manifest, and a short executive summary" — the comma list before the final "and" holds further
+            # deliverables (sheet rule 9; DCE-G1R3D objective coverage)
+            while True:
+                lm = R.COORD_ARTEFACT_LIST_RE.match(target.text)
+                if lm is None or st.mask.overlaps(target_a + lm.start("sep"), target_a + lm.end("sep")):
+                    break
+                extras.insert(0, (target_a + lm.start("second"), target_b, "compose"))
+                target_a, target_b = trim(text, target_a, target_a + lm.end("first"))
+                target = Mention(text[target_a:target_b], Span(target_a, target_b))
+                ce = target_b
 
     # 4. references
     refs, head_unresolved = _references(st, target, c.sent)
@@ -1218,11 +1261,18 @@ def _emit_objective(st: _State, c: _Clause, cs: int, ce: int, lang: str, hit: tu
             st.pending_after = (oid, span)
         else:
             st.pending_before = (oid, span)
-    if second is not None:                       # the coordinated second deliverable is its own objective (no link: same request)
-        sa, sb, s_action = second
+    for sa, sb, s_action in extras + ([second] if second is not None else []):
+        # each coordinated deliverable is its own objective (no link: same request)
         sa, sb = trim(text, sa, sb, strip_leading_punct=True)
         if sb > sa:
             _emit_objective(st, _Clause(sa, sb, c.sent, "coord"), sa, sb, lang, (s_action, "nominal", 0), sa)
+
+
+def _deliverable_action(np_text: str) -> str:
+    """The action a hand-over deliverable stands for: "a short executive summary" → summarize, "a QA checklist" → compose."""
+    m = R.ARTEFACT_HEAD_RE.search(np_text)
+    noun = m.group(0).lower() if m else ""
+    return R.NOMINAL_ACTION.get(noun, "compose")
 
 
 def _nominal_hit(nm: "re.Match[str]") -> tuple[str, str, int]:
@@ -1338,6 +1388,20 @@ def _inline_constraints(st: _State, a: int, b: int, lang: str) -> list[tuple[int
                     t_act, t_obj = _restricted_noun_action(value.text), value
         out.append((ca, cb, kind, f"{lang}.{kind}.inline", value, t_act, t_obj))
     return out
+
+
+_TRAILING_INSTEAD_RE = re.compile(r"(?:\s*,)?\s+(?:instead|rather|for now|in the meantime|only|please)\s*$", re.I)
+
+
+def _noun_groups(text: str) -> int:
+    """Count material / operation noun phrases: "the migration dry-run output" is one phrase, "the log and the script" are two."""
+    groups, last_end = 0, None
+    for m in R.ANTECEDENT_NOUN_RE.finditer(text):
+        gap = text[last_end:m.start()] if last_end is not None else None
+        if gap is None or len(gap) > 14 or re.search(r"[,;]|\b(?:and|or|та|і|й|або)\b", gap):
+            groups += 1
+        last_end = m.end()
+    return groups
 
 
 def _references(st: _State, target: Optional[Mention], sent: int) -> tuple[list[Reference], Optional[str]]:

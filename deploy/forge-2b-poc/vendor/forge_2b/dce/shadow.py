@@ -181,11 +181,12 @@ Q2_MAX_TOKENS = 400          # the legacy contract's completion budget
 Q2_MAX_TOKENS_RETRY = 900    # second attempt after an object the token limit cut (qwen3.5 spends part of the budget on reasoning)
 
 
-async def q2_decide(call_llm: LlmCall, question: str, hits: list[attach.Hit], *, max_attempts: int) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
-    """The existing fixed-model Q2 contract (JSON {found, answer, quotes}) with verbatim-quote verification. Unchanged schema."""
+async def q2_decide(call_llm: LlmCall, question: str, hits: list[attach.Hit], *, max_attempts: int,
+                    user_tail: str | None = None) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    """The existing fixed-model Q2 contract (JSON {found, answer, quotes}) with verbatim-quote verification. Unchanged schema.
+    ``user_tail`` is an optional directive appended to the first user turn (the escalation re-asks use it)."""
     hint: str | None = None
     json_only = False
-    user_tail: str | None = None
     max_tokens = Q2_MAX_TOKENS
     attempts: list[dict[str, Any]] = []
     for attempt in range(1, max_attempts + 1):
@@ -214,7 +215,8 @@ async def q2_decide(call_llm: LlmCall, question: str, hits: list[attach.Hit], *,
                 max_tokens = Q2_MAX_TOKENS_RETRY
             continue
         salvaged = cand.pop("salvaged", None)
-        problems = attach.verify_quotes(cand, hits)
+        problems = attach.verify_quotes(cand, hits, repair=True)
+        repaired = [f"{q['path']}:{q['line']}={q.pop('repaired')}" for q in cand["quotes"] if q.get("repaired")]
         if problems:
             attempts.append({"attempt": attempt, "failure": "QUOTE_NOT_VERBATIM", "problems": problems[:3], "ms": ms})
             hint = problems[0]
@@ -225,7 +227,8 @@ async def q2_decide(call_llm: LlmCall, question: str, hits: list[attach.Hit], *,
         cand["found"] = bool(cand["quotes"])
         attempts.append({"attempt": attempt, "status": "COMMITTED", "ms": ms, "served": served,
                          "prompt_sha256": hashlib.sha256(json.dumps(msgs, sort_keys=True).encode()).hexdigest(),
-                         **({"salvaged": salvaged} if salvaged else {}), **({"max_tokens": max_tokens} if max_tokens != Q2_MAX_TOKENS else {})})
+                         **({"salvaged": salvaged} if salvaged else {}), **({"repaired": repaired} if repaired else {}),
+                         **({"max_tokens": max_tokens} if max_tokens != Q2_MAX_TOKENS else {})})
         return cand, attempts
     return None, attempts
 
@@ -245,6 +248,24 @@ def _is_bare_title(text: str) -> bool:
     return bool(t) and not re.search(r"[\d:=,|\"'()\[\]{}<>]", t) and len(t.split()) <= 4
 
 
+_ANSWER_NUM_RE = re.compile(r"(?<![\w.])\d+(?:[.,]\d+)*(?![\w.])")
+
+
+def numbers_not_in_quotes(answer: str, quoted_texts: list[str]) -> list[str]:
+    """Numbers the answer states that occur in none of the quoted lines (decimal comma and dot, thousands separators
+    folded; a bare integer also matches `n/m`, `n%` and `(n)` forms since they are substrings). Empty = every number
+    in the sentence is carried by a quote."""
+    hay = " ".join(quoted_texts).replace(",", ".").replace("\u00a0", " ")
+    hay_tokens = set(re.findall(r"\d+(?:\.\d+)*", hay))
+    loose = []
+    for m in _ANSWER_NUM_RE.findall(answer):
+        n = m.replace(",", ".")
+        if n in hay_tokens or any(t.startswith(n + ".") or t.endswith("." + n) or t == n.strip("0") for t in hay_tokens):
+            continue
+        loose.append(m)
+    return list(dict.fromkeys(loose))
+
+
 def quote_relevance_gap(plan: Plan, question: str, quoted: list[dict[str, Any]], hits: list[attach.Hit]) -> str | None:
     """Deterministic guard for a quote that is verbatim-correct but off-topic (observed live 2026-11-05: a 2B model asked to
     'find README.md, quote its exact sentinel' quoted the README title line). Returns a detail string when none of the
@@ -253,22 +274,20 @@ def quote_relevance_gap(plan: Plan, question: str, quoted: list[dict[str, Any]],
     return quote_relevance(plan, question, quoted, hits)[0]
 
 
-def quote_relevance(plan: Plan, question: str, quoted: list[dict[str, Any]], hits: list[attach.Hit]) -> tuple[str | None, list[attach.Hit]]:
-    """`quote_relevance_gap` plus the on-topic excerpts it found (the lines that share a content term with the question and
-    were not quoted). The executor re-asks the model once over exactly those lines (`q2_on_topic_retry`)."""
+def _content_terms(plan: Plan, question: str, *, keep_file_words: bool = False) -> tuple[list[str], Callable[[str, str], bool], list[str]]:
+    """The question's content terms (request words, file-name words, numbers and excluded/negated parts removed), a
+    ``mentions(text, term)`` test that accepts the term, its typo repair, its curated alias phrases and inflections, and
+    the question's anchors. Shared by the quote-relevance guard and the not-found escalation."""
     # what the user excluded ("other than the health endpoint", "but not the README") is not a content term to look for
     q = lexicon.EXCLUSION_RE.sub(" ", question)
     q = lexicon.NEGATION_RE.sub(" ", q)
-    terms, expanded, typo, _anchors = plan.retriever.analyze(q)
+    terms, expanded, typo, anchors = plan.retriever.analyze(q)
     file_words: set[str] = set()
     for f in plan.amap.files:
         for part in re.split(r"[/.\-_]", retrieval.norm(f.path)):
             if part:
                 file_words.add(part)
-    content = [t for t in terms if t not in _REQUEST_WORDS and t not in file_words and not t.isdigit()]
-    if not content:
-        return None, []
-
+    content = [t for t in terms if t not in _REQUEST_WORDS and (keep_file_words or t not in file_words) and not t.isdigit()]
     table = getattr(plan.retriever, "alias_table", None)
 
     def variants(t: str) -> list[str]:
@@ -286,6 +305,37 @@ def quote_relevance(plan: Plan, question: str, quoted: list[dict[str, Any]], hit
             if len(v) >= 4 and any(len(w) >= 4 and (w.startswith(v[:5]) or v.startswith(w[:5])) for w in words):
                 return True   # inflection: tests/test, passed/pass, released/release
         return False
+
+    return content, mentions, anchors
+
+
+def covering_excerpts(plan: Plan, question: str, hits: list[attach.Hit]) -> tuple[list[tuple[attach.Hit, list[str]]], list[str]]:
+    """Excerpt lines that carry most of the question's content terms — all of them when the question has three or fewer,
+    otherwise at least two thirds — the deterministic trigger for not accepting a model's ``found: false`` at once.
+    Half was too loose (live K36 2026-11-06: "production database password" re-asked over a line about *rotating* the
+    database password, and the model then quoted it as the answer to an absent question). Returns ``[(hit, covered_terms)]``
+    best first, plus the content terms. Words that are also file-name parts stay in (``blind`` in a package with a
+    ``BLIND/`` folder is still what "who labelled the blind set" is about — live K16: the covering line was excerpt 1 and
+    the trigger never fired because only ``labelled`` was left)."""
+    content, mentions, _anchors = _content_terms(plan, question, keep_file_words=True)
+    if len(content) < 2:
+        return [], content
+    need = len(content) if len(content) <= 3 else max(3, -(-2 * len(content) // 3))
+    scored = []
+    for h in hits:
+        covered = [t for t in content if mentions(h.text, t)]
+        if len(covered) >= need:
+            scored.append((h, covered))
+    scored.sort(key=lambda hc: -len(hc[1]))
+    return scored, content
+
+
+def quote_relevance(plan: Plan, question: str, quoted: list[dict[str, Any]], hits: list[attach.Hit]) -> tuple[str | None, list[attach.Hit]]:
+    """`quote_relevance_gap` plus the on-topic excerpts it found (the lines that share a content term with the question and
+    were not quoted). The executor re-asks the model once over exactly those lines (`q2_on_topic_retry`)."""
+    content, mentions, _anchors = _content_terms(plan, question)
+    if not content:
+        return None, []
 
     quoted_texts = [str(q.get("text", "")) for q in quoted]
     # a table header quoted for a question that names a row by its code ("item B1", "case E040"; live K25 2026-11-06:
@@ -538,6 +588,18 @@ async def execute(plan: Plan, ings: list[zipingest.Ingest], call_llm: LlmCall | 
                                 + (f", next: {others}" if others else "") + ")")
                     loc = plan.amap.resolve(tt["seg_id"], plan.scope)
                     r.spans.append({"path": tt["path"], "line": tt["line"], "text": loc["text"].split("\n")[0][:200], "seg_id": tt["seg_id"]})
+                elif tt["method"] == "typed_table_filter":
+                    blocks = []
+                    for tb in tt["tables"]:
+                        where = f" under *{tb['heading']}*" if tb.get("heading") else ""
+                        lines = [f"- **{en['label']}** — `{tb['column']}`: {en['cell']}" + ("; " + "; ".join(f"{c['column']}: {c['value']}" for c in en["cells"]) if en["cells"] else "")
+                                 + f" (`{tb['path']}:{en['line']}`)" for en in tb["entries"]]
+                        blocks.append(f"**{len(tb['entries'])} of {tb['rows_considered']} row(s)** with a {tt['want']} `{tb['column']}` in `{tb['path']}`{where}:\n" + "\n".join(lines))
+                        for en in tb["entries"]:
+                            loc = plan.amap.resolve(en["seg_id"], plan.scope)
+                            r.spans.append({"path": tb["path"], "line": en["line"], "text": loc["text"].split("\n")[0][:200], "seg_id": en["seg_id"]})
+                    r.answer = "\n\n".join(blocks) + " \n_(read from the table, no model called)_" + (f"\n_{tt['note']}_" if tt["note"] else "")
+                    r.detail = tt["note"]
                 elif tt["method"] == "typed_commit_range":
                     lines = [f"- `{c['sha']}` {c['subject']} (`{tt['path']}:{c['line']}`)" for c in tt["commits"]]
                     r.answer = (f"**{len(tt['commits'])} commit(s)** after `{tt['older']}` up to `{tt['newer']}` in `{tt['path']}` ({tt['log_lines']} log lines read, no model called):\n"
@@ -572,6 +634,13 @@ async def execute(plan: Plan, ings: list[zipingest.Ingest], call_llm: LlmCall | 
                 deps_spans = [s for d in n.depends_on for s in results.get(d, NodeResult("", "", "", "", "")).spans if results.get(d) and results[d].status == "COMMITTED"]
                 hits = [attach.Hit(s["path"], s["line"], s["text"], 1.0) for s in deps_spans][:8] or (_hits_from_spans(plan, e, question=n.query) if e.get("status") == "FOUND" else [])
                 named = list(n.source_scope.get("files") or n.source_scope.get("focus") or [])   # hard scope, else the inferred file
+                if n.kind == "summarize" and not named and not deps_spans:
+                    # a package-wide summary has no retrievable words ("summarize", "three sentences"): the excerpts are the
+                    # leading lines of the lead files in overview order (README, decision, …), as the legacy overview lane
+                    # reads them — live K05 2026-11-06 retrieved noise, quoted nothing and showed an empty summary
+                    lead = [h.path for h in attach.overview_hits(ings, max_hits=3)]
+                    hits = _file_head_hits(plan, lead, max_lines=5)
+                    r.method = "lead_file_head_lines" if hits else ""
                 if not hits and named:
                     hits = _file_head_hits(plan, named)   # the named file's leading lines (deterministic, bounded)
                     r.method = "file_head_lines" if hits else ""
@@ -592,8 +661,25 @@ async def execute(plan: Plan, ings: list[zipingest.Ingest], call_llm: LlmCall | 
                         r.status, r.detail = "FAILED", "no verifiable model output"
                     else:
                         r.status, r.method = "PARTIAL", "q2_over_" + (r.method or "verified_spans")
+                        quoted_texts = [str(qq.get("text", "")) for qq in dec["quotes"]]
+                        body_hits = [h for h in hits if not (_HEADING_RE.match(h.text) or _is_bare_title(h.text))]
+                        if quoted_texts and all(_HEADING_RE.match(t) or _is_bare_title(t) for t in quoted_texts) and body_hits and calls_used < budget.max_model_calls:
+                            # every quote is a bare title although content lines were in front of the model (live K24 2026-11-06:
+                            # "What should we do next?" → `# 06 — Next recommendation`, answer "HOLD"; line 3 names the follow-up).
+                            # One bounded re-ask over the content lines only; a verified quote there replaces the title answer.
+                            dec2, att2 = await q2_decide(call_llm, q, body_hits[:8], max_attempts=1)
+                            calls_used += len(att2)
+                            r.model_calls += len(att2)
+                            r.attempts = r.attempts + att2
+                            if dec2 and dec2["quotes"]:
+                                dec = dec2
+                                r.method += "_body_retry"
                         r.answer, r.spans = dec["answer"], _spans_of(hits, dec["quotes"])
                         r.detail = "quotes verified verbatim; the reasoning itself is model output and is not deterministically entailed"
+                        if not r.answer.strip():
+                            r.answer = (f"The model produced no {'summary' if n.kind == 'summarize' else 'recommendation'} over the {len(hits)} excerpt(s) it was shown"
+                                        + (" and quoted nothing" if not dec["quotes"] else "") + "; nothing is claimed.")
+                            r.detail = "model returned an empty answer; " + r.detail
             elif _SIDE_RE.search(nid):
                 # compare side: evidence gathering only (verified pointers), the single model call happens in the compare node
                 r.route = "D1"
@@ -673,6 +759,29 @@ async def execute(plan: Plan, ings: list[zipingest.Ingest], call_llm: LlmCall | 
                         r.answer = (f"**Not found in the attached archive(s)** — not in the {len(hits)} retrieved excerpt(s): the model reported no answer there and quoted nothing, so no claim is made."
                                     + (f" Model note: {dec['answer']}" if dec.get("answer") else ""))
                         r.spans = [{"path": h.path, "line": h.line, "text": "", "seg_id": ""} for h in hits[:8]]
+                        # escalation (Phase 3): a "not found" is not accepted at once when an excerpt in front of the model
+                        # carries at least half of the question's content words (live K27 2026-11-06: `effect projection may
+                        # be consumed in shadow/read-only mode` was excerpt 1 and the model answered `found: false`, "No").
+                        # One bounded re-ask over exactly the covering lines, with the directive at the end of the user turn;
+                        # its quote is verified verbatim like any other. No quote the second time → the negative stands.
+                        covering, content = covering_excerpts(plan, n.query, hits)
+                        if covering and calls_used < budget.max_model_calls:
+                            top = covering[:6]
+                            tail = attach.COVERAGE_TAIL.format(
+                                lines=", ".join(f"{h.path}:{h.line}" for h, _c in top[:3]),
+                                words=", ".join(dict.fromkeys(w for _h, c in top for w in c))[:160])
+                            dec2, att2 = await q2_decide(call_llm, n.query, [h for h, _c in top], max_attempts=1, user_tail=tail)
+                            calls_used += len(att2)
+                            r.model_calls += len(att2)
+                            r.attempts = r.attempts + att2
+                            if dec2 and dec2["quotes"]:
+                                r.method, r.answer, r.spans = "q2_coverage_retry", dec2["answer"], _spans_of(hits, dec2["quotes"])
+                                r.detail = (f"first reply found nothing although {len(covering)} excerpt(s) carried {len(top[0][1])}/{len(content)} of the "
+                                            f"question's words; re-asked over those lines only")
+                            else:
+                                r.detail = (f"NOT_FOUND_IN_EXCERPTS; re-asked once over the {len(top)} excerpt(s) carrying most of the question's words "
+                                            f"({', '.join(top[0][1][:4])}) — still no quote, so the negative stands")
+                                r.answer += f" Re-asked once over the {len(top)} most relevant excerpt(s); the model again quoted nothing."
                     else:
                         r.status, r.method, r.answer, r.spans = "COMMITTED", "q2_verified_quotes", dec["answer"], _spans_of(hits, dec["quotes"])
                         gap, on_topic = quote_relevance(plan, n.query, dec["quotes"], hits)
@@ -709,6 +818,28 @@ async def execute(plan: Plan, ings: list[zipingest.Ingest], call_llm: LlmCall | 
                                 r.detail = "second side quoted in a complement call over the remaining excerpts"
                             else:
                                 r.status, r.detail = "PARTIAL", "compare: only one side is quoted; the verdict is not committed"
+                    if r.status == "COMMITTED" and r.method.startswith("q2_") and r.method != "q2_not_in_excerpts":
+                        # number entailment (Phase 3): a D1 answer may only state numbers its quoted lines carry. Live K13
+                        # 2026-11-06: the right row was quoted (`0.519 / 0.541 ms`) and the answer said "0.41 ms" — a
+                        # verified quote does not make the sentence around it true, so the node is PARTIAL and says which
+                        # number no quoted line carries. The quoted lines stay as the evidence.
+                        loose = numbers_not_in_quotes(r.answer, [sp.get("text", "") for sp in r.spans])
+                        if loose:
+                            r.status = "PARTIAL"
+                            r.detail = (f"the answer states {', '.join(loose[:3])} which no quoted line carries; the quoted line(s) are the evidence, "
+                                        f"the number in the sentence is the model's") + (f"; {r.detail}" if r.detail else "")
+                    if n.kind == "verify" and r.status in ("COMMITTED", "PARTIAL") and r.method.startswith("q2_") and r.method != "q2_not_in_excerpts":
+                        # polar completion (Phase 3): a yes/no answer rests on the line the model chose, but the package may
+                        # say more — live K27 2026-11-06: "No" citing `Decision: HOLD … not recommended until G1R3B` while
+                        # `may be logged in shadow (read-only, no decisions)` and the gate definition were in the excerpts.
+                        # Every other excerpt that carries most of the question's words is shown under the answer, marked
+                        # as not quoted by the model: the reader sees the qualification, nothing is claimed from it.
+                        quoted_at = {(sp["path"], sp["line"]) for sp in r.spans}
+                        covering, _content = covering_excerpts(plan, n.query, hits)
+                        extra = [h for h, _c in covering if (h.path, h.line) not in quoted_at][:2]
+                        if extra:
+                            r.answer += "\n\nAlso in the excerpts, not quoted by the model:\n" + "\n".join(f"- `{h.path}:{h.line}` — {h.text.strip()[:240]}" for h in extra)
+                            r.detail = (r.detail + "; " if r.detail else "") + f"{len(extra)} further covering line(s) shown unquoted"
         except Exception as ex:  # noqa: BLE001 — a broken pointer or parser edge case fails the node, never the process
             r.status, r.detail = "FAILED", f"{type(ex).__name__}: {str(ex)[:120]}"
         results[nid] = r

@@ -28,6 +28,8 @@ PREFIX_RES = [re.compile(p, I) for p in (
     r"^\s*(?:please|pls|kindly|also|now|just|additionally|first of all|basically|simply|quickly|briefly|and|then|so|immediately|right away|at once|straight away|"
     r"but|however|yet|though|still|просто|будь ласка|також|одразу|негайно|відразу|але|проте|однак|втім|зате|при цьому|водночас|при тому)[,\s]+",
     r"^\s*(?:hypothetically|in theory|theoretically|for the sake of argument|гіпотетично|теоретично|instead|натомість|замість цього)[,\s]+",
+    r"^\s*(?:separately|in addition|afterwards|lastly|finally|secondly|thirdly|next|окремо|додатково|насамкінець)[,\s]+(?!(?:not|never)\b)",   # "then separately draft a customer note"
+    r"^\s*(?:and\s+|but\s+)?with\s+(?=no\s+\w)",                                         # ", with no execution" → "no execution" (nominal prohibition)
     r"^\s*(?:answer|reply|respond|відповідай(?:те)?|відповідь|відповісти)\s+(?=(?:in|into|as|у|в|як|українською|англійською)\b)",   # "Answer in Ukrainian" → the locale is the content
     r"^\s*(?:could|can|would|will|might) you(?: please)?(?: also)?(?: just)?\s+(?!(?:not|never|ever)\b)",
     # permission grants are requests, not conditions: "but you may suggest better names" / "feel free to propose …"
@@ -106,7 +108,7 @@ COND_SUBJECT_RE = re.compile(r"^\s*(?:(?:you|we|i|they|it|he|she|я|ти|ви|м
 MENTION_FORMS: list[tuple[str, re.Pattern[str]]] = [
     ("run", re.compile(_w(r"запустив|запустила|запустили|виконав|виконала|виконали|розгорнув|розгорнула|перезапустив|перезапустила|встановив|встановила|running|executing|launching|starting|restarting|deploying|installing|applying|calling|invoking|publishing|sending|uploading|submitting|triggering|"
                           r"connecting|sshing|logging in|signing in|pinging|curling|"
-                          r"runs|executes|deploys|applies|publishes|sends|sent|submits|triggers|connects|"
+                          r"runs|executes|deploys|applies|publishes|sends|sent|submits|triggers|connects|committing|commits(?!\s+(?:message|history|log))|"
                           r"запущу|запустиш|запустить|запустимо|запустите|запустять|запускаючи|запускати|запустити|виконувати|виконати|"
                           r"виконуючи|виконаю|виконаєш|виконає|виконаємо|виконаєте|виконають|розгортаючи|розгортати|застосовуючи|застосувати|"
                           r"перезапускати|перезапускаючи|перезапустити|надсилаючи|надсилати|надіслати|відправляти|відправити|встановлюючи|встановлювати|встановити"), I)),
@@ -140,7 +142,7 @@ ALTERNATIVE_RE = re.compile(rf"(?:,\s*)?\s+{W}(?:or|or else|або|чи)\b(?:,\s
 # --- sequence markers (clause split + depends_on link to the most recent earlier objective) -------------------------
 SEQUENCE_RE = re.compile(
     rf"(?:,|;|\s)\s*(?:(?:and|та|і|й)\s+)?{W}(?:and then|(?<!until )(?<!till )(?<!by )then|after that|after this|afterwards|afterward|next|finally|lastly|subsequently|once (?:that is|that's|you have|you've) done|when (?:that is|you are) done|"
-    rf"а потім|потім|після цього|після того(?!,?\s+як\b)|далі|наостанок|нарешті|насамкінець|згодом|відтак|і тоді|тоді)\b[,:]?\s*", I)
+    rf"а потім|потім|після цього|після того(?!,?\s+як\b)|далі|наостанок|нарешті|насамкінець|згодом|відтак|і тоді|тоді)\b(?!-)[,:]?\s*", I)
 SEQUENCE_START_RE = re.compile(
     rf"^\s*(?:and then|then|after that|after this|afterwards|afterward|next|finally|lastly|subsequently|"
     rf"а потім|потім|після цього|після того(?!,?\s+як\b)|далі|наостанок|нарешті|насамкінець|згодом|відтак|і тоді|тоді)\b[,:]?\s+", I)
@@ -150,10 +152,13 @@ INSTEAD_RE = re.compile(r"^\s*(?:instead|натомість|замість ць�
 MEANWHILE_RE = re.compile(r"\s*(?:in the meantime|in the interim|meanwhile|for now|тим часом|а тим часом|поки що|а поки що|а поки(?! не)|поки(?! не)|наразі)[,:]?\s+", I)
 # "After my approval, change the config" / "Після мого підтвердження зміни конфігурацію" / "Once approved, …" — a noun-phrase approval condition ahead of the request
 APPROVAL_NP_CONDITION_RE = re.compile(
-    r"^\s*(?:(?P<after>after|upon|following|once|після|по|після того як отримаю)\s+(?:my |your |our |the |team |manager's |lead's |explicit |written |final |мого |вашого |твого |нашого |моєї |вашої |вашої )*"
+    r"^\s*(?:(?:only|but only|and only|strictly|but)\s+)?(?:(?P<after>after|upon|following|once|після|по|після того як отримаю)\s+(?:my |your |our |the |an? |team |manager's |lead's |owner's |reviewer's |explicit |written |final |manual |formal |human |operator |verbal |proper |official |prior |security |change[- ]control |CAB |management |stakeholder |мого |вашого |твого |нашого |моєї |вашої |вашої )*"
     r"(?:approval|confirmation|sign[- ]?off|go[- ]?ahead|green light|authori[sz]ation|ok|okay|consent|review|підтвердження|схвалення|погодження|дозволу|узгодження|апруву|перевірки)"
     r"(?:\s+(?:from|by|від)\s+[\w'’-]+(?:\s+[\w'’-]+)?)?(?:\s+(?:on|for|of|about|regarding)\s+[^,;:—–-]+?(?=\s*(?:[,:—–-]|$)))?|(?P<after2>once|when|after|після того,? як|коли|щойно)\s+(?:it is |this is |that is |це |ми |я )?(?:approved|confirmed|signed off|cleared|authori[sz]ed|green-?lit|схвалено|підтверджено|погоджено|дозволено|схвалю|підтверджу|погоджу))"
     r"(?=[,:—–-]|\s)[,:—–-]?\s*", I)
+# "execute it after approval" / "merge before sign-off" — a bare approval noun phrase after a temporal marker is a condition too (DCE-G1R3D)
+APPROVAL_NP_TAIL_RE = re.compile(r"^\s*(?:(?:my|your|our|the|an?|explicit|written|final|manual|formal|human|operator|team|owner's|reviewer's|security|change-control|CAB|management|stakeholder|prior|proper|official)\s+){0,3}"
+                                 r"(?:approval|confirmation|sign[- ]?off|go[- ]?ahead|green light|authori[sz]ation|ok|okay|consent|підтвердження|схвалення|погодження|дозволу|узгодження)\b", I)
 # "Not until sign-off should you delete stale branches" — a deferred prohibition: forbidden now, conditioned on the until-clause
 NOT_UNTIL_RE = re.compile(r"^\s*not (?P<kind>until|before|unless) (?P<cond>.+?)\s+(?:should|may|can|must|are|do|will|shall|would)\s+you\s+(?P<rest>.+)$", I)
 # "No touching live cluster settings" / "No deleting anything" — a gerund after a bare "No" is a prohibition of that action
@@ -262,26 +267,32 @@ DONT_WANT_RE = re.compile(r"^\s*(?:i|we)\s+(?:don'?t|do not|didn'?t)\s+(?:want|n
 # "Is it safe to…", "Would it be possible to…" — expletive *it* is not a referent
 EXPLETIVE_IT_RE = re.compile(r"^(?:it|It)\s+(?:(?:is|was|would be|will be|might be|could be|seems|'s|’s)\s+)?(?:safe|possible|ok|okay|fine|worth|necessary|advisable|risky|dangerous|better|best|feasible|wise|a good idea|a bad idea|enough|likely|unlikely|true|clear)\b")
 NO_NOUN_RE = re.compile(rf"^\s*(?:no|без|жодних)\s+(?!(?:one|body|longer|matter|doubt|way|idea|problem|worries|thanks)\b)(\w[\w\s./-]{{0,60}}?)(?:,?\s*(?:please|будь ласка))?\s*$", I)     # "No recommendations, please." / "No edits to src/api.py"
+WITH_NO_CLAUSE_RE = re.compile(r"\s*(?:and\s+|but\s+)?with\s+no\s+(?!(?:one|body|longer|matter|doubt|way|idea|problem|worries|thanks|more than|fewer than|less than)\b)\w", I)   # ", with no execution" (DCE-G1R3D)
 NO_NOUN_HEAD_RE = re.compile(r"no\s+(?!(?:one|body|longer|matter|doubt|way|idea|problem|worries|thanks)\b)\w", I)   # ", but no shell commands" opens a clause
 # "whether or not" is not a negation
 WHETHER_OR_NOT_RE = re.compile(r"\bwhether\s+or\s+not\b|\bчи\s+ні\b", I)
 # "Recommend nothing." — an imperative whose object is a null quantifier is a prohibition of that action
 NULL_OBJECT_RE = re.compile(r"^\s*(?:nothing(?: at all| else| whatsoever)?|none(?: of them)?|nobody|no one|nichts|нічого|нікого|жодного|жодних|жодної)"
                             r"(?:\s+(?:in|on|at|inside|under|within|to|with|for|about|against|outside(?: of)?|beyond|except(?: for)?|other than|apart from|besides|but|у|в|на|всередині|до|з|із|над|для)\s+[^,;]{1,60}?)?(?:\s+(?:yet|now|for now|at this point|поки що|зараз))?\s*[.!…]*\s*$", I)
+# "Read-only session: …", "Chat only — …", "No external calls: …" — a universal restriction used as a prefix before the request proper
+UNIVERSAL_RESTRICTION_PREFIX_RE = re.compile(
+    r"^\s*(?P<body>(?:(?:this is|treat this as|consider this)\s+(?:a\s+|an\s+)?)?read[- ]only(?:\s+(?:session|request|task|mode|review|analysis|exercise))?"
+    r"|(?:chat|text|answer|reply)[- ]only(?:\s+(?:session|request|task|mode))?|no\s+(?:external|outside|remote|outbound)\s+(?:calls?|actions?|changes?|side[- ]effects?)(?:\s+of any kind)?"
+    r"|nothing\s+(?:outside|beyond)\s+(?:the\s+|this\s+)?(?:chat|reply|answer))\s*(?:[:—–-]|,\s*(?=(?:please\s+)?[a-z]))\s*", I)
 # universal restrictions over every side effect (sheet v5 rule 23): "Do nothing outside chat", "Never perform external actions",
 # "No external calls of any kind", "Nothing should change", "Treat this as read-only", "Chat only" — unbound, global, never an objective
 UNIVERSAL_RESTRICTION_RE = re.compile(
     r"^\s*(?:please\s+)?(?:"
-    r"(?:do|perform|take|make|execute|carry out)\s+(?:nothing|no\s+(?:actions?|operations?|changes?|side[- ]effects?))(?:\s+(?:at all|whatsoever|else))?"
+    r"(?:do|perform|take|execute|carry out)\s+(?:nothing|no\s+(?:actions?|operations?|side[- ]effects?))(?:\s+(?:at all|whatsoever|else))?"
     r"(?:\s+(?:outside(?: of)?|beyond|except(?: for)?|other than|apart from|besides|but)\s+[^,;.!?]{1,60}?)?"
     r"|(?:never|do not|don't|do never|you must not|you may not)\s+(?:perform|take|make|execute|carry out|do)\s+(?:any\s+)?(?:external|outside|remote|real|real-world|side[- ]effecting|state[- ]changing)\s+(?:actions?|calls?|changes?|operations?|side[- ]effects?|requests?|effects?)(?:\s+(?:at all|whatsoever|of any kind))?"
-    r"|(?:no|zero)\s+(?:external|outside|remote|outbound|network|outgoing|real|real-world)\s+(?:calls?|actions?|requests?|changes?|operations?|side[- ]effects?|effects?|writes?|interactions?|mutations?)(?:\s+(?:at all|whatsoever|of any kind|of any sort|please))?"
+    r"|(?:no|zero)\s+(?:external|outside|remote|outbound|real|real-world)\s+(?:calls?|actions?|requests?|changes?|operations?|side[- ]effects?|effects?|writes?|interactions?|mutations?)(?:\s+(?:at all|whatsoever|of any kind|of any sort|please))?"
     r"|nothing\s+(?:should|may|must|can|is to|shall|will)\s+(?:change|be changed|be modified|be touched|be altered|be written|be executed|happen|move|run)(?:\s+(?:at all|anywhere|on your side|as a result))?"
     r"|(?:treat this as|this is|consider this|think of this as)\s+(?:a\s+|an\s+)?read[- ]only(?:\s+(?:session|request|task|mode|review|analysis|exercise))?"
     r"|read[- ]only(?:\s+(?:session|request|task|mode|review|analysis|exercise))?(?:,?\s+please)?"
-    r"|(?:stay|remain|keep(?: everything| it| this)?|work)\s+(?:read[- ]only|(?:strictly\s+)?(?:in|inside|within)\s+(?:the\s+|this\s+)?(?:chat|reply|answer|conversation))"
+    r"|(?:stay|remain|keep(?: everything| it| this)?|work)\s+(?:read[- ]only|(?:strictly\s+)?(?:in|inside|within)\s+(?:the\s+|this\s+)?(?:chat|reply|answer|conversation))(?:\s+only)?"
     r"|(?:chat|text|answer|reply|conversation|discussion)[- ]only(?:,?\s+please)?"
-    r"|(?:take|make|do)\s+no\s+(?:action|actions|changes|steps)(?:\s+(?:at all|whatsoever|on this|yet|for now))?"
+    r"|(?:take|do)\s+no\s+(?:action|actions|steps)(?:\s+(?:at all|whatsoever|on this|yet|for now))?"
     r")\s*[.!…]*\s*$", I)
 # "<verb> nothing" — a null-object clause opens a clause even when the verb is unknown ("Touch nothing in production")
 NULL_OBJECT_CLAUSE_RE = re.compile(r"^\s*(?:just\s+|simply\s+|please\s+|просто\s+)?(?P<verb>[^\W\d_]+)\s+(?:nothing|нічого|нікого)\b", I)
@@ -310,7 +321,7 @@ RESTRICTED_NOUN_ACTION = {
     "rename": "modify", "renames": "modify", "refactor": "modify", "refactors": "modify", "refactoring": "modify", "patch": "modify", "patches": "modify",
     "deletion": "remove", "deletions": "remove", "removal": "remove", "removals": "remove", "drop": "remove", "drops": "remove", "purge": "remove", "cleanup": "remove",
     "file creation": "create", "new file": "create", "new files": "create", "new branch": "create", "new branches": "create",
-    "deployment today": "run",
+    "deployment today": "run", "execution": "run", "executions": "run", "network calls": "run", "remote calls": "run", "api calls": "run", "calls": "run",
     # DCE-G1R3C (English service/git nominals): "no commit, no push, no merge, no release, no rollout, no rotation"
     "commit": "run", "commits": "run", "push": "run", "pushes": "run", "merge": "run", "merges": "run", "release": "run", "releases": "run",
     "rollout": "run", "rollouts": "run", "roll-out": "run", "rollback": "run", "rollbacks": "run", "rotation": "run", "rotations": "run", "upload": "run", "uploads": "run",
@@ -341,8 +352,17 @@ ARTEFACT_NOUNS = (r"table|list|summary|report|diagram|chart|example|examples|out
 # "…, then a detailed remediation plan" — a sequence marker followed by a deliverable noun phrase opens a nominal clause
 SEQ_NOMINAL_RE = re.compile(rf"\s*(?:(?:a|an|the|another|one more|a second|some|окремий|окрему|окреме|ще один|ще одну|ще одне)\s+)?(?:[\w'’-]+\s+){{0,3}}?(?:{ARTEFACT_NOUNS})\b", I)
 # "a table of endpoints and, separately, a list of risks" — two deliverables coordinated inside one object
+ARTEFACT_HEAD_RE = re.compile(rf"\b(?:{ARTEFACT_NOUNS})\b(?=\s*(?:$|,|\.|;|of\b|for\b|on\b|about\b|with\b|covering\b|describing\b|per\b))", I)   # the head noun of a deliverable NP
 COORD_ARTEFACT_RE = re.compile(rf"^(?P<first>.+?)(?P<sep>\s+(?:and|та|і|й|plus|as well as)(?:,\s*(?:separately|additionally|also|in addition|afterwards|окремо|також|додатково),?)?\s+)"
                                rf"(?P<second>(?:a|an|another|one more|a second|a separate|the|some|окремий|окрему|окреме|ще один|ще одну|ще одне)\s+(?:[\w'’-]+\s+){{0,3}}?(?:{ARTEFACT_NOUNS})\b.*)$", I | re.S)
+
+# "a Markdown table, a YAML manifest[, and …]" — a comma-separated list of deliverable noun phrases (DCE-G1R3D objective coverage)
+COORD_ARTEFACT_LIST_RE = re.compile(rf"^(?P<first>.+?)(?P<sep>,\s+)"
+                                    rf"(?P<second>(?:a|an|another|one more|a second|a separate|the|some)\s+(?:[\w'’-]+\s+){{0,3}}?(?:{ARTEFACT_NOUNS}|manifest|yaml|json|csv|diagram|script|snippet|query|table)\b.*)$", I | re.S)
+
+# "and include a separate chat-only summary" — a requirement verb whose object is a distinct answer deliverable is a second objective (sheet rule 9)
+SEPARATE_DELIVERABLE_RE = re.compile(rf"^\s*(?:a|an|another|one more|a second)\s+(?:(?:separate|additional|second|extra|chat-only|in-chat|short|brief|one-line|stand-alone|standalone)\s+)+"
+                                     rf"(?:[\w'’-]+\s+){{0,2}}?(?:{ARTEFACT_NOUNS})\b", I)
 
 # --- requirement / exclusion verbs at clause start (constraints on the previous objective) -----------------------
 REQUIREMENT_START_RE = re.compile(
@@ -411,6 +431,8 @@ LATIN_RE = re.compile(r"[A-Za-z\u00c0-\u024f]")
 CYRILLIC_RE = re.compile(r"[\u0400-\u04ff]")
 # nouns a bare pronoun objective may point back to inside a context statement ("Here is the migration dry-run output. … execute it")
 ANTECEDENT_NOUN_RE = re.compile(r"\b(?:outputs?|logs?|plans?|scripts?|migrations?|patch(?:es)?|diffs?|configs?|dumps?|reports?|traces?|snippets?|files?|commands?|playbooks?|"
+                                r"services?|branch(?:es)?|hosts?|servers?|containers?|pods?|clusters?|bundles?|deployments?|images?|databases?|caches?|queues?|workers?|daemons?|"
+                                r"environments?|nodes?|instances?|flags?|dry-runs?|drafts?|notes?|checklists?|"
                                 r"manifests?|queries|query|statements?|pipelines?|jobs?|builds?|releases?|rollbacks?|changesets?|PRs?|tickets?|"
                                 r"план\w*|скрипт\w*|міграці\w*|патч\w*|лог\w*|вивід\w*|конфіг\w*|команд\w*|дамп\w*|звіт\w*|маніфест\w*|запит\w*|джоб\w*|білд\w*|реліз\w*|відкат\w*|тикет\w*|тікет\w*)\b", I)
 UKRAINIAN_RE = re.compile(r"[іїєґІЇЄҐ]|\b(?:який|яка|які|яке|скільки|хто|де|що|чи|та|будь ласка|потрібно|треба)\b", I)
@@ -434,7 +456,7 @@ NOMINAL_RE = re.compile(
     rf"plan|proposal|draft|checklist|outline|diagram|chart|template|runbook|example|examples|matrix|timeline|write-?up|spec|specification|preview|diff preview|patch preview|"
     rf"підсумок|резюме|огляд|перелік|список|порівняння|пояснення|опис|кількість|рекомендація|рекомендації|порада|поради|переклад|оцінка|аналіз|перевірка|звіт|"
     rf"план|пропозиція|пропозицію|чернетка|чернетку|чеклист|схема|схему|таблиця|таблицю|шаблон|приклад|приклади)"
-    rf"{E})(?!\s+(?:is|are|was|were|has|have|had|does|do|did|will|would|should|must|can|could|looks?|seems?|says?|shows?|є|має|буде|виглядає|каже)\b)\s*(?:of|for|on|about|щодо|про|для|по)?\s*", I)
+    rf"{E})(?!\s+(?:(?!(?:of|for|on|about|with|from|in|to)\b)[\w'’-]+\s+){{0,2}}(?:is|are|was|were|has|have|had|does|do|did|will|would|should|must|can|could|looks?|seems?|says?|shows?|exists?|є|має|буде|виглядає|каже)\b)\s*(?:of|for|on|about|щодо|про|для|по)?\s*", I)
 NOMINAL_ACTION = {
     "summary": "summarize", "overview": "summarize", "tldr": "summarize", "tl;dr": "summarize", "recap": "summarize", "підсумок": "summarize",
     "резюме": "summarize", "огляд": "summarize",
@@ -463,12 +485,13 @@ NOMINAL_ACTION = {
 _NUM = r"(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)"
 # service records: "open a ticket / PR" creates external state (not "show"); "close / resolve the ticket" changes it (DCE-G1R3B)
 _SVC_RECORD = (r"(?:\s+(?:a|an|the|new|another|this|that|one|a new|another new|the new|новий|нову|нове|новий же|ще один|ще одну|цей|цю|це|той|ту|те))*"
+               r"(?:\s+(?:stale|duplicate|duplicated|old|outdated|blocking|follow-up|tracking|placeholder|separate|dedicated))?"
                r"\s+(?:(?:jira|github|gitlab|linear|asana|trello|pagerduty|opsgenie|bitbucket|azure devops|ado|джир\w*|гітхаб\w*|гітлаб\w*)\s+)?"
                r"(?:(?:support|incident|service|vendor|customer|P[0-4]|sev[- ]?\d|high[- ]priority|new)\s+)?"
                r"(?:pull[- ]requests?|merge[- ]requests?|PRs?|MRs?|tickets?|issues?|incidents?|bugs?|bug reports?|epics?|stor(?:y|ies)|tasks?|cards?|change requests?|CRs?|"
                r"(?:support |service |vendor )?cases?|service requests?|work items?|defect reports?|"
                r"пул[- ]?реквест\w*|мердж[- ]?реквест\w*|пр\b|мр\b|т[иі]кет\w*|інцидент\w*|баг\w*|епік\w*|задач\w*|картк\w*|запит на зміни)\b")
-_SVC_OPEN = r"(?:open|file|raise|log|submit|відкрий|відкрийте|відкрити|заведи|заведіть|завести|зареєструй|зареєструйте)(?=" + _SVC_RECORD + r")"
+_SVC_OPEN = r"(?:open|file|raise|log|submit|comment on|comment in|leave a comment on|reply on|відкрий|відкрийте|відкрити|заведи|заведіть|завести|зареєструй|зареєструйте)(?=" + _SVC_RECORD + r")"
 _SVC_CLOSE = r"(?:close|resolve|reopen|reassign|escalate|закрий|закрийте|закрити|вирішуй|вирішіть|переведи|ескалюй)(?=" + _SVC_RECORD + r")"
 ACTION_RULES: list[tuple[str, str, re.Pattern[str]]] = [
     # specific multi-word forms first
@@ -497,7 +520,7 @@ ACTION_RULES: list[tuple[str, str, re.Pattern[str]]] = [
     ("choose", "imperative", re.compile(_w(r"choose|pick|select|decide on|decide between|decide(?=\s+which\b)|обери|оберіть|обрати|вибери|виберіть|вибрати|виріши(?:ти)?(?=,?\s+(?:який|яка|яке|які|котрий)\b)") + r"\s*", I)),
     ("prioritize", "imperative", re.compile(_w(r"prioriti[sz]e|rank|triage|пріоритизуй(?:те)?|пріоритизувати|ранжуй(?:те)?|ранжувати|розстав(?:те)? пріоритети") + r"\s*", I)),
     ("flag", "imperative", re.compile(_w(r"flag|highlight|mark|call out|познач(?:те)?|позначити|виділи(?:ти)?|виділіть|відміть|відмітьте") + r"\s*", I)),
-    ("clarify", "imperative", re.compile(_w(r"ask(?= (?:me )?(?:(?:clarifying |follow-up |any )?questions?|for clarification|if (?:anything|something) is unclear|before|first))|уточни(?:ти)?|уточніть|запитай(?:те)?|постав(?:те)?(?= (?:питання|запитання))") + r"\s*", I)),
+    ("clarify", "imperative", re.compile(_w(r"ask(?= (?:me |us )?(?:(?:clarifying |follow-up |any )?questions?|for (?:clarification|confirmation|approval|permission|a go-ahead|sign-off|the go-ahead)|if (?:anything|something) is unclear|before|first|whether|which|what|how|if i))|check with me(?= (?:first|before))|confirm with me(?= (?:first|before))|уточни(?:ти)?|уточніть|запитай(?:те)?|постав(?:те)?(?= (?:питання|запитання))") + r"\s*", I)),
     ("assess", "imperative", re.compile(_w(r"assess|evaluate|judge|rate|(?:determine|decide|say|tell(?: me)?|state|indicate|report|note|find out|figure out|estimate|check|see|work out)(?=\s+(?:whether|if)\b)|"
                                            r"оціни(?:ти)?|оцініть|(?:визнач|визначте|скажи|скажіть|повідом|повідомте|з'ясуй|з’ясуй|з'ясуйте|з’ясуйте)(?=,?\s+чи\b)") + r"\s*", I)),
     ("assess", "interrogative", re.compile(rf"^\s*(?=(?:is|are|was|were|does|do|did|can|could|should|would|will|has|have|had|am|isn'?t|aren'?t|doesn'?t|don'?t|didn'?t|чи)\b)", I)),
@@ -536,24 +559,29 @@ ACTION_RULES: list[tuple[str, str, re.Pattern[str]]] = [
                                          + r"(?=[^.;:!?]{0,140}?\b(?:for me|for us|here|in (?:the |this |your )?(?:chat|reply|answer|response)|as (?:plain |raw )?text|as a (?:text|string)|inline|in[- ]line|for explanation|for (?:my |our )?review)\b)\s*", I)),
     ("compose", "imperative", re.compile(_w(r"(?:make|create|build|write|generate|draft|produce|prepare|compose|put together|склади|складіть|створи|створіть|напиши|напишіть|підготуй|підготуйте|зроби|зробіть|сформуй|сформуйте)(?: me| us| мені| нам)?"
                                             r"(?=(?: (?:a|an|the|some|one|two|three|\d+))?(?: (?!(?:file|files|branch|directory|folder|script|repo|repository|service|container|user|account|"
-                                            r"and|or|then|but|with|for|in|on|to|from|of|at|into|that|which|it|them|me|us)\b)[\w'’-]+){0,3}?"
+                                            r"and|or|then|but|with|for|in|on|to|from|of|at|into|that|which|it|them|me|us)\b)[\w'’-]+(?:/[\w'’-]+)?){0,3}?"
                                             r" (?:table|list|summary|report|diagram|chart|example|examples|outline|plan|checklist|matrix|snippet|note|notes|doc|documentation|overview|comparison|"
                                             r"timeline|runbook|release notes?|changelog|draft|proposal|brief|write-?up|readme|guide|tutorial|faq|glossary|body|payload|template|mock|sample|sketch|"
                                             r"description|message|announcement|email|reply|response|answer|paragraph|title|caption|abstract|explanation|statement|statements|spec|specification|rfc|adr|agenda|prompt|query|queries|regex|"
-                                            r"diff|commands?|instructions|steps|snippets|sql|cheat ?sheet|"
+                                            r"commands?|instructions|steps|snippets|sql|cheat ?sheet|"
                                             r"notifications?|incident (?:update|notification|notice|report|summary)|status (?:update|report)|memo|bulletin|digest|wording|blurb|talking points|"
+                                            r"recommendations?|assessment|analysis|verdict|opinion|rationale|justification|postmortem|post-mortem|retrospective|rundown|updates?|"
                                             r"(?:jira|slack|pr|pull request|review|github|ticket) (?:comment|description|message|update|summary|note)|"
                                             r"опис|повідомлення|відповідь|заголовок|пояснення|текст|тексти|чернетку|формулювання|специфікацію|запит|анонс|лист|"
                                             r"таблицю|список|звіт|приклад|приклади|план|схему|нотатку|чеклист|огляд|конспект|інструкцію|документацію|порівняння|перелік)\b"
                                             # "create a table in the database" / "write a message to the queue" / "add a comment to the ticket" persist something → not an answer artefact
                                             r"(?!\s+(?:in|inside|within|on|into|to)\s+(?:the\s+|a\s+|an\s+|our\s+|my\s+)?(?:database|db|schema|repo|repository|cluster|namespace|bucket|disk|server|filesystem|folder|directory|branch|table|queue|topic|"
                                             r"tickets?|issues?|PRs?|pull requests?|merge requests?|pages?|threads?|channels?|incidents?)\b))") + r"\s*", I)),
+    # "make the change" / "apply the fix" / "make the schema change requested by analytics" — the structural action is modify; the medium
+    # stays unknown until a destination is named (sheet v5 § 3.3a; DCE-G1R3D)
+    ("modify", "imperative", re.compile(_w(r"(?:make|apply|implement|carry out|perform)(?=\s+(?:(?:the|this|that|these|those|my|our|your|all|any|each|every)\s+)(?:(?!(?:to|in|on|into|at|for|from|of)\b)[\w'’-]+\s+){0,3}?"
+                                           r"(?:changes?|fix(?:es)?|adjustments?|corrections?|tweaks?|edits?|modifications?|rework|hot-?fix(?:es)?|amendments?|alterations?)\b)") + r"\s*", I)),
     ("create", "imperative", re.compile(_w(_SVC_OPEN + r"|make (?:a|an|me|some|new|the)(?=\s)|create|write|generate|draft|compose|build|design|implement|add|produce|prepare|set up|save|store|persist|export|dump|"
                                            r"створи(?:ти)?|створіть|створюй(?:те)?|напиши|напишіть|написати|згенеруй(?:те)?|згенерувати|склади|складіть|скласти|побудуй(?:те)?|реалізуй(?:те)?|додай|додайте|додати|підготуй(?:те)?|підготувати|"
                                            r"збережи|збережіть|зберегти|зберігай(?:те)?") + r"\s*", I)),
     ("modify", "imperative", re.compile(_w(_SVC_CLOSE + r"|make|change|modify|edit|update|fix|repair|improve|optimi[sz]e|speed up|refactor|rename|replace|adjust|tune|increase|decrease|reduce|set|configure|enable|disable|upgrade|patch|correct|touch|alter|"
                                            r"внес(?:и|іть|ти) (?:зміни|правки|виправлення)|внос(?:ь|ьте|ити) (?:зміни|правки|виправлення)|зміни(?:ти)?|змініть|змінюй(?:те)?|редагуй(?:те)?|виправ(?:те)?|виправити|полагодь|полагодьте|покращ(?:и|іть)?|покращити|оптимізуй(?:те)?|оптимізувати|прискор(?:те)?|прискорити|пришвидш(?:и|іть)?|пришвидшити|перейменуй(?:те)?|заміни(?:ти)?|замініть|налаштуй(?:те)?|налаштувати|увімкни|увімкніть|вимкни|вимкніть|онови(?:ти)?|оновіть|зроби|зробіть|зробити|чіпай(?:те)?|чіпати|торкайся|торкайтеся|торкатися") + r"\s*", I)),
-    ("run", "imperative", re.compile(_w(r"run|execute|launch|start|restart|reboot|stop|kill|tag(?=\s+(?:(?:the|this|that|current|latest|a|an|new|our|поточний|останній)\s+){0,2}(?:commit|release|build|image|HEAD|version|snapshot|коміт|реліз|білд|образ|версі|v?\d+\.\d+))|deploy|redeploy|merge|rebase|cherry[- ]pick|squash|force[- ]push|git push|push(?=\s+(?:the|this|that|my|our|a|an|it|them|to)\b)|roll ?out|migrate|rotate|scale(?: up| down| out| in)?|provision|install|uninstall|trigger|invoke|call|apply|roll back|rollback|follow(?: the| these| those| its| their)?(?: instructions?| steps| them| it)?|obey|comply with|do what|perform|send|email|post|publish|upload|download|"
+    ("run", "imperative", re.compile(_w(r"run|execute|launch|start|restart|reboot|stop|kill|tag(?=\s+(?:(?:the|this|that|current|latest|a|an|new|our|поточний|останній)\s+){0,2}(?:commit|release|build|image|HEAD|version|snapshot|коміт|реліз|білд|образ|версі|v?\d+\.\d+))|deploy|redeploy|merge|rebase|cherry[- ]pick|squash|force[- ]push|git push|git commit|commit(?!s?\s+(?:message|messages|hash|hashes|history|log|logs|id|ids|sha|shas|range|author|authors|count)\b)(?!\w)|push(?=\s+(?:the|this|that|my|our|a|an|it|them|to)\b)|roll ?out|migrate|rotate|scale(?: up| down| out| in)?|provision|install|uninstall|trigger|invoke|call|apply|roll back|rollback|follow(?: the| these| those| its| their)?(?: instructions?| steps| them| it)?|obey|comply with|do what|perform|send|email|post|publish|upload|download|"
                                         r"connect(?: to| into)?|ssh(?: into| to| in)?|log ?in(?: to| into)?|sign in(?: to| into)?|ping|curl|telnet(?: to)?|dial|"
                                         r"запусти(?:ти)?|запустіть|запускай(?:те)?|виконай(?:те)?|виконати|виконуй(?:те)?|розгорни(?:ти)?|розгорніть|розгортай(?:те)?|встанови(?:ти)?|встановіть|встановлюй(?:те)?|інсталюй(?:те)?|"
                                         r"перебазуй(?:те)?|перебазувати|ребейзни|зроби ребейз|черіпікни|накати(?:ти)?|накоти(?:ти)?|накатай(?:те)?|флашни|скинь кеш|очисти кеш|деплой(?:те)?|задеплой(?:те)?|задеплоїти|деплоїти|викоти(?:ти)?|викотіть|відкоти(?:ти)?|відкотіть|мігруй(?:те)?|застосуй(?:те)?|застосувати|перезавантаж(?:те)?|перезавантажити|"

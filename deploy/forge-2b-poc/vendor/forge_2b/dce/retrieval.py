@@ -45,6 +45,23 @@ _QUOTED_RE = re.compile(r"[\"“”'‘’`]([^\"“”'‘’`]{2,80})[\"“”
 _IDENT_RE = re.compile(r"\b[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+\b|\b[A-Z]{2,}_[A-Z0-9_]+\b|\b[a-z]+[A-Z][A-Za-z0-9]+\b")
 _NUM_RE = re.compile(r"(?<![\w.])\d+(?:\.\d+)?(?![\w.])")
 _CODE_RE = re.compile(r"\b(?=[A-Z0-9]*\d)(?=[A-Z0-9]*[A-Z])[A-Z0-9]{2,8}\b")   # short codes: B1, E040, G1R3A — exact anchors like identifiers
+_WHO_RE = re.compile(r"^\s*(who|whom|whose)\b", re.I)
+_SCALAR_LEAF_RE = re.compile(r"""^\s*["'`]?[\w.\-/ ]+["'`]?\s*[:=]\s*(true|false|null|none|yes|no|-?\d+(?:\.\d+)?)\s*,?\s*$""", re.I)
+_STEM_SUFFIXES = ("ings", "ing", "ers", "er", "ed", "es", "ly", "s")
+
+
+def stems_of(word: str) -> set[str]:
+    """Light, deterministic suffix stripping for words of six letters or more: ``labelled`` → ``labell`` so that the
+    question word meets ``labeller`` in the text (live K16, 2026-11-06). Stems shorter than five letters are dropped,
+    so ``caused`` / ``running`` / ``cases`` add nothing; the stem is used as a prefix (FTS) and a substring (coverage)."""
+    w = fold(word)
+    if len(w) < 6 or w.isdigit():
+        return set()
+    out = set()
+    for suf in _STEM_SUFFIXES:
+        if w.endswith(suf) and len(w) - len(suf) >= 5:
+            out.add(w[: -len(suf)])
+    return out - {w}
 _RULE_ROW_RE = re.compile(r"^\s*(?:\|?\s*:?-{2,}:?\s*)+\|?\s*$|^\s*[-=*_]{3,}\s*$")   # markdown table rule / horizontal rule
 _PATH_RE = re.compile(r"[\w./\-\u00c0-\u024f\u0400-\u04ff\u3040-\u30ff\u4e00-\u9fff]+\.(?:md|txt|json|ya?ml|csv|py|js|ts|toml|xml|html?|sql|log|sh|ini|cfg|conf|rst|tsv)\b", re.I)
 
@@ -406,7 +423,11 @@ class Retriever:
         bm_max = max(bm25.values(), default=0.0)
         alias_terms = {fold(t) for t in terms}
         literal_f = {fold(t) for t in literal_terms}
-        term_words: dict[str, set[str]] = {t: {fold(t)} | ({fold(typo[t])} if t in typo else set()) for t in terms}
+        term_words: dict[str, set[str]] = {t: {fold(t)} | ({fold(typo[t])} if t in typo else set()) | stems_of(t) for t in terms}
+        stem_terms = sorted({st for t in terms for st in stems_of(t)})
+        if stem_terms:
+            strategy.append("stems:" + ",".join(stem_terms))
+        who_question = bool(_WHO_RE.match(query))
         alias_words: dict[str, set[str]] = {t: set() for t in terms}   # paraphrase coverage, scored below literal coverage
         if self.use_aliases:
             for key, phrases in expanded.items():
@@ -422,7 +443,7 @@ class Retriever:
         # is unchanged; a FTS syntax error falls back to the full sweep.
         cand: set[int] | None = None
         if self.use_fts and self.narrow_candidates:
-            toks = [t for t in dict.fromkeys([*literal_terms, *(w for ws in alias_words.values() for w in ws), *expanded.keys()]) if t]
+            toks = [t for t in dict.fromkeys([*literal_terms, *stem_terms, *(w for ws in alias_words.values() for w in ws), *expanded.keys()]) if t]
             parts = ['"' + t.replace('"', '""') + '"*' for t in toks]
             parts += ['"' + a.replace('"', '""') + '"' for a in dict.fromkeys([*quoted_raw, *ident_raw, *_CODE_RE.findall(query), *_NUM_RE.findall(query)]) if a.strip()]
             if parts:
@@ -437,6 +458,10 @@ class Retriever:
                     cand = None
         for rowid, r in in_scope.items():
             if cand is not None and rowid not in cand:
+                continue
+            if who_question and r.kind in ("key", "item") and _SCALAR_LEAF_RE.match(r.text):
+                # a boolean or numeric leaf (`"labelled": true`) names nobody: for a who-question it cannot be the answer
+                # and must not fill the excerpt slots (live K16: eight such leaves, the labeller sentence unranked)
                 continue
             feats: dict[str, float] = {}
             base = bm25.get(rowid, 0.0)
@@ -467,11 +492,42 @@ class Retriever:
                 via_alias = sum(1 for t in terms if alias_words[t] and not any(w in lowf for w in term_words[t]) and any(w in lowf for w in alias_words[t]))
                 if lit or via_alias:
                     feats["term_coverage"] = round((3.0 * lit + 1.0 * via_alias) / len(terms), 3)
+                    feats["_lit"] = lit
+                    feats["_cov"] = lit + via_alias
             if explicit and r.file_id in explicit:
                 feats["path_scope"] = 2.0 if feats else (0.5 if scope_files else 0.0)
-            score = sum(feats.values())
+            score = sum(v for k, v in feats.items() if not k.startswith("_"))
             if score > 0:
                 hits.append(Hit(r.file_id, r.path, r.line, r.seg_id, r.text, round(score, 3), feats))
+        best_lit = max((h.features.get("_lit", 0) for h in hits), default=0)
+        best_cov = max((h.features.get("_cov", 0) for h in hits), default=0)
+        if explicit and not scope_files and hits and best_cov:
+            # soft focus ("the blind run" → the BLIND files) is a hint, not a scope: a line elsewhere that covers more of
+            # the question's words than any focused line must not lose to the boost alone (live K11, 2026-11-06: the
+            # focused `## 5. PUBLIC re-run after the safety increment` heading outranked `the six safety failures of the
+            # blind run (E040, E086, …)` in 03_TESTS by 2.0 − 0.43). The boost scales with the line's share of the best
+            # coverage seen (literal or alias — `Maintained by` answers "owner", oracle C064); a focused line that says as
+            # much as the best keeps the full boost, and no focused line drops below half of it: the user pointed there.
+            for h in hits:
+                ps = h.features.get("path_scope")
+                if ps and ps == 2.0:
+                    share = max(0.5, h.features.get("_cov", 0) / best_cov)
+                    if share < 1.0:
+                        h.features["path_scope"] = round(2.0 * share, 3)
+                        h.score = round(h.score - 2.0 + h.features["path_scope"], 3)
+            strategy.append("focus_scaled_by_coverage")
+        if best_lit >= 3:
+            # the line(s) that say the most distinct words of the question are the most likely to answer it; bm25 shrinks
+            # with line length, so a long sentence covering five question words (K11: `the six safety failures of the
+            # blind run (E040, …)`, 5/7) scored below a short table header covering two. A bonus the structural features
+            # cannot stack past keeps the best-covering lines ahead when they cover at least three words.
+            for h in hits:
+                if h.features.get("_lit", 0) == best_lit:
+                    h.features["best_coverage"] = 1.5
+                    h.score = round(h.score + 1.5, 3)
+        for h in hits:
+            h.features.pop("_lit", None)
+            h.features.pop("_cov", None)
         hits.sort(key=lambda h: (-h.score, h.path, h.line))
         out: list[Hit] = []
         used = 0
@@ -519,14 +575,18 @@ class Retriever:
                 companions.append((r.header_line, "header_for_row", "csv_header_companion"))
             elif self.use_structure and r.heading_line and n_scored <= 3 and (h.file_id, r.heading_line) not in seen and r.kind != "heading":
                 companions.append((r.heading_line, "heading_for_line", "heading_companion"))   # dated/section heading is context for the top hits
-            if self.use_structure and r.kind in ("heading", "table_header", "header") and (n_scored <= 3 or r.kind != "heading"):
+            strong_heading = r.kind == "heading" and n_scored > 3 and float(h.features.get("term_coverage", 0.0)) >= 1.2
+            if self.use_structure and r.kind in ("heading", "table_header", "header") and (n_scored <= 3 or r.kind != "heading" or strong_heading):
                 # the hit is a *label* (section heading, table header row): the answer is in the lines it labels. Without
                 # them the model quotes the label itself ("## 4. What must not happen", a header row) — live G1R3A
                 # K25/K26/K31/K40, 2026-11-06. Body lines carrying a question word / identifier / number come first.
                 # A table header matched at any rank brings its rows (the row cells rarely repeat the header's words:
                 # live K11 — `| mechanism | ids | assessment |` was 6th and the `E040, E086, E118` row never shown);
                 # section headings below rank 3 do not, their bodies are too broad. The companion budget caps it all.
-                share = TABLE_ROWS if r.kind != "heading" else min(per_heading, 3 if n_scored <= 3 else 2)
+                # a lower-ranked heading that itself carries two of the question's terms brings its first on-topic body
+                # line (live K27 2026-11-06: `## 3. What may be consumed now (read-only, no decisions)` ranked 10th and
+                # the answer — `may be logged in shadow …` — was the line under it)
+                share = TABLE_ROWS if r.kind != "heading" else (1 if strong_heading else min(per_heading, 3 if n_scored <= 3 else 2))
                 companions += self._label_body(r, literal_f, idents, nums, seen, max_lines=share)[:share]
             for ln, label, strat in companions:
                 if n_extra >= extra_slots:

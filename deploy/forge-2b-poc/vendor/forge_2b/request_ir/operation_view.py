@@ -85,11 +85,14 @@ OPERATOR_REGISTRY: tuple[_Operator, ...] = (
                   r"мігр\w*|накат\w*|накот\w*|застос\w*|встанов\w*|інстал\w*|онов\w* (?:пакет|залежност|версі)|ротац\w*|перевипус\w*)"), None, ("run",)),
     _Operator("verify_run", COMMAND_EXECUTION, (COMMAND_EXECUTION,), False, None,
               _rx(r"(?:(?:unit |integration |smoke |e2e |regression |acceptance |snapshot |contract |property |mutation |golden |visual |api |ui |the |all |our |full |complete |entire |whole |relevant |existing |new |affected |failing |"
-                  r"існуюч\w+ |повн\w+ |усі |всі |юніт[- ]?|інтеграційн\w+ )*(?:tests?|test suite)(?!\s+(?:scripts?|jobs?|commands?|programs?|pipelines?|runners?|harness(?:es)?|wrappers?)\b)|smoke suite|suite|"
+                  r"існуюч\w+ |повн\w+ |усі |всі |юніт[- ]?|інтеграційн\w+ )*(?:tests?|test suite|suite)(?!\s+(?:scripts?|jobs?|commands?|programs?|pipelines?|runners?|harness(?:es)?|wrappers?)\b)|smoke suite|"
+                  r"pytest|jest|vitest|mocha|tox|nox|go test|cargo test|npm test|yarn test|make test|"
                   r"linter|lint|flake8|ruff|mypy|pylint|eslint|prettier|black|formatter|type[- ]?check\w*|build|compile\w*|benchmark\w*|dry[- ]?run|plan|"
-                  r"тест\w*|лінтер\w*|лінт\w*|збірк\w*|білд\w*|бенчмарк\w*|перевірк\w* тип\w*)\b"), ("run",)),
+                  r"тест\w*|лінтер\w*|лінт\w*|збірк\w*|білд\w*|бенчмарк\w*|перевірк\w* тип\w*)\b"
+                  # "the benchmark script that writes …", "a build job", "the lint tool" — an arbitrary runner behind the noun: behaviour not established (sheet v5 rule 25)
+                  r"(?!\s+(?:scripts?|jobs?|tools?|commands?|programs?|pipelines?|runners?|harness(?:es)?|wrappers?|binar(?:y|ies)|utilit(?:y|ies))\b)"), ("run",)),
     _Operator("service_publish", ENVIRONMENT_MUTATION, (ENVIRONMENT_MUTATION,), False,
-              _rx(r"(?:publish\w*|post\w*|send\w*|e-?mail\w*|upload\w*|push\w*|force[- ]?push\w*|merge\w*|rebas\w*|cherry[- ]?pick\w*|squash\w*|amend\w*|tag\w*|перебаз\w*|ребейз\w*|черіпік\w*|notify|announce\w*|share\w*|submit\w*|file|raise|"
+              _rx(r"(?:publish\w*|post\w*|send\w*|e-?mail\w*|upload\w*|push\w*|force[- ]?push\w*|merge\w*|rebas\w*|cherry[- ]?pick\w*|squash\w*|amend\w*|tag\w*|commit(?:s|ted|ting)?\b|перебаз\w*|ребейз\w*|черіпік\w*|notify|announce\w*|share\w*|submit\w*|file|raise|"
                   r"опублік\w*|надішл\w*|надісла\w*|відправ\w*|відішл\w*|запость|запост\w*|залий|залити|завантаж\w*|запуш\w*|змерж\w*|злий|злити|"
                   r"повідом\w*|анонс\w*|подай|подати|заведи|завести)"), None, ("run", "create", "modify")),
     _Operator("arbitrary_execution", COMMAND_EXECUTION, (COMMAND_EXECUTION,), True, _GENERIC_RUN_RE,
@@ -116,22 +119,24 @@ class _GitRef:
 
 
 _GIT_REF_RE = _GitRef()
-_GIT_NOUN_RE = _rx(r"(?:branch\w*|tags?|pull requests?|merge requests?|PRs?|MRs?|commits?|forks?|releases?|гілк\w*|тег\w*|пул[- ]?реквест\w*|мердж[- ]?реквест\w*|пр\b|мр\b|коміт\w*|реліз\w*)\b")
+_GIT_NOUN_RE = _rx(r"(?:branch\w*|tags?|pull requests?|merge requests?|PRs?|MRs?|commits?|forks?|releases?(?![-\w]| (?:notes?|checklist|plan|summary|report|doc\w*|announcement|email|message))|гілк\w*|тег\w*|пул[- ]?реквест\w*|мердж[- ]?реквест\w*|пр\b|мр\b|коміт\w*|реліз\w*)\b")
 _TICKET_NOUN_RE = _rx(r"(?:tickets?|issues?|incidents?|jira|linear|github issue|epics?|stor(?:y|ies)|tasks? in (?:jira|linear|asana|trello)|(?:confluence|notion|wiki) pages?|pages? (?:in|on) (?:confluence|notion|the wiki)|"
                       r"(?:support|service|vendor|customer) cases?|cases? (?:with|at|in) (?:support|the vendor|[\w-]+ support)|service requests?|change requests?|work items?|defect reports?|bug reports?|"
                       r"тікет\w*|тикет\w*|задач\w* (?:в|у) (?:jira|джир\w*|linear)|інцидент\w*|сторінк\w* (?:в|у|на) (?:confluence|notion|вікі)|епік\w*)\b")
 _SERVICE_PLACE_RE = _rx(r"(?:jira|confluence|notion|slack|teams|github|gitlab|bitbucket|pagerduty|opsgenie|trello|asana|linear|sharepoint|wiki|channel|канал\w*|джир\w*|вікі)\b")
 _CONFIG_OBJ_RE = _rx(r"(?:config\w*|settings?|setting|feature[- ]?flags?|flags?|firewall|iptables|dns|permissions?|roles?|quotas?|limits?|environment variables?|env vars?|secrets?|"
                      r"конфіг\w*|конфігурац\w*|налаштуванн\w*|прапорц\w*|фаєрвол\w*|дозвол\w*|квот\w*|ліміт\w*|змінн\w* середовищ\w*|секрет\w*)\b")
+_FILE_HEAD_RE = re.compile(r"^\s*(?:(?:a|an|the|this|that|new|a new)\s+)?(?:(?:file|document|doc|note|page)\s+(?:called|named|at)\s+)?(?:`)?(?:[\w.-]+/)*[\w.-]+\.\w{1,6}\b", _I)
 _SOURCE_FILE_RE = re.compile(r"(?<![\w/])(?:[\w.-]+/)*[\w.-]+\.(?:py|js|ts|tsx|jsx|go|rs|java|kt|rb|php|c|h|cpp|cs|swift|scala|sql|sh|bash|md|rst|txt|html?|css|scss|csv|ipynb)\b", _I)
 _CONFIG_FILE_RE = re.compile(r"(?<![\w/])(?:[\w.-]+/)*[\w.-]+\.(?:ya?ml|json|toml|ini|cfg|conf|env|tf|hcl|properties)\b|\.env\b|dockerfile|docker-compose", _I)
 _WRITES_TO_RE = re.compile(r"(?:writes?|saves?|stores?|persists?|dumps?|exports?|appends?|outputs?|записує|зберігає|пише|експортує|вивантажує)\b[^.;]*?(?:to|into|in|у|в|до)\s+(?P<dst>[\w./-]+\.\w{1,6}|(?:a |the )?(?:files?|disk|файл\w*|диск)\b[\w./ -]*)", _I)
 _WRITES_ARTEFACT_RE = re.compile(r"(?:updates?|updating|regenerates?|rewrites?|writes?|generates?|emits?|produces?|creates?|refreshes?|records?|overwrites?|"
-                                 r"re-?creates?|re-?builds?|dumps?|exports?|materiali[sz]es?|renders?|bakes?)\b[^.;]*?"
-                                 r"(?:\b(?:snapshots?|fixtures?|goldens?|golden files?|artifacts?|artefacts?|bundles?|files?|lock ?files?|reports?|coverage|baselines?|"
+                                 r"re-?creates?|re-?builds?|dumps?|exports?|materiali[sz]es?|renders?|bakes?|saves?|stores?|persists?|appends?|outputs?|publishes (?:to disk|files?))\b[^.;]*?"
+                                 r"(?:\b(?:snapshots?|fixtures?|goldens?|golden files?|artifacts?|artefacts?|bundles?|files?|lock ?files?|reports?|coverage|baselines?|generated \w+|"
+                                 r"clients?|stubs?|bindings?|typings?|types? files?|headers?|binaries|executables?|packages?|wheels?|jars?|images? to disk|docs?|documentation|site|static pages?|"
                                  r"build output|outputs?|logs? to disk|to disk|on disk|results? (?:files?|directory|folder)|cache files?)\b"
                                  # "… which rewrites __snapshots__/ui.snap", "that produces bench/results.json", "regenerates generated_schema.json" (sheet v5 rule 25)
-                                 r"|(?<![\w/])(?:[\w.-]+/)*[\w.-]+\.(?:snap|json|ya?ml|md|txt|csv|xml|html?|lock|png|svg|pdf|log|sql|py|js|ts|toml|ini|cfg|out|bin|tar|gz|zip)\b"
+                                 r"|(?<![\w/])(?:[\w.-]+/)*[\w.-]+\.(?:snap|json|ya?ml|md|txt|csv|tsv|xlsx?|docx?|pptx?|parquet|xml|html?|lock|png|jpe?g|svg|pdf|log|sql|py|js|ts|toml|ini|cfg|out|bin|tar|gz|zip|db|sqlite|pkl|npz|h5)\b"
                                  r"|(?<![\w.])(?:\.?/)?[\w.-]+/[\w./-]*/?(?![\w.])"
                                  r"|--(?:update|write|fix|regenerate|record|snapshot-update|update-snapshots?|overwrite|save)\b)", _I)
 _MUTATES_RE = re.compile(r"(?:drops?|deletes?|truncates?|alters?|modif(?:y|ies)|changes?|updates?|rewrites?|resets?|restarts?|deploys?|rotates?|migrates?|pushes|"
@@ -141,9 +146,9 @@ _PRONOUN_RE = ev._PRONOUN_OBJECT_RE
 _BARE_PRONOUN_RE = re.compile(r"^\s*(?:it|them|this|that|these|those|one|його|її|їх|це|цей|ці|той|ті|них|ними)\s*(?:[.,;:!]|$|\s+(?:now|please|immediately|today|asap|зараз|негайно|сьогодні|будь ласка)\b)", _I)
 _UNIVERSAL_OBJECT_RE = re.compile(r"^\s*(?:anything|everything|nothing|any (?:thing|of it|files? or settings?)|all of it|будь-що|все|усе|нічого|жодн\w+ (?:змін\w*|речей|файл\w*|налаштуван\w*))\b", _I)
 _ALL_EFFECTS_PROHIBITED_RE = re.compile(r"(?:\b(?:no|zero|without any|not any)\s+(?:external|outside|real|actual|real-world|side)[- ]?(?:changes?|effects?|actions?|mutations?|modifications?|operations?)|"
-                                        r"\b(?:do|perform|execute|make|take|carry out)\s+(?:nothing|no (?:actions?|operations?|changes?|steps?))(?:\s+(?:at all|whatsoever|else))?|\bnothing\s+(?:external|real|actual|at all)\b|\bread[- ]only\b|"
+                                        r"\b(?:do|perform|execute|make|take|carry out)\s+(?:nothing|no (?:actions?|operations?|steps?))(?:\s+(?:at all|whatsoever|else))?|\bnothing\s+(?:external|real|actual|at all)\b|\bread[- ]only\b|"
                                         # sheet v5 rule 23 (DCE-G1R3D): "do nothing outside / beyond chat", "no external / remote calls", "nothing should change", "chat only"
-                                        r"\bnothing\s+(?:outside|beyond|except|other than|apart from|besides|but)\b|\b(?:no|zero)\s+(?:external|outside|remote|outbound|network|outgoing|real|real-world)\s+(?:calls?|actions?|requests?|changes?|operations?|side[- ]effects?|effects?|writes?|interactions?|mutations?)\b|"
+                                        r"\bnothing\s+(?:outside|beyond|except|other than|apart from|besides|but)\b|\b(?:no|zero)\s+(?:external|outside|remote|outbound|real|real-world)\s+(?:calls?|actions?|requests?|changes?|operations?|side[- ]effects?|effects?|writes?|interactions?|mutations?)\b|"
                                         r"\b(?:never|not|don't|do not)\s+(?:perform|take|make|execute|carry out|do)\s+(?:any\s+)?(?:external|outside|remote|real|real-world|side[- ]effecting|state[- ]changing)\s+(?:actions?|calls?|changes?|operations?|side[- ]effects?|requests?|effects?)\b|"
                                         r"\bnothing\s+(?:should|may|must|can|is to|shall|will)\s+(?:change|be changed|be modified|be touched|be altered|be written|be executed|happen|move|run)\b|"
                                         r"\b(?:stay|remain|keep(?: everything| it| this)?|work)\s+(?:strictly\s+)?(?:in|inside|within)\s+(?:the\s+|this\s+)?(?:chat|reply|answer|conversation)\b|\b(?:chat|text|answer|reply|conversation|discussion)[- ]only\b|"
@@ -305,7 +310,15 @@ def _attributed_effects(o: Objective) -> list[tuple[str, OperationEvidence]]:
     m = _MUTATES_RE.search(obj)
     if m is not None:
         out.append((ENVIRONMENT_MUTATION, _evd(o.id, _span_of(m, base), f"attributed:{ENVIRONMENT_MUTATION}", m.group(0))))
+    trig = o.trigger.text if o.trigger is not None else ""
+    if re.match(r"\s*(?:appl|patch|hot-?fix)", trig, _I) and not any(c == ARTIFACT_WRITE for c, _ in out):
+        m = _APPLY_TO_FILE_RE.search(obj)              # "apply the fix to config/gateway.yaml" — the named file is written (DCE-G1R3D)
+        if m is not None:
+            out.append((ARTIFACT_WRITE, _evd(o.id, _span_of(m, base), f"attributed:{ARTIFACT_WRITE}", m.group(0))))
     return out
+
+
+_APPLY_TO_FILE_RE = re.compile(r"\b(?:to|in|into|onto|against|inside|within)\s+(?:the\s+|this\s+|that\s+)?`?(?:[\w.-]+/)*[\w.-]+\.(?:ya?ml|json|toml|ini|cfg|conf|env|py|js|ts|tsx|jsx|go|rs|java|kt|rb|php|sh|md|txt|csv|xml|html?|css|sql|lock|properties)\b", _I)
 
 
 _GENERIC_OBJ_RE = re.compile(r"^\s*(?:(?:the|a|an|this|that|these|those|my|our|your|its|all|any|some|pending|requested|proposed|necessary|needed|required)\s+)*"
@@ -314,7 +327,9 @@ _GENERIC_OBJ_RE = re.compile(r"^\s*(?:(?:the|a|an|this|that|these|those|my|our|y
                              r"(?:fix(?:es)?|hotfix(?:es)?|changes?|edits?|modifications?|updates?|adjustments?|tweaks?|amendments?|corrections?|improvements?|rework|workarounds?|alterations?)\b"
                              r"(?!\s*(?:log|set|request|history|list|management|control|window|freeze|review|ticket|summary|description|plan)\b)", _I)
 _FILE_DEST_RE = re.compile(r"(?:" + ev._FILE_EXT_RE.pattern + r"|" + ev._PATH_RE.pattern + r"|" + ev._FILE_NOUN_RE.pattern + r")", _I)
-_ENV_TARGET_RE = re.compile(r"\b(?:to|on|in|into|against)\s+(?:the\s+)?(?:production|prod|staging|live|the cluster|cluster|servers?|hosts?|nodes?|fleet|environment|env)\b", _I)
+_ENV_TARGET_RE = re.compile(r"\b(?:to|on|in|into|against)\s+(?:the\s+|our\s+|each\s+|every\s+|all\s+)?(?:(?:running|live|active|deployed|current|staging|production|prod|canary|primary|secondary|main)\s+)?"
+                            r"(?:production|prod|staging|live|clusters?|servers?|hosts?|nodes?|fleet|environments?|env|gateway|gateways|proxy|proxies|load[- ]balancers?|"
+                            r"services?|instances?|deployments?|pods?|containers?|database|db|databases)\b", _I)
 
 
 def _generic_change_object(o: Objective) -> Optional[OperationEvidence]:
@@ -334,6 +349,10 @@ def _state_object(o: Objective) -> Optional[tuple[str, OperationEvidence]]:
     base = o.target.source_span.start if o.target is not None else o.source_span.start
     if not obj:
         return None
+    fm = _SOURCE_FILE_RE.search(obj)
+    if fm is not None and o.action in ("create", "modify") and _CONFIG_FILE_RE.search(obj) is None and not ev._in_subject_phrase(obj, fm.start()) \
+            and (_FILE_HEAD_RE.match(obj) or _GIT_REF_RE.search(obj) is None):
+        return ARTIFACT_WRITE, _evd(o.id, _span_of(fm, base), "object:source_file", fm.group(0))   # "Create docs/operator-checklist.md with the release checklist"
     for rx, reason in ((_GIT_REF_RE, "git_ref"), (_GIT_NOUN_RE, "git_noun"), (_TICKET_NOUN_RE, "service_record"), (_SERVICE_PLACE_RE, "service_place")):
         m = rx.search(obj)
         if m is not None:
@@ -349,6 +368,9 @@ def _state_object(o: Objective) -> Optional[tuple[str, OperationEvidence]]:
     m = _SOURCE_FILE_RE.search(obj)
     if m is not None and o.action in ("create", "modify") and not ev._in_subject_phrase(obj, m.start()):   # "a patch for src/api.py" names the subject
         return ARTIFACT_WRITE, _evd(o.id, _span_of(m, base), "object:source_file", m.group(0))
+    m = _ENV_TARGET_RE.search(obj)
+    if m is not None and o.action == "modify" and _GENERIC_OBJ_RE.match(obj) is not None:   # "apply the change on the staging cluster" (DCE-G1R3D)
+        return ENVIRONMENT_MUTATION, _evd(o.id, _span_of(m, base), "object:environment_target", m.group(0))
     return None
 
 
@@ -412,7 +434,8 @@ def _project_objective(ir: RequestIR, o: Objective, base: EffectProjection, tool
         decl_ev = [_evd(f"tool:{t.name}", None, f"tool_declaration:{t.name}", t.scope) for t in declared]
         decl_name = ",".join(t.name for t in declared) or None
         decl_reasons = ["tool_declaration"] if declared else []
-        if matched is not None and matched[0].name == "apply_change" and _generic_change_object(o) is not None:
+        if matched is not None and matched[0].name == "apply_change" and _generic_change_object(o) is not None \
+                and re.match(r"\s*(?:appl|make|do|perform|carry|застос)", o.trigger.text if o.trigger else "", _I):
             # "apply the fix" — what is applied, and to what, is not established → unknown (never coerced into an environment change)
             return mk(None, UNKNOWN, [UNKNOWN], False, base_ev + [_generic_change_object(o)], extra_reasons=["ambiguous_medium"])
         if matched is not None:

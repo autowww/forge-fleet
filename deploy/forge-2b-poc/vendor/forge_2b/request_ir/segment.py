@@ -219,4 +219,16 @@ def trim(text: str, start: int, end: int, *, strip_leading_punct: bool = False) 
         start += 1
     while end > start and text[end - 1] in " \t\r\n,;:.!?…—–":
         end -= 1
+    # "the risk factors and, separately," — a stranded joiner (optionally with a sequencing adverb) never ends a mention (DCE-G1R3D)
+    while True:
+        m = _TRAILING_JOINER_RE.search(text, start, end)
+        if m is None or m.start() <= start:
+            break
+        end = m.start()
+        while end > start and text[end - 1] in " \t\r\n,;:.!?…—–":
+            end -= 1
     return start, end
+
+
+_TRAILING_JOINER_RE = re.compile(r"(?:\s*,)?\s+(?:and|or|then|plus|nor|та|і|й|або|а також)"
+                                 r"(?:\s*,\s*(?:separately|additionally|also|in addition|afterwards|then|finally|lastly|secondly|first|окремо|також|додатково))?\s*[,;:]?\s*$", re.I)

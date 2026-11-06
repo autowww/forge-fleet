@@ -239,6 +239,11 @@ def retrieve(ings: list[zipingest.Ingest], query: str, *, max_hits: int = 8, max
 JSON_ONLY_TAIL = "\n\nReply with the JSON object only — start your reply with { and write no prose and no markdown."
 QUOTE_TAIL = ("\n\nYour previous reply carried no usable quote. If the answer is in the excerpts, copy the excerpt line(s) that carry it "
               "into \"quotes\" character for character (same path and line number as shown); if it is not, set \"found\" to false.")
+COVERAGE_TAIL = ("\n\nYour previous reply said the excerpts carry no answer, but {lines} mention {words}. Read those lines again. "
+                 "If one of them answers the question — for a yes/no question, say yes or no in \"answer\" and add what the line says; "
+                 "for a who/what/which question, put what the line says in \"answer\", never a bare yes — "
+                 "copy that line into \"quotes\" character for character (same path and line number as shown). "
+                 "If none of them answers it, keep \"found\" false.")
 
 
 def qa_messages(query: str, hits: list[Hit], *, retry_hint: str | None = None, json_only: bool = False,
@@ -313,13 +318,39 @@ def _norm(s: str) -> str:
     return " ".join(s.split()).casefold()
 
 
-def verify_quotes(decision: dict[str, Any], hits: list[Hit]) -> list[str]:
+_MARKUP_RE = re.compile(r"[*`_|#>~\[\]()\"'“”‘’]+")
+_TOKEN_RE = re.compile(r"[^\W_]+", re.UNICODE)
+_ANCHOR_RE = re.compile(r"(?<![\w.])(?:[A-Za-z]{1,4}[_-]?\d{1,6}[A-Za-z]?|\d+(?:[.,]\d+)+|\d{2,})(?![\w.])")
+
+
+def _plain(s: str) -> str:
+    return " ".join(_MARKUP_RE.sub(" ", s).split()).casefold()
+
+
+def _addressed(q: dict[str, Any], hits: list[Hit]) -> Hit | None:
+    """The excerpt the model's own ``path:line`` points at (``path:N`` as path tolerated), if it is one of the excerpts."""
+    path_hint = q["path"].rsplit(":", 1)[0] if re.search(r":\d+$", q["path"]) else q["path"]
+    for h in hits:
+        if (h.path, h.line) == (q["path"], q["line"]) or (h.path == path_hint and h.line == q["line"]):
+            return h
+    return None
+
+
+def verify_quotes(decision: dict[str, Any], hits: list[Hit], *, repair: bool = False) -> list[str]:
     """Each quote must be a verbatim substring of an excerpt line; provenance is re-derived from the excerpts.
 
     Small models copy text faithfully but mis-number lines (excerpt index vs file line, or "path:N" as path).
     The text is the evidence, so a quote is accepted iff its text occurs verbatim in an excerpt; path/line are
     then set deterministically from that excerpt (preferring the model's own reference when it is valid).
     Returns the list of problems (empty = verified); mutates `decision["quotes"]` in place on success.
+
+    ``repair=True`` (the DCE lane) accepts two deterministic repairs and marks each quote with ``repaired``:
+    * ``addressed_line`` — the model's own ``path:line`` *is* one of the excerpts and its quote is that line with
+      markdown markup lost or whitespace changed (``**6**`` → ``6``; live K13 2026-11-06, a table row rejected twice):
+      the excerpt's real text replaces the quote, so the evidence shown is the line, never the model's rendering.
+    * ``answer_anchored`` — ``found`` is true with no quote, but the answer carries identifiers / numbers (``E040``,
+      ``0.54``) and exactly the excerpts holding *all* of them exist (live K11: the case ids were answered, nothing
+      quoted, twice): the first such excerpt becomes the quote. Prose answers without an anchor are not repaired.
     """
     problems: list[str] = []
     for q in decision["quotes"]:
@@ -328,6 +359,14 @@ def verify_quotes(decision: dict[str, Any], hits: list[Hit]) -> list[str]:
             problems.append("empty quote")
             continue
         cands = [h for h in hits if qt in _norm(h.text)]
+        if not cands and repair:
+            h = _addressed(q, hits)
+            if h is not None:
+                qp, hp = _plain(q["text"]), _plain(h.text)
+                qtok = set(_TOKEN_RE.findall(qp))
+                if qp and (qp in hp or (len(qtok) >= 3 and qtok <= set(_TOKEN_RE.findall(hp)))):
+                    q["text"], q["repaired"] = h.text, "addressed_line"
+                    cands = [h]
         if not cands:
             problems.append(f"quote for {q['path']}:{q['line']} is not verbatim in any excerpt")
             continue
@@ -336,6 +375,13 @@ def verify_quotes(decision: dict[str, Any], hits: list[Hit]) -> list[str]:
         same_path = [h for h in cands if h.path == path_hint]
         h = (exact or same_path or cands)[0]
         q["path"], q["line"] = h.path, h.line
+    if decision["found"] and not decision["quotes"] and repair and not problems:
+        anchors = list(dict.fromkeys(a.casefold() for a in _ANCHOR_RE.findall(str(decision.get("answer", "")))))
+        if anchors:
+            carrying = [h for h in hits if all(a in h.text.casefold() for a in anchors)]
+            if carrying:
+                h = carrying[0]
+                decision["quotes"] = [{"path": h.path, "line": h.line, "text": h.text, "repaired": "answer_anchored"}]
     if decision["found"] and not decision["quotes"]:
         problems.append("found=true requires at least one quote")
     return problems

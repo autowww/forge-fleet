@@ -522,7 +522,7 @@ def plan_preview(ir: RequestIR, amap: AttachmentMap, scope: Scope, *, max_hits: 
             entry["coverage"] = res.coverage
             # D0 typed operators over tables and patches (Phase 2): a named row, an extreme over a column, a patch rollup —
             # each abstains unless every content word of the question is explained by the table / patch it answers from
-            typed_table = (tables.typed_commit_range(amap, n.query) or tables.typed_table_extreme(amap, n.query) or tables.typed_table_row(amap, n.query)
+            typed_table = (tables.typed_commit_range(amap, n.query) or tables.typed_table_filter(amap, n.query) or tables.typed_table_extreme(amap, n.query) or tables.typed_table_row(amap, n.query)
                            or tables.typed_diff_rollup(amap, n.query)) if n.kind != "summarize" else None
             if typed_table:
                 entry["typed_table"] = typed_table
