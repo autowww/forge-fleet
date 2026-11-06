@@ -21,6 +21,7 @@ from jsonschema import Draft202012Validator
 from .attachment_map import AttachmentMap, Scope
 from .ir import RequestIR
 from .retrieval import Retriever
+from . import tables
 from .untrusted import scan_untrusted
 
 DAG_VERSION = "forge-2b.task-dag.v1"
@@ -519,7 +520,14 @@ def plan_preview(ir: RequestIR, amap: AttachmentMap, scope: Scope, *, max_hits: 
             entry["status"] = res.status
             entry["strategy"] = res.strategy
             entry["coverage"] = res.coverage
-            if n.kind == "lookup":   # goal deps on a lookup are ordering only ("first … then"), not data flow
+            # D0 typed operators over tables and patches (Phase 2): a named row, an extreme over a column, a patch rollup —
+            # each abstains unless every content word of the question is explained by the table / patch it answers from
+            typed_table = (tables.typed_commit_range(amap, n.query) or tables.typed_table_extreme(amap, n.query) or tables.typed_table_row(amap, n.query)
+                           or tables.typed_diff_rollup(amap, n.query)) if n.kind != "summarize" else None
+            if typed_table:
+                entry["typed_table"] = typed_table
+                entry["route_pref"] = "D0"
+            elif n.kind == "lookup":   # goal deps on a lookup are ordering only ("first … then"), not data flow
                 ts = typed_dated_sections(amap, n.source_scope["files"], n.query)
                 if ts:
                     entry["typed_dated_sections"] = ts

@@ -53,7 +53,7 @@ services:
       # Deterministic Comprehension Engine (forge-2b-poc DCE-04): off = legacy lane byte-identical; shadow = trace only; on = DCE answers
       FORGE_2B_DCE_MODE: ${FORGE_2B_DCE_MODE:-off}
       FORGE_2B_DCE_MAX_MODEL_CALLS: ${FORGE_2B_DCE_MAX_MODEL_CALLS:-3}
-      FORGE_2B_DCE_PLAN_MS: ${FORGE_2B_DCE_PLAN_MS:-400}
+      FORGE_2B_DCE_PLAN_MS: ${FORGE_2B_DCE_PLAN_MS:-3000}
       FORGE_2B_DCE_CONCURRENCY: ${FORGE_2B_DCE_CONCURRENCY:-2}
     volumes:
       - shim_cache:/var/lib/forge-2b/cache

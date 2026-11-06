@@ -103,7 +103,7 @@ class Config:
     zip_limits: zipingest.Limits = zipingest.Limits()
     # DCE-04: off (default, legacy only) | shadow (DCE planned beside legacy, trace only) | on (DCE answers tested attachment ops)
     dce_mode: str = "off"
-    dce_plan_ms: float = 1500.0   # parse cache is warmed at ingest; 1.5 s tolerates a cold 60-file package once
+    dce_plan_ms: float = 3000.0   # measured on the 68-file G1R3A bundle (lab shim, warm index): median 0.45 s, compare questions 1.2–1.5 s — 1.5 s lost K20 by 6 ms (after11)
     dce_max_model_calls: int = 3
     dce_concurrency: int = 2
 

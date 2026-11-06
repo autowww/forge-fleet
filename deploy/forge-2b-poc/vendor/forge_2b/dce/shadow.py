@@ -47,7 +47,7 @@ def normalize_mode(value: str | None) -> str:
 
 @dataclass(frozen=True)
 class Budget:
-    plan_ms: float = 1500.0       # deterministic stage (parse + map + DAG + dry-run retrieval) wall-clock cap; warm map ≈ 0.2 s
+    plan_ms: float = 3000.0       # deterministic stage (parse + map + DAG + dry-run retrieval) wall-clock cap; warm plan 0.45 s median, 1.5 s tail on a 68-file package
     max_hits: int = 8
     max_model_calls: int = 3      # per run, all D1/D2 nodes together
     max_attempts: int = 2         # per node, same as the legacy Q2 loop
@@ -106,6 +106,12 @@ def sanitized_trace(plan: Plan, mode: str) -> dict[str, Any]:
             n["typed_count"] = {"value": e["typed_count"]["value"], "method": e["typed_count"]["method"], "path": e["typed_count"]["path"]}
         if "typed_compare" in e:
             n["typed_compare"] = {"verdict": e["typed_compare"]["verdict"], "differs": [d["key"] for d in e["typed_compare"]["differs"]]}
+        if "typed_table" in e:
+            tt = e["typed_table"]
+            n["typed_table"] = {"method": tt["method"], **({"label": tt["label"], "rows": len(tt["entries"])} if "entries" in tt else {}),
+                                **({"column": tt["column"], "label": tt["label"]} if tt["method"] == "typed_table_extreme" else {}),
+                                **({"files": len(tt["files"])} if "files" in tt else {}),
+                                **({"commits": len(tt["commits"]), "path": tt["path"]} if "commits" in tt else {})}
         nodes.append(n)
     return {"version": TRACE_VERSION, "mode": mode, "status": "PLANNED", "model_calls_made": 0,
             "plan_ms": round(plan.elapsed_ms, 2), "map_id": plan.amap.map_id, "map_files": len(plan.amap.files), "map_segments": len(plan.amap.segments),
@@ -511,6 +517,40 @@ async def execute(plan: Plan, ings: list[zipingest.Ingest], call_llm: LlmCall | 
                     for sp in [en] + (en["body"] if ts["chosen"] else []):
                         loc = plan.amap.resolve(sp["seg_id"], plan.scope)
                         r.spans.append({"path": ts["path"], "line": sp["line"], "text": loc["text"].split("\n")[0][:200], "seg_id": sp["seg_id"]})
+            elif "typed_table" in e:
+                # D0 (Phase 2): a table row, a column extreme or a patch rollup read from the map — no model call
+                tt = e["typed_table"]
+                r.route, r.status, r.method = "D0", "COMMITTED", tt["method"]
+                if tt["method"] == "typed_table_row":
+                    parts = []
+                    for en in tt["entries"]:
+                        cells = "; ".join(f"{c['column']}: **{c['value']}**" for c in en["cells"]) or "(no cells)"
+                        parts.append(f"- **{en['label']}** — {cells} (`{en['path']}:{en['line']}`)")
+                    r.answer = "\n".join(parts) + (f"\n_{tt['note']}_" if tt["note"] else "")
+                    r.detail = tt["note"]
+                    for en in tt["entries"]:
+                        loc = plan.amap.resolve(en["seg_id"], plan.scope)
+                        r.spans.append({"path": en["path"], "line": en["line"], "text": loc["text"].split("\n")[0][:200], "seg_id": en["seg_id"]})
+                elif tt["method"] == "typed_table_extreme":
+                    col = tt["column"] + (f" → {tt['sub']}" if tt.get("sub") else "")
+                    others = ", ".join(f"{o['label']} {o['value']:g}" for o in tt["others"])
+                    r.answer = (f"**{tt['label']}** — {tt['extreme']} `{col}`: **{tt['cell']}** (`{tt['path']}:{tt['line']}`; {tt['rows_considered']} rows compared"
+                                + (f", next: {others}" if others else "") + ")")
+                    loc = plan.amap.resolve(tt["seg_id"], plan.scope)
+                    r.spans.append({"path": tt["path"], "line": tt["line"], "text": loc["text"].split("\n")[0][:200], "seg_id": tt["seg_id"]})
+                elif tt["method"] == "typed_commit_range":
+                    lines = [f"- `{c['sha']}` {c['subject']} (`{tt['path']}:{c['line']}`)" for c in tt["commits"]]
+                    r.answer = (f"**{len(tt['commits'])} commit(s)** after `{tt['older']}` up to `{tt['newer']}` in `{tt['path']}` ({tt['log_lines']} log lines read, no model called):\n"
+                                + "\n".join(lines))
+                    for c in tt["commits"]:
+                        r.spans.append({"path": tt["path"], "line": c["line"], "text": f"{c['sha']} {c['subject']}"[:200], "seg_id": c["seg_id"]})
+                else:   # typed_diff_rollup
+                    lines = [f"- `{x['path']}` — {x['status']}, +{x['added']} −{x['removed']} in {x['hunks']} hunk(s) (`{x['patch']}:{x['line']}`)" for x in tt["files"]]
+                    r.answer = (f"**{len(tt['files'])} file(s)** changed in `{'`, `'.join(tt['patches'])}` (+{tt['added']} −{tt['removed']}; read from the patch headers, no model called):\n"
+                                + "\n".join(lines))
+                    for x in tt["files"]:
+                        loc = plan.amap.resolve(x["seg_id"], plan.scope)
+                        r.spans.append({"path": x["patch"], "line": x["line"], "text": loc["text"].split("\n")[0][:200], "seg_id": x["seg_id"]})
             elif "typed_key_lookup" in e:
                 # D0: the best-ranked line *is* the asked config key — read the value from the map, no model call
                 tk = e["typed_key_lookup"]

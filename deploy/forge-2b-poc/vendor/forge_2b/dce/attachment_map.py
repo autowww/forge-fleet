@@ -400,7 +400,7 @@ def build_attachment_map(ingests: Iterable[zipingest.Ingest], scope: Scope, limi
                                         aliases=list(piece.aliases[: limits.max_aliases_per_segment]), malformed=piece.malformed))
         sf.segments = n
     collisions = _collisions(files)
-    refs = _references(files, segments, limits.max_references, hit)
+    refs = _references_cached(files, segments, limits.max_references, hit)
     digest = hashlib.sha256()
     digest.update(scope.key.encode())
     for f in files:
@@ -489,6 +489,32 @@ def _collisions(files: list[SourceFile]) -> list[dict[str, Any]]:
 
 _PATH_TOKEN_RE = re.compile(r"(?<![\w/])((?:[\w.\-]+/)*[\w\-][\w.\-]*\.(?:md|markdown|ya?ml|json|jsonl|ndjson|csv|tsv|py|txt|html?|js|ts|toml|ini|cfg|bin|sh|sql|log|xml|rst|patch|diff))(?![\w/])", re.UNICODE)
 _IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]{2,}")
+
+
+_REFS_CACHE: dict[str, tuple[list[Reference], bool]] = {}
+REFS_CACHE_MAX = 32
+
+
+def _references_cached(files: list[SourceFile], segments: list[Segment], max_refs: int, hit: list[str]) -> list[Reference]:
+    """``_references`` is a pure function of the files' paths / roles / content and the segment list, none of which depends
+    on the scope (file ids are positional, scope only enters ``index_key`` and ``map_id``). The same package is re-mapped
+    for every question of a chat, and on a 68-file proof bundle this step alone is ~150 ms of a 1.5 s plan budget
+    (live: K20 PLAN_TIMEOUT by 6 ms, after11), so the result is cached per content key and shared read-only."""
+    h = hashlib.sha256(f"{max_refs}|{len(segments)}\n".encode())
+    for f in files:
+        h.update(f"{f.file_id}|{f.path}|{f.content_sha256}|{f.status}|{f.duplicate_of}|{','.join(f.role_hints)}|{f.segments}\n".encode())
+    key = h.hexdigest()
+    cached = _REFS_CACHE.get(key)
+    if cached is None:
+        before = len(hit)
+        refs = _references(files, segments, max_refs, hit)
+        cached = (refs, "max_references" in hit[before:])
+        if len(_REFS_CACHE) >= REFS_CACHE_MAX:
+            _REFS_CACHE.pop(next(iter(_REFS_CACHE)))
+        _REFS_CACHE[key] = cached
+    elif cached[1]:
+        hit.append("max_references")
+    return cached[0]
 
 
 def _references(files: list[SourceFile], segments: list[Segment], max_refs: int, hit: list[str]) -> list[Reference]:
