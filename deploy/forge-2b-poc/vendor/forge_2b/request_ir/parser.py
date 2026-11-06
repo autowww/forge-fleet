@@ -29,7 +29,8 @@ NOUNISH_VERBS = frozenset("output return print total average label tag group set
                           "update change fix increase decrease start stop run order process access count list show use build design plan "
                           "release deploy install clear sign record log trigger apply".split())
 _OBJECT_START_RE = re.compile(r"\s+(?:the|a|an|all|each|every|any|them|it|this|that|these|those|me|my|our|your|its|their|by|out|up|only|which|"
-                              r"what|whether|if|how|where|who|whom|for|from|in|on|to|nothing|anything|everything|no|zero|not a single|нічого|жодних|жодного|\d|[\"“«`'])", re.I)
+                              r"what|whether|if|how|where|who|whom|for|from|in|on|to|nothing|anything|everything|no|zero|not a single|нічого|жодних|жодного|\d|[\"“«`']|"
+                              r"(?:[\w.-]+/)+[\w./-]+|[\w-]+\.(?:[a-z]{1,5}|ya?ml|json|md|txt|py|js|ts|css|html?|sql|toml|cfg|ini|env|lock)\b)", re.I)   # a bare path / filename object ("update public/app.css") (DCE-G1R3D)
 _DECL_AFTER_NOUNISH_RE = re.compile(r"\s*(?!(?:which|what|whether|if|who|whom|whose|where|when|how|the|a|an|all|every|each|any|this|that|these|those|them|it|"
                                     r"me|my|our|your|its|their|only|just)\b)\S+\s+(?:is|are|was|were|has|have|had|does|do|did)\b", re.I)
 _WORD_RE = re.compile(r"[^\W\d_]+", re.U)
@@ -78,6 +79,7 @@ _EN_EVIDENCE_RE = re.compile(r"\b(?:the|a|an|and|or|but|is|are|was|were|be|to|of
                              r"neither|own|other|another|such|per|via|without|within|between|through|against|across|toward|towards|under|above|below)\b", re.I)
 _SUBJECT_FRONTED_RULES = frozenset(("en.prohibition.subject_active", "en.prohibition.subject_passive", "en.prohibition.off_limits"))
 _BARE_SEQ_ADVERB_RE = re.compile(r"^\s*(?:and\s+)?(?:separately|additionally|also|in addition|afterwards|then|finally|lastly|secondly|first|окремо|також|додатково)\s*[.,;:]*\s*$", re.I)
+_NEG_EXISTENTIAL_RE = re.compile(r"\s*(?:there\s+(?:is|are|was|were)\s+(?:no|not any|nothing)\b|there\s+(?:isn't|aren't|wasn't|weren't)\b|no\s+[\w-]+(?:\s+[\w-]+){0,3}\s+(?:is|are|was|were)\s+attached\b|nothing\s+(?:is|was)\s+attached\b)", re.I)
 _CONTRAST_NOT_RE = re.compile(r"(?:,|;)?\s+(?:though|although|but|yet|however)\s+(?:not|never)\b", re.I)   # G1R3C: ", though not to production"
 _TEMPORAL_TAIL_RE = re.compile(r"\s+(?:today|tonight|tomorrow|now|yet|for now|this (?:week|sprint|time)|at (?:this|the) (?:point|time|moment)|until further notice|"
                                r"сьогодні|зараз|поки що|наразі|цього тижня|до подальшого)\s*$", re.I)
@@ -154,6 +156,8 @@ class _State:
         cands = []
         for k in self.g.context_statements:
             ktext = "".join(" " if self.mask.covers(k.source_span.start + j) else ch for j, ch in enumerate(k.text))   # protected text is opaque
+            if _NEG_EXISTENTIAL_RE.match(ktext):                   # "There is no attached script" names nothing to run (DCE-G1R3D)
+                continue
             groups = _noun_groups(ktext)
             if groups:
                 cands.append((k, groups))
@@ -313,6 +317,7 @@ def _coord_opens_unknown(text: str, pos: int, end: int, mask: Mask, sentence: st
 
 
 def _condition_kind(marker: str) -> Optional[str]:
+    marker = re.sub(r"^\s*(?:only|but only|and only)\s+", "", marker, flags=re.I)   # "Only after I say GO" (DCE-G1R3D)
     if marker.strip().lower() == "should":          # inverted conditional "Should X exceed Y, …" (lookahead-guarded in CONDITION_MARKERS)
         return "if"
     for kind, pat in R.CONDITION_MARKERS:
@@ -919,11 +924,13 @@ def _process_clause(st: _State, c: _Clause) -> None:
     if not modal_q and lang == "en":                                            # DCE-G1R3C English prohibition grammar
         msa = R.SUBJECT_ACTIVE_NEG_RE.match(rest)                               # "The migration bundle must not change."
         if msa:
-            verb = msa.group("verb").lower()
+            stative = msa.group("stative") is not None                           # "must stay unchanged" / "should remain untouched" (DCE-G1R3D)
+            verb = (msa.group("verb") or "change").lower()
             act = R.SUBJECT_ACTIVE_VERB_ACTION.get(verb) or _participle_action(verb.split()[-1])
             if act:
-                a0 = cs + i + msa.start("subj")
-                tgt = st.mention(a0, a0 + len(msa.group("subj")))
+                subj_g = "subj2" if stative else "subj"
+                a0 = cs + i + msa.start(subj_g)
+                tgt = st.mention(a0, a0 + len(msa.group(subj_g)))
                 st.last_mention = (act, tgt)
                 _clause_constraint(st, c, cs, ce, "prohibition", "en.prohibition.subject_active", target_action=act,
                                    target_object=tgt, breadth="narrow")
@@ -944,6 +951,12 @@ def _process_clause(st: _State, c: _Clause) -> None:
             st.last_mention = ("modify", tgt)
             _clause_constraint(st, c, cs, ce, "prohibition", "en.prohibition.off_limits", target_action="modify",
                                value=st.mention(cs + i, cs + i + mol.end()), target_object=tgt, breadth="narrow")
+            return
+        mko = R.KEEP_OUT_RE.match(rest)                                         # "keep it out of the repository" (DCE-G1R3D)
+        if mko:
+            tgt = st.mention(cs + i + mko.start("obj"), cs + i + mko.end("obj"))
+            _clause_constraint(st, c, cs, ce, "prohibition", "en.prohibition.keep_out_of", target_action="create",
+                               value=st.mention(cs + i, cs + i + mko.end()), target_object=tgt, breadth="narrow")
             return
         mku = R.KEEP_UNTOUCHED_RE.match(rest)                                   # "Keep config.yaml as is" / "Leave the branch alone"
         if mku:

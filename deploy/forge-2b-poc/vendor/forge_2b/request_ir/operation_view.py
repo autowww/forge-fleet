@@ -42,7 +42,7 @@ from .effect_view import (
 __all__ = ["OperationEffect", "OperationProjection", "ToolDeclaration", "OperationEvidence", "OPERATOR_REGISTRY",
            "project_operations", "operation_policy", "OPERATION_PROJECTION_VERSION"]
 
-OPERATION_PROJECTION_VERSION = "dce-g1r3d/0.4.0"
+OPERATION_PROJECTION_VERSION = "dce-g1r3d/0.4.1"
 
 _I = re.I | re.U
 _W = r"(?<![\w'’-])"
@@ -127,7 +127,7 @@ _SERVICE_PLACE_RE = _rx(r"(?:jira|confluence|notion|slack|teams|github|gitlab|bi
 _CONFIG_OBJ_RE = _rx(r"(?:config\w*|settings?|setting|feature[- ]?flags?|flags?|firewall|iptables|dns|permissions?|roles?|quotas?|limits?|environment variables?|env vars?|secrets?|"
                      r"конфіг\w*|конфігурац\w*|налаштуванн\w*|прапорц\w*|фаєрвол\w*|дозвол\w*|квот\w*|ліміт\w*|змінн\w* середовищ\w*|секрет\w*)\b")
 _FILE_HEAD_RE = re.compile(r"^\s*(?:(?:a|an|the|this|that|new|a new)\s+)?(?:(?:file|document|doc|note|page)\s+(?:called|named|at)\s+)?(?:`)?(?:[\w.-]+/)*[\w.-]+\.\w{1,6}\b", _I)
-_SOURCE_FILE_RE = re.compile(r"(?<![\w/])(?:[\w.-]+/)*[\w.-]+\.(?:py|js|ts|tsx|jsx|go|rs|java|kt|rb|php|c|h|cpp|cs|swift|scala|sql|sh|bash|md|rst|txt|html?|css|scss|csv|ipynb)\b", _I)
+_SOURCE_FILE_RE = re.compile(r"(?<![\w/])(?:[\w.-]+/)*[\w.-]+\.(?:py|js|ts|tsx|jsx|go|rs|java|kt|rb|php|c|h|cpp|cs|swift|scala|sql|sh|bash|md|rst|txt|html?|css|scss|csv|ipynb|tgz|tar|gz|zip|ndjson|jsonl|parquet|snap|lock)\b", _I)
 _CONFIG_FILE_RE = re.compile(r"(?<![\w/])(?:[\w.-]+/)*[\w.-]+\.(?:ya?ml|json|toml|ini|cfg|conf|env|tf|hcl|properties)\b|\.env\b|dockerfile|docker-compose", _I)
 _WRITES_TO_RE = re.compile(r"(?:writes?|saves?|stores?|persists?|dumps?|exports?|appends?|outputs?|записує|зберігає|пише|експортує|вивантажує)\b[^.;]*?(?:to|into|in|у|в|до)\s+(?P<dst>[\w./-]+\.\w{1,6}|(?:a |the )?(?:files?|disk|файл\w*|диск)\b[\w./ -]*)", _I)
 _WRITES_ARTEFACT_RE = re.compile(r"(?:updates?|updating|regenerates?|rewrites?|writes?|generates?|emits?|produces?|creates?|refreshes?|records?|overwrites?|"
@@ -136,7 +136,7 @@ _WRITES_ARTEFACT_RE = re.compile(r"(?:updates?|updating|regenerates?|rewrites?|w
                                  r"clients?|stubs?|bindings?|typings?|types? files?|headers?|binaries|executables?|packages?|wheels?|jars?|images? to disk|docs?|documentation|site|static pages?|"
                                  r"build output|outputs?|logs? to disk|to disk|on disk|results? (?:files?|directory|folder)|cache files?)\b"
                                  # "… which rewrites __snapshots__/ui.snap", "that produces bench/results.json", "regenerates generated_schema.json" (sheet v5 rule 25)
-                                 r"|(?<![\w/])(?:[\w.-]+/)*[\w.-]+\.(?:snap|json|ya?ml|md|txt|csv|tsv|xlsx?|docx?|pptx?|parquet|xml|html?|lock|png|jpe?g|svg|pdf|log|sql|py|js|ts|toml|ini|cfg|out|bin|tar|gz|zip|db|sqlite|pkl|npz|h5)\b"
+                                 r"|(?<![\w/])(?:[\w.-]+/)*[\w.-]+\.(?:snap|json|ndjson|jsonl|ya?ml|md|txt|csv|tsv|xlsx?|docx?|pptx?|parquet|avro|orc|feather|xml|html?|lock|png|jpe?g|svg|pdf|log|sql|py|js|ts|toml|ini|cfg|out|bin|tar|tgz|gz|zip|db|sqlite|pkl|npz|h5)\b"
                                  r"|(?<![\w.])(?:\.?/)?[\w.-]+/[\w./-]*/?(?![\w.])"
                                  r"|--(?:update|write|fix|regenerate|record|snapshot-update|update-snapshots?|overwrite|save)\b)", _I)
 _MUTATES_RE = re.compile(r"(?:drops?|deletes?|truncates?|alters?|modif(?:y|ies)|changes?|updates?|rewrites?|resets?|restarts?|deploys?|rotates?|migrates?|pushes|"
@@ -307,10 +307,19 @@ def _attributed_effects(o: Objective) -> list[tuple[str, OperationEvidence]]:
         m = _WRITES_ARTEFACT_RE.search(obj)            # "tests that update the snapshots", "the build that generates the bundle"
         if m is not None:
             out.append((ARTIFACT_WRITE, _evd(o.id, _span_of(m, base), f"attributed:{ARTIFACT_WRITE}", m.group(0))))
+    if not any(c == ARTIFACT_WRITE for c, _ in out):
+        m = _WRITE_FLAG_RE.search(obj)                 # "run the linter with --fix", "pytest --update-snapshots", "the snapshot-update flag" (DCE-G1R3D)
+        if m is not None:
+            out.append((ARTIFACT_WRITE, _evd(o.id, _span_of(m, base), f"attributed:{ARTIFACT_WRITE}", m.group(0))))
     m = _MUTATES_RE.search(obj)
     if m is not None:
         out.append((ENVIRONMENT_MUTATION, _evd(o.id, _span_of(m, base), f"attributed:{ENVIRONMENT_MUTATION}", m.group(0))))
     trig = o.trigger.text if o.trigger is not None else ""
+    if re.match(r"\s*(?:upgrade|downgrade|re-?install|uninstall|install|roll (?:out|back)|rollout)\b", trig, _I) and o.action in ("modify", "run", "create", "remove"):
+        if not any(c == COMMAND_EXECUTION for c, _ in out):
+            out.append((COMMAND_EXECUTION, _evd(o.id, o.trigger.source_span, f"attributed:{COMMAND_EXECUTION}", trig)))
+        if not any(c == ENVIRONMENT_MUTATION for c, _ in out):
+            out.append((ENVIRONMENT_MUTATION, _evd(o.id, o.trigger.source_span, f"attributed:{ENVIRONMENT_MUTATION}", trig)))
     if re.match(r"\s*(?:appl|patch|hot-?fix)", trig, _I) and not any(c == ARTIFACT_WRITE for c, _ in out):
         m = _APPLY_TO_FILE_RE.search(obj)              # "apply the fix to config/gateway.yaml" — the named file is written (DCE-G1R3D)
         if m is not None:
@@ -318,6 +327,9 @@ def _attributed_effects(o: Objective) -> list[tuple[str, OperationEvidence]]:
     return out
 
 
+_INSTALL_TRIGGER_RE = re.compile(r"\s*(?:upgrade|downgrade|re-?install|uninstall|install|roll ?out|roll ?back)\b", _I)
+_WRITE_FLAG_RE = re.compile(r"(?<![\w-])--?(?:fix|write|update|regenerate|record|overwrite|save|in-?place|update-snapshots?|snapshot-update|rewrite|emit|output|out|o)(?:[= ]\S+)?(?![\w-])"
+                            r"|\b(?:snapshot-?update|update-?snapshot|auto-?fix|write-?back|in-?place|record)\s+(?:flag|mode|option|switch)\b", _I)
 _APPLY_TO_FILE_RE = re.compile(r"\b(?:to|in|into|onto|against|inside|within)\s+(?:the\s+|this\s+|that\s+)?`?(?:[\w.-]+/)*[\w.-]+\.(?:ya?ml|json|toml|ini|cfg|conf|env|py|js|ts|tsx|jsx|go|rs|java|kt|rb|php|sh|md|txt|csv|xml|html?|css|sql|lock|properties)\b", _I)
 
 
@@ -349,6 +361,9 @@ def _state_object(o: Objective) -> Optional[tuple[str, OperationEvidence]]:
     base = o.target.source_span.start if o.target is not None else o.source_span.start
     if not obj:
         return None
+    trig = o.trigger.text if o.trigger is not None else ""
+    if re.match(r"\s*comment\b", trig, _I) and o.action == "modify":            # "comment with the case number" — a comment lands on the record (DCE-G1R3D)
+        return ENVIRONMENT_MUTATION, _evd(o.id, o.trigger.source_span, "trigger:record_comment", trig)
     fm = _SOURCE_FILE_RE.search(obj)
     if fm is not None and o.action in ("create", "modify") and _CONFIG_FILE_RE.search(obj) is None and not ev._in_subject_phrase(obj, fm.start()) \
             and (_FILE_HEAD_RE.match(obj) or _GIT_REF_RE.search(obj) is None):
@@ -358,6 +373,9 @@ def _state_object(o: Objective) -> Optional[tuple[str, OperationEvidence]]:
         if m is not None:
             return ENVIRONMENT_MUTATION, _evd(o.id, _span_of(m, base), f"object:{reason}", m.group(0))
     m = _CONFIG_FILE_RE.search(obj)
+    if m is not None and o.action == "create" and re.match(r"(?:dockerfile|docker-compose|compose\.ya?ml|manifest)", m.group(0), _I) \
+            and not ev._REPLY_MEDIUM_RE.search(obj) and not (_FILE_DEST_RE.search(obj[m.end():]) or _ENV_TARGET_RE.search(obj) or re.search(r"\b(?:in|under|at|into)\s+(?:the\s+)?(?:repo|root|folder|directory|path)", obj, _I)):
+        return UNKNOWN, _evd(o.id, _span_of(m, base), "object:draft_artefact_no_destination", m.group(0))   # "Create a Dockerfile for the service" — nowhere to land it yet (sheet v5 rule 21; DCE-G1R3D)
     if m is not None and not ev._in_subject_phrase(obj, m.start()):
         return ENVIRONMENT_MUTATION, _evd(o.id, _span_of(m, base), "object:config_file", m.group(0))
     m = _CONFIG_OBJ_RE.search(obj)
@@ -425,7 +443,11 @@ def _project_objective(ir: RequestIR, o: Objective, base: EffectProjection, tool
                                  and not _GENERIC_RUN_RE.search(o.trigger.text if o.trigger else "")) else (_registry_row_for_object(ante) if ante else None)
             evidence = base_ev + [_evd(o.id, o.target.source_span, "pronoun_operation", o.target.text), _evd(o.id, None, "antecedent", ante or "")]
             if row is not None:
-                return mk(row.name, row.primary, list(row.potential), row.unknown_external, evidence + [_evd(o.id, None, f"registry:{row.name}", ante)],
+                pot = list(row.potential)
+                wm = _WRITES_ARTEFACT_RE.search(ante or "")
+                if wm is not None and ARTIFACT_WRITE not in pot:        # "The test suite produces a fixture file; run it" (DCE-G1R3D)
+                    pot.append(ARTIFACT_WRITE); evidence.append(_evd(o.id, None, f"attributed:{ARTIFACT_WRITE}", wm.group(0)))
+                return mk(row.name, row.primary, pot, row.unknown_external, evidence + [_evd(o.id, None, f"registry:{row.name}", ante)],
                           extra_reasons=["pronoun_antecedent_typed"])
             return mk("unlisted_execution", COMMAND_EXECUTION, [COMMAND_EXECUTION], True, evidence, extra_reasons=["pronoun_antecedent_untyped"])
         # declared tool effects are a conservative **union** with registry + text effects; they never narrow (DCE-G1R3C B1.1)
@@ -459,9 +481,16 @@ def _project_objective(ir: RequestIR, o: Objective, base: EffectProjection, tool
     generic = _generic_change_object(o) if o.action in ("create", "modify") else None
     if generic is not None:                        # "make the change", "prepare the changes" — medium not established (sheet v4 rule 18)
         return mk(None, UNKNOWN, [UNKNOWN], False, base_ev + [generic], extra_reasons=["ambiguous_medium"])
+    trig_text = o.trigger.text if o.trigger is not None else ""
+    if o.action in ("create", "modify", "remove") and _INSTALL_TRIGGER_RE.match(trig_text):
+        # "upgrade the tracing agent" — an install-class verb executes a package step and mutates the host (DCE-G1R3D; union, never narrowed)
+        return mk(None, COMMAND_EXECUTION, [COMMAND_EXECUTION, ENVIRONMENT_MUTATION], False,
+                  base_ev + [_evd(o.id, o.trigger.source_span, "trigger:install_class", trig_text)], extra_reasons=["install_class_verb"])
     state = _state_object(o)
     if state is not None:
         c, evd = state
+        if c == UNKNOWN:
+            return mk(None, UNKNOWN, [UNKNOWN], False, base_ev + [evd], extra_reasons=["ambiguous_medium"])
         if o.action == "remove" and c == ARTIFACT_WRITE:
             c = base_cls if base_cls in SIDE_EFFECT_CLASSES else ENVIRONMENT_MUTATION
         if base_cls == UNKNOWN and intent is not None and "medium_conflict" in intent.reasons:

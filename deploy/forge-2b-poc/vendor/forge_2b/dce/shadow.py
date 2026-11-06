@@ -361,12 +361,18 @@ def quote_relevance(plan: Plan, question: str, quoted: list[dict[str, Any]], hit
         return None, []
     if cset & {"version", "versions", "release", "released"} and any(_VERSION_RE.search(txt) for txt in quoted_texts):
         return None, []
-    # only the observed failure mode fires: every quoted line is a bare title/heading (no values), never a content line
-    if not all(_HEADING_RE.match(txt) or _is_bare_title(txt) for txt in quoted_texts):
-        return None, []
     better = [h for h in hits if any(mentions(h.text, t) for t in content) and not any(h.path == q.get("path") and h.line == q.get("line") for q in quoted)]
     if not better:
         return None, []
+    if not all(_HEADING_RE.match(txt) or _is_bare_title(txt) for txt in quoted_texts):
+        # a content line that shares no term and no anchor with the question is off-topic only when a sibling excerpt
+        # carries at least half of the question's terms (Granite smoke `port` after P3, 2026-11-06: `The service name is
+        # forge-zip-demo.` quoted for "the deployment port" while `Use port 18473 …` was the line above it)
+        # … together with a concrete value (a number): a label line alone (`def health():`, a CSV header) is what the
+        # quoted body line belongs to, not a competitor (oracle C051, C019)
+        need = max(1, (len(content) + 1) // 2)
+        if not any(sum(1 for t in content if mentions(h.text, t)) >= need and re.search(r"\d", h.text) and not _HEADING_RE.match(h.text) for h in better):
+            return None, []
     return (f"quoted line(s) share no term with the question ({', '.join(content[:4])}); retrieved excerpt "
             + ", ".join(f"`{h.path}:{h.line}`" for h in better[:3]) + " does — the quote is verbatim but may be off-topic, so the goal is not committed"), better
 

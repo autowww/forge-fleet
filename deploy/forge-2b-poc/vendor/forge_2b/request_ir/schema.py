@@ -19,7 +19,7 @@ from typing import Any, Optional
 from jsonschema import Draft202012Validator
 
 SCHEMA_VERSION = "forge.models.request_ir.v0.1"   # v0 + conditions[], constraint.target_object/breadth, alternative_to, new verbs
-PARSER_VERSION = "dce-g1r/0.6.0"   # bump whenever a rule change alters output for any frozen corpus case
+PARSER_VERSION = "dce-g1r/0.6.1"   # bump whenever a rule change alters output for any frozen corpus case
 # 0.5.0 (DCE-G1R3C): English-only instruction scope by default; `language_scope` field; `unsupported_language` unresolved kind
 
 # --- documented limits (code points / counts) ------------------------------------------------------------------
