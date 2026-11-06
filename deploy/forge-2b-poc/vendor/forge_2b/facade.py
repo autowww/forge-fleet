@@ -25,6 +25,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from jsonschema import Draft202012Validator
 
 from . import attach, edgar, graph, live, zipingest
+from .dce import shadow as dce_shadow
 
 log = logging.getLogger("forge_2b")
 if not logging.getLogger().handlers:  # uvicorn configures only its own loggers; make node progress visible
@@ -89,6 +90,11 @@ class Config:
     live_snapshot_s: float = 20.0  # min seconds between live-graph artifact snapshots in the 10-K lane
     llm_timeout: float = 120.0
     zip_limits: zipingest.Limits = zipingest.Limits()
+    # DCE-04: off (default, legacy only) | shadow (DCE planned beside legacy, trace only) | on (DCE answers tested attachment ops)
+    dce_mode: str = "off"
+    dce_plan_ms: float = 400.0
+    dce_max_model_calls: int = 3
+    dce_concurrency: int = 2
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -120,6 +126,10 @@ class Config:
             top_n=int(os.environ.get("FORGE_2B_TOP_N", cls.top_n)),
             live_snapshot_s=float(os.environ.get("FORGE_2B_LIVE_SNAPSHOT_S", cls.live_snapshot_s)),
             llm_timeout=float(os.environ.get("FORGE_2B_LLM_TIMEOUT", cls.llm_timeout)),
+            dce_mode=dce_shadow.normalize_mode(os.environ.get("FORGE_2B_DCE_MODE")),
+            dce_plan_ms=float(os.environ.get("FORGE_2B_DCE_PLAN_MS", cls.dce_plan_ms)),
+            dce_max_model_calls=int(os.environ.get("FORGE_2B_DCE_MAX_MODEL_CALLS", cls.dce_max_model_calls)),
+            dce_concurrency=max(1, int(os.environ.get("FORGE_2B_DCE_CONCURRENCY", cls.dce_concurrency))),
         )
 
 
@@ -257,6 +267,27 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
     app = FastAPI(title="Forge 2B OpenAI API PoC", docs_url=None, redoc_url=None)
     traces: dict[str, dict[str, Any]] = {}
     run_sem = asyncio.Semaphore(1)
+    dce_sem = asyncio.Semaphore(cfg.dce_concurrency)
+    dce_budget = dce_shadow.Budget(plan_ms=cfg.dce_plan_ms, max_model_calls=cfg.dce_max_model_calls, max_attempts=cfg.max_attempts)
+
+    async def dce_plan(ings: list[zipingest.Ingest], query: str, run_id: str, record: dict[str, Any]) -> dce_shadow.Plan | None:
+        """Bounded deterministic DCE stage (parse → map → DAG → dry-run retrieval). Never raises: failures are recorded
+        under record['dce'] and the caller falls back to the legacy lane."""
+        t0 = time.monotonic()
+        try:
+            async with dce_sem:
+                plan = await asyncio.wait_for(asyncio.to_thread(dce_shadow.build_plan, ings, query, run_id, budget=dce_budget),
+                                              timeout=max(0.05, cfg.dce_plan_ms / 1000.0))
+        except asyncio.TimeoutError:
+            record["dce"] = {"version": dce_shadow.TRACE_VERSION, "mode": cfg.dce_mode, "status": "PLAN_TIMEOUT",
+                             "plan_ms": round((time.monotonic() - t0) * 1000, 1), "budget_ms": cfg.dce_plan_ms, "model_calls_made": 0}
+            return None
+        except Exception as ex:  # noqa: BLE001 — shadow must never break the user-visible response
+            record["dce"] = {"version": dce_shadow.TRACE_VERSION, "mode": cfg.dce_mode, "status": "PLAN_FAILED",
+                             "error": f"{type(ex).__name__}: {str(ex)[:160]}", "model_calls_made": 0}
+            return None
+        record["dce"] = dce_shadow.sanitized_trace(plan, cfg.dce_mode)
+        return plan
 
     def require_access(request: Request) -> None:
         if not cfg.incoming_key:
@@ -326,7 +357,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
 
     @app.get("/healthz")
     async def healthz() -> dict[str, Any]:
-        return {"ok": True, "service": "forge-2b-poc", "live_enabled": cfg.enabled}
+        return {"ok": True, "service": "forge-2b-poc", "live_enabled": cfg.enabled, "dce_mode": cfg.dce_mode}
 
     @app.get("/v1/models")
     async def models(request: Request) -> dict[str, Any]:
@@ -683,6 +714,15 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                 record["status"] = "FAILED"
                 raise POCError(422, "NO_MATERIAL_CONTENT", f"No 10-K document found inside the attachment (run {run_id})")
 
+        # ---- DCE-04: shadow / on (10-K requests above stay on the legacy graph lane in every mode) -------------
+        plan: dce_shadow.Plan | None = None
+        if cfg.dce_mode != "off":
+            plan = await dce_plan(ings, query, run_id, record)
+            record["stages"].append("dce_planned" if plan else "dce_plan_failed")
+        use_dce = cfg.dce_mode == "on" and plan is not None
+        if cfg.dce_mode == "on" and plan is None:
+            record["dce"]["fallback"] = "legacy_lane"   # explicit, visible below; never silent
+
         # ---- live-streamed body ---------------------------------------------------------------------------
         stream = bool(body.get("stream"))
         lg = live.LiveGraph(run_id, "attachment")
@@ -857,6 +897,12 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
             record["steps"] = lg.steps()
             record["stages"].append("run_failed" if failed else "atomic_commit")
             lg.close(record["status"])
+            if plan is not None:   # shadow: legacy result is final; record where DCE would have differed (trace only)
+                legacy_lane = "scan" if injection else "overview" if describing else "retrieve" if want_qa else "manifest"
+                record["dce"]["comparison"] = dce_shadow.compare_with_legacy(record["dce"], {
+                    "lane": legacy_lane, "hits": [f"{h.path}:{h.line}" for h in hits], "found": (decision or {}).get("found") if want_qa else None,
+                    "llm_calls": len(record.get("decision_attempts") or []), "status": record["status"]})
+                record["dce"]["status"] = "SHADOWED"
             yield "text", f"- ■ `{lg.elapsed_ms() / 1000:6.2f} s` run {record['status']}\n\n"
             if want_qa:
                 yield "text", attach.render_answer(run_id, ctx, decision, hits, lg.steps(), note=note)
@@ -864,13 +910,91 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                 if note:
                     yield "text", f"_{note}_\n"
                 yield "text", attach.render_log(run_id, lg.steps(), [])
+            if cfg.dce_mode == "on" and plan is None:
+                yield "text", f"\n_DCE mode is `on` but planning failed ({record['dce'].get('status')}); this answer came from the legacy attachment lane._\n"
             yield "snap", lg.snapshot_html(final=True)
             log.info("attachment run %s: %s listing=%s qa=%s hits=%d %dms", run_id, record["status"], listing, want_qa, len(hits), lg.elapsed_ms())
+
+        async def dce_body_gen():
+            """DCE-04 `on`: DAG execution with the merge/verification gate. Same ('text'|'snap') protocol as the legacy body."""
+            assert plan is not None
+            record["kind"] = "attachment"
+            record["lane"] = "dce"
+            lgd = live.LiveGraph(run_id, "attachment-dce")
+            for n in plan.dag.nodes:
+                engine = "fixed_model" if n.route_pref in ("D1", "D2") else "zero_model"
+                lgd.add(n.id, engine, f"{n.kind} · {n.route_pref}" + (f" · {llm_engine}" if engine == "fixed_model" else ""))
+            record["steps"] = lgd.steps()
+            yield "text", (f"**forge-2b attachment lane (DCE)** · run `{run_id}` · backend `{cfg.backend_model}`  \n"
+                           f"{len(plan.dag.nodes)} typed nodes, {plan.dag.model_calls_planned} model call(s) planned (cap {cfg.dce_max_model_calls}); "
+                           "D0 nodes are deterministic Python over the verified attachment map.\n")
+            yield "snap", lgd.snapshot_html()
+            yield "text", "\n**Live timeline:**\n"
+            needs_model = any(n.route_pref in ("D1", "D2") and n.budget["calls"] for n in plan.dag.nodes)
+            client_cm = httpx.AsyncClient(transport=transport, timeout=cfg.llm_timeout, follow_redirects=False) if needs_model else None
+            call_llm = None
+            client = None
+            if client_cm is not None:
+                client = await client_cm.__aenter__()
+                try:
+                    trace_meta = await check_backend(client)
+                except POCError as ex:
+                    await client_cm.__aexit__(None, None, None)
+                    record["status"] = "FAILED"
+                    raise POCError(ex.status, ex.code, f"{ex.message} (run {run_id})") from ex
+                record["upstream_catalog"] = trace_meta.get("catalog_trace")
+
+                async def call_llm(msgs: list[dict[str, str]]) -> tuple[str, str]:
+                    answer = await call(client, "POST", cfg.llm_url.rstrip("/") + "/chat/completions", cfg.llm_key,
+                                        json={"model": cfg.backend_model, "messages": msgs, "temperature": 0, "max_tokens": 400, "stream": False})
+                    served = str(answer.get("model", ""))
+                    if not _backend_matches(served, cfg.backend_model):
+                        raise POCError(502, "BACKEND_MODEL_MISMATCH", "Gateway returned a different served model")
+                    return str(answer["choices"][0]["message"]["content"]), served
+
+            lines: list[str] = []
+
+            async def on_node(r: dce_shadow.NodeResult) -> None:
+                lgd.start(r.node_id)
+                lgd.finish(r.node_id, r.status if r.status in ("COMMITTED", "PARTIAL") else "SKIPPED" if r.status in ("SKIPPED", "UNSUPPORTED") else "FAILED",
+                           f"{r.route} · {r.method or r.kind} · {r.status}" + (f" · {r.model_calls} call(s)" if r.model_calls else "") + (f" · {r.detail[:80]}" if r.detail else ""))
+                lines.append(lgd.line(lgd.get(r.node_id), "end"))
+
+            try:
+                async with run_sem:
+                    results = await dce_shadow.execute(plan, ings, call_llm, dce_budget, on_node=on_node)
+            finally:
+                if client_cm is not None:
+                    await client_cm.__aexit__(None, None, None)
+            for ln in lines:
+                yield "text", ln
+            gate = dce_shadow.merge_gate(plan, results)
+            record["dce"]["status"] = gate["status"]
+            record["dce"]["gate"] = {k: gate[k] for k in ("status", "goals", "span_problems", "model_calls_made", "nodes")}
+            record["dce"]["model_calls_made"] = gate["model_calls_made"]
+            record["dce"]["results"] = dce_shadow.results_trace(results)
+            record["status"] = "COMMITTED" if gate["status"] == "COMMITTED" else "FAILED" if gate["status"] == "FAILED" else "PARTIAL"
+            record["steps"] = lgd.steps()
+            record["stages"].append({"COMMITTED": "atomic_commit", "PARTIAL": "partial_commit", "FAILED": "run_failed"}[gate["status"]])
+            lgd.close("COMMITTED" if gate["status"] != "FAILED" else "FAILED")
+            yield "text", f"- ■ `{lgd.elapsed_ms() / 1000:6.2f} s` run {gate['status']}\n\n"
+            if bad or stale:
+                extra = []
+                if bad:
+                    extra.append(f"Integrity problems excluded {len(bad)} file(s): " + ", ".join(f"{p} ({st})" for _, p, st in bad[:5]))
+                if stale:
+                    extra.append(f"{', '.join(f'`{s}`' for s in stale)} was uploaded before ZIP ingestion was enabled and is held as plain text.")
+                yield "text", "_" + " ".join(extra) + "_\n"
+            yield "text", dce_shadow.render(run_id, plan, results, gate, backend_model=cfg.backend_model)
+            yield "snap", lgd.snapshot_html(final=True)
+            log.info("attachment run %s (dce): %s goals=%d calls=%d %dms", run_id, gate["status"], len(gate["goals"]), gate["model_calls_made"], lgd.elapsed_ms())
+
+        gen_fn = dce_body_gen if use_dce else body_gen
 
         if not stream:
             parts: list[str] = []
             last_snap = ""
-            async for kind, piece in body_gen():
+            async for kind, piece in gen_fn():
                 if kind == "snap":
                     last_snap = piece  # JSON clients get the final graph only
                 else:
@@ -888,7 +1012,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
         async def generate():
             yield chunk({"role": "assistant"})
             try:
-                async for _kind, piece in body_gen():
+                async for _kind, piece in gen_fn():
                     yield chunk({"content": piece})
             except POCError as ex:
                 record["status"] = "FAILED"

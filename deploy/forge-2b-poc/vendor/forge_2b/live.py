@@ -28,9 +28,9 @@ def is_live_snapshot(piece: str) -> bool:
 
 
 ROUTING_LABEL = {"zero_model": "deterministic · no model", "dcs": "forge-dcs · deterministic", "fixed_model": "LLM call"}
-COLOR = {"COMMITTED": "#2e7d32", "FAILED": "#c62828", "SKIPPED": "#9e9e9e", "RUNNING": "#ef6c00", "PENDING": "#90a4ae"}
-FILL = {"COMMITTED": "#e8f5e9", "FAILED": "#ffebee", "SKIPPED": "#f5f5f5", "RUNNING": "#fff3e0", "PENDING": "#ffffff"}
-ICON = {"COMMITTED": "✓", "FAILED": "✗", "SKIPPED": "–", "RUNNING": "▶", "PENDING": "·"}
+COLOR = {"COMMITTED": "#2e7d32", "PARTIAL": "#b26a00", "FAILED": "#c62828", "SKIPPED": "#9e9e9e", "RUNNING": "#ef6c00", "PENDING": "#90a4ae"}
+FILL = {"COMMITTED": "#e8f5e9", "PARTIAL": "#fff8e1", "FAILED": "#ffebee", "SKIPPED": "#f5f5f5", "RUNNING": "#fff3e0", "PENDING": "#ffffff"}
+ICON = {"COMMITTED": "✓", "PARTIAL": "◐", "FAILED": "✗", "SKIPPED": "–", "RUNNING": "▶", "PENDING": "·"}
 
 
 @dataclass
@@ -151,12 +151,12 @@ class LiveGraph:
         )
         total = (f'<span class="tick" data-ms="{now_ms}">{now_ms / 1000:.1f} s</span>' if self.status == "RUNNING"
                  else f"{now_ms / 1000:.1f} s · {html.escape(self.status)}")
-        llm = sum(1 for n in self.nodes if n.routing == "fixed_model" and n.status in ("RUNNING", "COMMITTED", "FAILED"))
+        llm = sum(1 for n in self.nodes if n.routing == "fixed_model" and n.status in ("RUNNING", "COMMITTED", "PARTIAL", "FAILED"))
         script = ("<script>(function(){var b=Date.now();setInterval(function(){document.querySelectorAll('.tick').forEach(function(e){"
                   "e.textContent=((+e.getAttribute('data-ms')+Date.now()-b)/1000).toFixed(1)+' s'})},200)})()</script>"
                   if self.status == "RUNNING" else "")
         legend = ('<div style="font-size:11px;color:#555;margin:6px 0 8px">'
-                  '<span style="color:#ef6c00">▶ running</span> · <span style="color:#2e7d32">✓ committed</span> · '
+                  '<span style="color:#ef6c00">▶ running</span> · <span style="color:#2e7d32">✓ committed</span> · <span style="color:#b26a00">◐ partial</span> · '
                   '<span style="color:#c62828">✗ failed</span> · <span style="color:#9e9e9e">– skipped</span> · '
                   'orange/green border = LLM node, grey text = deterministic step</div>')
         head = (f'<div style="font-size:12px;color:#333"><b>forge-2b {html.escape(self.lane)} lane</b> · run <code>{self.run_id}</code>'
