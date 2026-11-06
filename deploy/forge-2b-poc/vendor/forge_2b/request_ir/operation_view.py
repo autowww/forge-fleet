@@ -42,7 +42,7 @@ from .effect_view import (
 __all__ = ["OperationEffect", "OperationProjection", "ToolDeclaration", "OperationEvidence", "OPERATOR_REGISTRY",
            "project_operations", "operation_policy", "OPERATION_PROJECTION_VERSION"]
 
-OPERATION_PROJECTION_VERSION = "dce-g1r3c/0.3.0"
+OPERATION_PROJECTION_VERSION = "dce-g1r3d/0.4.0"
 
 _I = re.I | re.U
 _W = r"(?<![\w'’-])"
@@ -84,8 +84,8 @@ OPERATOR_REGISTRY: tuple[_Operator, ...] = (
               _rx(r"(?:migrat\w*|apply\w*|appl(?:y|ied|ies|ying)|install\w*|upgrade\w*|reinstall\w*|patch\w*|provision\w*|rotat\w*|terraform apply|kubectl apply|"
                   r"мігр\w*|накат\w*|накот\w*|застос\w*|встанов\w*|інстал\w*|онов\w* (?:пакет|залежност|версі)|ротац\w*|перевипус\w*)"), None, ("run",)),
     _Operator("verify_run", COMMAND_EXECUTION, (COMMAND_EXECUTION,), False, None,
-              _rx(r"(?:(?:unit |integration |smoke |e2e |regression |acceptance |the |all |our |full |complete |entire |whole |relevant |existing |new |affected |failing |"
-                  r"існуюч\w+ |повн\w+ |усі |всі |юніт[- ]?|інтеграційн\w+ )*tests?|test suite|smoke suite|suite|"
+              _rx(r"(?:(?:unit |integration |smoke |e2e |regression |acceptance |snapshot |contract |property |mutation |golden |visual |api |ui |the |all |our |full |complete |entire |whole |relevant |existing |new |affected |failing |"
+                  r"існуюч\w+ |повн\w+ |усі |всі |юніт[- ]?|інтеграційн\w+ )*(?:tests?|test suite)(?!\s+(?:scripts?|jobs?|commands?|programs?|pipelines?|runners?|harness(?:es)?|wrappers?)\b)|smoke suite|suite|"
                   r"linter|lint|flake8|ruff|mypy|pylint|eslint|prettier|black|formatter|type[- ]?check\w*|build|compile\w*|benchmark\w*|dry[- ]?run|plan|"
                   r"тест\w*|лінтер\w*|лінт\w*|збірк\w*|білд\w*|бенчмарк\w*|перевірк\w* тип\w*)\b"), ("run",)),
     _Operator("service_publish", ENVIRONMENT_MUTATION, (ENVIRONMENT_MUTATION,), False,
@@ -118,6 +118,7 @@ class _GitRef:
 _GIT_REF_RE = _GitRef()
 _GIT_NOUN_RE = _rx(r"(?:branch\w*|tags?|pull requests?|merge requests?|PRs?|MRs?|commits?|forks?|releases?|гілк\w*|тег\w*|пул[- ]?реквест\w*|мердж[- ]?реквест\w*|пр\b|мр\b|коміт\w*|реліз\w*)\b")
 _TICKET_NOUN_RE = _rx(r"(?:tickets?|issues?|incidents?|jira|linear|github issue|epics?|stor(?:y|ies)|tasks? in (?:jira|linear|asana|trello)|(?:confluence|notion|wiki) pages?|pages? (?:in|on) (?:confluence|notion|the wiki)|"
+                      r"(?:support|service|vendor|customer) cases?|cases? (?:with|at|in) (?:support|the vendor|[\w-]+ support)|service requests?|change requests?|work items?|defect reports?|bug reports?|"
                       r"тікет\w*|тикет\w*|задач\w* (?:в|у) (?:jira|джир\w*|linear)|інцидент\w*|сторінк\w* (?:в|у|на) (?:confluence|notion|вікі)|епік\w*)\b")
 _SERVICE_PLACE_RE = _rx(r"(?:jira|confluence|notion|slack|teams|github|gitlab|bitbucket|pagerduty|opsgenie|trello|asana|linear|sharepoint|wiki|channel|канал\w*|джир\w*|вікі)\b")
 _CONFIG_OBJ_RE = _rx(r"(?:config\w*|settings?|setting|feature[- ]?flags?|flags?|firewall|iptables|dns|permissions?|roles?|quotas?|limits?|environment variables?|env vars?|secrets?|"
@@ -125,9 +126,14 @@ _CONFIG_OBJ_RE = _rx(r"(?:config\w*|settings?|setting|feature[- ]?flags?|flags?|
 _SOURCE_FILE_RE = re.compile(r"(?<![\w/])(?:[\w.-]+/)*[\w.-]+\.(?:py|js|ts|tsx|jsx|go|rs|java|kt|rb|php|c|h|cpp|cs|swift|scala|sql|sh|bash|md|rst|txt|html?|css|scss|csv|ipynb)\b", _I)
 _CONFIG_FILE_RE = re.compile(r"(?<![\w/])(?:[\w.-]+/)*[\w.-]+\.(?:ya?ml|json|toml|ini|cfg|conf|env|tf|hcl|properties)\b|\.env\b|dockerfile|docker-compose", _I)
 _WRITES_TO_RE = re.compile(r"(?:writes?|saves?|stores?|persists?|dumps?|exports?|appends?|outputs?|записує|зберігає|пише|експортує|вивантажує)\b[^.;]*?(?:to|into|in|у|в|до)\s+(?P<dst>[\w./-]+\.\w{1,6}|(?:a |the )?(?:files?|disk|файл\w*|диск)\b[\w./ -]*)", _I)
-_WRITES_ARTEFACT_RE = re.compile(r"(?:updates?|updating|regenerates?|rewrites?|writes?|generates?|emits?|produces?|creates?|refreshes?|records?|overwrites?)\b[^.;]*?"
-                                 r"\b(?:snapshots?|fixtures?|goldens?|golden files?|artifacts?|artefacts?|bundles?|files?|lock ?files?|reports?|coverage|"
-                                 r"build output|outputs?|logs? to disk|to disk|on disk)\b", _I)
+_WRITES_ARTEFACT_RE = re.compile(r"(?:updates?|updating|regenerates?|rewrites?|writes?|generates?|emits?|produces?|creates?|refreshes?|records?|overwrites?|"
+                                 r"re-?creates?|re-?builds?|dumps?|exports?|materiali[sz]es?|renders?|bakes?)\b[^.;]*?"
+                                 r"(?:\b(?:snapshots?|fixtures?|goldens?|golden files?|artifacts?|artefacts?|bundles?|files?|lock ?files?|reports?|coverage|baselines?|"
+                                 r"build output|outputs?|logs? to disk|to disk|on disk|results? (?:files?|directory|folder)|cache files?)\b"
+                                 # "… which rewrites __snapshots__/ui.snap", "that produces bench/results.json", "regenerates generated_schema.json" (sheet v5 rule 25)
+                                 r"|(?<![\w/])(?:[\w.-]+/)*[\w.-]+\.(?:snap|json|ya?ml|md|txt|csv|xml|html?|lock|png|svg|pdf|log|sql|py|js|ts|toml|ini|cfg|out|bin|tar|gz|zip)\b"
+                                 r"|(?<![\w.])(?:\.?/)?[\w.-]+/[\w./-]*/?(?![\w.])"
+                                 r"|--(?:update|write|fix|regenerate|record|snapshot-update|update-snapshots?|overwrite|save)\b)", _I)
 _MUTATES_RE = re.compile(r"(?:drops?|deletes?|truncates?|alters?|modif(?:y|ies)|changes?|updates?|rewrites?|resets?|restarts?|deploys?|rotates?|migrates?|pushes|"
                          r"видаля\w*|змін\w*|онов\w*|скида\w*|перезапуска\w*|деплоїть|мігру\w*)\b[^.;]*?(?P<obj>\b(?:tables?|databases?|db|schemas?|clusters?|services?|pods?|nodes?|config\w*|settings?|secrets?|"
                          r"records?|rows?|users?|permissions?|production|prod|staging|таблиц\w*|баз\w*|кластер\w*|сервіс\w*|конфіг\w*|записи|продакшн\w*|прод\b)\b)", _I)
@@ -135,7 +141,12 @@ _PRONOUN_RE = ev._PRONOUN_OBJECT_RE
 _BARE_PRONOUN_RE = re.compile(r"^\s*(?:it|them|this|that|these|those|one|його|її|їх|це|цей|ці|той|ті|них|ними)\s*(?:[.,;:!]|$|\s+(?:now|please|immediately|today|asap|зараз|негайно|сьогодні|будь ласка)\b)", _I)
 _UNIVERSAL_OBJECT_RE = re.compile(r"^\s*(?:anything|everything|nothing|any (?:thing|of it|files? or settings?)|all of it|будь-що|все|усе|нічого|жодн\w+ (?:змін\w*|речей|файл\w*|налаштуван\w*))\b", _I)
 _ALL_EFFECTS_PROHIBITED_RE = re.compile(r"(?:\b(?:no|zero|without any|not any)\s+(?:external|outside|real|actual|real-world|side)[- ]?(?:changes?|effects?|actions?|mutations?|modifications?|operations?)|"
-                                        r"\b(?:do|perform|execute|make|take)\s+(?:nothing|no action)(?:\s+(?:at all|whatsoever|else))?|\bnothing\s+(?:external|real|actual|at all)\b|\bread[- ]only\b|"
+                                        r"\b(?:do|perform|execute|make|take|carry out)\s+(?:nothing|no (?:actions?|operations?|changes?|steps?))(?:\s+(?:at all|whatsoever|else))?|\bnothing\s+(?:external|real|actual|at all)\b|\bread[- ]only\b|"
+                                        # sheet v5 rule 23 (DCE-G1R3D): "do nothing outside / beyond chat", "no external / remote calls", "nothing should change", "chat only"
+                                        r"\bnothing\s+(?:outside|beyond|except|other than|apart from|besides|but)\b|\b(?:no|zero)\s+(?:external|outside|remote|outbound|network|outgoing|real|real-world)\s+(?:calls?|actions?|requests?|changes?|operations?|side[- ]effects?|effects?|writes?|interactions?|mutations?)\b|"
+                                        r"\b(?:never|not|don't|do not)\s+(?:perform|take|make|execute|carry out|do)\s+(?:any\s+)?(?:external|outside|remote|real|real-world|side[- ]effecting|state[- ]changing)\s+(?:actions?|calls?|changes?|operations?|side[- ]effects?|requests?|effects?)\b|"
+                                        r"\bnothing\s+(?:should|may|must|can|is to|shall|will)\s+(?:change|be changed|be modified|be touched|be altered|be written|be executed|happen|move|run)\b|"
+                                        r"\b(?:stay|remain|keep(?: everything| it| this)?|work)\s+(?:strictly\s+)?(?:in|inside|within)\s+(?:the\s+|this\s+)?(?:chat|reply|answer|conversation)\b|\b(?:chat|text|answer|reply|conversation|discussion)[- ]only\b|"
                                         r"\b(?:жодних|ніяких|без (?:будь-яких|жодних))\s+(?:зовнішніх|реальних|фактичних|справжніх)\s+(?:змін|дій|ефектів|операцій)|"
                                         r"\bнічого\s+(?:не роби(?:ти)?|не виконуй(?:те)?|не змінюй(?:те)?|реального|зовнішнього)|\bне роби(?:ти)?\s+нічого|\bлише\s+читання|\bтільки\s+читання)", _I)
 # a prohibited execute verb that the registry says also mutates the environment ("never deploy to production")
@@ -298,7 +309,10 @@ def _attributed_effects(o: Objective) -> list[tuple[str, OperationEvidence]]:
 
 
 _GENERIC_OBJ_RE = re.compile(r"^\s*(?:(?:the|a|an|this|that|these|those|my|our|your|its|all|any|some|pending|requested|proposed|necessary|needed|required)\s+)*"
-                             r"(?:fix(?:es)?|changes?|edits?|modifications?|updates?|adjustments?|tweaks?|amendments?|corrections?)\b", _I)
+                             # up to three modifier words: "the schema adjustment", "the performance correction", "the retry-policy tweak" (sheet v5 3.3a; DCE-G1R3D)
+                             r"(?:(?!(?:to|in|on|into|at|for|from|of)\b)[\w'’-]+\s+){0,3}?"
+                             r"(?:fix(?:es)?|hotfix(?:es)?|changes?|edits?|modifications?|updates?|adjustments?|tweaks?|amendments?|corrections?|improvements?|rework|workarounds?|alterations?)\b"
+                             r"(?!\s*(?:log|set|request|history|list|management|control|window|freeze|review|ticket|summary|description|plan)\b)", _I)
 _FILE_DEST_RE = re.compile(r"(?:" + ev._FILE_EXT_RE.pattern + r"|" + ev._PATH_RE.pattern + r"|" + ev._FILE_NOUN_RE.pattern + r")", _I)
 _ENV_TARGET_RE = re.compile(r"\b(?:to|on|in|into|against)\s+(?:the\s+)?(?:production|prod|staging|live|the cluster|cluster|servers?|hosts?|nodes?|fleet|environment|env)\b", _I)
 

@@ -34,7 +34,7 @@ __all__ = ["EffectIntent", "ProhibitedEffect", "EffectEvidence", "EffectProjecti
            "REPLY_ONLY", "ARTIFACT_WRITE", "ENVIRONMENT_MUTATION", "COMMAND_EXECUTION", "UNKNOWN", "SIDE_EFFECT_CLASSES",
            "DENY", "REQUIRE_RESOLUTION", "TEXT_NOT_PROHIBITED", "PROJECTION_VERSION"]
 
-PROJECTION_VERSION = "dce-g1r3c/0.2.0"
+PROJECTION_VERSION = "dce-g1r3d/0.3.0"
 
 REPLY_ONLY, ARTIFACT_WRITE, ENVIRONMENT_MUTATION, COMMAND_EXECUTION, UNKNOWN = \
     "reply_only", "artifact_write", "environment_mutation", "command_execution", "unknown"
@@ -71,7 +71,9 @@ _ENV_NOUN_RE = re.compile(_W + r"(?:config(?:s|uration|urations)?|settings?|sett
                           r"користувач\w*|акаунт\w*|обліков\w*|груп\w*|вебхук\w*|інтеграці\w*|ендпоінт\w*|обробник\w*|модул\w*|функці\w*|клас\w*|логік\w*|код\w*|тест\w*|залежност\w*|пакет\w*|версі\w*|"
                           r"production|prod|staging|live|у проді|на проді|прод\w*|стейдж\w*)\b", _I)
 # the result is text in the answer: "as an example", "in the reply", "I should run", "let me review", "preview", "as text", "текстом"
-_REPLY_MEDIUM_RE = re.compile(_W + r"(?:in (?:the |your |this )?(?:reply|answer|response|chat|message|comment)|as (?:plain )?text|as a (?:text|string)|"
+_REPLY_MEDIUM_RE = re.compile(_W + r"(?:in (?:the |your |this )?(?:reply|answer|response|chat|message|comment)|as (?:plain |raw )?text|as a (?:text|string)|"
+                              r"(?:only |just )?(?:in|within) this (?:reply|answer|response|thread|conversation)|for me(?: to (?:review|read|look at|check|paste|copy))?|for us|"
+                              r"here(?= *(?:[.,;:!]|$|\s+(?:and|but|so|then|as|in|with|for)\b))|inline|in[- ]line|for explanation|for illustration|"
                               r"as an? (?:example|illustration|sample|draft|proposal|suggestion)|for (?:my |our )?(?:review|reference|information|me to review)|"
                               r"(?:let|so) (?:me|us) (?:review|check|see|read|look|vet|approve)|i(?:'ll| will| can| would| should| could) (?:review|run|execute|apply|paste|copy|use|look)|"
                               r"(?:i|we) (?:should|would|could|can|will|might) (?:run|execute|apply|copy|paste|use)|you would (?:run|use|execute|type)|"
@@ -91,6 +93,14 @@ _ARTICLE_RE = re.compile(r"(?:(?:the|a|an|this|that|these|those|all|any|some|my|
 _UNIVERSAL_CHANGE_RE = re.compile(r"\s*(?:anything|everything|nothing|something|any changes?|нічого|щось|будь-що|все|усе)\b", _I)
 _CONFIG_NOUN_RE = re.compile(r"(?:config(?:s|uration|urations)?|settings?|setup)$", _I)
 _APPROVAL_RE = pv._APPROVAL_RE
+# write-to-disk nominals inside a prohibition (sheet v5 rule 24): "no writes to disk", "all file writes are forbidden", "no file output"
+_WRITE_NOMINAL_RE = re.compile(_W + r"(?:writes?|writing|written|file writes?|disk writes?|file output|output files?|persist\w*|sav(?:e|ed|es|ing))\b", _I)
+_DISK_NOUN_RE = re.compile(_W + r"(?:disk|files?|file ?system|artifacts?|artefacts?|storage|working tree|workspace|repo(?:sitory)?|anything|everything|at all)\b", _I)
+_REPO_NOUN_RE = re.compile(_W + r"(?:repo(?:sitory)?|working tree|workspace|git)\b", _I)
+# "make the schema adjustment", "apply the performance correction we discussed" — a generic change noun as the object head, possibly with
+# modifiers in front of it: what is changed, and where, is not established (sheet v5 3.3a; DCE-G1R3D)
+_GENERIC_HEAD_RE = re.compile(r"(?:(?:[\w'’-]+\s+){0,3}?)(?P<head>changes?|edits?|modifications?|adjustments?|corrections?|tweaks?|fix(?:es)?|hotfix(?:es)?|amendments?|"
+                              r"updates?|improvements?|refactor(?:ing|s)?|rework|cleanup|workarounds?|alterations?)\b(?!\s*(?:log|set|request|history|list|management|control|window|freeze|review|ticket|summary|description|plan))", _I)
 
 
 @dataclass(frozen=True)
@@ -243,6 +253,11 @@ def _classify_object(text: str, source: str, base: int, action: str = "modify") 
             return ENVIRONMENT_MUTATION, ev
         ev.append(_ev("ambiguous_medium", gen, source, base))
         return None, ev
+    if action in ("modify", "create") and kind is None and gen is None:
+        gh = _GENERIC_HEAD_RE.match(text, am.end() if am else off)      # "the schema adjustment described in the runbook" → medium unknown
+        if gh is not None and not _UNIVERSAL_CHANGE_RE.match(gh.group("head")):
+            ev.append(_ev("ambiguous_medium", gh, source, base))
+            return None, ev
     if kind is not None:
         return kind, ev + ev2
     pm = _PURPOSE_RE.search(text)
@@ -424,6 +439,12 @@ def _prohibited_classes(c: Constraint) -> list[str]:
         if dest == ARTIFACT_WRITE and _GENERIC_CHANGE_RE.search(obj) and not (_FILE_EXT_RE.search(obj) or _FILE_NOUN_RE.search(obj)):
             return [ENVIRONMENT_MUTATION, ARTIFACT_WRITE]              # "не внось змін у репозиторій", "no changes in the repo"
         if dest == ARTIFACT_WRITE:                                      # "do not save it to a file", "no writes to disk"
+            return [ARTIFACT_WRITE]
+        # "No writes to disk", "Any writes to disk are prohibited", "All file writes are forbidden", "do not persist anything to disk",
+        # "no file output" — a write-to-disk nominal forbids the artefact class whatever noun carries it (sheet v5 rule 24; DCE-G1R3D)
+        if _WRITE_NOMINAL_RE.search(c.text) and (_DISK_NOUN_RE.search(c.text) or not obj):
+            if _REPO_NOUN_RE.search(c.text):                            # "no writes to the repo / working tree" — repository state too
+                return [ARTIFACT_WRITE, ENVIRONMENT_MUTATION]
             return [ARTIFACT_WRITE]
         if dest == ENVIRONMENT_MUTATION:                                # "don't edit config.yaml"
             return [ENVIRONMENT_MUTATION]

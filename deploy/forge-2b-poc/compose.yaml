@@ -55,6 +55,8 @@ services:
       FORGE_2B_DCE_MAX_MODEL_CALLS: ${FORGE_2B_DCE_MAX_MODEL_CALLS:-3}
       FORGE_2B_DCE_PLAN_MS: ${FORGE_2B_DCE_PLAN_MS:-3000}
       FORGE_2B_DCE_CONCURRENCY: ${FORGE_2B_DCE_CONCURRENCY:-2}
+      # Bundled declarative skill (image: /app/skills/sec-10k-impact); override for experiments
+      FORGE_2B_SKILL_DIR: ${FORGE_2B_SKILL_DIR:-/app/skills/sec-10k-impact}
     volumes:
       - shim_cache:/var/lib/forge-2b/cache
     extra_hosts:

@@ -736,6 +736,16 @@ def _process_clause(st: _State, c: _Clause) -> None:
     if mdp:                                            # "Do it." / "Зроби це." — an operation named only by a pronoun: unresolved head, no objective
         _unresolved(st, c.sent, cs + i, ce, "ambiguous_referent", f"{lang}.referent.do_pronoun", referent=mdp.group("pro"))
         return
+    mur = None if (modal_q or is_question or lang != "en") else R.UNIVERSAL_RESTRICTION_RE.match(rest)
+    if mur and not st.mask.overlaps(cs + i, cs + i + mur.end()):
+        # "Do nothing outside chat." / "No external calls of any kind." / "Nothing should change." / "Treat this as read-only." — an unbound
+        # restriction covering every side-effect class; a later imperative cannot erase it (sheet v5 rule 23; DCE-G1R3D)
+        v_end, trailing = _trailing_conditions(st, cs + i, ce)
+        cst = _clause_constraint(st, c, cs, ce, "prohibition", "en.prohibition.universal", target_action=None,
+                                 value=st.mention(cs + i, v_end), breadth="global")
+        for kind_q, qa, qb, ment_q in trailing:
+            _emit_condition(st, c, kind_q, qa, qb, f"{lang}.condition.{kind_q}.trailing", mentioned=ment_q, applies=[cst.id])
+        return
     mnu = None if modal_q else R.NOT_UNTIL_RE.match(rest)
     if mnu:                                            # "Not until sign-off should you delete stale branches" → prohibition + until-condition
         ment = _mentioned_action(mnu.group("rest"))

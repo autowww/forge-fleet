@@ -230,8 +230,8 @@ SUBJECT_ACTIVE_VERB_ACTION = {"change": "modify", "move": "modify", "shift": "mo
                               "shrink": "modify", "leave": "modify", "restart": "run", "reboot": "run", "run": "run", "execute": "run", "start": "run", "stop": "run",
                               "fire": "run", "trigger": "run", "go live": "run", "go out": "run", "disappear": "remove", "vanish": "remove"}
 # "Changes to the firewall are forbidden" / "Edits are not allowed" / "Deployments to prod are off-limits"
-PREDICATIVE_PROHIBITION_RE = re.compile(r"^\s*(?P<noun>changes?|edits?|modifications?|alterations?|writes?|updates?|deletions?|removals?|deployments?|deploys|releases?|restarts?|"
-                                        r"pushes|merges?|commits?|rollbacks?|migrations?|installs?|installations?|executions?|runs|rotations?|uploads?|downloads?|tickets?|new tickets?)"
+PREDICATIVE_PROHIBITION_RE = re.compile(r"^\s*(?:(?:any|all|further|additional|new|more|further|such)\s+)?(?P<noun>changes?|edits?|modifications?|alterations?|(?:file |disk )?writes?|updates?|deletions?|removals?|deployments?|deploys|releases?|restarts?|"
+                                        r"pushes|merges?|commits?|rollbacks?|migrations?|installs?|installations?|executions?|runs|rotations?|uploads?|downloads?|tickets?|new tickets?|external (?:calls?|actions?|changes?))"
                                         r"(?:\s+(?:to|in|on|of|against|into|for)\s+(?P<obj>[^,;.]+?))?\s+(?:are|is)\s+(?:strictly\s+|absolutely\s+|currently\s+)?"
                                         r"(?:forbidden|prohibited|not allowed|not permitted|off[- ]limits|banned|disallowed|out of (?:scope|bounds|the question)|not an option|not on the table)\b", I)
 # "src/api.py is off-limits" / "the cluster is read-only for you" / "prod is not to be touched"
@@ -266,8 +266,23 @@ NO_NOUN_HEAD_RE = re.compile(r"no\s+(?!(?:one|body|longer|matter|doubt|way|idea|
 # "whether or not" is not a negation
 WHETHER_OR_NOT_RE = re.compile(r"\bwhether\s+or\s+not\b|\bчи\s+ні\b", I)
 # "Recommend nothing." — an imperative whose object is a null quantifier is a prohibition of that action
-NULL_OBJECT_RE = re.compile(r"^\s*(?:nothing(?: at all| else)?|none(?: of them)?|nobody|no one|nichts|нічого|нікого|жодного|жодних|жодної)"
-                            r"(?:\s+(?:in|on|at|inside|under|within|to|with|for|about|against|у|в|на|всередині|до|з|із|над|для)\s+[^,;]{1,40}?)?(?:\s+(?:yet|now|for now|at this point|поки що|зараз))?\s*[.!…]*\s*$", I)
+NULL_OBJECT_RE = re.compile(r"^\s*(?:nothing(?: at all| else| whatsoever)?|none(?: of them)?|nobody|no one|nichts|нічого|нікого|жодного|жодних|жодної)"
+                            r"(?:\s+(?:in|on|at|inside|under|within|to|with|for|about|against|outside(?: of)?|beyond|except(?: for)?|other than|apart from|besides|but|у|в|на|всередині|до|з|із|над|для)\s+[^,;]{1,60}?)?(?:\s+(?:yet|now|for now|at this point|поки що|зараз))?\s*[.!…]*\s*$", I)
+# universal restrictions over every side effect (sheet v5 rule 23): "Do nothing outside chat", "Never perform external actions",
+# "No external calls of any kind", "Nothing should change", "Treat this as read-only", "Chat only" — unbound, global, never an objective
+UNIVERSAL_RESTRICTION_RE = re.compile(
+    r"^\s*(?:please\s+)?(?:"
+    r"(?:do|perform|take|make|execute|carry out)\s+(?:nothing|no\s+(?:actions?|operations?|changes?|side[- ]effects?))(?:\s+(?:at all|whatsoever|else))?"
+    r"(?:\s+(?:outside(?: of)?|beyond|except(?: for)?|other than|apart from|besides|but)\s+[^,;.!?]{1,60}?)?"
+    r"|(?:never|do not|don't|do never|you must not|you may not)\s+(?:perform|take|make|execute|carry out|do)\s+(?:any\s+)?(?:external|outside|remote|real|real-world|side[- ]effecting|state[- ]changing)\s+(?:actions?|calls?|changes?|operations?|side[- ]effects?|requests?|effects?)(?:\s+(?:at all|whatsoever|of any kind))?"
+    r"|(?:no|zero)\s+(?:external|outside|remote|outbound|network|outgoing|real|real-world)\s+(?:calls?|actions?|requests?|changes?|operations?|side[- ]effects?|effects?|writes?|interactions?|mutations?)(?:\s+(?:at all|whatsoever|of any kind|of any sort|please))?"
+    r"|nothing\s+(?:should|may|must|can|is to|shall|will)\s+(?:change|be changed|be modified|be touched|be altered|be written|be executed|happen|move|run)(?:\s+(?:at all|anywhere|on your side|as a result))?"
+    r"|(?:treat this as|this is|consider this|think of this as)\s+(?:a\s+|an\s+)?read[- ]only(?:\s+(?:session|request|task|mode|review|analysis|exercise))?"
+    r"|read[- ]only(?:\s+(?:session|request|task|mode|review|analysis|exercise))?(?:,?\s+please)?"
+    r"|(?:stay|remain|keep(?: everything| it| this)?|work)\s+(?:read[- ]only|(?:strictly\s+)?(?:in|inside|within)\s+(?:the\s+|this\s+)?(?:chat|reply|answer|conversation))"
+    r"|(?:chat|text|answer|reply|conversation|discussion)[- ]only(?:,?\s+please)?"
+    r"|(?:take|make|do)\s+no\s+(?:action|actions|changes|steps)(?:\s+(?:at all|whatsoever|on this|yet|for now))?"
+    r")\s*[.!…]*\s*$", I)
 # "<verb> nothing" — a null-object clause opens a clause even when the verb is unknown ("Touch nothing in production")
 NULL_OBJECT_CLAUSE_RE = re.compile(r"^\s*(?:just\s+|simply\s+|please\s+|просто\s+)?(?P<verb>[^\W\d_]+)\s+(?:nothing|нічого|нікого)\b", I)
 # "Run no scripts" / "Delete no files" / "Execute zero commands" / "Touch not a single file" — a negative object complement
@@ -291,7 +306,7 @@ RESTRICTED_NOUN_ACTION = {
     "install": "run", "installs": "run", "installation": "run", "installations": "run", "restart": "run", "restarts": "run", "execution": "run", "executions": "run",
     "migration run": "run", "job": "run", "jobs": "run", "pipeline run": "run", "pipeline runs": "run", "connection": "run", "connections": "run", "ssh": "run",
     "change": "modify", "changes": "modify", "edit": "modify", "edits": "modify", "modification": "modify", "modifications": "modify", "code change": "modify",
-    "code changes": "modify", "config change": "modify", "config changes": "modify", "write": "modify", "writes": "modify", "rewrite": "modify", "rewrites": "modify",
+    "code changes": "modify", "config change": "modify", "config changes": "modify", "write": "create", "writes": "create", "disk write": "create", "disk writes": "create", "rewrite": "modify", "rewrites": "modify",
     "rename": "modify", "renames": "modify", "refactor": "modify", "refactors": "modify", "refactoring": "modify", "patch": "modify", "patches": "modify",
     "deletion": "remove", "deletions": "remove", "removal": "remove", "removals": "remove", "drop": "remove", "drops": "remove", "purge": "remove", "cleanup": "remove",
     "file creation": "create", "new file": "create", "new files": "create", "new branch": "create", "new branches": "create",
@@ -300,7 +315,7 @@ RESTRICTED_NOUN_ACTION = {
     "commit": "run", "commits": "run", "push": "run", "pushes": "run", "merge": "run", "merges": "run", "release": "run", "releases": "run",
     "rollout": "run", "rollouts": "run", "roll-out": "run", "rollback": "run", "rollbacks": "run", "rotation": "run", "rotations": "run", "upload": "run", "uploads": "run",
     "download": "run", "downloads": "run", "reboot": "run", "reboots": "run", "migration": "run", "migrations": "run", "publish": "run", "publishing": "run",
-    "update": "modify", "updates": "modify", "alteration": "modify", "alterations": "modify", "file edit": "modify", "file edits": "modify", "file write": "modify", "file writes": "modify",
+    "update": "modify", "updates": "modify", "alteration": "modify", "alterations": "modify", "file edit": "modify", "file edits": "modify", "file write": "create", "file writes": "create", "file output": "create",
     "ticket": "create", "tickets": "create", "new ticket": "create", "new tickets": "create", "new pr": "create", "new prs": "create", "pull request": "create", "pull requests": "create",
     "команд": "run", "команди": "run", "скриптів": "run", "скрипти": "run", "запусків": "run", "запуски": "run", "деплоїв": "run", "деплої": "run", "розгортань": "run",
     "змін": "modify", "зміни": "modify", "правок": "modify", "правки": "modify", "редагувань": "modify", "видалень": "remove", "видалення": "remove", "нових файлів": "create",
@@ -449,7 +464,9 @@ _NUM = r"(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)"
 # service records: "open a ticket / PR" creates external state (not "show"); "close / resolve the ticket" changes it (DCE-G1R3B)
 _SVC_RECORD = (r"(?:\s+(?:a|an|the|new|another|this|that|one|a new|another new|the new|новий|нову|нове|новий же|ще один|ще одну|цей|цю|це|той|ту|те))*"
                r"\s+(?:(?:jira|github|gitlab|linear|asana|trello|pagerduty|opsgenie|bitbucket|azure devops|ado|джир\w*|гітхаб\w*|гітлаб\w*)\s+)?"
+               r"(?:(?:support|incident|service|vendor|customer|P[0-4]|sev[- ]?\d|high[- ]priority|new)\s+)?"
                r"(?:pull[- ]requests?|merge[- ]requests?|PRs?|MRs?|tickets?|issues?|incidents?|bugs?|bug reports?|epics?|stor(?:y|ies)|tasks?|cards?|change requests?|CRs?|"
+               r"(?:support |service |vendor )?cases?|service requests?|work items?|defect reports?|"
                r"пул[- ]?реквест\w*|мердж[- ]?реквест\w*|пр\b|мр\b|т[иі]кет\w*|інцидент\w*|баг\w*|епік\w*|задач\w*|картк\w*|запит на зміни)\b")
 _SVC_OPEN = r"(?:open|file|raise|log|submit|відкрий|відкрийте|відкрити|заведи|заведіть|завести|зареєструй|зареєструйте)(?=" + _SVC_RECORD + r")"
 _SVC_CLOSE = r"(?:close|resolve|reopen|reassign|escalate|закрий|закрийте|закрити|вирішуй|вирішіть|переведи|ескалюй)(?=" + _SVC_RECORD + r")"
@@ -509,7 +526,14 @@ ACTION_RULES: list[tuple[str, str, re.Pattern[str]]] = [
     # "write READY" / "напиши 'OK' у відповіді" — a literal token written in the answer is composed, not created
     ("compose", "imperative", re.compile(_w(r"(?:write|print|put|say|reply with|respond with|answer with|output|напиши|напишіть|виведи|виведіть|відповідай|відповідь)(?: me| us| мені| нам)?"
                                             r"(?: (?:just|only|simply|exactly|the word|the single word|the literal|the token|лише|тільки|просто|слово))?") + r"(?=" + LITERAL_TOKEN_RE.pattern.lstrip("^") + r")\s*", I | re.U)),
-    ("compose", "imperative", re.compile(_w(r"draft|write[- ]up|write down|note down|jot down|sketch out|накидай|накидайте|начерни|запиши коротко|викладіть|виклади") + r"(?: me| us| мені| нам)?\s*", I)),
+    # bare "draft" is no longer compose on its own: "draft a patch / script / config" has no established medium (sheet v5 rule 21 → create /
+    # unknown); "draft a plan / email / checklist" still composes through the answer-artefact rule below (DCE-G1R3D)
+    ("compose", "imperative", re.compile(_w(r"write[- ]up|write down|note down|jot down|sketch out|накидай|накидайте|начерни|запиши коротко|викладіть|виклади") + r"(?: me| us| мені| нам)?\s*", I)),
+    # "compose an incident notification for me", "draft a migration script here", "write a patch as plain text" — an explicit in-chat marker
+    # inside the clause makes any drafted artefact answer text (sheet v5 rules 21–22); service records, refs and files are excluded
+    ("compose", "imperative", re.compile(_w(r"(?:draft|compose|write|prepare|produce|generate|put together)(?: me| us)?")
+                                         + r"(?!\s+(?:(?:a|an|the|new|a new|another)\s+)?(?:(?:jira|github|gitlab|linear)\s+)?(?:tickets?|issues?|incidents?|PRs?|pull requests?|merge requests?|branch\w*|tags?|files?|director\w+|folders?|tables?|buckets?|users?|accounts?|releases?|deployments?|support cases?|cases?)\b)"
+                                         + r"(?=[^.;:!?]{0,140}?\b(?:for me|for us|here|in (?:the |this |your )?(?:chat|reply|answer|response)|as (?:plain |raw )?text|as a (?:text|string)|inline|in[- ]line|for explanation|for (?:my |our )?review)\b)\s*", I)),
     ("compose", "imperative", re.compile(_w(r"(?:make|create|build|write|generate|draft|produce|prepare|compose|put together|склади|складіть|створи|створіть|напиши|напишіть|підготуй|підготуйте|зроби|зробіть|сформуй|сформуйте)(?: me| us| мені| нам)?"
                                             r"(?=(?: (?:a|an|the|some|one|two|three|\d+))?(?: (?!(?:file|files|branch|directory|folder|script|repo|repository|service|container|user|account|"
                                             r"and|or|then|but|with|for|in|on|to|from|of|at|into|that|which|it|them|me|us)\b)[\w'’-]+){0,3}?"
@@ -517,11 +541,14 @@ ACTION_RULES: list[tuple[str, str, re.Pattern[str]]] = [
                                             r"timeline|runbook|release notes?|changelog|draft|proposal|brief|write-?up|readme|guide|tutorial|faq|glossary|body|payload|template|mock|sample|sketch|"
                                             r"description|message|announcement|email|reply|response|answer|paragraph|title|caption|abstract|explanation|statement|statements|spec|specification|rfc|adr|agenda|prompt|query|queries|regex|"
                                             r"diff|commands?|instructions|steps|snippets|sql|cheat ?sheet|"
+                                            r"notifications?|incident (?:update|notification|notice|report|summary)|status (?:update|report)|memo|bulletin|digest|wording|blurb|talking points|"
+                                            r"(?:jira|slack|pr|pull request|review|github|ticket) (?:comment|description|message|update|summary|note)|"
                                             r"опис|повідомлення|відповідь|заголовок|пояснення|текст|тексти|чернетку|формулювання|специфікацію|запит|анонс|лист|"
                                             r"таблицю|список|звіт|приклад|приклади|план|схему|нотатку|чеклист|огляд|конспект|інструкцію|документацію|порівняння|перелік)\b"
-                                            # "create a table in the database" / "write a message to the queue" persist something → not an answer artefact
-                                            r"(?!\s+(?:in|inside|within|on|into|to)\s+(?:the\s+|a\s+|an\s+|our\s+|my\s+)?(?:database|db|schema|repo|repository|cluster|namespace|bucket|disk|server|filesystem|folder|directory|branch|table|queue|topic)\b))") + r"\s*", I)),
-    ("create", "imperative", re.compile(_w(_SVC_OPEN + r"|make (?:a|an|me|some|new|the)(?=\s)|create|write|generate|draft|compose|build|design|implement|add|produce|prepare|set up|save|store|persist|"
+                                            # "create a table in the database" / "write a message to the queue" / "add a comment to the ticket" persist something → not an answer artefact
+                                            r"(?!\s+(?:in|inside|within|on|into|to)\s+(?:the\s+|a\s+|an\s+|our\s+|my\s+)?(?:database|db|schema|repo|repository|cluster|namespace|bucket|disk|server|filesystem|folder|directory|branch|table|queue|topic|"
+                                            r"tickets?|issues?|PRs?|pull requests?|merge requests?|pages?|threads?|channels?|incidents?)\b))") + r"\s*", I)),
+    ("create", "imperative", re.compile(_w(_SVC_OPEN + r"|make (?:a|an|me|some|new|the)(?=\s)|create|write|generate|draft|compose|build|design|implement|add|produce|prepare|set up|save|store|persist|export|dump|"
                                            r"створи(?:ти)?|створіть|створюй(?:те)?|напиши|напишіть|написати|згенеруй(?:те)?|згенерувати|склади|складіть|скласти|побудуй(?:те)?|реалізуй(?:те)?|додай|додайте|додати|підготуй(?:те)?|підготувати|"
                                            r"збережи|збережіть|зберегти|зберігай(?:те)?") + r"\s*", I)),
     ("modify", "imperative", re.compile(_w(_SVC_CLOSE + r"|make|change|modify|edit|update|fix|repair|improve|optimi[sz]e|speed up|refactor|rename|replace|adjust|tune|increase|decrease|reduce|set|configure|enable|disable|upgrade|patch|correct|touch|alter|"

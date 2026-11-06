@@ -24,50 +24,18 @@ from typing import Any, Awaitable, Callable
 
 from jsonschema import Draft202012Validator
 
-CATEGORIES = [
-    "REVENUE", "PROFIT", "SEGMENT", "CUSTOMER", "CAPITAL_RETURN", "CHARGE",
-    "REGULATORY", "CONTRACT", "LITIGATION", "OPERATIONS", "GEOGRAPHY", "OTHER",
-]
-DECISION_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "additionalProperties": False,
-    "required": ["statements"],
-    "properties": {
-        "statements": {
-            "type": "array",
-            "maxItems": 6,
-            "items": {
-                "type": "object",
-                "additionalProperties": False,
-                "required": ["text", "category", "impact"],
-                "properties": {
-                    "text": {"type": "string", "minLength": 12, "maxLength": 400},
-                    "category": {"type": "string", "enum": CATEGORIES},
-                    "impact": {"type": "integer", "minimum": 1, "maximum": 5},
-                },
-            },
-        }
-    },
-}
-DECISION_VALIDATOR = Draft202012Validator(DECISION_SCHEMA)
+from .skills.loader import load_skill_bundle
+from .skills.sec10k import cluster as cluster_mod
+from .skills.sec10k import normalize as normalize_mod
+from .skills.sec10k import score as score_mod
+from .skills.sec10k import verify as verify_mod
+from .skills.sec10k import xbrl as xbrl_mod
 
-SYSTEM_PROMPT = (
-    "You are a financial analyst reading one excerpt of a company's SEC Form 10-K. "
-    "Select at most 6 statements from THIS excerpt that are material and company-specific: "
-    "reported revenue, gross margin, operating expenses, operating income, net income, EPS, segment or "
-    "end-market revenue and operating income, customer concentration percentages, share repurchases "
-    "(shares and dollars) and dividends, inventory or other charges, export controls or other regulatory "
-    "restrictions, major licenses or purchase obligations, litigation, headcount, geographic revenue. "
-    "Prefer statements that carry a specific reported figure; when the excerpt is a table, write one "
-    "statement per material line item in the form '<line item> was <value> <unit> in <period>' using "
-    "the header row for periods and units. Keep the exact figures from the excerpt. "
-    "Ignore: table of contents, item headers, signatures, items incorporated by reference to a proxy "
-    "statement, forward-looking-statement safe-harbor language, generic 'material adverse effect' risk "
-    "boilerplate, and definitions. If nothing qualifies return an empty list. "
-    'Return ONLY one JSON object: {"statements":[{"text":"...","category":"<one of '
-    + "|".join(CATEGORIES)
-    + '>","impact":1-5}]}. No markdown, no commentary.'
-)
+SKILL_BUNDLE = load_skill_bundle()
+CATEGORIES = list(SKILL_BUNDLE.categories)
+DECISION_SCHEMA: dict[str, Any] = SKILL_BUNDLE.decision_schema
+DECISION_VALIDATOR = Draft202012Validator(DECISION_SCHEMA)
+SYSTEM_PROMPT = SKILL_BUNDLE.system_prompt
 
 _MONEY = re.compile(r"\$\s?\d[\d,]*(?:\.\d+)?|\b\d[\d,]*(?:\.\d+)?\s?(?:billion|million|thousand)\b", re.I)
 _PCT = re.compile(r"\b\d{1,3}(?:\.\d+)?\s?%")
@@ -201,11 +169,28 @@ def parse_decision(content: str) -> dict[str, Any]:
             if not isinstance(s, dict):
                 continue
             cat = str(s.get("category", "OTHER")).upper().replace(" ", "_")
-            s = {"text": " ".join(str(s.get("text", "")).split()), "category": cat if cat in CATEGORIES else "OTHER", "impact": s.get("impact", 3)}
+            s = {
+                "text": " ".join(str(s.get("text", "")).split()).replace("\n", " ").strip(),
+                "category": cat if cat in CATEGORIES else "OTHER",
+                "impact": s.get("impact", 3),
+            }
             try:
                 s["impact"] = max(1, min(5, int(round(float(s["impact"])))))
             except (TypeError, ValueError):
                 s["impact"] = 3
+            if "period" in s and s["period"] is not None:
+                s["period"] = s["period"]
+            if "value" in s and s["value"] is not None:
+                s["value"] = s["value"]
+            if s.get("unit") is not None:
+                s["unit"] = str(s["unit"])
+            if s.get("value_role"):
+                s["value_role"] = str(s["value_role"])
+            if s.get("subtype_hint"):
+                s["subtype_hint"] = str(s.get("subtype_hint", ""))[:64]
+            if s.get("statement_mode"):
+                sm = str(s.get("statement_mode")).lower()
+                s["statement_mode"] = sm if sm in ("actual", "guidance", "intent") else "actual"
             if len(s["text"]) > 400:
                 s["text"] = s["text"][:397] + "..."
             cleaned.append(s)
@@ -261,9 +246,14 @@ CATEGORY_CAP = 12  # deterministic diversity: at most this many statements per c
 OTHER_CAP = 4  # ... and fewer for the catch-all bucket
 
 
-def reduce_statements(windows: list[Window], *, top_n: int, category_cap: int = CATEGORY_CAP, other_cap: int = OTHER_CAP) -> list[dict[str, Any]]:
-    """Zero-model reduce: score = impact*2 + capped signal; Jaccard>0.6 dedupe; per-category cap; top-N.
-    Overflow from capped categories back-fills the list when fewer than top_n remain."""
+def _legacy_reduce(
+    windows: list[Window],
+    *,
+    top_n: int,
+    category_cap: int = CATEGORY_CAP,
+    other_cap: int = OTHER_CAP,
+) -> list[dict[str, Any]]:
+    """Previous reduce: impact×2 + signal, Jaccard dedupe, category caps."""
     cands: list[dict[str, Any]] = []
     for w in windows:
         if w.status != "COMMITTED":
@@ -301,6 +291,95 @@ def reduce_statements(windows: list[Window], *, top_n: int, category_cap: int = 
     return kept
 
 
+def _strip_internal(obs: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in obs.items() if not k.startswith("_")}
+
+
+def reduce_statements(
+    windows: list[Window],
+    *,
+    top_n: int,
+    category_cap: int | None = None,
+    other_cap: int | None = None,
+    filing_html: str | bytes | None = None,
+    skill_bundle: Any | None = None,
+) -> list[dict[str, Any]]:
+    """Dedupe, verify (iXBRL when HTML given), score, cluster, rank; or legacy path when disabled / no HTML."""
+    sb = skill_bundle or SKILL_BUNDLE
+    r_cfg = getattr(sb, "reduce", None) or {}
+    cap = category_cap if category_cap is not None else int(r_cfg.get("category_cap", CATEGORY_CAP))
+    oth = other_cap if other_cap is not None else int(r_cfg.get("other_cap", OTHER_CAP))
+    top_n = int(r_cfg.get("top_n", top_n))
+
+    use_legacy = bool(getattr(sb, "legacy_reduce", False)) or filing_html is None
+    if use_legacy:
+        return _legacy_reduce(windows, top_n=top_n, category_cap=cap, other_cap=oth)
+
+    html = filing_html.decode("utf-8", errors="replace") if isinstance(filing_html, bytes) else str(filing_html)
+    taxonomy = sb.taxonomy
+    weights = r_cfg.get("score_weights") or {
+        "materiality": 0.25,
+        "novelty": 0.15,
+        "quantified": 0.15,
+        "verified": 0.30,
+        "sentiment": 0.15,
+    }
+    ix = xbrl_mod.build_ixbrl_index(html)
+
+    scored: list[dict[str, Any]] = []
+    for w in windows:
+        if w.status != "COMMITTED":
+            continue
+        for stmt in w.statements:
+            obs = normalize_mod.map_legacy_to_observation(stmt, taxonomy)
+            ver = verify_mod.verify_observation(obs, ix, raw_html=html, taxonomy=taxonomy)
+            obs["verification"] = ver
+            scr = score_mod.score_observation(obs, ver, weights)
+            obs["composite"] = scr["composite"]
+            obs["score_dimensions"] = scr["dimensions"]
+            obs["node_id"] = w.node_id
+            obs["fragment_ids"] = w.fragment_ids
+            scored.append(obs)
+
+    dedup_scored: list[dict[str, Any]] = []
+    kept_tok: list[set[str]] = []
+    for obs in sorted(scored, key=lambda o: (-int(o.get("composite", 0)), str(o.get("node_id", "")))):
+        toks = _norm_tokens(str(obs.get("text", "")))
+        if not toks:
+            dedup_scored.append(obs)
+            continue
+        if any(len(toks & k) / max(1, len(toks | k)) > 0.6 for k in kept_tok):
+            continue
+        dedup_scored.append(obs)
+        kept_tok.append(toks)
+
+    ranked = cluster_mod.cluster_and_rank(dedup_scored)
+    ranked = [o for o in ranked if o.get("cluster_canonical", True)]
+
+    per_cat: dict[str, int] = {}
+    kept: list[dict[str, Any]] = []
+    overflow: list[dict[str, Any]] = []
+    legacy_cat = lambda o: str(o.get("_legacy_category") or o.get("category") or "OTHER")
+    for obs in ranked:
+        cat = legacy_cat(obs)
+        cap_use = oth if cat == "OTHER" else cap
+        if per_cat.get(cat, 0) < cap_use:
+            kept.append(_strip_internal(obs))
+            per_cat[cat] = per_cat.get(cat, 0) + 1
+        else:
+            overflow.append(_strip_internal(obs))
+        if len(kept) >= top_n:
+            break
+    if len(kept) < top_n:
+        for obs in overflow:
+            if len(kept) >= top_n:
+                break
+            kept.append(obs)
+    for i, c in enumerate(kept, 1):
+        c["rank"] = i
+    return kept
+
+
 # --- rendering ----------------------------------------------------------------------------------
 
 
@@ -326,7 +405,17 @@ def render_result_markdown(result: list[dict[str, Any]], windows: list[Window], 
     failed = len(windows) - committed
     lines = ["\n---\n\n", f"## Most impactful statements (top {len(result)})\n\n"]
     for c in result:
-        lines.append(f"{c['rank']}. **[{c['category']}·{c['impact']}]** {c['text']}  \n   <sub>node `{c['node_id']}` · {', '.join(c['fragment_ids'][:3])}{'…' if len(c['fragment_ids']) > 3 else ''}</sub>\n")
+        if "composite" in c and "verification" in c:
+            fam = c.get("economic_family", c.get("category", "?"))
+            sub = c.get("economic_subtype", "")
+            badge = str((c.get("verification") or {}).get("status", "UNVERIFIED"))
+            label = f"{fam}.{sub}" if sub else str(fam)
+            lines.append(
+                f"{c['rank']}. **[{label} · {c.get('composite', 0)} · {badge}]** {c['text']}  \n"
+                f"   <sub>node `{c['node_id']}` · {', '.join(c['fragment_ids'][:3])}{'…' if len(c['fragment_ids']) > 3 else ''}</sub>\n"
+            )
+        else:
+            lines.append(f"{c['rank']}. **[{c['category']}·{c['impact']}]** {c['text']}  \n   <sub>node `{c['node_id']}` · {', '.join(c['fragment_ids'][:3])}{'…' if len(c['fragment_ids']) > 3 else ''}</sub>\n")
     lines.append(
         f"\n<sub>{committed} committed / {failed} failed window nodes · every statement above came from one atomic "
         f"Qwen3.5-2B decision over one window; ranking and dedupe are deterministic (zero_model). "
@@ -360,7 +449,7 @@ def render_graph_html(trace: dict[str, Any]) -> str:
         "function esc(t){return String(t).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}"
         "document.getElementById('g').addEventListener('click',e=>{const id=e.target.getAttribute&&e.target.getAttribute('data-id');if(!id)return;const d=document.getElementById('d');"
         "const w=W.find(x=>x.node_id===id);if(w){d.innerHTML=`<h3>${id} · ${w.status}</h3><div class='k'>fragments ${w.fragment_ids.join(', ')} · ${w.latency_ms} ms · attempts ${w.attempts} · model ${esc(w.served_model||'')}</div><b>Input (window)</b><pre>${esc(w.input_preview||'')}</pre><b>Atomic prompt sha256</b><pre>${w.prompt_sha256}</pre><b>Output</b><pre>${esc(JSON.stringify(w.statements,null,1))}</pre>${w.failure?'<b>Failure</b><pre>'+esc(w.failure)+'</pre>':''}`;return}"
-        "const map={source:T.source,plan:{plan_hash:T.plan_hash,intent:T.plan_intent},triage:T.triage,reduce:{top_n:(T.result||[]).length,rule:'score=impact*2+signal, jaccard>0.6 dedupe'},result:{status:T.status,statements:(T.result||[]).slice(0,10)}};"
+        "const map={source:T.source,plan:{plan_hash:T.plan_hash,intent:T.plan_intent},triage:T.triage,reduce:{top_n:(T.result||[]).length,rule:'typed+ixbrl+cluster (or legacy)'},result:{status:T.status,statements:(T.result||[]).slice(0,10)}};"
         "d.innerHTML=`<h3>${id}</h3><pre>${esc(JSON.stringify(map[id]||{},null,1))}</pre>`});"
         "</script></body></html>\n```\n"
     )

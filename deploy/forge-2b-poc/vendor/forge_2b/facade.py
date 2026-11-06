@@ -421,6 +421,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
             "backend_model": cfg.backend_model,
             "raw_prompt_sha256": hashlib.sha256(user_text.encode()).hexdigest(),
             "directive": {"ticker": ticker, "accession": accession},
+            "skill": {"id": graph.SKILL_BUNDLE.skill_id, "version": graph.SKILL_BUNDLE.version},
             "status": "RUNNING",
             "stages": ["accepted"],
             "windows": [],
@@ -436,7 +437,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
         lg.add("plan", "dcs", "forge-dcs ingest + plan compile (deterministic)")
         lg.add("triage", "zero_model", "signal-lexicon paragraph scoring + windowing; no neural NLP model")
         lg.add("windows", "fixed_model", f"{cfg.backend_model} (Ollama via forge-gateway), one atomic call per window")
-        lg.add("reduce", "zero_model", "score = impact×2 + signal, Jaccard dedupe, top-N")
+        lg.add("reduce", "zero_model", "normalize + iXBRL verify + composite score + cluster, top-N")
         record["steps"] = lg.steps()
 
         async def body_gen():
@@ -543,8 +544,14 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                         record["status"] = "FAILED"
                         raise POCError(502, "OUTPUT_VALIDATION_FAILED", "No window node committed; no result")
                     lg.start("reduce")
-                    result = graph.reduce_statements(windows, top_n=cfg.top_n)
+                    result = graph.reduce_statements(
+                        windows,
+                        top_n=cfg.top_n,
+                        filing_html=data,
+                        skill_bundle=graph.SKILL_BUNDLE,
+                    )
                     record["result"] = result
+                    record["observations"] = result
                     record["status"] = "COMMITTED"
                     record["stages"] += ["reduce_pass", "atomic_commit"]
                     lg.finish("reduce", "COMMITTED", f"{len(result)} ranked statements")

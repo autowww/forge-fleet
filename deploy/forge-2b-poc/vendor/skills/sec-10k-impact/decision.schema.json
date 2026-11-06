@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["statements"],
+  "properties": {
+    "statements": {
+      "type": "array",
+      "maxItems": 6,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["text", "category", "impact"],
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 12,
+            "maxLength": 400
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "REVENUE",
+              "PROFIT",
+              "SEGMENT",
+              "CUSTOMER",
+              "CAPITAL_RETURN",
+              "CHARGE",
+              "REGULATORY",
+              "CONTRACT",
+              "LITIGATION",
+              "OPERATIONS",
+              "GEOGRAPHY",
+              "OTHER"
+            ]
+          },
+          "impact": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          },
+          "period": {
+            "oneOf": [
+              { "type": "string", "minLength": 2, "maxLength": 120 },
+              {
+                "type": "object",
+                "additionalProperties": true
+              }
+            ]
+          },
+          "value": { "type": "number" },
+          "unit": { "type": "string", "maxLength": 64 },
+          "value_role": {
+            "type": "string",
+            "enum": ["reported", "prior", "change", "yoy_change", "concentration", "estimated", "spent", "authorized"]
+          },
+          "subtype_hint": { "type": "string", "maxLength": 64 },
+          "statement_mode": {
+            "type": "string",
+            "enum": ["actual", "guidance", "intent"]
+          }
+        }
+      }
+    }
+  }
+}

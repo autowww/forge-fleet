@@ -1,0 +1,17 @@
+skill_id: forge-2b.sec10k-observation
+version: "0.2.0"
+output_contract: forge-market.EtalonFact.v1
+decision_schema: decision.schema.json
+system_prompt: prompt.system.md
+taxonomy: taxonomy.yaml
+legacy_reduce: false
+reduce:
+  category_cap: 12
+  other_cap: 4
+  score_weights:
+    materiality: 0.25
+    novelty: 0.15
+    quantified: 0.15
+    verified: 0.30
+    sentiment: 0.15
+  score_bucket_size: 20

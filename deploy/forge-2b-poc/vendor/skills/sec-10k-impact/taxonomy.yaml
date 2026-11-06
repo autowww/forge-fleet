@@ -1,0 +1,53 @@
+# Maps legacy 2B category (+ optional subtype_hint) to forge-market-shaped family.subtype.
+# Default subtype_hint and unknown hints fall back per legacy category row below.
+legacy_category:
+  REVENUE: { economic_family: REV.REVENUE, economic_subtype: TOTAL_REVENUE }
+  PROFIT: { economic_family: PROF.INCOME, economic_subtype: NET_INCOME }
+  SEGMENT: { economic_family: REV.SEGMENT, economic_subtype: SEGMENT_REVENUE }
+  CUSTOMER: { economic_family: REV.CONCENTRATION, economic_subtype: CUSTOMER_SHARE }
+  CAPITAL_RETURN: { economic_family: CAP.BUYBACK, economic_subtype: REPURCHASE_SPEND }
+  CHARGE: { economic_family: OPS.INVENTORY, economic_subtype: INVENTORY_CHARGE }
+  REGULATORY: { economic_family: REG.EXPORT, economic_subtype: RESTRICTION }
+  CONTRACT: { economic_family: OPS.SUPPLY, economic_subtype: PURCHASE_OBLIGATION }
+  LITIGATION: { economic_family: OPS.LEGAL, economic_subtype: LITIGATION }
+  OPERATIONS: { economic_family: OPS.HEADCOUNT, economic_subtype: HEADCOUNT }
+  GEOGRAPHY: { economic_family: REV.GEOGRAPHY, economic_subtype: GEO_REVENUE }
+  OTHER: { economic_family: GEN.OTHER, economic_subtype: UNSPECIFIED }
+
+# Lowercase keywords in subtype_hint (and statement text when hint empty) pick the first match.
+subtype_hints:
+  - keywords: [data center, datacenter, dc]
+    economic_family: REV.SEGMENT
+    economic_subtype: END_MARKET_REVENUE
+  - keywords: [gaming]
+    economic_family: REV.SEGMENT
+    economic_subtype: END_MARKET_REVENUE
+  - keywords: [eps, per diluted share, diluted share]
+    economic_family: PROF.EPS
+    economic_subtype: DILUTED_EPS
+  - keywords: [gross margin]
+    economic_family: PROF.MARGIN
+    economic_subtype: GROSS_MARGIN
+  - keywords: [operating income]
+    economic_family: PROF.INCOME
+    economic_subtype: OPERATING_INCOME
+  - keywords: [research and development, r&d]
+    economic_family: PROF.EXPENSE
+    economic_subtype: R_AND_D
+  - keywords: [cash flow, operating activities]
+    economic_family: CAP.LIQUIDITY
+    economic_subtype: OPERATING_CASH_FLOW
+  - keywords: [dividend]
+    economic_family: CAP.DIVIDEND
+    economic_subtype: CASH_DIVIDEND
+
+# Primary US-GAAP concept short names (namespace stripped) for verification.
+xbrl_concepts:
+  TOTAL_REVENUE: Revenues
+  NET_INCOME: NetIncomeLoss
+  OPERATING_INCOME: OperatingIncomeLoss
+  GROSS_MARGIN: GrossProfit
+  DILUTED_EPS: EarningsPerShareDiluted
+  END_MARKET_REVENUE: Revenues
+  SEGMENT_REVENUE: Revenues
+  GEO_REVENUE: Revenues
