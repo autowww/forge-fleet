@@ -223,6 +223,12 @@ class FleetHandler(BaseHTTPRequestHandler):
         self._send_raw(200, data, ct)
 
     def _read_binary_body(self, max_len: int) -> bytes:
+        # do_PUT already consumed the body for the request guard and cached it; a second rfile.read() would block the
+        # connection forever (observed 2026-11-06: every PUT /v1/jobs/{id}/workspace hung with 0 bytes answered).
+        cached = getattr(self, "_cached_request_body", None)
+        if cached is not None:
+            self._cached_request_body = None
+            return cached if 0 < len(cached) <= max_len else b""
         n = int(self.headers.get("Content-Length") or 0)
         if n <= 0 or n > max_len:
             return b""
@@ -2827,8 +2833,12 @@ class FleetHandler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path.startswith("/v1/"):
             length = int(self.headers.get("Content-Length") or 0)
-            raw_put = self.rfile.read(length) if 0 < length <= 2_097_152 else b""
-            if length > 2_097_152:
+            # binary upload routes (job workspace, migration data bundles, container-template packages) carry archives far
+            # beyond the 2 MiB JSON cap; their handlers consume the cached body via _read_binary_body (read once, never twice)
+            binary_put = bool(re.match(r"^/v1/(jobs/[^/]+/workspace|migrations/[^/]+/data-bundle(?:/chunks/\d+)?|container-templates/[^/]+/package)$", path))
+            cap = max(2_097_152, workspace_bundle.max_upload_bytes()) if binary_put else 2_097_152
+            raw_put = self.rfile.read(length) if 0 < length <= cap else b""
+            if length > cap:
                 self._send(413, {"ok": False, "error": "body_too_large"})
                 return
             if not self._apply_request_guard("PUT", path, raw_put):

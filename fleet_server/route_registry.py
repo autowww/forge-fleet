@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 from typing import Literal
 
-RouteClass = Literal["read", "mutate", "heavy", "public", "proxy"]
+RouteClass = Literal["read", "mutate", "heavy", "public", "proxy", "upload"]
 Scope = Literal[
     "public",
     "admin",
@@ -100,6 +100,12 @@ ROUTE_SPECS: tuple[RouteSpec, ...] = (
         "security_agent_test",
     ),
     RouteSpec(_p("/v1/jobs"), frozenset({"POST"}), "admin", "mutate", "jobs_create"),
+    # binary archive uploads (job workspace, migration data bundles, container-template packages): their own class so the
+    # guard's body cap is the workspace upload limit, not the 1 MiB JSON cap (2026-11-06)
+    RouteSpec(_p("/v1/jobs/[^/]+/workspace"), frozenset({"PUT"}), "admin", "upload", "jobs_workspace_upload"),
+    RouteSpec(_p("/v1/migrations/[^/]+/data-bundle"), frozenset({"PUT"}), "admin", "upload", "migration_bundle_upload"),
+    RouteSpec(_p("/v1/migrations/[^/]+/data-bundle/chunks/\\d+"), frozenset({"PUT"}), "admin", "upload", "migration_bundle_chunk_upload"),
+    RouteSpec(_p("/v1/container-templates/[^/]+/package"), frozenset({"PUT"}), "admin", "upload", "container_template_package_upload"),
     RouteSpec(_p("/v1/admin/cursor-cli"), frozenset({"POST"}), "admin", "heavy", "admin_cursor_cli"),
     RouteSpec(_p("/v1/admin/temp-jobs"), frozenset({"POST"}), "admin", "mutate", "admin_temp_jobs_submit"),
     RouteSpec(_p("/v1/admin/temp-jobs/[^/]+/result"), frozenset({"GET"}), "admin", "read", "admin_temp_jobs_result"),
