@@ -43,6 +43,10 @@ curl -fsS https://webui.forgedc.net/api/chat/completions \
 
 Model ids: `granite-chatgpt-primary`, `granite-chatgpt-primary.gpt-4o`, `granite-gemini-primary`, … (bridge `/v1/models`). Agents in Cursor use the LCDL MCP tool `lcdl.web_chat` instead (forge-lcdl `docs/mcp-sidecar.md`).
 
+## Chat identity forwarded to backends (forge-2b follow-ups)
+
+`compose.yaml` sets `ENABLE_FORWARD_USER_INFO_HEADERS=true` (Open WebUI core setting, no fork). On every chat completion Open WebUI then adds `X-OpenWebUI-Chat-Id` and `X-OpenWebUI-User-{Id,Name,Email,Role}` to the request it sends to OpenAI-compatible connections. The forge-2b shim uses the chat id as its conversation key so an elliptical follow-up ("And in the public re-run?") can be read against the previous turn; it keeps a **hash** of the user id only and never stores the name or the email. Direct API callers get the same behaviour with an `X-Forge-Chat-Id` header. Override with `ENABLE_FORWARD_USER_INFO_HEADERS=false` in `.env` to switch the forwarding off; apply compose changes with `POST /v1/container-services/open-webui/start` (recreates the container, a few seconds of downtime) — rolled out 2026-11-06 with Fleet 0.3.211.
+
 ## Fleet capability follow-up
 
 The production sign-in path must not need SSH. Open item: extend the Market edge-plane CDP stream (`forge_fleet` edge routes) to the Open WebUI account ports `:9230`/`:9231` so the operator completes OAuth/Turnstile from the laptop browser through Fleet. Until then `granite-open-webui-auth-laptop.sh` stays bootstrap-only and refuses to run without `FORGE_OPERATOR_GRANTED_SSH=1`.
