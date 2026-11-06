@@ -41,6 +41,14 @@ ALIASES: dict[str, tuple[str, ...]] = {
     "changelog": ("change log", "release notes", "history", "what changed", "changes", "added", "introduced", "raised", "when was", "which month", "which version", "release date"),
     "version": ("release", "tag", "v"),
     "deployment": ("deploy", "deployed", "rollout", "release train", "production"),
+    # language codes as they appear in corpus breakdowns ("70 en / 39 uk / 15 mixed" — live K19 2026-11-06)
+    "uk": ("ukrainian", "ukr", "українська", "українською", "украинский"),
+    "en": ("english", "eng", "англійська", "английский"),
+    "de": ("german", "deutsch", "німецька"),
+    "fr": ("french", "français", "французька"),
+    "es": ("spanish", "español", "іспанська"),
+    "pl": ("polish", "polski", "польська"),
+    "ru": ("russian", "русский", "російська"),
     # code
     "default_port": ("default port", "port constant", "hardcoded port"),
     "timezone": ("time zone", "tz", "zeitzone", "zone horaire", "zona horaria", "strefa czasowa", "часовой пояс", "часовий пояс"),

@@ -34,7 +34,7 @@ __all__ = ["EffectIntent", "ProhibitedEffect", "EffectEvidence", "EffectProjecti
            "REPLY_ONLY", "ARTIFACT_WRITE", "ENVIRONMENT_MUTATION", "COMMAND_EXECUTION", "UNKNOWN", "SIDE_EFFECT_CLASSES",
            "DENY", "REQUIRE_RESOLUTION", "TEXT_NOT_PROHIBITED", "PROJECTION_VERSION"]
 
-PROJECTION_VERSION = "dce-g1r3d/0.3.1"
+PROJECTION_VERSION = "dce-g1r3e/0.4.0"
 
 REPLY_ONLY, ARTIFACT_WRITE, ENVIRONMENT_MUTATION, COMMAND_EXECUTION, UNKNOWN = \
     "reply_only", "artifact_write", "environment_mutation", "command_execution", "unknown"
@@ -75,7 +75,8 @@ _ENV_NOUN_RE = re.compile(_W + r"(?:config(?:s|uration|urations)?|settings?|sett
 _REPLY_MEDIUM_RE = re.compile(_W + r"(?:in (?:the |your |this )?(?:reply|answer|response|chat|message|comment)|as (?:plain |raw )?text|as a (?:text|string)|"
                               r"(?:only |just )?(?:in|within) this (?:reply|answer|response|thread|conversation)|for me(?: to (?:review|read|look at|check|paste|copy))?|for us|"
                               r"here(?= *(?:[.,;:!]|$|\s+(?:and|but|so|then|as|in|with|for)\b))|inline|in[- ]line|for explanation|for illustration|"
-                              r"as an? (?:example|illustration|sample|draft|proposal|suggestion)|for (?:my |our )?(?:review|reference|information|me to review)|"
+                              r"as an? (?:(?:plain[- ]text|text|inline|illustrative|worked|minimal|toy|quick|rough|sample|reference) )?(?:example|illustration|sample|snippet|draft|proposal|suggestion)s?|for (?:my |our )?(?:review|reference|information|me to review)|"
+                              r"for (?:me|us) to (?:copy|paste|use|adapt|tweak|edit|look at)|for copy(?:ing)?(?:[- /]and[- /]|[-/ ])?past(?:e|ing)|to copy(?:[- ]paste)?(?= *(?:[.,;:!]|$|\s+(?:into|to|over|later|and|then)\b))|"   # v6 rule 28 (DCE-G1R3E)
                               r"(?:let|so) (?:me|us) (?:review|check|see|read|look|vet|approve)|i(?:'ll| will| can| would| should| could) (?:review|run|execute|apply|paste|copy|use|look)|"
                               r"(?:i|we) (?:should|would|could|can|will|might) (?:run|execute|apply|copy|paste|use)|you would (?:run|use|execute|type)|"
                               r"preview(?!\s+(?:namespace|environment|env|cluster|branch|deployment|url|link|server|build|release|site|stack|tenant|pod|host|instance|channel))|dry[- ]run (?:only|output)|show me|give me|print(?: out)?|output (?:it|them)|to copy|i (?:can|could) copy|копіювати|"
@@ -430,7 +431,7 @@ def _project_unresolved(ir: RequestIR, u: Unresolved) -> Optional[EffectIntent]:
                         u.source_span, [reason])
 
 
-_PUBLISH_VERB_RE = re.compile(_W + r"(?:publish\w*|post\w*|send\w*|submit\w*|e-?mail\w*|upload\w*|push\w*|force[- ]?push\w*|merge\w*|rebas\w*|cherry[- ]?pick\w*|squash\w*|amend\w*|tag\w*|commit(?:s|ted|ting)?\b|опублік\w*|надішл\w*|надісла\w*|надсила\w*|відправ\w*|відішл\w*|запост\w*|залий|залива\w*|завантаж\w*|запуш\w*|пуш\w*|змерж\w*|мерж\w*|злий|злива\w*|перебаз\w*|ребейз\w*)\b", _I)
+_PUBLISH_VERB_RE = re.compile(_W + r"(?:publish\w*|post\w*|send\w*|submit\w*|e-?mail\w*|notif\w*|pag(?:e|es|ed|ing)\b|alert(?:s|ed|ing)?\b|ping(?:s|ed|ing)?\b|upload\w*|push\w*|force[- ]?push\w*|merge\w*|rebas\w*|cherry[- ]?pick\w*|squash\w*|amend\w*|tag\w*|commit(?:s|ted|ting)?\b|опублік\w*|надішл\w*|надісла\w*|надсила\w*|відправ\w*|відішл\w*|запост\w*|залий|залива\w*|завантаж\w*|запуш\w*|пуш\w*|змерж\w*|мерж\w*|злий|злива\w*|перебаз\w*|ребейз\w*)\b", _I)
 
 
 _COORD_PROHIBITION_RE = re.compile(r"\b(?:or|and|nor)\s+(?P<v>chang\w*|modif\w*|edit\w*|alter\w*|touch\w*|delet\w*|remov\w*|drop\w*|creat\w*|writ\w*|sav\w*|persist\w*|"
@@ -471,9 +472,18 @@ def _prohibited_classes(c: Constraint) -> list[str]:
     return out
 
 
+_EXTERNAL_SYSTEMS_RE = re.compile(_W + r"(?:(?:external|outside|remote|third[- ]party|downstream|upstream|other|outbound|network|api|http)\s+"
+                                  r"(?:systems?|services?|apis?|tools?|hosts?|endpoints?|parties|integrations?|resources?|servers?|platforms?|calls?|requests?|connections?)"
+                                  r"|(?:anything|something|things|systems?|services?)\s+(?:external|outside|remote|outside of (?:this|the) (?:chat|conversation|sandbox)))\b", _I)
+
+
 def _prohibited_classes_one(c: Constraint) -> list[str]:
     obj = c.target_object.text if c.target_object is not None else ""
     act = c.target_action
+    if _EXTERNAL_SYSTEMS_RE.search(c.text):
+        # "do not connect to outside systems", "avoid external calls", "no third-party APIs" — whatever the verb, the class is the
+        # external boundary: calls out and remote state (v6 rule 33 table, external-systems row)
+        return [COMMAND_EXECUTION, ENVIRONMENT_MUTATION]
     if act == "run":
         verb = c.text if c.target_object is None else c.text[: max(0, c.target_object.source_span.start - c.source_span.start)] or c.text
         if _PUBLISH_VERB_RE.search(verb):                               # "do not merge the release branch" / "send nothing to Slack" — repository / service state
@@ -492,8 +502,8 @@ def _prohibited_classes_one(c: Constraint) -> list[str]:
             return [COMMAND_EXECUTION, ENVIRONMENT_MUTATION]            # "make no network call" — a call reaches out and may change remote state
         if re.search(_W + r"(?:sav(?:e|ing)|persist\w*|stor(?:e|ing)|writ(?:e|ing)|export\w*|dump\w*)\b", verb, _I):
             return [ARTIFACT_WRITE]                                     # "Do not save or execute the triage helper" — the save is the artefact class
-        if _REPO_NOUN_RE.search(obj) and c.rule.endswith(".keep_out_of"):
-            return [ARTIFACT_WRITE, ENVIRONMENT_MUTATION]              # "keep it out of the repository"
+        if _REPO_NOUN_RE.search(obj) and c.rule.endswith((".keep_out_of", ".keep_untouched", ".approval_gate", ".approval_gate.inline")):
+            return [ARTIFACT_WRITE, ENVIRONMENT_MUTATION]              # "keep it out of the repository" / "keep the repository pristine" (v6 rule 33)
         dest, _ = _destination(obj, c.id, 0) if obj else (None, [])
         if dest == ARTIFACT_WRITE and _GENERIC_CHANGE_RE.search(obj) and not (_FILE_EXT_RE.search(obj) or _FILE_NOUN_RE.search(obj)):
             return [ENVIRONMENT_MUTATION, ARTIFACT_WRITE]              # "не внось змін у репозиторій", "no changes in the repo"
@@ -527,8 +537,13 @@ def _prohibited_classes_one(c: Constraint) -> list[str]:
         out: list[str] = []                                             # DCE-G1R3D: a list object ("no tickets, commits, or file edits") unions every family
         if re.search(_W + r"(?:shell|scripts?|commands?|execut\w*|runs?|deploy\w*|restart\w*|install\w*|acting on|act on|network calls?|remote calls?|api calls?|команд\w*|скрипт\w*|запуск\w*|деплой\w*)\b", obj, _I):
             out.append(COMMAND_EXECUTION)
-        if re.search(_W + r"(?:actions?|operations?|side[- ]effects?)\b", obj, _I) and not re.search(_W + r"(?:text|chat|reply|answer)\b", obj, _I):
+        if re.search(_W + r"(?:actions?|operations?)\b", obj, _I) and not re.search(_W + r"(?:text|chat|reply|answer)\b", obj, _I):
             out += [COMMAND_EXECUTION, ENVIRONMENT_MUTATION]                # "No production actions" — an action acts on state and is executed
+        if re.search(_W + r"side[- ]effects?\b", obj, _I):                  # "no side effects" — every class (v6 rule 33; DCE-G1R3E)
+            out += [COMMAND_EXECUTION, ENVIRONMENT_MUTATION, ARTIFACT_WRITE]
+        if re.search(_W + r"(?:external|outside|remote|third[- ]party|downstream|upstream|other)\s+(?:systems?|services?|apis?|tools?|hosts?|endpoints?|parties|integrations?|resources?|servers?|platforms?)\b", obj, _I) \
+                or re.search(_W + r"(?:anything|something|things)\s+(?:external|outside|remote)\b", obj, _I):
+            out += [COMMAND_EXECUTION, ENVIRONMENT_MUTATION]                # "do not interact with external systems" — calls and remote state (v6 rule 33)
         if _PERSIST_RE.search(obj) or _FILE_NOUN_RE.search(obj) or re.search(_W + r"(?:writes?|outputs?|artifacts?|artefacts?|exports?|dumps?|запис\w*)\b", obj, _I):
             out.append(ARTIFACT_WRITE)
         if _ENV_NOUN_RE.search(obj) or re.search(_W + r"(?:edits?|commits?|changes?|modifications?|touch\w*|tickets?|issues?|merges?|pushes|deploys?|змін\w*|правк\w*)\b", obj, _I):

@@ -42,6 +42,7 @@ DO_NOT_EXECUTE, NEEDS_POLICY_RESOLUTION, NOT_PROHIBITED_BY_TEXT = "do_not_execut
 _DETERMINERS = frozenset("the a an any all some this that these those my our your its their his her every each "
                          "цей ця це ці той та те ті всі усі кожен кожна будь-який будь-яка жодних жодного жодної".split())
 _APPROVAL_RE = re.compile(r"approv|permission|confirm|sign(?:s|ed)?[- ]?off|go[- ]?ahead|green light|says? go|says? yes|said yes|say so|gives? (?:the )?go|gives? (?:the )?(?:nod|thumbs[- ]up|green)|authori[sz]|allow|ok from|okays?|"
+                          r"says? (?:proceed|ok|okay|continue|fine|do it|the word)|said (?:proceed|go|ok|okay|continue)|tells? you to (?:proceed|go ahead|continue|start)|clearance|blessing|consent|"   # v6 rule 32 (DCE-G1R3E)
                           r"дозв[оі]л|підтвердж|підтверд|погодж|схвал|добро", re.I)
 
 

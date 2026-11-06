@@ -21,7 +21,7 @@ from jsonschema import Draft202012Validator
 from .attachment_map import AttachmentMap, Scope
 from .ir import RequestIR
 from .retrieval import Retriever
-from . import tables
+from . import tables, verdicts
 from .untrusted import scan_untrusted
 
 DAG_VERSION = "forge-2b.task-dag.v1"
@@ -288,9 +288,9 @@ def typed_count(amap: AttachmentMap, files: list[str], query: str) -> dict[str, 
         if mc is not None:
             return mc
     words = {w.casefold() for w in re.findall(r"\w+", query)}
-    for f in amap.files:
-        if f.status != "INCLUDED" or f.language not in ("csv", "tsv") or (files and f.path not in files):
-            continue
+    csvs = [f for f in amap.files if f.status == "INCLUDED" and f.language in ("csv", "tsv") and (not files or f.path in files)]
+    asks_rows = bool(words & {"rows", "entries", "records", "lines"})
+    for f in csvs:
         rows = [s for s in amap.segments_for(f.file_id) if s.kind == "row"]
         if not rows:
             continue
@@ -299,8 +299,20 @@ def typed_count(amap: AttachmentMap, files: list[str], query: str) -> dict[str, 
             for col, val in s.context.get("cells", {}).items():
                 if isinstance(val, str) and val.casefold() in words and not val.isdigit():
                     filters[col] = val.casefold()
-        if not filters and (not files or f.path not in files):
+        if not filters and (not files or f.path not in files) and not (asks_rows and len(csvs) == 1):
             return None   # an unnamed table and no cell word in the question: "how many users" must not become a row count
+            # — unless the question literally asks for rows and there is exactly one table it can mean; the guard below
+            # still requires its other words ("test results") to be the table's name (oracle C081)
+        # the question may ask for rows *with a property* this table does not carry ("how many gates passed in the public
+        # re-run" over True/False cells — live K08 2026-11-06 answered the row count 10 for 5; "how many tests passed in the
+        # public re-run" over a status column counts the wrong run): every content word must be a header / file-name /
+        # filter word, else the count is not this operator's to make (the verdict-column filter or the model path answers it)
+        header = next((s for s in amap.segments_for(f.file_id) if s.kind == "header"), None)
+        cols = [str(c) for c in (header.context.get("columns", []) if header else [])]
+        explained = set().union(*(tables._words(c) for c in cols)) if cols else set()
+        explained |= tables._words(f.path.replace("/", " ").replace(".", " ")) | set(filters.values()) | {"rows", "row", "entries", "entry", "records", "record", "lines", "line", "items", "item", "listed", "total"}
+        if tables._guard(tables._content_words(query), explained | tables._GENERIC):
+            return None
         matched = [s for s in rows if all(str(s.context["cells"].get(c, "")).casefold() == v for c, v in filters.items())]
         return {"value": len(matched), "method": "row_count" + ("" if not filters else ":" + ",".join(f"{c}={v}" for c, v in sorted(filters.items()))),
                 "spans": [s.seg_id for s in matched], "path": f.path, "lines": [s.start_line for s in matched], "header_line": next((s.start_line for s in amap.segments_for(f.file_id) if s.kind == "header"), None)}
@@ -494,6 +506,21 @@ def typed_key_lookup(amap: AttachmentMap, hits: list[Any], query: str, retriever
 
 
 # --- plan preview (GET-style, read-only) -----------------------------------------------------------------------------------
+def _row_continuation(ir: RequestIR, amap: AttachmentMap, n: Any, done: list[dict[str, Any]]) -> dict[str, Any] | None:
+    goal = next((g for g in ir.goals if g.id == n.goal_id), None)
+    if goal is None:
+        return None
+    for prev in reversed(done):
+        tt = prev.get("typed_table")
+        if not tt or tt.get("method") != "typed_table_row" or not prev.get("id", "").startswith(("g",)):
+            continue
+        pg = next((g for g in ir.goals if g.id == prev["id"].split("_", 1)[0]), None)
+        if pg is None or pg.span.end > goal.span.start or re.search(r"[.?!]", ir.text[pg.span.end:goal.span.start]):
+            continue   # not the same sentence
+        return tables.typed_table_row(amap, f"{tt['label']} {n.query}", continuation_of=tt)
+    return None
+
+
 def plan_preview(ir: RequestIR, amap: AttachmentMap, scope: Scope, *, max_hits: int = 8, retriever: Retriever | None = None) -> dict[str, Any]:
     """Deterministic dry run: DAG + per-node retrieval (status, ranked verified spans) + untrusted-instruction scan. No model call."""
     dag = compile_dag(ir, amap)
@@ -524,8 +551,20 @@ def plan_preview(ir: RequestIR, amap: AttachmentMap, scope: Scope, *, max_hits: 
             # each abstains unless every content word of the question is explained by the table / patch it answers from
             typed_table = (tables.typed_commit_range(amap, n.query) or tables.typed_table_filter(amap, n.query) or tables.typed_table_extreme(amap, n.query) or tables.typed_table_row(amap, n.query)
                            or tables.typed_diff_rollup(amap, n.query)) if n.kind != "summarize" else None
+            if typed_table is None and n.kind == "lookup":
+                # coordination ellipsis (live K09 2026-11-06): "What is the threshold for explicit-mutation recall and what was
+                # observed in the blind run?" splits into a row goal and an elliptical goal that names no row — the model
+                # answered the second with a number from another line. When the elliptical goal is in the same sentence as
+                # a goal the row operator answered, and its words are column / heading words of that table, it is read from
+                # the same row (zero calls); any other word keeps the model path.
+                typed_table = _row_continuation(ir, amap, n, nodes_out)
+            typed_verdict = verdicts.typed_verdict(amap, n.source_scope["files"], n.query) if not typed_table and n.kind in ("lookup", "verify") else None
             if typed_table:
                 entry["typed_table"] = typed_table
+                entry["route_pref"] = "D0"
+            elif typed_verdict:
+                # D0: "what is the verdict / decision / status" is read from the labelled line(s), no model call
+                entry["typed_verdict"] = typed_verdict
                 entry["route_pref"] = "D0"
             elif n.kind == "lookup":   # goal deps on a lookup are ordering only ("first … then"), not data flow
                 ts = typed_dated_sections(amap, n.source_scope["files"], n.query)

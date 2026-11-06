@@ -42,7 +42,7 @@ from .effect_view import (
 __all__ = ["OperationEffect", "OperationProjection", "ToolDeclaration", "OperationEvidence", "OPERATOR_REGISTRY",
            "project_operations", "operation_policy", "OPERATION_PROJECTION_VERSION"]
 
-OPERATION_PROJECTION_VERSION = "dce-g1r3d/0.4.1"
+OPERATION_PROJECTION_VERSION = "dce-g1r3e/0.5.0"
 
 _I = re.I | re.U
 _W = r"(?<![\w'’-])"
@@ -339,6 +339,20 @@ _GENERIC_OBJ_RE = re.compile(r"^\s*(?:(?:the|a|an|this|that|these|those|my|our|y
                              r"(?:fix(?:es)?|hotfix(?:es)?|changes?|edits?|modifications?|updates?|adjustments?|tweaks?|amendments?|corrections?|improvements?|rework|workarounds?|alterations?)\b"
                              r"(?!\s*(?:log|set|request|history|list|management|control|window|freeze|review|ticket|summary|description|plan)\b)", _I)
 _FILE_DEST_RE = re.compile(r"(?:" + ev._FILE_EXT_RE.pattern + r"|" + ev._PATH_RE.pattern + r"|" + ev._FILE_NOUN_RE.pattern + r")", _I)
+# v6 rule 28 (DCE-G1R3E): a draft *file* noun — "configuration file", "deployment manifest", "health-check script", "helm chart",
+# "systemd unit", "CI workflow" — created with no path, no extension and no destination phrase has no medium yet
+_DRAFT_FILE_RE = re.compile(r"\b(?:(?:config(?:uration)?|settings?|env(?:ironment)?|properties|policy|manifest|deployment|compose|docker|helm|k8s|kubernetes|ci|cd|pipeline|workflow|cron|systemd|nginx|apache|ingress|service|"
+                            r"migration|seed|fixture|sql|schema|patch|diff|script|shell|bash|python|makefile|terraform|ansible|build|lint|test|health[- ]?check|startup|init|bootstrap|release|rollout)[- ]+)?"
+                            r"(?:files?|manifests?|dockerfiles?|charts?|units?|scripts?|templates?|playbooks?|definitions?|specs?|configs?)\b|\b(?:dockerfile|makefile|docker-compose)\b", _I)
+# "without saving", "not committing" — a persist-prohibition is a prohibition, never an in-chat marker for a draft file (v6 rule 28)
+_PERSIST_NEGATION_RE = re.compile(r"\s*(?:not|without|instead of|rather than|без|не)\b", _I)
+# bare draft-file nouns (v6 rule 28 / v5 rule 21 first list) without the word "file": "the HAProxy configuration", "a fixture", "a patch"
+_DRAFT_NOUN_RE = re.compile(r"\b(?:config(?:uration)?s?|settings|manifests?|fixtures?|migrations?|patch(?:es)?|diffs?|scripts?|templates?|workflows?|policy|policies|dockerfiles?|compose files?|\.env)\b", _I)
+_RECORD_NOUN_RE = re.compile(r"\b(?:tickets?|issues?|PRs?|pull requests?|MRs?|merge requests?|incidents?|cases?|threads?|cards?|stories|story|epics?|bugs?|#\d+|[A-Z]{2,8}-\d+)\b", _I)
+_RECORD_VERB_RE = re.compile(r"\s*(?:assign|reassign|unassign|comment|reply|respond|answer|close|reopen|resolve|escalate|transition)\b", _I)
+_PRONOUN_HEAD_RE = re.compile(r"^\s*(?:it|them|this|that|these|those|this one|that one)\b", _I)
+_DEST_PHRASE_RE = re.compile(r"\b(?:to|at|under|into|in|on|onto)\s+(?:the\s+|a\s+|our\s+|my\s+|its\s+)?(?:repo(?:sitory)?|root|folder|directory|dir|path|disk|filesystem|file system|tree|working tree|workspace|bucket|share|drive|server|host|machine|box|branch)\b|"
+                             r"\b(?:save|write|persist|store|export|dump|commit|check in)\b|\bto disk\b|\bon disk\b", _I)
 _ENV_TARGET_RE = re.compile(r"\b(?:to|on|in|into|against)\s+(?:the\s+|our\s+|each\s+|every\s+|all\s+)?(?:(?:running|live|active|deployed|current|staging|production|prod|canary|primary|secondary|main)\s+)?"
                             r"(?:production|prod|staging|live|clusters?|servers?|hosts?|nodes?|fleet|environments?|env|gateway|gateways|proxy|proxies|load[- ]balancers?|"
                             r"services?|instances?|deployments?|pods?|containers?|database|db|databases)\b", _I)
@@ -373,9 +387,18 @@ def _state_object(o: Objective) -> Optional[tuple[str, OperationEvidence]]:
         if m is not None:
             return ENVIRONMENT_MUTATION, _evd(o.id, _span_of(m, base), f"object:{reason}", m.group(0))
     m = _CONFIG_FILE_RE.search(obj)
+    if o.action == "create" and ev._REPLY_MEDIUM_RE.search(obj) and (m is not None or _DRAFT_FILE_RE.search(obj)) \
+            and not (ev._PATH_RE.search(obj) or _DEST_PHRASE_RE.search(obj)):
+        return None            # "Generate a Dockerfile as a text example" — an in-chat marker decides the medium (v6 rule 28): leave it to the effect view
     if m is not None and o.action == "create" and re.match(r"(?:dockerfile|docker-compose|compose\.ya?ml|manifest)", m.group(0), _I) \
             and not ev._REPLY_MEDIUM_RE.search(obj) and not (_FILE_DEST_RE.search(obj[m.end():]) or _ENV_TARGET_RE.search(obj) or re.search(r"\b(?:in|under|at|into)\s+(?:the\s+)?(?:repo|root|folder|directory|path)", obj, _I)):
         return UNKNOWN, _evd(o.id, _span_of(m, base), "object:draft_artefact_no_destination", m.group(0))   # "Create a Dockerfile for the service" — nowhere to land it yet (sheet v5 rule 21; DCE-G1R3D)
+    md = _DRAFT_FILE_RE.search(obj)
+    if md is not None and o.action == "create" and m is None and not ev._REPLY_MEDIUM_RE.search(obj) \
+            and not (ev._PATH_RE.search(obj) or ev._FILE_EXT_RE.search(obj) or _DEST_PHRASE_RE.search(obj) or _ENV_TARGET_RE.search(obj)):
+        # "Produce a configuration file for staging" / "write a health-check script for my service" — a draft file whose environment
+        # name is the *subject*, not a destination: medium unknown, never environment_mutation or artifact_write (v6 rule 28; DCE-G1R3E)
+        return UNKNOWN, _evd(o.id, _span_of(md, base), "object:draft_file_no_destination", md.group(0))
     if m is not None and not ev._in_subject_phrase(obj, m.start()):
         return ENVIRONMENT_MUTATION, _evd(o.id, _span_of(m, base), "object:config_file", m.group(0))
     m = _CONFIG_OBJ_RE.search(obj)
@@ -424,6 +447,13 @@ def _project_objective(ir: RequestIR, o: Objective, base: EffectProjection, tool
     # protected / bare-pronoun-head / inform classes: inherit the single-class view
     bare_pronoun = o.target is not None and _BARE_PRONOUN_RE.match(o.target.text) is not None
     if intent is not None and ("objective_inside_protected_region" in intent.reasons or ("head_referent_unresolved" in intent.reasons and bare_pronoun)):
+        trig_text = o.trigger.text if o.trigger is not None else ""
+        if o.action == "modify" and bare_pronoun and "objective_inside_protected_region" not in intent.reasons and _RECORD_VERB_RE.match(trig_text):
+            # "… and assign it to me" / "reassign it" — a service-record verb fixes the class (environment_mutation) even while the record
+            # itself is an unresolved pronoun; the policy still requires resolution for the target (v6 rule 30; DCE-G1R3E)
+            return mk(None, ENVIRONMENT_MUTATION, [ENVIRONMENT_MUTATION], False,
+                      base_ev + [_evd(o.id, o.trigger.source_span, "trigger:record_verb", trig_text), _evd(o.id, o.target.source_span, "pronoun_operation", o.target.text)],
+                      extra_reasons=["record_verb_pronoun_target"])
         unknown_ext = o.action == "run"
         return mk(None, UNKNOWN, [UNKNOWN], unknown_ext, base_ev)
     if cls in ("inform", "judge", "propose"):
@@ -486,10 +516,34 @@ def _project_objective(ir: RequestIR, o: Objective, base: EffectProjection, tool
         # "upgrade the tracing agent" — an install-class verb executes a package step and mutates the host (DCE-G1R3D; union, never narrowed)
         return mk(None, COMMAND_EXECUTION, [COMMAND_EXECUTION, ENVIRONMENT_MUTATION], False,
                   base_ev + [_evd(o.id, o.trigger.source_span, "trigger:install_class", trig_text)], extra_reasons=["install_class_verb"])
+    if o.action == "modify" and o.target is not None and _RECORD_VERB_RE.match(trig_text) and _PRONOUN_HEAD_RE.match(o.target.text):
+        # "… and assign it to me" — a service-record verb fixes the class even when the record is a pronoun; the policy still requires
+        # resolution of the target (pronoun_operation evidence; v6 rule 30; DCE-G1R3E)
+        ante = _antecedent_text(ir, o)
+        return mk(None, ENVIRONMENT_MUTATION, [ENVIRONMENT_MUTATION], False,
+                  base_ev + [_evd(o.id, o.trigger.source_span, "trigger:record_verb", trig_text), _evd(o.id, o.target.source_span, "pronoun_operation", o.target.text),
+                             _evd(o.id, None, "antecedent", ante or "")], extra_reasons=["record_verb_pronoun_target"])
+    if o.action == "modify" and o.target is not None and _RECORD_VERB_RE.match(trig_text) and _RECORD_NOUN_RE.search(o.target.text):
+        # "reply on the thread", "comment on PR #412" — a record verb on a named service record mutates that record (v6 rule 30; DCE-G1R3E)
+        return mk(None, ENVIRONMENT_MUTATION, [ENVIRONMENT_MUTATION], False,
+                  base_ev + [_evd(o.id, o.trigger.source_span, "trigger:record_verb", trig_text), _evd(o.id, o.target.source_span, "object:service_record", o.target.text)],
+                  extra_reasons=["record_verb_service_record"])
+    if o.action == "create" and base_cls == REPLY_ONLY and intent is not None and o.target is not None \
+            and (_CONFIG_FILE_RE.search(o.target.text) or _DRAFT_FILE_RE.search(o.target.text) or _DRAFT_NOUN_RE.search(o.target.text)) \
+            and not any(e.kind == "reply_medium" and not _PERSIST_NEGATION_RE.match(e.text) for e in intent.evidence) \
+            and not (ev._PATH_RE.search(o.target.text) or ev._FILE_EXT_RE.search(o.target.text) or _DEST_PHRASE_RE.search(o.target.text)):
+        # "Draft the HAProxy configuration without persisting the result", "Prepare a fixture …, but do not persist it anywhere" — for a
+        # draft-file noun the persist-prohibition says where the text may *not* go, not where it goes: medium unknown (v6 rule 28)
+        return mk(None, UNKNOWN, [UNKNOWN], False,
+                  base_ev + [_evd(o.id, o.target.source_span, "object:draft_file_persist_prohibited", o.target.text)], extra_reasons=["ambiguous_medium"])
     state = _state_object(o)
     if state is not None:
         c, evd = state
         if c == UNKNOWN:
+            if base_cls == REPLY_ONLY and intent is not None and any(e.kind == "reply_medium" and not _PERSIST_NEGATION_RE.match(e.text) for e in intent.evidence):
+                # "Prepare a migration script, but keep it only in this reply" — a strong in-chat marker elsewhere in the sentence
+                # (requirement / format constraint applying to this objective) settles the medium of a draft file (v6 rule 28)
+                return mk(None, REPLY_ONLY, [REPLY_ONLY], False, base_ev + [evd])
             return mk(None, UNKNOWN, [UNKNOWN], False, base_ev + [evd], extra_reasons=["ambiguous_medium"])
         if o.action == "remove" and c == ARTIFACT_WRITE:
             c = base_cls if base_cls in SIDE_EFFECT_CLASSES else ENVIRONMENT_MUTATION

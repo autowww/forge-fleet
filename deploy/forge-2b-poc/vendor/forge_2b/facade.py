@@ -36,6 +36,7 @@ from .chat_lane import (
     trace_reading,
     visible_prefix,
 )
+from .dce import session as dce_session
 from .dce import shadow as dce_shadow
 
 log = logging.getLogger("forge_2b")
@@ -277,6 +278,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
     run_sem = asyncio.Semaphore(1)
     dce_sem = asyncio.Semaphore(cfg.dce_concurrency)
     dce_budget = dce_shadow.Budget(plan_ms=cfg.dce_plan_ms, max_model_calls=cfg.dce_max_model_calls, max_attempts=cfg.max_attempts)
+    dce_store = dce_session.SessionStore()   # per-conversation last two turns, in memory only (decision 5)
 
     async def dce_plan(ings: list[zipingest.Ingest], query: str, run_id: str, record: dict[str, Any]) -> dce_shadow.Plan | None:
         """Bounded deterministic DCE stage (parse → map → DAG → dry-run retrieval). Never raises: failures are recorded
@@ -691,6 +693,13 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
         """Attachment lane: manifest/listing and retrieval are zero-model; at most one atomic Q2 decision, quote-verified."""
         run_id = uuid.uuid4().hex
         query = ctx.query or "List the files."
+        # decision 5 (2026-11-06): the conversation key (Open WebUI chat id → X-Forge-Chat-Id → history hash) lets an
+        # elliptical follow-up be read against the previous turn — visibly, the rewrite is printed above the answer.
+        asked = query
+        sess_key, sess_source = dce_session.conversation_key(request.headers, body.get("messages"))
+        follow_up = dce_session.resolve_follow_up(query, dce_store.last(sess_key)) if cfg.dce_mode == "on" else None
+        if follow_up is not None:
+            query = follow_up.rewritten
         ings_all = ctx.zips + _text_sources_as_ingests(ctx)
         seen: set[str] = set()
         ings = [i for i in ings_all if not (i.archive_id in seen or seen.add(i.archive_id))]  # Open WebUI repeats chat files per turn
@@ -703,6 +712,8 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
             "archives": [{"archive_id": i.archive_id, "filename": i.filename, "entries": len(i.entries), "included": len(i.included),
                           "integrity": dict(i.integrity)} for i in ings],
             "status": "RUNNING", "stages": ["accepted"], "steps": steps,
+            "session": {"source": sess_source, "user_ref": dce_session.user_ref(request.headers),   # hash only; never name/email
+                        "follow_up": None if follow_up is None else {"kind": follow_up.kind, "asked": asked[:300], "read_as": query[:300]}},
         }
         if len(traces) >= 100:
             traces.pop(next(iter(traces)))
@@ -1012,7 +1023,11 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                 if stale:
                     extra.append(f"{', '.join(f'`{s}`' for s in stale)} was uploaded before ZIP ingestion was enabled and is held as plain text.")
                 yield "text", "_" + " ".join(extra) + "_\n"
-            yield "text", dce_shadow.render(run_id, plan, results, gate, backend_model=cfg.backend_model)
+            if follow_up is not None:
+                yield "text", f"_Follow-up {follow_up.note}._\n\n"
+            rendered = dce_shadow.render(run_id, plan, results, gate, backend_model=cfg.backend_model)
+            dce_store.push(sess_key, dce_session.turn_from_results(asked, query, record["dce"]["results"], rendered))
+            yield "text", rendered
             yield "snap", lgd.snapshot_html(final=True)
             log.info("attachment run %s (dce): %s goals=%d calls=%d %dms", run_id, gate["status"], len(gate["goals"]), gate["model_calls_made"], lgd.elapsed_ms())
 

@@ -142,3 +142,9 @@ REQUEST_WORDS = frozenset("""find quote quotes quoted quoting exact exactly cite
 provide state name report display print get read locate search check say says mention mentions contain contains include includes its
 their string value values line lines path paths source sources file files archive zip attached attachment please also then first
 current latest newest configured configuration config setting settings set defined definition specified""".split())
+
+# the verb of a summarize/recommend request and the words that shape its output ("in two sentences", "as bullets") — they
+# name nothing in the attachments and must not become retrieval terms (live K41 2026-11-06: "Summarize the blind evaluation
+# outcome in two sentences" retrieved every JSON leaf carrying the token `summarize`, the decision line never made the cut)
+SHAPE_WORDS = frozenset("""summarize summarise summarizing summarising recap outline describe explain
+sentence sentences paragraph paragraphs bullet bullets one two three four five six seven eight nine ten""".split())

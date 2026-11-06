@@ -139,7 +139,8 @@ def _explained(t: Table, extra: set[str]) -> set[str]:
 def _guard(words: list[str], explained: set[str]) -> list[str]:
     """Question words the table cannot account for (prefix match of ≥5 chars tolerates inflection: ``labelled``/``label``)."""
     return [w for w in words if w not in explained and not w.isdigit()
-            and not any((w.startswith(e[:5]) or e.startswith(w[:5])) and len(e) > 4 and len(w) > 4 for e in explained)]
+            and not any(((w.startswith(e[:5]) or e.startswith(w[:5])) and len(e) > 4 and len(w) > 4) or (len(w) > 3 and w.rstrip("s") == e.rstrip("s"))
+                        for e in explained)]   # `test` ~ `tests` (oracle C081: "rows in the test results" over tests/results.csv)
 
 
 def _numbers(cell: str) -> list[float]:
@@ -194,11 +195,13 @@ def _keyed_row(amap: AttachmentMap, query: str, words: list[str]) -> dict[str, A
     return {"method": "typed_table_row", "label": r.label, "entries": [entry], "note": "", "keyed": True}
 
 
-def typed_table_row(amap: AttachmentMap, query: str) -> dict[str, Any] | None:
+def typed_table_row(amap: AttachmentMap, query: str, *, continuation_of: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    """``continuation_of`` — the row result of the previous goal in the same sentence; the query then is that row's label
+    plus the elliptical goal's words, and the result is marked so the renderer says which row it continues."""
     words = _content_words(query)
     if len(words) < 2:
         return None
-    keyed = _keyed_row(amap, query, words)
+    keyed = _keyed_row(amap, query, words) if continuation_of is None else None
     if keyed:
         return keyed
     qset = set(words)
@@ -237,6 +240,10 @@ def typed_table_row(amap: AttachmentMap, query: str) -> dict[str, Any] | None:
         entries = [e for e in entries if e["columns_named"]]   # tables without the named column do not answer the question
     entries.sort(key=lambda e: (e["path"], e["line"]))
     note = "" if len(entries) == 1 else f"the row appears in {len(entries)} tables; all shown, none chosen"
+    if continuation_of is not None:
+        if not any(e["columns_named"] for e in entries):
+            return None   # the elliptical goal names no column of the row's tables: nothing deterministic to read
+        note = (note + "; " if note else "") + f"read from the same row as the previous part of the question (`{continuation_of['label']}`)"
     return {"method": "typed_table_row", "label": matches[0][1].label, "entries": entries, "note": note}
 
 
@@ -324,7 +331,7 @@ def _affirmations(t: Table, w: str) -> int:
     ``POST_BLIND_PUBLIC/`` name blind only to deny it, so they count zero."""
     n = 0
     for text in [*t.heading, t.path.replace("/", " ").replace(".", " ")]:
-        low = norm(text)
+        low = norm(text).replace("_", " ").replace("-", " ")   # `g1r3a_gates` names g1r3a and gates (K08)
         n += max(0, len(re.findall(rf"(?<![\w]){re.escape(w)}(?![\w])", low)) - len(re.findall(_DENIAL_RE.format(w=re.escape(w)), low)))
     return n
 
@@ -342,18 +349,32 @@ def typed_table_filter(amap: AttachmentMap, query: str) -> dict[str, Any] | None
     pos = {w for w in words if w in _FILTER_POS}
     if bool(neg) == bool(pos):
         return None
-    if _NEGATED_FILTER_RE.search(norm(query)):
+    complement = bool(_NEGATED_FILTER_RE.search(norm(query)))
+    if complement:
         neg, pos = pos, neg   # "which tests did not pass" asks for the failures (oracle C025)
     want = _NEG_CELLS if neg else _POS_CELLS
+    # a negated question asks for the complement: "did not pass" covers `skipped` and `n/a` as well as `failed`
+    # (oracle C025: test_export,skipped was left out of "which tests did not pass"), while "which tests failed" stays exact
+    avoid = (_POS_CELLS if neg else _NEG_CELLS) if complement else None
+    rest = [w for w in words if w not in _FILTER_NEG | _FILTER_POS]
     cands: list[tuple[Table, str]] = []
     for t in tables_of(amap):
-        for c in t.columns[1:]:
-            if _words(c) & _VERDICT_COLS and any(fold(r.cells.get(c, "").strip().strip("*`_ ")) in (_NEG_CELLS | _POS_CELLS) for r in t.rows):
-                cands.append((t, c))
-                break
+        vcols = [c for c in t.columns[1:] if _words(c) & _VERDICT_COLS and any(fold(r.cells.get(c, "").strip().strip("*`_ ")) in (_NEG_CELLS | _POS_CELLS) for r in t.rows)]
+        if len(vcols) > 1:
+            # several verdict columns (`blind_pass`, `public_pass` — live K08 2026-11-06): the one whose header words the
+            # question names; none named or several → the table cannot say which run the question means
+            named = [c for c in vcols if (_words(c) - _VERDICT_COLS - STOPWORDS) & set(rest)]
+            if len(named) != 1:
+                continue
+            vcols = named
+        if vcols:
+            cands.append((t, vcols[0]))
     if not cands:
         return None
-    rest = [w for w in words if w not in _FILTER_NEG | _FILTER_POS]
+    qlow = norm(query)
+    named = [(t, c) for t, c in cands if t.path.casefold() in qlow or t.path.rsplit("/", 1)[-1].casefold() in qlow]
+    if named:
+        cands = named   # "… according to g1r3a_gates.csv": the table the question names is the one asked about (K08)
     # distinct question words a table carries affirmatively, then how often: the blind summary and the blind report both
     # say "blind" twice over, the public re-run names it once and only to deny it (live K06)
     scored = [((sum(1 for w in rest if _affirmations(t, w) or w in _words(c)), sum(_affirmations(t, w) for w in rest)), t, c) for t, c in cands]
@@ -368,7 +389,10 @@ def typed_table_filter(amap: AttachmentMap, query: str) -> dict[str, Any] | None
     for t, col in best:
         if _guard(words, _explained(t, extra | _words(col))):
             return None
-        rows = [r for r in t.rows if fold(r.cells.get(col, "").strip().strip("*`_ ")) in want]
+        def _hit(r: Row) -> bool:
+            cell = fold(r.cells.get(col, "").strip().strip("*`_ "))
+            return (cell not in avoid and bool(cell)) if avoid is not None else cell in want
+        rows = [r for r in t.rows if _hit(r)]
         out_tables.append({"path": t.path, "column": col, "heading": t.heading[-1] if t.heading else "", "rows_considered": len(t.rows),
                            "entries": [{"label": r.label, "cell": r.cells.get(col, "").strip(), "line": r.seg.start_line, "seg_id": r.seg.seg_id,
                                         "cells": [{"column": c, "value": v.strip()} for c, v in r.cells.items() if c != col and v.strip() and v.strip() != r.label][:3]} for r in rows]})

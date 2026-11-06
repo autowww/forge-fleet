@@ -133,7 +133,10 @@ class _State:
         an earlier sentence never lends its object ("Do not modify the lockfile; … only report it" keeps *it* unresolved)."""
         objs = [o for o in self.g.objectives if o.target is not None]
         if objs:
-            return max(objs, key=lambda n: n.source_span.start)
+            cand = max(objs, key=lambda n: n.source_span.start)
+            if _COORD_OBJECT_RE.search(cand.target.text) and _noun_groups(cand.target.text) >= 2:
+                return None          # "Draft a patch and a script, then apply it" — several candidates (sheet v5 rule 11)
+            return cand
         csts = [c for c in self.g.constraints if c.kind in ("prohibition", "exclusion") and c.target_object is not None
                 and c.breadth == "narrow" and self.cst_sent.get(c.id) == sent]
         if csts:
@@ -241,7 +244,13 @@ def parse_request(utterance: str, context: Optional[ReadOnlyContext] = None, *, 
     for si in range(len(sents) - 1):
         qs = [q for q in st.sent_conditions.get(si, []) if not q.applies_to_ids]
         gap = utterance[sents[si][1]:sents[si + 1][0]]
-        if not qs or not gap.strip() or gap.strip(" \t\r\n—–-:") or st.sent_conditions.get(si + 1):
+        resumptive = bool(_RESUMPTIVE_THEN_RE.match(utterance, sents[si + 1][0]))
+        # a condition-only sentence (no objective / unresolved node of its own) closed by ";" still governs the clause that follows:
+        # "Imagine the rule changed yesterday; compare that scenario with the plan" (v6 rule 27 — only "." / "?" / "!" close the scope)
+        a0, b0 = sents[si]
+        condition_only = not any(a0 <= n.source_span.start < b0 for n in [*st.g.objectives, *st.g.unresolved])
+        joiners = " \t\r\n—–-:;" if condition_only else " \t\r\n—–-:"
+        if not qs or (not resumptive and (not gap.strip() or gap.strip(joiners))) or st.sent_conditions.get(si + 1):
             continue
         a1, b1 = sents[si + 1]
         for node in [*st.g.objectives, *st.g.unresolved]:
@@ -269,9 +278,85 @@ def parse_request(utterance: str, context: Optional[ReadOnlyContext] = None, *, 
             st.g.unresolved[i] = Unresolved(u.id, "unsupported_language", u.text, u.source_span, "scope.language.uncertain", referent=u.referent,
                                             objective_id=u.objective_id)
 
+    if st.language_scope == "en":
+        _approval_request_gates(st)
     stats = _stats(st.g, len(clauses) + (1 if truncated_from is not None else 0), len(utterance.strip()), st.covered)
     status = "partial" if truncated_from is not None else ("ok_with_unresolved" if st.g.unresolved else "ok")
     return _finish(RequestIR(status=status, language_hint=_language_hint(utterance), graph=st.g, stats=stats, **base), utterance, strict)
+
+
+_COORD_OBJECT_RE = re.compile(r"\b(?:and|or)\b|,", re.I)
+
+
+def _covered_by_constraint(st: "_State", a: int, b: int) -> bool:
+    """True when the whole part [a, b) is an inline constraint phrase (", newest first", ", sorted by severity") — a modifier of the
+    preceding deliverable, not a deliverable of its own."""
+    if b <= a:
+        return False
+    if any(c.source_span.start <= a and b <= c.source_span.end for c in st.g.constraints):
+        return True
+    seg = st.text[a:b].rstrip(" .;,!?")
+    for kind, pat in R.INLINE_RULES:
+        if kind in R.LEADING_CONSTRAINT_KINDS:
+            m = pat.match(seg)
+            if m and m.end() >= len(seg):
+                return True
+    return False
+
+
+_RESUMPTIVE_THEN_RE = re.compile(r"\s*(?:then|in that case|if so|in which case)\b", re.I)   # v6 rule 27: "then" carries a hypothetical across a full stop
+
+
+def _sent_index(st: _State, pos: int) -> int:
+    for i, (a, b) in enumerate(st.sent_spans):
+        if a <= pos < b:
+            return i
+    return -1
+
+
+def _approval_request_gates(st: _State) -> None:
+    """v6 rule 32 (DCE-G1R3E): an approval request *as the task* ("Before modifying anything, request sign-off", "Get my approval
+    first, then rotate the keys") states that the named operations are gated on approval.
+
+    * a `before <gerund> <obj>` condition on a clarify(approval) objective → a request-scoped prohibition of the gerund's action
+      (breadth per the object) deferred by an `until` condition whose text is the approval request itself;
+    * a later mutate/execute objective in the same sentence (or linked `depends_on` to the request) → an `after` condition
+      carrying the approval request, so the operation reads `approval_required`.
+    Nothing here creates an objective; it only adds constraints and conditions with spans taken from the user's words."""
+    approvals = [o for o in st.g.objectives if o.action == "clarify" and R.APPROVAL_NOUN_RE.search(o.text)]
+    if not approvals:
+        return
+    for o in approvals:
+        for q in list(st.g.conditions):
+            if o.id not in q.applies_to_ids or q.kind != "before":
+                continue
+            mg = R.BEFORE_GERUND_RE.match(q.text)
+            if mg is None:
+                continue
+            act = R.GERUND_ACTION.get(mg.group("ger").lower()) or q.mentioned_action
+            if act is None:
+                hit = _match_action(mg.group("ger"), interrogative=False, gerund=False)
+                act = hit[0] if hit else None
+            if act is None or ACTION_CLASS.get(act) not in ("mutate", "execute"):
+                continue
+            oa, ob = q.source_span.start + mg.start("obj"), q.source_span.start + mg.end("obj")
+            obj = st.mention(oa, ob) if ob > oa else None
+            cst = Constraint(st.nid("c"), "prohibition", q.text, q.source_span, "en.prohibition.approval_gate.inline", "request", [],
+                             target_action=act, target_object=obj, breadth=_breadth(obj))
+            st.g.constraints.append(cst)
+            st.cst_sent[cst.id] = _sent_index(st, q.source_span.start)
+            until = Condition(st.nid("q"), "until", o.text, o.source_span, "en.condition.until.approval_request", applies_to_ids=[cst.id])
+            st.g.conditions.append(until)
+        o_sent = _sent_index(st, o.source_span.start)
+        linked = {l.from_id for l in st.g.links if l.to_id == o.id and l.kind == "depends_on"}
+        for later in st.g.objectives:
+            if later.source_span.start <= o.source_span.start or ACTION_CLASS.get(later.action) not in ("mutate", "execute"):
+                continue
+            if later.id not in linked and _sent_index(st, later.source_span.start) != o_sent:
+                continue
+            if any(later.id in q.applies_to_ids and R.APPROVAL_NOUN_RE.search(q.text) for q in st.g.conditions):
+                continue
+            st.g.conditions.append(Condition(st.nid("q"), "after", o.text, o.source_span, "en.condition.after.approval_request", applies_to_ids=[later.id]))
 
 
 def _finish(ir: RequestIR, utterance: str, strict: bool) -> RequestIR:
@@ -341,6 +426,12 @@ def _condition_opens(text: str, pos: int, end: int, mask: Mask) -> Optional[tupl
     mc = R.COMMA_RE.search(rest, len(m.group(0).rstrip(" ,\t\n")))    # "for those, extract …" — the marker may end at the comma
     while mc and mask.overlaps(pos + mc.start(), pos + mc.end()):
         mc = R.COMMA_RE.search(rest, mc.end())
+    if mc is None:
+        # "Only after I say proceed should you push the branch" — no comma: the inverted directive modal opens the governed clause
+        # (v6 rule 32; DCE-G1R3E). The separator is the single space before the modal.
+        mi = R.INVERTED_MODAL_RE.search(rest, len(m.group(0).rstrip(" ,\t\n")))
+        if mi and not mask.overlaps(pos + mi.start(), pos + mi.end()):
+            return (pos + mi.start(), pos + mi.start() + 1)
     return (pos + mc.start(), pos + mc.end()) if mc else None
 
 
@@ -674,6 +765,8 @@ def _process_clause(st: _State, c: _Clause) -> None:
         i += me.end()
         i += _strip_prefixes(seg[i:])                  # "інакше просто підтверди …" — politeness after the else-marker
     mc = R.CONDITION_START_RE.match(seg[i:])
+    if mc and is_question and mc.group(0).strip(" ,\t\n").lower() == "should":
+        mc = None                                   # "Should you push the branch?" is a question, not an inverted conditional
     mt = R.UNTIL_THEN_RE.match(seg[i:])
     if mt and _match_action(seg[i + mt.end():], interrogative=False) is not None:
         # "until then show a summary" — the anaphoric marker is the whole condition; the imperative that follows is a governed objective
@@ -738,6 +831,12 @@ def _process_clause(st: _State, c: _Clause) -> None:
     if mdp:                                            # "Do it." / "Зроби це." — an operation named only by a pronoun: unresolved head, no objective
         _unresolved(st, c.sent, cs + i, ce, "ambiguous_referent", f"{lang}.referent.do_pronoun", referent=mdp.group("pro"))
         return
+    if not (modal_q or is_question or lang != "en"):
+        moa = R.OPEN_AMBIGUOUS_RECORD_RE.match(rest)
+        if moa and not st.mask.overlaps(cs + i, cs + i + moa.end()):
+            # "Open the PR." — view it or create it? Neither reading is licensed by the text: typed unresolved, no objective (v6 rule 29)
+            _unresolved(st, c.sent, cs + i, ce, "no_recognized_action", "en.open.ambiguous_record", referent=moa.group("noun"))
+            return
     mur = None if (modal_q or is_question or lang != "en") else R.UNIVERSAL_RESTRICTION_RE.match(rest)
     if mur is None and not (modal_q or is_question or lang != "en"):
         mpre = R.UNIVERSAL_RESTRICTION_PREFIX_RE.match(rest)                   # "Read-only session: update config.yaml …"
@@ -790,6 +889,13 @@ def _process_clause(st: _State, c: _Clause) -> None:
             parts.append((pos, sm.start())); pos = sm.end()
         parts.append((pos, ce))
         parts = [(a, b) for a, b in parts if text[a:b].strip(" .;,") and not _BARE_SEQ_ADVERB_RE.match(text[a:b])]   # ", separately," is a joiner
+        merged: list[tuple[int, int]] = []
+        for a, b in parts:                      # ", newest first" / ", sorted by severity" modifies the preceding deliverable (v6 rule 31)
+            if merged and _covered_by_constraint(st, *trim(text, a, b, strip_leading_punct=True)):
+                merged[-1] = (merged[-1][0], b)
+            else:
+                merged.append((a, b))
+        parts = merged
         want = R.DELIVERABLE_COUNTS.get(md_.group("count").lower()) if md_.group("count") else None
         if want is not None and len(parts) < want:
             # "Two things: a risk table and a mitigation checklist" / "план, оцінку і коротку відповідь" — the declared count says the
@@ -800,6 +906,16 @@ def _process_clause(st: _State, c: _Clause) -> None:
                 parts = parts[:-1] + [(la, ands[-1].start()), (ands[-1].end(), lb)]
                 parts = [(a, b) for a, b in parts if text[a:b].strip(" .;,")]
         if len(parts) >= 2:
+            if want is not None and lang == "en":
+                # "Two outputs, please:" — the declared count is a request-scoped cardinality constraint, never an objective (v6 rule 31; DCE-G1R3E)
+                ca_, cb_ = cs + i + md_.start("count"), cs + i + md_.start("list")
+                ca_, cb_ = trim(text, ca_, cb_)
+                cb_ = ca_ + len(text[ca_:cb_].rstrip(" ,:—–-"))
+                cst = Constraint(st.nid("c"), "cardinality", text[ca_:cb_], Span(ca_, cb_), "en.cardinality.deliverable_count", "request", [],
+                                 value=st.mention(ca_, cb_))
+                st.g.constraints.append(cst)
+                st.cst_sent[cst.id] = c.sent
+                st.covered.append((ca_, cb_))
             for a, b in parts:
                 a, b = trim(text, a, b, strip_leading_punct=True)
                 nm = R.NOMINAL_RE.match(text[a:b])
@@ -1022,7 +1138,7 @@ def _process_clause(st: _State, c: _Clause) -> None:
             return
 
     # 2. action trigger
-    hit = _match_action(rest)
+    hit = _match_action(rest, interrogative=is_question or lang != "en" or R.INTERROG_HEAD_RE.match(rest) is not None)
     rule_family = None
     if hit is None:
         nm = R.NOMINAL_RE.match(rest)
@@ -1098,6 +1214,12 @@ def _process_clause(st: _State, c: _Clause) -> None:
             return
         if R.DECLARATIVE_RE.match(rest):
             a, b = trim(text, cs, ce)
+            mdm = R.DIRECTIVE_MODAL_RE.search(rest) if lang == "en" else None
+            if mdm and not st.mask.overlaps(cs + i + mdm.start(), cs + i + mdm.end()) and not R.FIRST_PERSON_PLAN_RE.match(rest):
+                # "… should you push the branch" / "you will then deploy it" — a directive modal with a state-changing verb is an
+                # instruction the grammar could not type; it must surface as unresolved, never vanish into a context statement (v6 rule 34)
+                _unresolved(st, c.sent, a, b, "no_recognized_action", f"{lang}.integrity.directive_unattributed", referent=mdm.group("verb"))
+                return
             st.g.context_statements.append(ContextStatement(st.nid("k"), text[a:b], Span(a, b), f"{lang}.declarative"))
             st.covered.append((a, b))
             return

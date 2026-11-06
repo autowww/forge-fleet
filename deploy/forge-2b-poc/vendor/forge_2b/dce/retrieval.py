@@ -22,6 +22,7 @@ from typing import Any, Iterable
 
 from . import aliases as A
 from .attachment_map import AttachmentMap
+from .lexicon import SHAPE_WORDS
 
 STOPWORDS = {
     "the", "a", "an", "is", "are", "was", "were", "be", "been", "of", "in", "on", "at", "to", "for", "from", "by", "with", "and", "or", "but",
@@ -286,6 +287,11 @@ class Retriever:
         q = norm(query)
         words = [w for w in _WORD_RE.findall(q) if w not in STOPWORDS and (len(w) > 1 or w.isdigit())]
         terms = list(dict.fromkeys(words))
+        # the request verb and output-shape words ("summarize … in two sentences") name nothing in the files; dropped when
+        # anything else remains, so they cannot own the ranking (live K41 2026-11-06)
+        content = [t for t in terms if fold(t) not in SHAPE_WORDS]
+        if content:
+            terms = content
         expanded = A.expand(query, self.alias_table) if self.use_aliases else {}
         typo: dict[str, str] = {}
         for t in list(terms):
