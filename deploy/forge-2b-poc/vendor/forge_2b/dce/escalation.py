@@ -10,7 +10,9 @@ so. Every guard is deterministic and every re-ask is bounded to one further call
 * ``covering_excerpts``    — a ``found: false`` is re-asked once when an excerpt carries most of the question's words.
 * ``quote_relevance``      — a verbatim quote that shares no term with the question is re-asked over the on-topic lines.
 * ``numbers_not_in_quotes``— a number the quoted lines do not carry makes the node PARTIAL (the sentence is the model's).
+* polar qualification      — a bare yes/no whose other side is written in a covering line is stated with that line (PARTIAL).
 * polar completion         — a yes/no answer shows the other covering lines, marked as not quoted by the model.
+* pointer answer           — a sentence that is only a file pointer is replaced by the quoted line's own statement.
 
 Nothing in this module performs I/O; the model is reached only through the ``LlmCall`` the facade passes in.
 """
@@ -204,13 +206,29 @@ def covering_excerpts(plan: Plan, question: str, hits: list[attach.Hit]) -> tupl
     if len(content) < 2:
         return [], content
     need = len(content) if len(content) <= 3 else max(3, -(-2 * len(content) // 3))
+    headings = _heading_ancestry(plan)
     scored = []
     for h in hits:
         covered = [t for t in content if mentions(h.text, t)]
+        if len(covered) >= 2 and len(covered) < need:
+            # a body line is read under its section heading (live K27 2026-11-06: `may be logged in shadow … provided no
+            # decision` sits under "What may be consumed now (read-only, no decisions)" — the heading carries the question's
+            # `consumed now`, the line its `effect … shadow`). The line must carry two terms of its own; the heading only tops up.
+            head = headings.get((h.path, h.line), "")
+            covered += [t for t in content if t not in covered and head and mentions(head, t)]
         if len(covered) >= need:
             scored.append((h, covered))
     scored.sort(key=lambda hc: -len(hc[1]))
     return scored, content
+
+
+def _heading_ancestry(plan: Plan) -> dict[tuple[str, int], str]:
+    """``(path, line) -> heading ancestry`` for every indexed non-heading line (empty for CSV/JSON rows and headings)."""
+    out: dict[tuple[str, int], str] = {}
+    for r in getattr(plan.retriever, "rows", []):
+        if r.kind != "heading" and r.heading:
+            out[(r.path, r.line)] = r.heading
+    return out
 
 
 def quote_relevance(plan: Plan, question: str, quoted: list[dict[str, Any]], hits: list[attach.Hit]) -> tuple[str | None, list[attach.Hit]]:
@@ -566,15 +584,19 @@ async def run_d1(r: NodeResult, n: Any, e: dict[str, Any], plan: Plan, call_llm:
         gap, on_topic = quote_relevance(plan, n.query, dec["quotes"], hits)
         if gap:
             await _off_topic_retry(r, n, plan, gap, on_topic, hits, call_llm, calls)
-        elif n.kind == "compare" and len({(q["path"], q["line"]) for q in dec["quotes"]}) < 2:
-            await _compare_complement(r, n, dec, hits, call_llm, calls)
     if r.status == "COMMITTED" and r.method.startswith("q2_") and r.method != "q2_not_in_excerpts":
         _which_file_completion(r, n, plan)
         _adjacent_number_check(r, n, plan)
         _number_entailment(r)
         if r.status == "COMMITTED":
             _pointer_answer_check(r, n)
+    if n.kind == "compare" and dec and dec["quotes"] and r.method == "q2_verified_quotes" and r.status == "COMMITTED":
+        # after the sentence checks: they judge the model's first sentence, not the second side's addendum
+        sides, missing = compare_missing_side(n, plan, dec["quotes"], hits)
+        if missing or len({(q["path"], q["line"]) for q in dec["quotes"]}) < 2:
+            await _compare_complement(r, n, dec, hits, call_llm, calls, sides, missing)
     if n.kind == "verify" and r.status in ("COMMITTED", "PARTIAL") and r.method.startswith("q2_") and r.method != "q2_not_in_excerpts":
+        _polar_qualification(r, n, plan, hits)
         _polar_completion(r, n, plan, hits)
 
 
@@ -608,6 +630,24 @@ async def _not_found_retry(r: NodeResult, n: Any, plan: Plan, hits: list[attach.
         r.detail = (f"NOT_FOUND_IN_EXCERPTS; re-asked once over the {len(top)} excerpt(s) carrying most of the question's words "
                     f"({', '.join(top[0][1][:4])}) — still no quote, so the negative stands")
         r.answer += f" Re-asked once over the {len(top)} most relevant excerpt(s); the model again quoted nothing."
+        if n.kind == "verify":
+            _covering_read(r, n, top)
+
+
+def _covering_read(r: NodeResult, n: Any, top: list[tuple[attach.Hit, list[str]]]) -> None:
+    # a yes/no question the model would not ground twice (live K27 lab after24 2026-11-06: `found: false` with the note
+    # "No, … cannot be consumed in shadow now", then no quote over the 3 covering lines either) while the covering lines
+    # themselves state a permission or restriction on the question's terms (`may be consumed in shadow/read-only mode`,
+    # `may be logged in shadow … provided no decision`). The lane does not keep the model's ungrounded "No": it states those
+    # lines verbatim as what the package says, PARTIAL — a deterministic read of verified text, not a model claim.
+    lines = [h for h, _c in top if _PERMISSIVE_RE.search(h.text) or _RESTRICTIVE_RE.search(h.text)][:2]
+    if not lines:
+        return
+    r.status, r.method = "PARTIAL", "q2_not_in_excerpts+covering_read"
+    r.answer = ("**The model gave no grounded answer** (it quoted nothing twice; its ungrounded note is not committed). What the package "
+                "states on the question's terms, verbatim:\n" + "\n".join(f"- `{h.path}:{h.line}` — {h.text.strip()[:300]}" for h in lines))
+    r.spans = [{"path": h.path, "line": h.line, "text": h.text, "seg_id": ""} for h in lines]
+    r.detail = (r.detail or "") + f"; {len(lines)} covering line(s) stated verbatim instead"
 
 
 async def _off_topic_retry(r: NodeResult, n: Any, plan: Plan, gap: str, on_topic: list[attach.Hit], hits: list[attach.Hit],
@@ -629,23 +669,93 @@ async def _off_topic_retry(r: NodeResult, n: Any, plan: Plan, gap: str, on_topic
         r.status, r.detail = "PARTIAL", gap
 
 
-async def _compare_complement(r: NodeResult, n: Any, dec: dict[str, Any], hits: list[attach.Hit], call_llm: LlmCall, calls: Calls) -> None:
+Side = tuple[str, Callable[[attach.Hit], bool]]   # (label, membership test over a hit's text / heading / path)
+_BETWEEN_RE = re.compile(r"\bbetween\s+(.+?)\s+and\s+(.+?)\s*[?.!]*\s*$", re.I)
+_VERSUS_RE = re.compile(r"(\S.*?)\s+(?:vs\.?|versus)\s+(.+?)\s*[?.!]*\s*$", re.I)
+_RELATE_RE = re.compile(r"^\s*(?:compare|relate|reconcile|contrast|match|cross-check)\s+(.+?)\s+(?:with|to|and|against)\s+(.+?)\s*[?.!]*\s*$", re.I)
+_SIDE_STOP = frozenset({"the", "a", "an", "of", "in", "on", "about", "for", "from", "this", "that", "these", "those", "its", "their", "run", "re", "side"})
+
+
+def compare_sides(n: Any, plan: Plan) -> list[Side]:
+    """The two sides a compare node is about. Named files first (two scope or focus files → each side is a file), else the
+    question's own pair (`between A and B`, `A vs B`, `compare/relate A with/to B`): a hit belongs to a phrase side when
+    its text or its section heading carries one of the phrase's content words (`1.1.0` labels the bullets under the
+    `## 1.1.0` heading). Empty when the node names no pair."""
+    files = list(n.source_scope.get("files") or []) or list(n.source_scope.get("focus") or [])
+    if len(files) >= 2:
+        return [(f, (lambda h, f=f: h.path == f or h.path.endswith("/" + f))) for f in files[:2]]
+    m = _BETWEEN_RE.search(n.query) or _VERSUS_RE.search(n.query) or _RELATE_RE.search(n.query)
+    if not m:
+        return []
+    headings = _heading_ancestry(plan)
+    sides: list[Side] = []
+    for phrase in (m.group(1), m.group(2)):
+        words = [w for w in re.findall(r"[\w.\-]+", phrase.lower()) if w.strip(".-") and w not in _SIDE_STOP]
+        if not words:
+            return []
+        toks = [retrieval.fold(w) for w in words]
+
+        def member(h: attach.Hit, toks: list[str] = toks) -> bool:
+            text = retrieval.fold(retrieval.norm(h.text)) + " " + headings.get((h.path, h.line), "") + " " + retrieval.fold(h.path)
+            return any(re.search(r"(?<![\w.])" + re.escape(t) + r"(?![\w.])", text) for t in toks)
+        sides.append((phrase.strip(" `'\""), member))
+    a, b = sides
+    if a[0].lower() == b[0].lower():
+        return []
+    return sides
+
+
+def compare_missing_side(n: Any, plan: Plan, quotes: list[dict[str, Any]], hits: list[attach.Hit]) -> tuple[list[Side], Side | None]:
+    """``(sides, missing)`` — the side none of the verified quotes belongs to, when exactly one side is uncovered (both
+    covered → complete; neither recognisable among the quotes → no side information, the two-locations rule decides)."""
+    sides = compare_sides(n, plan)
+    if len(sides) != 2:
+        return sides, None
+    quoted_at = {(q["path"], q["line"]) for q in quotes}
+    quoted_hits = [h for h in hits if (h.path, h.line) in quoted_at]
+    covered = [label for label, member in sides if any(member(h) for h in quoted_hits)]
+    missing = [s for s in sides if s[0] not in covered]
+    return sides, (missing[0] if len(missing) == 1 else None)
+
+
+async def _compare_complement(r: NodeResult, n: Any, dec: dict[str, Any], hits: list[attach.Hit], call_llm: LlmCall, calls: Calls,
+                              sides: list[Side], missing: Side | None) -> None:
     # a comparison with one quoted side is a guess about the other (live finding 2026-11-05: "Yes" citing
-    # example.py only). One bounded complement call over the *remaining* excerpts asks for the other side;
-    # the verdict stays the first answer's, now resting on two verified lines — otherwise PARTIAL.
+    # example.py only; oracle C063/C065 2026-11-06: two quotes, both from the 1.2.0 side / both from results.csv).
+    # One bounded complement call asks for the *missing* side by name over the excerpts that belong to it
+    # (all remaining excerpts when the sides are not recognisable); the verdict stays the first answer's,
+    # the second side's sentence is appended, both rest on verified lines. No second quote: PARTIAL when the
+    # first side is a single line; otherwise the answer stands on its lines and the missing side's excerpts
+    # are shown unquoted, named as the side the model did not read.
     quoted = {(q["path"], q["line"]) for q in dec["quotes"]}
-    other = [h for h in hits if (h.path, h.line) not in quoted]
+    remaining = [h for h in hits if (h.path, h.line) not in quoted]
+    other = [h for h in remaining if missing[1](h)] if missing else []
+    other = other or remaining
+    tail = None
+    if missing:
+        first = next((label for label, _m in sides if label != missing[0]), "the first")
+        tail = (f"The question compares {first} with {missing[0]}; the answer so far quotes only the {first} side. "
+                f"Quote the line(s) about {missing[0]} from these excerpts, or keep \"found\" false.")
     dec2, att2 = (None, [])
     if other and not calls.exhausted:
-        dec2, att2 = await q2_decide(call_llm, n.query, other[:8], max_attempts=1)
+        dec2, att2 = await q2_decide(call_llm, n.query, other[:8], max_attempts=1, user_tail=tail)
         calls.charge(att2)
         r.model_calls += len(att2)
         r.attempts = r.attempts + att2
     if dec2 and dec2["quotes"]:
         r.spans = spans_of(hits, dec["quotes"] + dec2["quotes"])
-        r.detail = "second side quoted in a complement call over the remaining excerpts"
-    else:
+        r.detail = f"second side ({missing[0]}) quoted in a complement call" if missing else "second side quoted in a complement call over the remaining excerpts"
+        second = (dec2.get("answer") or "").strip()
+        if missing and second and second not in (r.answer or "") and not numbers_not_in_quotes(second, [q["text"] for q in dec2["quotes"]]):
+            r.answer = (r.answer or "") + f"\n\n**{missing[0]} side** (complement call, verified quote): {second}"
+    elif len(quoted) < 2 or not missing:
         r.status, r.detail = "PARTIAL", "compare: only one side is quoted; the verdict is not committed"
+    else:
+        r.detail = f"compare: only the {first} side is quoted; the {missing[0]} side was re-asked and not quoted"
+        shown = [h for h in remaining if missing[1](h)][:2]
+        if shown:
+            r.answer = (r.answer or "") + f"\n\nAlso in the excerpts ({missing[0]} side), not quoted by the model:\n" + "\n".join(
+                f"- `{h.path}:{h.line}` — {h.text.strip()[:240]}" for h in shown)
 
 
 _WHICH_FILE_Q_RE = re.compile(r"^\s*(?:which|what)\s+(?:\w+\s+){0,2}files?\b|\bwhich files?\b|\bin which files?\b|\bwhat files?\b", re.I)
@@ -692,10 +802,35 @@ def _pointer_answer_check(r: NodeResult, n: Any) -> None:
     if re.search(r"\b(where|which (?:file|path|document)|what file|path|location)\b", n.query, re.I):
         return
     pointer = r.answer.strip().strip("`*\"'.")
+    read = _line_statement(r.spans[0].get("text") or "")
+    if read and len(r.spans) == 1:
+        # the model chose one line and then pointed at it instead of reading it (live K16 2026-11-06, Granite: the coverage
+        # retry quoted `04_BLIND_EVALUATION.md:8` — "Blind set authored by a **separate agent session** …" — and the sentence
+        # was `blind/CONVENTION_SHEET_V2.md:1`). The line's own statement is shown verbatim as the answer: nothing is
+        # generated, the text is the verified excerpt the model selected for the question.
+        r.answer = f"From the quoted line, verbatim (the model's sentence was only a file pointer, `{pointer}`): {read}"
+        r.method += "+line_read"
+        r.detail = (r.detail + "; " if r.detail else "") + "the model's sentence named a file location; the quoted line is shown verbatim instead"
+        return
     r.status = "PARTIAL"
     r.answer = f"The quoted line is the evidence; the model's sentence was only a file pointer (`{pointer}`), not an answer, and is not committed."
     r.method += "+pointer_answer"
     r.detail = (r.detail + "; " if r.detail else "") + "the model's sentence names a file location instead of what the line says"
+
+
+def _line_statement(text: str) -> str:
+    """The statement a quoted line makes, verbatim: a markdown table row's cells joined with ` — ` (header/separator rows
+    give nothing), otherwise the line up to its first two sentences, capped at 300 characters."""
+    s = text.strip()
+    if not s:
+        return ""
+    if s.startswith("|"):
+        cells = [c.strip() for c in s.strip("|").split("|")]
+        if all(re.fullmatch(r":?-{2,}:?", c) for c in cells if c):
+            return ""
+        return " — ".join(c for c in cells if c)[:300]
+    sentences = re.split(r"(?<=[.!?])\s+", s)
+    return " ".join(sentences[:2])[:300]
 
 
 _HOW_MANY_Q_RE = re.compile(r"^\s*how many\b|\bnumber of\b|\bhow much\b", re.I)
@@ -765,6 +900,42 @@ def _number_entailment(r: NodeResult) -> None:
         r.status = "PARTIAL"
         r.detail = (f"the answer states {', '.join(loose[:3])} which no quoted line carries; the quoted line(s) are the evidence, "
                     f"the number in the sentence is the model's") + (f"; {r.detail}" if r.detail else "")
+
+
+_NEGATIVE_ANSWER_RE = re.compile(r"^\W*(no|not|never|none)\b|\b(cannot|can't|can not|is not|isn't|are not|aren't|should not|shouldn't|must not|not yet)\b", re.I)
+_POSITIVE_ANSWER_RE = re.compile(r"^\W*(yes|yeah|correct|indeed|true)\b", re.I)
+_PERMISSIVE_RE = re.compile(r"(?<!\bnot )(?<!\bnever )(?<!\bno )\b(may|can|could|allowed|permitted|is possible|are possible)\b", re.I)
+_RESTRICTIVE_RE = re.compile(r"\b(not|never|until|unless|only|provided (?:that )?|except|hold|cannot|no longer)\b", re.I)
+
+
+def _polar_qualification(r: NodeResult, n: Any, plan: Plan, hits: list[attach.Hit]) -> None:
+    # two-way answer guard: a bare "No" (or "Yes") whose other side is written in a covering excerpt the model did not
+    # quote — live K27 2026-11-06 (lab and Granite): "No, the effect projection cannot be consumed in shadow now" citing
+    # `Decision: HOLD`, while `may be **logged in shadow** … provided no decision … derives from them` and the gate
+    # definition `"effect projection may be consumed in shadow/read-only mode"` were in front of the model. A negative
+    # answer is qualified by covering lines that permit (`may`, `can`, `allowed`), a positive one by lines that restrict
+    # (`not`, `until`, `only`, `provided`). The lines are stated verbatim as the answer's other side — the node becomes
+    # PARTIAL: the model's sentence is one-sided, the package is not. Nothing is generated.
+    answer = (r.answer or "").strip()
+    if _NEGATIVE_ANSWER_RE.search(answer[:80]):
+        other = _PERMISSIVE_RE
+    elif _POSITIVE_ANSWER_RE.search(answer[:20]):
+        other = _RESTRICTIVE_RE
+    else:
+        return
+    quoted_at = {(sp["path"], sp["line"]) for sp in r.spans}
+    covering, _content = covering_excerpts(plan, n.query, hits)
+    qualifying = [h for h, _c in covering if (h.path, h.line) not in quoted_at and other.search(h.text)][:2]
+    if not qualifying:
+        return
+    side = "permit" if other is _PERMISSIVE_RE else "restrict"
+    r.status = "PARTIAL"
+    r.answer = (answer + f"\n\n**Qualified by the package** — the model's answer is one-sided; the following verified line(s) {side} what it "
+                + ("denies" if side == "permit" else "affirms") + ", stated verbatim:\n"
+                + "\n".join(f"- `{h.path}:{h.line}` — {h.text.strip()[:300]}" for h in qualifying))
+    r.spans = r.spans + [{"path": h.path, "line": h.line, "text": h.text, "seg_id": ""} for h in qualifying]
+    r.method += "+qualified"
+    r.detail = (r.detail + "; " if r.detail else "") + f"polar answer qualified by {len(qualifying)} covering line(s) stating the other side"
 
 
 def _polar_completion(r: NodeResult, n: Any, plan: Plan, hits: list[attach.Hit]) -> None:

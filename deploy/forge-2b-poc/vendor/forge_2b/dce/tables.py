@@ -208,7 +208,7 @@ def typed_table_row(amap: AttachmentMap, query: str, *, continuation_of: dict[st
     matches: list[tuple[Table, Row]] = []
     for t in tables_of(amap):
         for r in t.rows:
-            lw = r.label_words - STOPWORDS
+            lw = r.label_words - STOPWORDS - _UNIT_WORDS   # `short_p95_ms` answers "short-request p95 latency" (K13)
             if len(lw) < 1 or (len(lw) == 1 and len(next(iter(lw))) < 6):
                 continue
             if lw <= qset:
@@ -216,8 +216,14 @@ def typed_table_row(amap: AttachmentMap, query: str, *, continuation_of: dict[st
     if not matches:
         return None
     # the longest label match wins (``explicit mutation recall`` over ``recall``); ties across tables are all kept
-    best_len = max(len(r.label_words - STOPWORDS) for _, r in matches)
-    matches = [(t, r) for t, r in matches if len(r.label_words - STOPWORDS) == best_len]
+    best_len = max(len(r.label_words - STOPWORDS - _UNIT_WORDS) for _, r in matches)
+    longest = [(t, r) for t, r in matches if len(r.label_words - STOPWORDS - _UNIT_WORDS) == best_len]
+    # … unless the longest-labelled tables alone cannot explain the question: "short-request p95 latency and its threshold"
+    # matches `Short-request P95 latency` in a review table with no threshold column and `short_p95_ms` in the gate tables
+    # that have one — then every matching table is kept and listed (K13 2026-11-06)
+    if _guard(words, set().union(*(r.label_words for _, r in longest)) | set().union(*(_explained(t, set()) for t, _r in longest))):
+        longest = matches
+    matches = longest
     label_words = set().union(*(r.label_words for _, r in matches))
     # columns the question names (any header word besides the label column); none named → every cell
     picked_cols: dict[int, list[str]] = {}
@@ -231,8 +237,13 @@ def typed_table_row(amap: AttachmentMap, query: str, *, continuation_of: dict[st
     if leftover:
         return None
     entries = []
+    # "the p95 latency *and* its threshold": a coordinated question asks for the metric's own cells as well as the named
+    # column — the named column(s) come first, the rest of the row follows (K13 2026-11-06)
+    coordinated = bool(re.search(r"\b(and|with|plus|along with|as well as)\b", query, re.I))
     for i, (t, r) in enumerate(matches):
         cols = picked_cols[i] or [c for c in t.columns[1:]]
+        if len(picked_cols[i]) == 1 and coordinated:   # two named columns: the "and" joins them, not the metric to a column
+            cols = picked_cols[i] + [c for c in t.columns[1:] if c not in picked_cols[i]]
         entries.append({"path": t.path, "line": r.seg.start_line, "seg_id": r.seg.seg_id, "label": r.label,
                         "cells": [{"column": c, "value": r.cells.get(c, "").strip()} for c in cols if r.cells.get(c, "").strip()],
                         "columns_named": bool(picked_cols[i])})
@@ -313,6 +324,8 @@ def typed_table_extreme(amap: AttachmentMap, query: str) -> dict[str, Any] | Non
             "label": r.label, "value": val, "cell": cell.strip(), "path": t.path, "line": r.seg.start_line, "seg_id": r.seg.seg_id,
             "rows_considered": len(scored), "others": [{"label": x[1].label, "value": x[0], "line": x[1].seg.start_line} for x in sorted(scored, key=lambda x: -x[0] if want_max else x[0])[1:4]]}
 
+
+_UNIT_WORDS = frozenset({"ms", "sec", "secs", "s", "pct", "percent", "count", "n", "num", "total"})   # unit / measure suffixes of row labels
 
 _FILTER_NEG = {"failed", "fail", "fails", "failing", "missed", "unmet", "red"}
 _FILTER_POS = {"passed", "pass", "passes", "passing", "met", "green"}

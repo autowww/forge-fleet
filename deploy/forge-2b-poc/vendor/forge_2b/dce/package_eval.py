@@ -62,7 +62,7 @@ def validate(cases: list[dict], package: Path) -> list[str]:
     return problems
 
 
-_EVIDENCE_HEAD_RE = re.compile(r"^\*\*(Evidence|Excerpts checked)|^Also in the excerpts, not quoted by the model")
+_EVIDENCE_HEAD_RE = re.compile(r"^\*\*(Evidence|Excerpts checked)|^Also in the excerpts\b")
 _STATUS_LINE_RE = re.compile(r"^_D[012] · |^_\d+ model attempt|^\*\*forge-2b DCE lane\*\*|^Deterministic \(D0\) nodes answer")
 
 
