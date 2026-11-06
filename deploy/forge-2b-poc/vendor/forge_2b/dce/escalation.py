@@ -652,6 +652,8 @@ async def run_d1(r: NodeResult, n: Any, e: dict[str, Any], plan: Plan, call_llm:
             _pointer_answer_check(r, n)
         if r.status == "COMMITTED" and n.kind != "verify":   # a polar node's empty sentence is read by _polar_line_read
             _empty_answer_check(r)
+        if r.status == "COMMITTED":
+            _why_row_cause(r, n, plan)
     if n.kind == "compare" and dec and dec["quotes"] and r.method == "q2_verified_quotes" and r.status == "COMMITTED":
         # after the sentence checks: they judge the model's first sentence, not the second side's addendum
         sides, missing = compare_missing_side(n, plan, dec["quotes"], hits)
@@ -864,6 +866,46 @@ def _which_file_completion(r: NodeResult, n: Any, plan: Plan) -> None:
 
 
 _POINTER_ANSWER_RE = re.compile(r"^[\s`'\"*]*(?:[\w.-]+/)*[\w.-]+\.[A-Za-z][A-Za-z0-9]{0,5}(?::\d+)?[\s`'\"*.]*$")   # `dce-g1r/0.6.1` is a version, not a file (live L16 G1R3D)
+
+
+_CAUSE_COL_RE = re.compile(r"\b(?:cause|causes|reason|reasons|why|because|rationale|explanation|root)\b", re.I)
+
+
+def _why_row_cause(r: NodeResult, n: Any, plan: Plan) -> None:
+    """A why-question answered from a quoted *table row* that has a cause column (`Root cause`, `Reason`, `Why`): the reason
+    is that cell, read deterministically; the model's sentence is kept only when it already says the cell. Live L20 G1R3D
+    (lab after07, 2026-11-07): "Why was 'Create a Dockerfile' read as an environment mutation?" quoted the right taxonomy
+    row and answered `output_medium` — the row's category, not its `Root cause` cell (`_CONFIG_FILE_RE` treated any
+    Dockerfile as a configuration change). One quoted row only; several rows or no cause column leave the sentence alone."""
+    if not retrieval._WHY_Q_RE.match(n.query or "") or r.method == "q2_not_in_excerpts":
+        return
+    keyed = {(sp.get("path"), int(sp.get("line") or 0)) for sp in r.spans}
+    if len(keyed) != 1:
+        return
+    path, line = next(iter(keyed))
+    from . import tables
+    for t in tables.tables_of(plan.amap):
+        if t.path != path:
+            continue
+        cause_cols = [c for c in t.columns if _CAUSE_COL_RE.search(c)]
+        if len(cause_cols) != 1:
+            continue
+        row = next((rw for rw in t.rows if rw.seg.start_line == line), None)
+        if row is None:
+            continue
+        cell = (row.cells.get(cause_cols[0]) or "").strip()
+        if not cell:
+            return
+        cell_words = {w for w in re.findall(r"[a-z0-9]{3,}", cell.casefold())} - retrieval.STOPWORDS
+        ans_words = set(re.findall(r"[a-z0-9]{3,}", str(r.answer or "").casefold()))
+        if cell_words and len(cell_words & ans_words) * 2 >= len(cell_words):
+            return   # the sentence already states the reason
+        said = str(r.answer or "").strip()[:80]
+        r.answer = (f"**{cell}** — the `{cause_cols[0]}` cell of the quoted row (`{path}:{line}`)"
+                    + (f"; the model's sentence said {said!r}, which is another cell of that row, not the reason." if said else "."))
+        r.method += "+row_cause"
+        r.detail = (r.detail + "; " if r.detail else "") + f"why-question: the reason is read from the row's `{cause_cols[0]}` cell"
+        return
 
 
 def _pointer_answer_check(r: NodeResult, n: Any) -> None:

@@ -607,6 +607,66 @@ def typed_table_filter(amap: AttachmentMap, query: str) -> dict[str, Any] | None
     return {"method": "typed_table_filter", "want": "negative" if neg else "positive", "tables": out_tables, "note": note}
 
 
+def typed_table_select(amap: AttachmentMap, query: str) -> dict[str, Any] | None:
+    """"Which sealed case ids carried the pronoun false side-effects?" — the values of the column the question *asks for*
+    (``Sealed ids``: a header whose every word the question says) in the rows where one *other* cell carries every
+    remaining content word (``False side-effect — pronoun / antecedent``). Live L21 G1R3D (lab after06 and production
+    v2_granite02, 2026-11-06): the model quoted two of the three such rows and named two ids; the third row stood in the
+    same excerpts. A categorical filter over a table is a deterministic read, like the verdict filter above, so it is
+    done here and every matching row is a span. Abstains when no column is asked for, when no word is left to filter by,
+    when the filter words do not all land in one cell of a row, when a word is explained by nothing, or when more than
+    three tables qualify."""
+    if not _PLURAL_WHICH_RE.search(query) or _HOW_MANY_RE.search(query) or _WH_OTHER_RE.search(query):
+        return None
+    if re.search(r"\b(?:and|or|,)\s+(?:what|which|how|who|when|where)\b", query, re.I):
+        return None   # two questions ("the threshold … and what was observed"): the coordination path reads both
+    words = _content_words(query)
+    if not words or any(w in _FILTER_NEG | _FILTER_POS for w in words):
+        return None   # a verdict filter is `typed_table_filter`'s
+    if words[0] in ("commit", "commits", "hash", "sha", "version", "date", "port", "tag", "branch"):
+        return None   # "which commit is the frozen candidate": the head noun is a value type, `dag.typed_label_value` reads those
+    qset = set(words)
+    extra = set(_COUNTED_NOUNS) | {"ids", "id", "identifiers", "names", "labels", "list"}
+    out_tables = []
+    for t in tables_of(amap):
+        asked = [c for c in t.columns if (_words(c) - STOPWORDS) and all(any(_inflected_hit(w, {q}) for q in qset) for w in _words(c) - STOPWORDS)]
+        if len(asked) != 1:
+            continue
+        col = asked[0]
+        if not _inflected_hit(col, {words[0]}):
+            continue   # the asked column is the question's subject ("which *sealed ids*…"), not a column it mentions in passing
+        if any(c != col and any(_inflected_hit(c, {w}) for w in words) for c in t.columns):
+            continue   # a question word names another column ("the p95 latency and its threshold"): more than one column is asked
+        filt = [w for w in words if w not in _explained(t, extra) and not any(_inflected_hit(w, {q}) for q in _words(col) - STOPWORDS)]
+        filt = [w for w in filt if w not in _hyphen_parts(query, set(filt))]   # `side` and `effects` ride on `sideeffects`
+        if not filt:
+            continue
+        rows: list[tuple[Row, str]] = []
+        for r in t.rows:
+            for c, v in r.cells.items():
+                if c == col or not v.strip():
+                    continue
+                if all(_inflected_hit(v, {w}) for w in filt):
+                    # the cell must be a *category*, not prose that happens to say the word: its value recurs in another
+                    # row, or it is a short label (≤ 4 words)
+                    vf = fold(norm(v)).strip("*`_ ")
+                    if sum(1 for r2 in t.rows if fold(norm(r2.cells.get(c, ""))).strip("*`_ ") == vf) >= 2 or len(_words(v)) <= 4:
+                        rows.append((r, c))
+                    break
+        if not rows or len({c for _r, c in rows}) != 1 or any(not r.cells.get(col, "").strip() for r, _c in rows):
+            continue
+        fcol = rows[0][1]
+        if _guard(words, _explained(t, extra | set(filt) | _hyphen_parts(query, set(filt)))):
+            continue
+        out_tables.append({"path": t.path, "column": col, "filter_column": fcol, "filter_words": filt, "heading": t.heading[-1] if t.heading else "", "rows_considered": len(t.rows),
+                           "entries": [{"label": r.cells.get(col, "").strip().strip("*`_ "), "cell": r.cells.get(fcol, "").strip(), "line": r.seg.start_line, "seg_id": r.seg.seg_id}
+                                       for r, _c in rows]})
+    if not out_tables or len(out_tables) > 3:
+        return None
+    note = "" if len(out_tables) == 1 else f"{len(out_tables)} tables carry the asked column and rows matching the filter; each is listed and none is chosen"
+    return {"method": "typed_table_select", "tables": out_tables, "note": note}
+
+
 # --- patch rollup --------------------------------------------------------------------------------------------------------------
 def typed_diff_rollup(amap: AttachmentMap, query: str) -> dict[str, Any] | None:
     if not (_PATCH_Q_RE.search(query) and (_CHANGE_Q_RE.search(query) or _FILES_Q_RE.search(query))):

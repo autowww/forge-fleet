@@ -289,13 +289,18 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
         """Bounded deterministic DCE stage (parse → map → DAG → dry-run retrieval). Never raises: failures are recorded
         under record['dce'] and the caller falls back to the legacy lane."""
         t0 = time.monotonic()
+        # the plan stage is linear in the indexed lines (one Python pass over the FTS candidates): the 3 s default was
+        # measured on a 99 k-line package; a 293 k-line package's compare plan takes ~4 s (live L26 G1R3D, lab after05 /
+        # after07 / after08 2026-11-07: PLAN_TIMEOUT at 3 s, then the legacy lane) — the budget scales with the size
+        lines = sum(e.lines for i in ings for e in i.included)
+        budget_ms = cfg.dce_plan_ms * max(1.0, lines / 100_000.0)
         try:
             async with dce_sem:
                 plan = await asyncio.wait_for(asyncio.to_thread(dce_shadow.build_plan, ings, query, run_id, budget=dce_budget),
-                                              timeout=max(0.05, cfg.dce_plan_ms / 1000.0))
+                                              timeout=max(0.05, budget_ms / 1000.0))
         except asyncio.TimeoutError:
             record["dce"] = {"version": dce_shadow.TRACE_VERSION, "mode": cfg.dce_mode, "status": "PLAN_TIMEOUT",
-                             "plan_ms": round((time.monotonic() - t0) * 1000, 1), "budget_ms": cfg.dce_plan_ms, "model_calls_made": 0}
+                             "plan_ms": round((time.monotonic() - t0) * 1000, 1), "budget_ms": round(budget_ms, 1), "indexed_lines": lines, "model_calls_made": 0}
             return None
         except Exception as ex:  # noqa: BLE001 — shadow must never break the user-visible response
             record["dce"] = {"version": dce_shadow.TRACE_VERSION, "mode": cfg.dce_mode, "status": "PLAN_FAILED",

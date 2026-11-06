@@ -522,7 +522,7 @@ def typed_label_value(amap: AttachmentMap, hits: list[Any], query: str) -> dict[
     asked type (live M13 G1R3E, 2026-11-06: `candidate_frozen_at: 21d608c` ranked first for "Which commit is the frozen
     candidate?", and the model quoted another commit's row of the commit table). Several such lines with different values
     are all listed and none chosen; anything the label does not explain leaves the model path untouched."""
-    from .retrieval import _LABEL_LINE_RE, STOPWORDS, fold, norm
+    from .retrieval import _LABEL_LINE_RE, STOPWORDS, fold, norm, stems_of
     from . import tables as _tables
     m = _TYPED_VALUE_Q_RE.match(query)
     if not m or not hits:
@@ -537,7 +537,7 @@ def typed_label_value(amap: AttachmentMap, hits: list[Any], query: str) -> dict[
         return {fold(w) for w in re.findall(r"[A-Za-z0-9]+", label) if len(w) > 1} - STOPWORDS
 
     def _explains(lw: set[str], w: str) -> bool:
-        return any(w == e or (len(w) >= 4 and len(e) >= 4 and (w.startswith(e[:4]) or e.startswith(w[:4]))) for e in lw)
+        return any(w == e or (len(w) >= 4 and len(e) >= 4 and (w.startswith(e[:4]) or e.startswith(w[:4]))) or any(e.startswith(st) for st in stems_of(w)) for e in lw)
 
     segs = {s.seg_id: s for s in amap.segments}
     files = {f.file_id: f for f in amap.files}
@@ -545,9 +545,11 @@ def typed_label_value(amap: AttachmentMap, hits: list[Any], query: str) -> dict[
     for h in hits:
         text = getattr(h, "text", "") or ""
         lm = _LABEL_LINE_RE.match(text)
-        if not lm:
-            continue
-        lw = _label_words(lm.group(1))
+        if not lm or (getattr(h, "features", None) or {}).get("scoped_under"):
+            continue   # a line nested under a label the question does not name is that label's value (retrieval `scoped_under`)
+        # the file's name is the outermost label of a top-level line: `Candidate commit: 620c217` in `CANDIDATE_FREEZE.txt`
+        # says "frozen candidate" between the two (live L14 G1R3D, 2026-11-07)
+        lw = _label_words(lm.group(1)) | (_label_words(h.path.replace("/", " ").replace(".", " ").replace("_", " ")) if text[:1].strip() else set())
         if not all(_explains(lw, w) for w in need):
             continue
         rest = text[lm.end() - 1:]
@@ -676,7 +678,7 @@ def plan_preview(ir: RequestIR, amap: AttachmentMap, scope: Scope, *, max_hits: 
             entry["coverage"] = res.coverage
             # D0 typed operators over tables and patches (Phase 2): a named row, an extreme over a column, a patch rollup —
             # each abstains unless every content word of the question is explained by the table / patch it answers from
-            typed_table = (tables.typed_commit_range(amap, n.query) or tables.typed_table_filter(amap, n.query) or tables.typed_table_predicate(amap, n.query) or tables.typed_table_extreme(amap, n.query) or tables.typed_table_row(amap, n.query)
+            typed_table = (tables.typed_commit_range(amap, n.query) or tables.typed_table_filter(amap, n.query) or tables.typed_table_predicate(amap, n.query) or tables.typed_table_select(amap, n.query) or tables.typed_table_extreme(amap, n.query) or tables.typed_table_row(amap, n.query)
                            or tables.typed_diff_rollup(amap, n.query)) if n.kind != "summarize" else None
             if typed_table is None and n.kind == "lookup":
                 typed_table = typed_file_which(ir, amap, n)

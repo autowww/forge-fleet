@@ -165,6 +165,17 @@ def typed_table(r: NodeResult, tt: dict[str, Any], plan: Plan) -> None:
                 r.spans.append(_span(plan, tb["path"], en["line"], en["seg_id"]))
         r.answer = "\n\n".join(blocks) + " \n_(read from the table, no model called)_" + (f"\n_{tt['note']}_" if tt["note"] else "")
         r.detail = tt["note"]
+    elif tt["method"] == "typed_table_select":
+        blocks = []
+        for tb in tt["tables"]:
+            where = f" under *{tb['heading']}*" if tb.get("heading") else ""
+            lines = [f"- **{en['label']}** — `{tb['filter_column']}`: {en['cell']} (`{tb['path']}:{en['line']}`)" for en in tb["entries"]]
+            blocks.append(f"**{len(tb['entries'])} of {tb['rows_considered']} row(s)** whose `{tb['filter_column']}` says *{', '.join(tb['filter_words'])}* — `{tb['column']}`: "
+                          + ", ".join(f"**{en['label']}**" for en in tb["entries"]) + f" (in `{tb['path']}`{where}):\n" + "\n".join(lines))
+            for en in tb["entries"]:
+                r.spans.append(_span(plan, tb["path"], en["line"], en["seg_id"]))
+        r.answer = "\n\n".join(blocks) + " \n_(read from the table, no model called)_" + (f"\n_{tt['note']}_" if tt["note"] else "")
+        r.detail = tt["note"]
     elif tt["method"] == "typed_commit_range":
         lines = [f"- `{c['sha']}` {c['subject']} (`{tt['path']}:{c['line']}`)" for c in tt["commits"]]
         r.answer = (f"**{len(tt['commits'])} commit(s)** after `{tt['older']}` up to `{tt['newer']}` in `{tt['path']}` ({tt['log_lines']} log lines read, no model called):\n"

@@ -50,6 +50,9 @@ _CODE_RE = re.compile(r"\b(?=[A-Z0-9]*\d)(?=[A-Z0-9]*[A-Z])[A-Z0-9]{2,8}\b")   #
 _WHO_RE = re.compile(r"^\s*(who|whom|whose)\b", re.I)
 _SCALAR_LEAF_RE = re.compile(r"""^\s*["'`]?[\w.\-/ ]+["'`]?\s*[:=]\s*(true|false|null|none|yes|no|-?\d+(?:\.\d+)?)\s*,?\s*$""", re.I)
 _STEM_SUFFIXES = ("ings", "ing", "ers", "er", "ed", "es", "ly", "s")
+# irregular past participles common in engineering prose, mapped to the prefix their base form shares with its inflections
+_IRREGULAR_STEMS = {"frozen": "freez", "froze": "freez", "chosen": "choos", "chose": "choos", "written": "writ", "wrote": "writ", "built": "build",
+                    "held": "hold", "kept": "keep", "taken": "take", "took": "take", "made": "make", "sent": "send", "broken": "break", "broke": "break"}
 
 
 def stems_of(word: str) -> set[str]:
@@ -57,9 +60,11 @@ def stems_of(word: str) -> set[str]:
     question word meets ``labeller`` in the text (live K16, 2026-11-06). Stems shorter than five letters are dropped,
     so ``caused`` / ``running`` / ``cases`` add nothing; the stem is used as a prefix (FTS) and a substring (coverage)."""
     w = fold(word)
-    if len(w) < 6 or w.isdigit():
-        return set()
     out = set()
+    if w in _IRREGULAR_STEMS:
+        out.add(_IRREGULAR_STEMS[w])   # `frozen` meets `freeze` / `FREEZE.txt` (live L14 G1R3D, 2026-11-07)
+    if len(w) < 6 or w.isdigit():
+        return out
     for suf in _STEM_SUFFIXES:
         if w.endswith(suf) and len(w) - len(suf) >= 5:
             out.add(w[: -len(suf)])
@@ -137,6 +142,7 @@ class _Row:
     keysf: frozenset[str] = frozenset()        # {fold(k) for k in keys}
     key_aliasesf: frozenset[str] = frozenset() # {fold(a) for a in key_aliases}
     heading_words: frozenset[str] = frozenset()  # set(heading.split())
+    scope_label: frozenset[str] = frozenset()    # an indented `label:` line's parent label words (plain-text blocks); empty otherwise
 
 
 class _Index:
@@ -233,17 +239,33 @@ class Retriever:
             for s in segs:
                 by_start.setdefault(s.start_line, []).append(s)
             active: list = []
+            label_stack: list[tuple[int, str]] = []   # (indent, label) of the `label:` lines above, within the current blank-line block
             for ln, line in enumerate(text.split("\n"), 1):
                 if ln in by_start:
                     active.extend(by_start[ln])
                 if active:
                     active = [s for s in active if s.end_line >= ln]
                 if not line.strip():
+                    label_stack = []
                     continue
                 covering = sorted(active, key=lambda s: order[id(s)]) if active else []   # same order as the original scan
                 keys: set[str] = set()
                 heading_parts: list[str] = []
                 kind = covering[0].kind if covering else "line"
+                # an indented `label: value` line in a plain-text block belongs to the less-indented label above it the way a
+                # table row belongs to its header: `  frozen in commit: 83ab46b` under `Sealed set: …` is the sealed set's
+                # commit, not the file's (live L14 G1R3D, lab after06 + production v2_granite02, 2026-11-07 — it outranked
+                # the top-level `Candidate commit: 620c217` for "Which commit is the frozen candidate?")
+                scope_label: frozenset[str] = frozenset()
+                indent = len(line) - len(line.lstrip())
+                lm_line = _LABEL_LINE_RE.match(line) if kind in ("paragraph", "line") else None
+                while label_stack and label_stack[-1][0] >= indent:
+                    label_stack.pop()
+                if lm_line is not None:
+                    if indent > 0 and label_stack:
+                        scope_label = frozenset(fold(w) for w in _WORD_RE.findall(label_stack[-1][1]) if len(w) > 1) - STOPWORDS
+                        heading_parts.append(norm(label_stack[-1][1]))
+                    label_stack.append((indent, lm_line.group(1)))
                 for s in covering:
                     c = s.context
                     for k in ("key", "symbol", "title"):
@@ -283,7 +305,8 @@ class Retriever:
                                       header_line if kind == "row" else next((hl for hl in reversed(table_headers) if hl < ln), None) if kind == "table_row" else None,
                                       next((hl for hl in reversed(heading_lines) if hl < ln), None),
                                       textn=norm(line), textf=fold(line), keysf=frozenset(fold(k) for k in row_keys),
-                                      key_aliasesf=frozenset(fold(a) for a in key_aliases), heading_words=frozenset(row_heading.split())))
+                                      key_aliasesf=frozenset(fold(a) for a in key_aliases), heading_words=frozenset(row_heading.split()),
+                                      scope_label=scope_label if self.use_structure else frozenset()))
                 self._index.rows_by_file.setdefault(f.file_id, []).append(self.rows[-1])
                 batch.append((rowid, line, ctx, al))
                 self.vocab.update(fold(w) for w in _WORD_RE.findall(line))
@@ -444,6 +467,7 @@ class Retriever:
         literal_f = {fold(t) for t in literal_terms}
         term_words: dict[str, set[str]] = {t: {fold(t)} | ({fold(typo[t])} if t in typo else set()) | stems_of(t) for t in terms}
         stem_terms = sorted({st for t in terms for st in stems_of(t)})
+        q_forms = {fold(w) for w in _WORD_RE.findall(norm(query))} | set(stem_terms) | set().union(*term_words.values()) if terms else {fold(w) for w in _WORD_RE.findall(norm(query))}
         # the head noun of a "which / what <noun>" question names the *type* of the value asked (commit, version, date), not
         # its label: `candidate_commit:` must not become the label line for "Which commit froze the blind set?" (live K17
         # regression 2026-11-06 — the label match was added for `candidate_frozen_at:` on "Which commit is the frozen candidate?")
@@ -521,6 +545,11 @@ class Retriever:
                         # for "Which commit froze the blind set?" (live K17 after30/31 — the model read a commit off it)
                         if head_value_re is None or head_value_re.search(r.text[lm.end() - 1:]):
                             feats["label_stem"] = 3.0
+            if r.scope_label and feats and not any(sw == f or (len(f) >= 5 and sw.startswith(f)) or (len(sw) >= 5 and f.startswith(sw)) for sw in r.scope_label for f in q_forms):
+                # nested under a label the question does not name: the line's label is relative to its parent (`frozen in
+                # commit` under `Sealed set`), so it is not the question's label line and its word coverage is discounted
+                feats.pop("label_stem", None)
+                feats["scoped_under"] = -3.0
             if not self.use_fts and any(fold(t) in lowf for t in search_terms):
                 feats["substring"] = 1.0
             if terms:   # a line that covers more distinct question words beats a structural line matching one; a literal
