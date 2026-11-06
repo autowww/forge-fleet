@@ -7,6 +7,7 @@ Nothing here executes a command, writes a file, or fetches a filing.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -14,6 +15,18 @@ from .dce.parse import parse_request as parse_dce
 from .request_ir import parse_request, project_effects
 
 SIDE_EFFECTS = ("artifact_write", "environment_mutation", "command_execution")
+_IDENTITY_RE = re.compile(
+    r"(?i)(?:who are you|what are you)(?!\s+[a-z])|what(?:'|’)?s your name|what is your name|"
+    r"identify yourself|introduce yourself|хто ти|хто ви|що ти таке"
+)
+_SELF_CLAIM_RE = re.compile(
+    r"(?i)\b(?:i(?:'|’)?m|i am)\s+(?:chatgpt|an ai assistant developed by openai)\b|\bi was developed by openai\b"
+)
+IDENTITY_TEXT = (
+    "I am Forge 2B. I answer ordinary questions in this chat, I answer from a ZIP or text file you attach, "
+    "and I extract statements from a 10-K when you include 10-K and an uppercase ticker such as NVDA. "
+    "I am not ChatGPT."
+)
 _TEXT_LIMIT = 160
 _HISTORY_TURNS = 8
 _HISTORY_CHARS = 4000
@@ -81,6 +94,20 @@ def comprehend(user_text: str) -> Reading:
     )
 
 
+def identity_reply(user_text: str) -> str | None:
+    """A name question is answered here. The pinned model otherwise introduces itself as ChatGPT."""
+    if _IDENTITY_RE.search(user_text):
+        return IDENTITY_TEXT
+    return None
+
+
+def scrub_self_claim(text: str) -> str:
+    """Drop a first-person ChatGPT or OpenAI claim. Other mentions of those names stay."""
+    if _SELF_CLAIM_RE.search(text):
+        return IDENTITY_TEXT
+    return text
+
+
 def refusal_text(reading: Reading) -> str:
     lines = ["I will not run, write, or change anything from this message.", "", "Read as:"]
     for action, effect, text in reading.side_effects:
@@ -106,7 +133,9 @@ def system_prompt(reading: Reading) -> str:
     if reading.filing_gap:
         extra += " The message looks like a filing request but it is not a runnable 10-K directive."
     return (
-        "You are Forge 2B in conversation. This turn has no attached document and is not a SEC filing run. "
+        "You are Forge 2B in conversation. You are not ChatGPT and you were not developed by OpenAI. "
+        "If asked who you are, say you are Forge 2B. "
+        "This turn has no attached document and is not a SEC filing run. "
         "Answer the latest user message directly. Do not invent file paths, line citations, plan hashes, "
         "or the contents of a filing or archive. Do not claim that you executed a command, wrote a file, or changed a system. "
         "If the user wants an answer taken from their own files, tell them to attach a ZIP or text file. "

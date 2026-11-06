@@ -25,7 +25,17 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from jsonschema import Draft202012Validator
 
 from . import attach, edgar, graph, live, zipingest
-from .chat_lane import comprehend, conversation, footer, refusal_text, system_prompt, trace_reading, visible_prefix
+from .chat_lane import (
+    comprehend,
+    conversation,
+    footer,
+    identity_reply,
+    refusal_text,
+    scrub_self_claim,
+    system_prompt,
+    trace_reading,
+    visible_prefix,
+)
 from .dce import shadow as dce_shadow
 
 log = logging.getLogger("forge_2b")
@@ -1046,6 +1056,12 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
             record["status"] = "REFUSED_SIDE_EFFECT"
             record["stages"].append("side_effect_refused")
             return _text_response(body, run_id, refusal_text(reading), headers)
+        named = identity_reply(user_text)
+        if named is not None:
+            record["status"] = "COMMITTED"
+            record["stages"].append("identity")
+            record["reading"]["decision"] = "identity"
+            return _text_response(body, run_id, named, headers)
 
         conv = conversation(messages) or [{"role": "user", "content": user_text[:4000]}]
         llm_body = {
@@ -1085,7 +1101,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
         record["attempts"] = 1
         record["status"] = "COMMITTED"
         record["stages"].append("reply")
-        return _text_response(body, run_id, visible_prefix(reading) + content.strip() + footer(reading), headers)
+        return _text_response(body, run_id, visible_prefix(reading) + scrub_self_claim(content.strip()) + footer(reading), headers)
 
     @app.post("/v1/chat/completions")
     async def completion(request: Request):
