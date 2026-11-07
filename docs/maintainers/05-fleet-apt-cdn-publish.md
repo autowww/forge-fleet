@@ -35,6 +35,10 @@ Do **not** attach `.deb` files to GitHub Releases or use release assets as an in
      -d '{"mode":"upgrade"}'
    ```
 
+## Firebase CLI resolution
+
+`publish-and-deploy-fleet-apt-cdn.sh` looks for the CLI as **`FIREBASE_BIN`**, then `firebase` on `PATH`, then the newest `~/.nvm/versions/node/*/bin/firebase`, then `~/.npm-global/bin` / `/usr/local/bin`, and prepends that directory to `PATH` so the sibling `node` is found. This lets the script run from `systemd-run --user`, cron, or an agent shell where nvm has not been sourced. If the deploy step fails with *credentials are no longer valid*, run **`firebase login --reauth`** (interactive, operator) and re-run the script — the staged tree under `forge-packages-website/public/fleet/ubuntu` is reused.
+
 ## CI (optional)
 
 Workflow **Publish Fleet apt CDN** (`.github/workflows/publish-fleet-apt.yml`) deploys the same Hosting tree when the repo secret **`FIREBASE_TOKEN`** is set (`firebase login:ci`). It does **not** upload binaries to GitHub.
