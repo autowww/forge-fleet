@@ -231,6 +231,38 @@ def _keyed_row(amap: AttachmentMap, query: str, words: list[str]) -> dict[str, A
     return {"method": "typed_table_row", "label": r.label, "entries": [entry], "note": "", "keyed": True}
 
 
+def _how_many_named_row(amap: AttachmentMap, query: str, words: list[str]) -> dict[str, Any] | None:
+    """A how-many question whose row is named by a qualifier the label also carries, while the label itself has words
+    the question does not (`ef3cfac`, `burned`). The column that names the counted noun supplies the cell. Exactly one
+    such row, and every other question word explained by that table, or nothing. `after` / `before` point at the row."""
+    hm = re.search(r"\bhow many\s+([^\W\d_]+)", norm(query), re.I)
+    noun = fold(hm.group(1)) if hm else ""
+    anchors = [w for w in words if len(w) >= 5 and w not in _COUNTED_NOUNS | {noun, _sing(noun), "suite", "after", "before"}]
+    if not noun or not anchors:
+        return None
+    hits: list[tuple[Table, Row, str]] = []
+    for t in tables_of(amap):
+        cols = [c for c in t.columns[1:] if noun in _words(c) or _sing(noun) in {_sing(w) for w in _words(c)}]
+        if not cols:
+            continue
+        for r in t.rows:
+            if any(a in r.label_words for a in anchors):
+                hits.append((t, r, cols[0]))
+    if len(hits) != 1:
+        return None
+    t, r, col = hits[0]
+    explained = set(r.label_words) | _explained(t, set()) | {"after", "before"} | _COUNTED_NOUNS
+    if _guard(words, explained | _hyphen_parts(query, explained)):
+        return None
+    raw = re.sub(r"\*+", "", r.cells.get(col, "")).strip()
+    if not raw:
+        return None
+    return {"method": "typed_table_row", "label": r.label,
+            "entries": [{"path": t.path, "line": r.seg.start_line, "seg_id": r.seg.seg_id, "label": r.label,
+                         "cells": [{"column": col, "value": raw}], "columns_named": True}],
+            "note": "the row is the one whose label names the question's qualifier; the column names what is counted"}
+
+
 def typed_table_row(amap: AttachmentMap, query: str, *, continuation_of: dict[str, Any] | None = None) -> dict[str, Any] | None:
     """``continuation_of`` — the row result of the previous goal in the same sentence; the query then is that row's label
     plus the elliptical goal's words, and the result is marked so the renderer says which row it continues."""
@@ -254,7 +286,10 @@ def typed_table_row(amap: AttachmentMap, query: str, *, continuation_of: dict[st
             if {_sing(w) for w in lw} <= {_sing(w) for w in qall}:
                 matches.append((t, r))
     if not matches:
-        return None
+        # "How many tests did the suite have after the repair?" (live M26 G1R3E): the row label is a commit plus
+        # `burned repair`, so it is not a subset of the question, but it is the only row that names `repair` and the
+        # column (the pytest invocation) names `tests`. `after` is the preposition that points at that row.
+        return _how_many_named_row(amap, query, words) if _HOW_MANY_RE.search(query) else None
     # the longest label match wins (``explicit mutation recall`` over ``recall``); ties across tables are all kept
     best_len = max(len(r.label_words - STOPWORDS - _UNIT_WORDS) for _, r in matches)
     longest = [(t, r) for t, r in matches if len(r.label_words - STOPWORDS - _UNIT_WORDS) == best_len]
@@ -278,6 +313,21 @@ def typed_table_row(amap: AttachmentMap, query: str, *, continuation_of: dict[st
         if carrying and len(carrying) < len(matches):
             matches = carrying
             qualifier_notes.append(f"only the tables whose heading, path or columns say `{w}`")
+    # a copy whose path adds tokens the question never uses (`…_BURNED_postfix_REPORT` next to `…_REPORT`) is not a
+    # second answer. Both paths of a real pair (the sealed note and the blind report) carry tokens of their own, so
+    # nothing is dropped unless one path's tokens are a subset of the other's (live M23 G1R3E: op pass 5 in the sealed
+    # report, 6 in the burned copy).
+    if len({t.path for t, _r in matches}) > 1:
+        qpath = {_sing(w) for w in qall}
+        toks = {t.path: {_sing(w) for w in re.findall(r"[a-z0-9]+", t.path.casefold())} - qpath - STOPWORDS for t, _r in matches}
+        paths = list(toks)
+        common = set.intersection(*(toks[p] for p in paths))
+        extra = {p: toks[p] - common for p in paths}
+        if any(extra.values()) and any(not v for v in extra.values()):
+            kept = [(t, r) for t, r in matches if not extra[t.path]]
+            if kept and len(kept) < len(matches):
+                matches = kept
+                qualifier_notes.append("copies whose path adds qualifiers the question does not name are not listed")
     depth_note = ""
     if len(matches) > 3:
         shallowest = min(t.path.count("/") for t, _r in matches)
@@ -322,9 +372,22 @@ def typed_table_row(amap: AttachmentMap, query: str, *, continuation_of: dict[st
         cols = picked_cols[i] or [c for c in t.columns[1:]]
         if len(picked_cols[i]) == 1 and coordinated:   # two named columns: the "and" joins them, not the metric to a column
             cols = picked_cols[i] + [c for c in t.columns[1:] if c not in picked_cols[i]]
+        # a named integer cell on a row that also has `n` is that count out of the row's size: op pass 5 of n 10 is
+        # `5/10` (live M23 G1R3E). The `n` column itself stays a bare count (L23).
+        n_col = next((c for c in t.columns[1:] if fold(c) == "n"), None)
+        n_raw = re.sub(r"[*_`]", "", r.cells.get(n_col, "")).strip() if n_col else ""
+        cells = []
+        for c in cols:
+            raw = r.cells.get(c, "").strip()
+            if not raw:
+                continue
+            bare = re.sub(r"[*_`]", "", raw).strip()
+            if (len(picked_cols[i]) == 1 and c == picked_cols[i][0] and n_col and c != n_col
+                    and re.fullmatch(r"\d+", bare) and re.fullmatch(r"\d+", n_raw)):
+                raw = f"{bare}/{n_raw}"
+            cells.append({"column": c, "value": raw})
         entries.append({"path": t.path, "line": r.seg.start_line, "seg_id": r.seg.seg_id, "label": r.label,
-                        "cells": [{"column": c, "value": r.cells.get(c, "").strip()} for c in cols if r.cells.get(c, "").strip()],
-                        "columns_named": bool(picked_cols[i])})
+                        "cells": cells, "columns_named": bool(picked_cols[i])})
     if any(e["columns_named"] for e in entries):
         entries = [e for e in entries if e["columns_named"]]   # tables without the named column do not answer the question
     entries.sort(key=lambda e: (e["path"], e["line"]))

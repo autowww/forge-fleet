@@ -1125,6 +1125,42 @@ def _count_read_from_hits(r: NodeResult, n: Any, plan: Plan, hits: list[attach.H
     return True
 
 
+def _bold_count_read(r: NodeResult, n: Any, plan: Plan, hits: list[attach.Hit], number: str) -> bool:
+    """A how-many reply that is only a number no quoted line carries, while exactly one indexed line *bolds* a different
+    number next to a distinguishing word of the question. The model named the set size; the package states the count
+    (live M20 G1R3E: the reply was 184, and `**11 parser faults**` is the only bold count next to `parser`). A number
+    that merely sits next to the counted noun is not this reading, and two bold counts keep the refusal. PARTIAL."""
+    from . import tables
+    if not _HOW_MANY_Q_RE.search(n.query or "") or not hits:
+        return False
+    content, mentions, _anchors = _content_terms(plan, n.query, keep_file_words=True)
+    keys = [t for t in content if t not in tables._COUNTED_NOUNS and len(t) >= 5]
+    if not keys:
+        return False
+    found: list[tuple[str, str, int, str, Any]] = []
+    rows = list(getattr(getattr(plan, "retriever", None), "rows", []) or []) or list(hits)
+    for h in rows:
+        for m in re.finditer(r"\*\*(\d[\d,]*)\s+([^*]+?)\*\*", h.text):
+            num, phrase = m.group(1).replace(",", ""), m.group(2)
+            for w in re.findall(r"[^\W\d_]+", phrase):
+                if any(mentions(w, t) for t in keys):
+                    found.append((num, h.path, h.line, w, h))
+                    break
+    nums = {num for num, _p, _ln, _w, _h in found}
+    locs = {(p, ln) for _n, p, ln, _w, _h in found}
+    if len(nums) != 1 or len(locs) != 1:
+        return False
+    stated, path, line, word, h = found[0]
+    r.status = "PARTIAL"
+    r.method += "+bold_count"
+    r.answer = (f"**{stated}** — read from `{path}:{line}`, where the package bolds {stated} next to '{word}'; the model's reply was "
+                f"only the number {number}, which that line does not carry, so the quote is dropped and this reading is stated.")
+    r.spans = [{"path": path, "line": line, "text": h.text, "seg_id": getattr(h, "seg_id", "") or ""}]
+    r.detail = (f"the reply was the bare number {number}, carried by no quoted line; exactly one indexed line bolds {stated} "
+                f"next to '{word}' ({path}:{line})")
+    return True
+
+
 def _number_entailment(r: NodeResult, n: Any = None, plan: Plan | None = None, hits: list[attach.Hit] | None = None) -> None:
     # number entailment (Phase 3): a D1 answer may only state numbers its quoted lines carry. Live K13
     # 2026-11-06: the right row was quoted (`0.519 / 0.541 ms`) and the answer said "0.41 ms" — a
@@ -1137,7 +1173,8 @@ def _number_entailment(r: NodeResult, n: Any = None, plan: Plan | None = None, h
     if loose:
         rest = re.sub(r"[-+]?\d[\d.,/%]*", " ", str(r.answer or ""))
         if not re.search(r"[A-Za-z]{3,}", rest):
-            if n is not None and plan is not None and hits and _count_read_from_hits(r, n, plan, hits, loose[0]):
+            if n is not None and plan is not None and hits and (
+                    _count_read_from_hits(r, n, plan, hits, loose[0]) or _bold_count_read(r, n, plan, hits, loose[0])):
                 return
             # the sentence *is* the unsupported number ("0.95" for a metric the package never reports — live M35 G1R3E,
             # 2026-11-06): nothing verifiable was stated, so this is the honest negative, with the quoted lines shown as
