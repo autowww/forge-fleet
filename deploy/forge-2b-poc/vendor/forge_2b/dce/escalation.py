@@ -646,7 +646,7 @@ async def run_d1(r: NodeResult, n: Any, e: dict[str, Any], plan: Plan, call_llm:
     if r.status == "COMMITTED" and r.method.startswith("q2_") and r.method != "q2_not_in_excerpts":
         _which_file_completion(r, n, plan)
         _adjacent_number_check(r, n, plan)
-        _number_entailment(r, n.query)
+        _number_entailment(r, n, plan, hits)
         _bare_number_grounding(r, n, plan)
         if r.status == "COMMITTED":
             _pointer_answer_check(r, n)
@@ -1080,15 +1080,65 @@ def _typed_value_from_quotes(r: NodeResult, query: str, loose: list[str]) -> boo
     return True
 
 
-def _number_entailment(r: NodeResult, query: str = "") -> None:
+def _count_read_from_hits(r: NodeResult, n: Any, plan: Plan, hits: list[attach.Hit], number: str) -> bool:
+    """A how-many reply that is only a number no *quoted* line carries, while exactly one indexed line places that
+    same number next to a distinguishing word of the question (not the counted noun itself). The model knew the count
+    and quoted the wrong line (live K42 G1R3A, 2026-11-07: "124" quoting `blind_sha256_sealed: 90b776ff…` while
+    `… on 124 sealed cases` is the only line in the package with 124 next to `sealed`; it was indexed but not in the
+    top window. `"cases": 124` does not qualify — `cases` is the counted noun). The scan is over the index, not the
+    window, because that is the line the window dropped. Zero or several such lines → the refusal stands. PARTIAL:
+    adjacency is a reading, not a proof."""
+    from . import tables
+    if not _HOW_MANY_Q_RE.search(n.query or "") or not hits:
+        return False
+    content, mentions, _anchors = _content_terms(plan, n.query, keep_file_words=True)
+    keys = [t for t in content if t not in tables._COUNTED_NOUNS and len(t) >= 5]
+    if not keys:
+        return False
+    want = number.replace(",", ".")
+    found: list[tuple[str, int, str, str, Any]] = []
+    rows = list(getattr(getattr(plan, "retriever", None), "rows", []) or []) or list(hits)
+    for h in rows:
+        if want not in h.text.replace(",", "."):
+            continue
+        toks = _TOKEN_SEP_RE.findall(h.text)
+        for i, tok in enumerate(toks):
+            if not re.match(r"\d", tok) or tok.replace(",", ".") != want:
+                continue
+            for j in (i - 1, i + 1):
+                if not (0 <= j < len(toks) and re.match(r"[^\W\d_]+$", toks[j])):
+                    continue
+                for t in keys:
+                    if mentions(toks[j], t):
+                        found.append((h.path, h.line, t, toks[j], h))
+    locs = {(p, ln) for p, ln, _t, _w, _h in found}
+    if len(locs) != 1:
+        return False
+    path, line, _term, word, h = found[0]
+    r.status = "PARTIAL"
+    r.method += "+count_in_excerpt"
+    r.answer = (f"**{number}** — read from `{path}:{line}`, where {number} stands next to '{word}'; the model's reply was only this number "
+                f"and the line it quoted does not carry it, so the quote is dropped and this reading of the retrieved excerpt is stated.")
+    r.spans = [{"path": path, "line": line, "text": h.text, "seg_id": getattr(h, "seg_id", "") or ""}]
+    r.detail = (f"the reply was the bare number {number}, carried by no quoted line; exactly one retrieved excerpt places it next to "
+                f"'{word}' ({path}:{line})")
+    return True
+
+
+def _number_entailment(r: NodeResult, n: Any = None, plan: Plan | None = None, hits: list[attach.Hit] | None = None) -> None:
     # number entailment (Phase 3): a D1 answer may only state numbers its quoted lines carry. Live K13
     # 2026-11-06: the right row was quoted (`0.519 / 0.541 ms`) and the answer said "0.41 ms" — a
     # verified quote does not make the sentence around it true, so the node is PARTIAL and says which
-    # number no quoted line carries. The quoted lines stay as the evidence.
+    # number no quoted line carries. The quoted lines stay as the evidence. A bare number on a how-many
+    # question is first offered to ``_count_read_from_hits`` (exactly one other excerpt places it next to a
+    # distinguishing word); otherwise it is the honest negative.
+    query = getattr(n, "query", "") or ""
     loose = numbers_not_in_quotes(r.answer, [sp.get("text", "") for sp in r.spans])
     if loose:
         rest = re.sub(r"[-+]?\d[\d.,/%]*", " ", str(r.answer or ""))
         if not re.search(r"[A-Za-z]{3,}", rest):
+            if n is not None and plan is not None and hits and _count_read_from_hits(r, n, plan, hits, loose[0]):
+                return
             # the sentence *is* the unsupported number ("0.95" for a metric the package never reports — live M35 G1R3E,
             # 2026-11-06): nothing verifiable was stated, so this is the honest negative, with the quoted lines shown as
             # the excerpts that were checked, not as evidence for a value

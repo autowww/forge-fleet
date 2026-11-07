@@ -292,6 +292,9 @@ def typed_count(amap: AttachmentMap, files: list[str], query: str) -> dict[str, 
         mc = manifest_count(amap, query)
         if mc is not None:
             return mc
+    rc = _record_count(amap, files, query)
+    if rc is not None:
+        return rc   # before the CSV loop: its first non-matching table returns None for the whole operator
     words = {w.casefold() for w in re.findall(r"\w+", query)}
     csvs = [f for f in amap.files if f.status == "INCLUDED" and f.language in ("csv", "tsv") and (not files or f.path in files)]
     asks_rows = bool(words & {"rows", "entries", "records", "lines"})
@@ -327,6 +330,63 @@ def typed_count(amap: AttachmentMap, files: list[str], query: str) -> dict[str, 
     return None
 
 
+def _record_count(amap: AttachmentMap, files: list[str], query: str) -> dict[str, Any] | None:
+    """How many cases/records/lines are in a named JSONL file: the count of its ``record`` segments (one per non-blank
+    line). Live K34 G1R3A, 2026-11-07: "How many cases are in baseline/03_EXPLORATORY_CASES.jsonl?" — the file is in the
+    package and every line is one case, but no line *states* the total, so the model quoted a different file's
+    ``"cases": 48`` or a hash line. Fires only when exactly one included ``.jsonl`` is named (by the question, or by an
+    explicit file scope), the question is a how-many, a counted noun is asked, and every other content word is a word of
+    that path. A filter word ("passed", "failed") or an unexplained word ("sealed", "blind") abstains — those are not
+    "how many records does this file hold"."""
+    if not tables._HOW_MANY_RE.search(query):
+        return None
+    cw = tables._content_words(query)
+    if any(w in (tables._FILTER_POS | tables._FILTER_NEG) for w in cw):
+        return None
+    if not (set(cw) & (tables._COUNTED_NOUNS | {"lines", "line"})):
+        return None
+    qlow = query.casefold()
+    named = []
+    for f in amap.files:
+        if f.status != "INCLUDED" or f.language != "jsonl":
+            continue
+        if files and f.path not in files:
+            continue
+        base = f.path.rsplit("/", 1)[-1]
+        if not files and f.path.casefold() not in qlow and base.casefold() not in qlow:
+            continue
+        named.append(f)
+    if len(named) != 1:
+        return None
+    f = named[0]
+    explained = set(tables._words(f.path.replace("/", " ").replace("_", " ").replace(".", " ")))
+    explained |= set(tables._COUNTED_NOUNS) | {"lines", "line"} | set(tables._GENERIC)
+    if tables._guard(cw, explained):
+        return None
+    recs = [s for s in amap.segments_for(f.file_id) if s.kind == "record" and not s.malformed]
+    if not recs:
+        return None
+    # a leading descriptor record (`{"total": 48, "kind": "public_exploratory", …}` then 48 `{"id": …}` lines — live K34)
+    # is not itself a case. When the question asks for lines, every record counts. When it asks for cases/records and
+    # exactly one record has no id while the others do, the count is the id-bearing records, and only if that record's
+    # own `total`/`count` agrees (otherwise the file is not a flat list and this operator abstains).
+    asks_lines = bool(set(cw) & {"lines", "line"}) and not (set(cw) & tables._COUNTED_NOUNS)
+    counted, cite = recs, recs[0]
+    if not asks_lines:
+        items = [s for s in recs if str((s.context or {}).get("id") or "")]
+        if len(items) != len(recs):
+            headers = [s for s in recs if s not in items]
+            if len(headers) != 1 or not items:
+                return None
+            scalars = (headers[0].context or {}).get("scalars") or {}
+            declared = next((int(scalars[k]) for k in ("total", "count", "n", "cases") if str(scalars.get(k, "")).isdigit()), None)
+            if declared != len(items):
+                return None
+            counted, cite = items, headers[0]
+    return {"value": len(counted), "method": "record_count", "spans": [cite.seg_id], "path": f.path,
+            "lines": [cite.start_line], "header_line": None, "detail": f"{len(counted)} record(s)"}
+
+
 def _files_in(values: list[str], amap: AttachmentMap) -> list[str]:
     out = []
     for v in values:
@@ -340,7 +400,7 @@ def _files_in(values: list[str], amap: AttachmentMap) -> list[str]:
 
 def _typed_count_possible(files: list[str], amap: AttachmentMap) -> bool:
     cands = [f for f in amap.files if (not files or f.path in files) and f.status == "INCLUDED"]
-    tabular = [f for f in cands if f.language in ("csv", "tsv") or f.role_hints == ["inventory"]]
+    tabular = [f for f in cands if f.language in ("csv", "tsv", "jsonl") or f.role_hints == ["inventory"]]
     # a named file, or exactly one tabular file in the whole map (live finding 2026-11-05: "Count the failed tests" went to the model)
     return bool(tabular) and (bool(files) or len(tabular) == 1)
 

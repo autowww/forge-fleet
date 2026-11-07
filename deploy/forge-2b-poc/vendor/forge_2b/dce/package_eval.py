@@ -38,6 +38,7 @@ SET = ROOT / "tests/dce/package_set_v1.jsonl"
 PACKAGE = ROOT / "artifacts/DCE-G1R3A"
 RAG_PREAMBLE = "### Task:\nRespond to the user query using the provided context, incorporating inline citations.\n\n<context>\n"
 NOT_FOUND = re.compile(r"not found|Not found|not retrieved|does not (?:contain|mention|appear)|no (?:such|matching)|absent", re.I)
+_NOT_FOUND_VERDICT_RE = re.compile(r"^\s*\*\*Not found in the attached archive\(s\)", re.M)   # the lane's own not-found verdict line
 
 
 def load_cases(path: Path = SET) -> list[dict]:
@@ -140,6 +141,11 @@ def score_detail(case: dict, content: str) -> dict:
         ok = all(re.search(rx, content) for rx in case.get("answer_all", []))
         return {"pass": ok, "pass_visible": ok, "evidence_hit": None}
     claims, evidence = claims_and_evidence(content)
+    if _NOT_FOUND_VERDICT_RE.search(claims):
+        # the lane declined to answer: its not-found sentence may *mention* the model's unsupported number ("the model's
+        # reply was only the number 124, which none of its quoted lines carries") — that is not a claim of 124 (live K42
+        # G1R3A, lab after34 / Granite granite06, 2026-11-07: scored as a strict pass on that mention)
+        return {"pass": False, "pass_visible": False, "evidence_hit": _answer_regexes_hit(case, evidence)}
     return {"pass": _answer_regexes_hit(case, claims), "pass_visible": _answer_regexes_hit(case, vis), "evidence_hit": _answer_regexes_hit(case, evidence)}
 
 
