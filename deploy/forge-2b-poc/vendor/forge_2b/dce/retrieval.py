@@ -55,13 +55,19 @@ _IRREGULAR_STEMS = {"frozen": "freez", "froze": "freez", "chosen": "choos", "cho
                     "held": "hold", "kept": "keep", "taken": "take", "took": "take", "made": "make", "sent": "send", "broken": "break", "broke": "break"}
 
 
-def stems_of(word: str) -> set[str]:
+def stems_of(word: str, irregular: bool = True) -> set[str]:
     """Light, deterministic suffix stripping for words of six letters or more: ``labelled`` → ``labell`` so that the
     question word meets ``labeller`` in the text (live K16, 2026-11-06). Stems shorter than five letters are dropped,
-    so ``caused`` / ``running`` / ``cases`` add nothing; the stem is used as a prefix (FTS) and a substring (coverage)."""
+    so ``caused`` / ``running`` / ``cases`` add nothing; the stem is used as a prefix (FTS) and a substring (coverage).
+
+    ``irregular`` adds the family stem of an irregular form (``frozen`` → ``freez``). Retrieval scoring passes
+    ``irregular=False``: the family stem is recall-only (FTS) and a label explanation (``dag.typed_label_value``), it
+    does not count as word *coverage* — otherwise `BLIND/CANDIDATE_FREEZE.txt (commit 097b06a)` covers every word of
+    "Which commit froze the blind set?" and joins the excerpts beside the holdout row (live K17/K45 regression,
+    lab after33 and Granite granite06 on 0.3.218, 2026-11-07)."""
     w = fold(word)
     out = set()
-    if w in _IRREGULAR_STEMS:
+    if irregular and w in _IRREGULAR_STEMS:
         out.add(_IRREGULAR_STEMS[w])   # `frozen` meets `freeze` / `FREEZE.txt` (live L14 G1R3D, 2026-11-07)
     if len(w) < 6 or w.isdigit():
         return out
@@ -465,8 +471,9 @@ class Retriever:
         bm_max = max(bm25.values(), default=0.0)
         alias_terms = {fold(t) for t in terms}
         literal_f = {fold(t) for t in literal_terms}
-        term_words: dict[str, set[str]] = {t: {fold(t)} | ({fold(typo[t])} if t in typo else set()) | stems_of(t) for t in terms}
-        stem_terms = sorted({st for t in terms for st in stems_of(t)})
+        term_words: dict[str, set[str]] = {t: {fold(t)} | ({fold(typo[t])} if t in typo else set()) | stems_of(t, irregular=False) for t in terms}
+        stem_terms = sorted({st for t in terms for st in stems_of(t, irregular=False)})
+        family_terms = sorted({st for t in terms for st in stems_of(t)} - set(stem_terms))   # irregular family stems: FTS recall only
         q_forms = {fold(w) for w in _WORD_RE.findall(norm(query))} | set(stem_terms) | set().union(*term_words.values()) if terms else {fold(w) for w in _WORD_RE.findall(norm(query))}
         # the head noun of a "which / what <noun>" question names the *type* of the value asked (commit, version, date), not
         # its label: `candidate_commit:` must not become the label line for "Which commit froze the blind set?" (live K17
@@ -493,7 +500,7 @@ class Retriever:
         # is unchanged; a FTS syntax error falls back to the full sweep.
         cand: set[int] | None = None
         if self.use_fts and self.narrow_candidates:
-            toks = [t for t in dict.fromkeys([*literal_terms, *stem_terms, *(w for ws in alias_words.values() for w in ws), *expanded.keys()]) if t]
+            toks = [t for t in dict.fromkeys([*literal_terms, *stem_terms, *family_terms, *(w for ws in alias_words.values() for w in ws), *expanded.keys()]) if t]
             parts = ['"' + t.replace('"', '""') + '"*' for t in toks]
             parts += ['"' + a.replace('"', '""') + '"' for a in dict.fromkeys([*quoted_raw, *ident_raw, *_CODE_RE.findall(query), *_NUM_RE.findall(query)]) if a.strip()]
             if parts:
