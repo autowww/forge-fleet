@@ -38,18 +38,63 @@ def contract_note_mode() -> str:
         return "mechanical"
     return env_contract_note_mode()
 
+# Contract families, one line per wording the student library uses. The label
+# names the section; the sentence names the shape. A prompt is structured when
+# a label and a sentence both appear, or when the G03 sentence appears alone.
+#
+#   G01  "## Output contract"            "Output parseable JSON" / "Output a compact JSON object" / "Output CSV only"
+#   G01  "## Output contract"  (C3/C4)   "Output JSON with <keys>" / "Provide one CSV row ..." / "Provide canonical CSV with header ..."
+#   G02  "## Output contract"            "Output valid JSON object with keys" / "Return only the required JSON contract"
+#   G03  "## Required output contract"   "Return exactly one valid JSON object ... No Markdown fences."
+#   G04  "## Required response object"   "Return exactly the required JSON object, without Markdown fences."
+#   G05  "**Required response:**"        "one JSON object only, no Markdown"
+#   G06  "**Output contract:**"          "Return **one JSON object only**"
+#   G07  "## Required output"            "Return **one JSON object only**, with exactly these top-level fields"
+_CONTRACT_LABEL = re.compile(
+    r"(?im)^\W{0,6}(?:required\s+output(?:\s+contract)?|output\s+contract|(?:required\s+)?response(?:\s+object)?)\b\W{0,4}",
+)
+_JSON_SENTENCE = re.compile(
+    r"(?i)(?:return\s+exactly\s+(?:one\s+valid|the\s+required)\s+json\s+object"
+    r"|\bone\s+json\s+object\s+only\b"
+    r"|\boutput\s+(?:a\s+)?(?:valid|compact|parseable)\s+json\b"
+    r"|\boutput\s+json\s+with\b"
+    r"|return\s+only\s+the\s+required\s+json\s+contract)",
+)
+_CSV_SENTENCE = re.compile(
+    r"(?i)(?:\boutput\s+csv\s+only\b|\bprovide\s+(?:one\s+)?(?:canonical\s+)?csv\b)",
+)
+# The G03 wording stands on its own, and it is the only family whose attachments
+# the reader annotates (contract_note). Other families get the shape only.
 _CONTRACT = re.compile(
     r"Return exactly one valid JSON object|No Markdown fences|Required output contract",
     re.I,
 )
 _ANSWER_VERB = re.compile(r"(?i)^(produce|return|select|report|give|identify)\b")
 _DANGER = re.compile(r"(?i)\b(file|disk|deploy|command|shell|database|endpoint|sudo)\b")
-_FENCE = re.compile(r"```(?:json)?\s*([\s\S]*?)```", re.I)
+_FENCE = re.compile(r"```(?:json|csv|text)?\s*([\s\S]*?)```", re.I)
 _PREFIX = "I will not run, write, or change anything."
 _TIMELINE = "\n\n**Live timeline:**"
 
 
+def contract_kind(user_text: str) -> str | None:
+    """``"json"``, ``"csv"``, or ``None`` when the turn is ordinary chat."""
+    text = user_text or ""
+    if _CONTRACT.search(text):
+        return "json"
+    if not _CONTRACT_LABEL.search(text):
+        return None
+    if _JSON_SENTENCE.search(text):
+        return "json"
+    if _CSV_SENTENCE.search(text):
+        return "csv"
+    return None
+
+
 def is_structured_contract(user_text: str) -> bool:
+    return contract_kind(user_text) is not None
+
+
+def _note_eligible(user_text: str) -> bool:
     return _CONTRACT.search(user_text or "") is not None
 
 
@@ -68,12 +113,19 @@ def relax_answer_shaping(reading: Reading, user_text: str) -> Reading:
 
 
 def json_instruction(user_text: str) -> str:
-    if not is_structured_contract(user_text):
-        return ""
-    return (
-        " The user requires exactly one JSON object and no Markdown. "
-        "Reply with that object only: no preamble, no fence, no timeline."
-    )
+    kind = contract_kind(user_text)
+    if kind == "csv":
+        return (
+            " The user requires CSV. "
+            "Reply with the header row and the data rows, then only the prose the contract asks for: "
+            "no preamble, no fence, no timeline."
+        )
+    if kind == "json":
+        return (
+            " The user requires exactly one JSON object and no Markdown. "
+            "Reply with that object only: no preamble, no fence, no timeline."
+        )
+    return ""
 
 
 _SOURCE = re.compile(
@@ -171,7 +223,7 @@ def contract_note(user_text: str) -> str:
     answer-key phrasing for experiments; ``off`` disables notes for S1 scoring.
     """
     mode = contract_note_mode()
-    if not is_structured_contract(user_text) or mode == "off":
+    if not _note_eligible(user_text) or mode == "off":
         return ""
     return _contract_note_body(user_text, full=mode == "full")
 
@@ -246,8 +298,9 @@ def _contract_note_body(user_text: str, *, full: bool) -> str:
 
 
 def present_structured(user_text: str, answer: str) -> str:
-    """Return the JSON object when the contract demands one. Leave other chats unchanged."""
-    if not is_structured_contract(user_text):
+    """Return the JSON object or CSV when the contract demands one. Leave other chats unchanged."""
+    kind = contract_kind(user_text)
+    if kind is None:
         return answer
     text = answer or ""
     if _TIMELINE in text:
@@ -255,6 +308,9 @@ def present_structured(user_text: str, answer: str) -> str:
     text = text.strip()
     if text.startswith(_PREFIX):
         text = text[len(_PREFIX) :].strip()
+    if kind == "csv":
+        # CSV contracts may ask for a paragraph after the rows; unfence in place.
+        return _FENCE.sub(lambda m: m.group(1).strip(), text).strip()
     fenced = _FENCE.search(text)
     if fenced:
         text = fenced.group(1).strip()
