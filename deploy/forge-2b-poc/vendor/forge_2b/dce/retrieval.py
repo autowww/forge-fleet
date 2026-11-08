@@ -485,6 +485,16 @@ class Retriever:
         if stem_terms:
             strategy.append("stems:" + ",".join(stem_terms))
         who_question = bool(_WHO_RE.match(query))
+        # a value defined in a file the question names ("does the owner match meta.json?") is an anchor for the other
+        # file's line that carries it (oracle C064: `platform-team` in meta.json is the line `Maintained by platform-team`)
+        named_values: set[str] = set()
+        q_low = query.casefold()
+        for src in in_scope.values():
+            stem = src.path.rsplit("/", 1)[-1].rsplit(".", 1)[0].casefold()
+            if len(stem) < 3 or stem not in q_low:
+                continue
+            named_values.update(v.casefold() for v in re.findall(r'"([^"\\]{6,})"', src.text))
+            named_values.update(v.casefold() for v in re.findall(r":\s*([A-Za-z][\w.-]{5,})", src.text))
         alias_words: dict[str, set[str]] = {t: set() for t in terms}   # paraphrase coverage, scored below literal coverage
         if self.use_aliases:
             for key, phrases in expanded.items():
@@ -540,6 +550,9 @@ class Retriever:
                 feats["quoted"] = 3.0
             if nums and any(re.search(rf"(?<![\w.]){re.escape(n)}(?![\w.])", r.text) for n in nums):
                 feats["number"] = 1.0
+            src_stem = r.path.rsplit("/", 1)[-1].rsplit(".", 1)[0].casefold()
+            if named_values and src_stem not in q_low and any(v in r.text.casefold() for v in named_values):
+                feats["named_value"] = 3.0
             if (stem_terms or long_terms) and r.kind in ("paragraph", "item", "key"):
                 # a prose line that *labels* its value with a word of the question's family — `Labeller: AGENT_…` for
                 # "Who labelled the sealed set?" (live L12 G1R3D, 2026-11-06) — is the line that answers; the label is

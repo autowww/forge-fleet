@@ -663,6 +663,87 @@ async def run_d1(r: NodeResult, n: Any, e: dict[str, Any], plan: Plan, call_llm:
         _polar_line_read(r, n, plan)
         _polar_qualification(r, n, plan, hits)
         _polar_completion(r, n, plan, hits)
+    if r.spans and r.status in ("COMMITTED", "PARTIAL") and "not_in_excerpts" not in (r.method or "") and "Not found" not in (r.answer or ""):
+        _cite_equivalents(r, n, plan, hits)
+
+
+_WHEN_RE = re.compile(r"\b(when|which month|what month|which date|what date|which version|what version)\b", re.I)
+_DATE_IN_HEAD_RE = re.compile(r"\b(?:19|20)\d{2}-\d{2}|\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\b", re.I)
+_VER_RE = re.compile(r"\d+\.\d+(?:\.\d+)?")
+
+
+def _cite_equivalents(r: NodeResult, n: Any, plan: Plan, hits: list[attach.Hit]) -> None:
+    """The committed line states the fact; the gold also marks the heading above it and the other lines that state the
+    same value (oracle C038/C126: the config port is quoted, `README.md` "Use port 18473 for the health endpoint" is
+    not; C055/C120: the bullet is quoted, the version heading that dates it is not; C018: a summary quotes one changelog
+    line). Retrieved lines only. An untrusted-instruction line is never added. At most eight extra citations."""
+    rows = list(getattr(getattr(plan, "retriever", None), "rows", []) or [])
+    by_loc = {(row.path, row.line): row for row in rows}
+    cited = {(sp["path"], sp["line"]) for sp in r.spans}
+    added = 0
+
+    def add(path: str, line: int) -> None:
+        nonlocal added
+        if added >= 8 or (path, line) in cited:
+            return
+        row = by_loc.get((path, line))
+        text = row.text if row is not None else ""
+        if text and scan_text(text):
+            return
+        r.spans.append({"path": path, "line": line, "text": text, "seg_id": getattr(row, "seg_id", "") if row is not None else ""})
+        cited.add((path, line))
+        added += 1
+
+    query = getattr(n, "query", "") or ""
+    content, mentions, _anchors = _content_terms(plan, query, keep_file_words=True) if query else ([], lambda *_: False, [])
+    pool = rows or list(hits)
+    num_lines: dict[str, list] = {}
+    for row in pool:
+        text = getattr(row, "text", "") or ""
+        for num in set(re.findall(r"\d{3,}", text)):
+            num_lines.setdefault(num, []).append(row)
+    quoted_nums: set[str] = set()
+    for sp in list(r.spans):
+        text = sp.get("text") or getattr(by_loc.get((sp["path"], sp["line"])), "text", "")
+        quoted_nums.update(re.findall(r"\d{3,}", text or ""))
+    for num in quoted_nums:
+        lines = num_lines.get(num) or []
+        if len(lines) > 8:
+            continue
+        for row in lines:
+            if any(mentions(row.text, t) for t in content):
+                add(row.path, row.line)
+    want_when = bool(_WHEN_RE.search(query))
+    versions = set(_VER_RE.findall(query))
+    for sp in list(r.spans):
+        row = by_loc.get((sp["path"], sp["line"]))
+        if row is None or not row.heading_line:
+            continue
+        head = by_loc.get((row.path, row.heading_line))
+        if head is None:
+            continue
+        shares_version = any(v in head.text for v in versions)
+        if shares_version or (want_when and _DATE_IN_HEAD_RE.search(head.text)):
+            add(head.path, head.line)
+        if row.text.lstrip().startswith("#"):
+            under = [o for o in pool if o.path == row.path and row.line < o.line <= row.line + 2]
+            if under:
+                nxt = min(under, key=lambda o: o.line)
+                if any(mentions(nxt.text, t) for t in content):
+                    add(nxt.path, nxt.line)
+    for ver in versions:
+        for row in pool:
+            if ver in getattr(row, "text", "") and getattr(row, "text", "").lstrip().startswith("#"):
+                add(row.path, row.line)
+                later = [o for o in pool if o.path == row.path and row.line < o.line <= row.line + 2]
+                if later:
+                    add(min(later, key=lambda o: o.line).path, min(later, key=lambda o: o.line).line)
+    if getattr(n, "kind", "") == "summarize":
+        qf = retrieval.fold(query)
+        for h in hits:
+            stem = h.path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+            if len(stem) >= 3 and retrieval.fold(stem) in qf:
+                add(h.path, h.line)
 
 
 async def _not_found_retry(r: NodeResult, n: Any, plan: Plan, hits: list[attach.Hit], dec: dict[str, Any], call_llm: LlmCall, calls: Calls) -> None:

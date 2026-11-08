@@ -11,6 +11,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from .chat_artifacts import sanitize_chat_history, strip_chat_artifact
 from .dce.parse import parse_request as parse_dce
 from .request_ir import parse_request, project_effects
 
@@ -256,8 +257,10 @@ def conversation(messages: Any) -> list[dict[str, str]]:
         text = flatten_content(message.get("content"))
         if text is None:
             continue
+        if message.get("role") == "assistant" and sanitize_chat_history():
+            text = strip_chat_artifact(text)
         if len(text) > _HISTORY_CHARS:
-            text = text[:_HISTORY_CHARS]
+            text = text[-_HISTORY_CHARS:] if message.get("role") == "assistant" else text[:_HISTORY_CHARS]
         out.append({"role": message["role"], "content": text})
     return out[-_HISTORY_TURNS:]
 

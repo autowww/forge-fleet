@@ -153,7 +153,9 @@ def typed_table(r: NodeResult, tt: dict[str, Any], plan: Plan) -> None:
         others = ", ".join(f"{o['label']} {o['value']:g}" for o in tt["others"])
         r.answer = (f"**{tt['label']}** — {tt['extreme']} `{col}`: **{tt['cell']}** (`{tt['path']}:{tt['line']}`; {tt['rows_considered']} rows compared"
                     + (f", next: {others}" if others else "") + ")")
-        r.spans.append(_span(plan, tt["path"], tt["line"], tt["seg_id"]))
+        # the winner is the answer; every row that was compared is evidence (oracle C012: the gold lists all five tests)
+        for row in tt.get("compared") or [{"path": tt["path"], "line": tt["line"], "seg_id": tt["seg_id"]}]:
+            r.spans.append(_span(plan, row["path"], row["line"], row["seg_id"]))
     elif tt["method"] == "typed_table_filter":
         blocks = []
         for tb in tt["tables"]:

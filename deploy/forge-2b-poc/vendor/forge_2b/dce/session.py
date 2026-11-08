@@ -207,4 +207,7 @@ def turn_from_results(asked: str, question: str, results: list[dict[str, Any]], 
 
 def chat_turn(asked: str, answer_head: str) -> Turn:
     """A conversation-lane turn: the words asked and the head of the reply, no archives, no goals."""
-    return Turn(question=asked, asked=asked, answer_head=(answer_head or "")[:300], lane="chat")
+    from ..chat_artifacts import strip_chat_artifact
+
+    head = strip_chat_artifact(answer_head or "")
+    return Turn(question=asked, asked=asked, answer_head=head[:300], lane="chat")

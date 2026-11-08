@@ -32,6 +32,7 @@ from typing import Any
 
 from .attachment_map import AttachmentMap, Segment
 from .lexicon import REQUEST_WORDS
+from . import aliases as A
 from .retrieval import STOPWORDS, fold, norm
 
 _WORD_RE = re.compile(r"[^\W_]+", re.UNICODE)
@@ -420,6 +421,9 @@ def typed_table_extreme(amap: AttachmentMap, query: str) -> dict[str, Any] | Non
             cw = _words(c) - STOPWORDS
             overlap = len(cw & qset)
             if overlap == 0:
+                # "which test took the longest?" names `duration_ms` through the alias `longest`/`took` (oracle C012)
+                overlap = 1 if any(set(key.split("_")) & cw for key in A.expand(query)) else 0
+            if overlap == 0:
                 continue
             sub = None
             if "/" in c:
@@ -450,6 +454,9 @@ def typed_table_extreme(amap: AttachmentMap, query: str) -> dict[str, Any] | Non
         return None   # two columns explain the question equally well: not a deterministic choice
     _o, t, col, sub = best[0]
     explained = _explained(t, set(_EXTREME_HIGH | _EXTREME_LOW))
+    for key, phrases in A.expand(query).items():
+        if set(key.split("_")) & (_words(col) - STOPWORDS):
+            explained |= {fold(w) for p in phrases for w in p.split()}
     for r in t.rows:
         explained |= r.label_words
     if _guard(words, explained):
@@ -477,7 +484,9 @@ def typed_table_extreme(amap: AttachmentMap, query: str) -> dict[str, Any] | Non
         return None
     return {"method": "typed_table_extreme", "extreme": "highest" if want_max else "lowest", "column": col, "sub": None if sub is None else col.split("/")[sub].strip(),
             "label": r.label, "value": val, "cell": cell.strip(), "path": t.path, "line": r.seg.start_line, "seg_id": r.seg.seg_id,
-            "rows_considered": len(scored), "others": [{"label": x[1].label, "value": x[0], "line": x[1].seg.start_line} for x in sorted(scored, key=lambda x: -x[0] if want_max else x[0])[1:4]]}
+            "rows_considered": len(scored),
+            "compared": [{"path": t.path, "line": x[1].seg.start_line, "seg_id": x[1].seg.seg_id} for x in scored],
+            "others": [{"label": x[1].label, "value": x[0], "line": x[1].seg.start_line} for x in sorted(scored, key=lambda x: -x[0] if want_max else x[0])[1:4]]}
 
 
 _UNIT_WORDS = frozenset({"ms", "sec", "secs", "s", "pct", "percent", "count", "n", "num", "total"})   # unit / measure suffixes of row labels

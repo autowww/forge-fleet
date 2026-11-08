@@ -25,6 +25,15 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from jsonschema import Draft202012Validator
 
 from . import attach, edgar, graph, live, zipingest
+from .dce.structured_turn import (
+    contract_note,
+    is_structured_contract,
+    json_instruction,
+    present_structured,
+    relax_answer_shaping,
+    reset_contract_note_override,
+    set_contract_note_override,
+)
 from .chat_lane import (
     attached_state_reply,
     capabilities_reply,
@@ -41,6 +50,7 @@ from .chat_lane import (
     trace_reading,
     visible_prefix,
 )
+from .chat_artifacts import chat_continue_on_length, chat_prose_only, reset_chat_experiment, set_chat_experiment
 from .dce import session as dce_session
 from .dce import shadow as dce_shadow
 
@@ -1077,6 +1087,13 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
 
         return StreamingResponse(generate(), media_type="text/event-stream", headers=headers)
 
+    def _chat_experiment_headers(req: Request) -> dict[str, str] | None:
+        keys = ("sanitize", "prose_only", "continue")
+        hdrs = {k: req.headers.get(f"x-forge-2b-exp-{k.replace('_', '-')}") for k in keys}
+        if all(v is None for v in hdrs.values()):
+            return None
+        return {k: (v if v is not None else "") for k, v in hdrs.items()}
+
     async def free_chat(request: Request, body: dict[str, Any], messages: Any, user_text: str):
         """Ordinary conversation. A side-effect-only ask is answered from the reader; every other ask is one pinned-model reply.
 
@@ -1084,7 +1101,18 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
         then `reply` / `refuse` / `identity`) is emitted the way the attachment and 10-K lanes do, so the user sees what ran
         and which step called the model (P1.3, 2026-11-06). JSON clients get the final graph only; streaming clients see the
         `reply` node ticking while the model is in flight."""
-        reading = comprehend(user_text)
+        exp_token = set_chat_experiment(_chat_experiment_headers(request))
+        note_hdr = request.headers.get("x-forge-2b-contract-note")
+        note_token = set_contract_note_override(note_hdr.strip().lower() if note_hdr else None)
+        try:
+            return await _free_chat_inner(request, body, messages, user_text, exp_token)
+        finally:
+            reset_contract_note_override(note_token)
+            reset_chat_experiment(exp_token)
+
+    async def _free_chat_inner(request: Request, body: dict[str, Any], messages: Any, user_text: str, _exp_token: object):
+        reading = relax_answer_shaping(comprehend(user_text), user_text)
+        structured = is_structured_contract(user_text)
         run_id = uuid.uuid4().hex
         lg = live.LiveGraph(run_id, "chat")
         lg.add("read", "zero_model", "chat_lane reader · side-effect lexicon, no model")
@@ -1156,7 +1184,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
         conv = conversation(messages) or [{"role": "user", "content": user_text[:4000]}]
         llm_body = {
             "model": cfg.backend_model,
-            "messages": [{"role": "system", "content": system_prompt(reading, previous_turn_note(prev))}, *conv],
+            "messages": [{"role": "system", "content": system_prompt(reading, previous_turn_note(prev)) + json_instruction(user_text) + contract_note(user_text)}, *conv],
             "temperature": 0,
             "max_tokens": 1024,
             "stream": False,
@@ -1171,6 +1199,10 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
             record["steps"] = lg.steps()
 
         async def reply_text() -> str:
+            finish_reason = "stop"
+            attempts = 0
+            content = ""
+            served = ""
             try:
                 async with run_sem:
                     async with httpx.AsyncClient(transport=transport, timeout=cfg.llm_timeout, follow_redirects=False) as client:
@@ -1178,9 +1210,29 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                         ids = {row.get("id") for row in models.get("data", []) if isinstance(row, dict)}
                         if cfg.backend_model not in ids:
                             raise POCError(503, "BACKEND_MODEL_NOT_ADVERTISED", "Backend model not advertised by authorized forge-llm gateway")
-                        answer = await call(client, "POST", cfg.llm_url.rstrip("/") + "/chat/completions", cfg.llm_key, json=llm_body)
-                content = answer["choices"][0]["message"]["content"]
-                served = str(answer.get("model", ""))
+                        msgs = list(llm_body["messages"])
+                        while True:
+                            attempts += 1
+                            body = {**llm_body, "messages": msgs}
+                            answer = await call(client, "POST", cfg.llm_url.rstrip("/") + "/chat/completions", cfg.llm_key, json=body)
+                            choice = answer["choices"][0]
+                            finish_reason = str(choice.get("finish_reason") or "stop")
+                            piece = choice["message"]["content"]
+                            if not isinstance(piece, str):
+                                piece = ""
+                            served = str(answer.get("model", ""))
+                            content = (content + piece).strip() if content else piece.strip()
+                            if finish_reason != "length" or not chat_continue_on_length() or attempts > 1 or structured:
+                                break
+                            msgs = [
+                                *msgs,
+                                {"role": "assistant", "content": piece},
+                                {
+                                    "role": "user",
+                                    "content": "Continue your previous answer where it stopped. Use plain text only; no HTML and no live graphs.",
+                                },
+                            ]
+                record["finish_reason"] = finish_reason
             except POCError:
                 failed()
                 raise
@@ -1194,12 +1246,25 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                 failed()
                 raise POCError(502, "BACKEND_MODEL_MISMATCH", "Gateway returned a different served model")
             record["served_model"] = served
-            record["attempts"] = 1
-            record["status"] = "COMMITTED"
-            record["stages"].append("reply")
+            record["attempts"] = attempts
+            truncated = finish_reason == "length"
+            if truncated and chat_continue_on_length():
+                record["status"] = "PARTIAL"
+                record["stages"].append("reply_truncated")
+            else:
+                record["status"] = "COMMITTED"
+                record["stages"].append("reply")
             text = visible_prefix(reading) + scrub_self_claim(content.strip()) + footer(reading)
+            text = present_structured(user_text, text)
             dce_store.push(sess_key, dce_session.chat_turn(user_text, text))
-            return text + done("reply", "COMMITTED", f"1 call · served {served}", "COMMITTED")
+            run_status = record["status"]
+            detail = f"{attempts} call(s) · served {served}" + (" · truncated" if truncated else "")
+            graph = done("reply", "COMMITTED" if run_status == "COMMITTED" else "PARTIAL", detail, run_status)
+            if structured:
+                return text
+            if chat_prose_only():
+                return text
+            return text + graph
 
         lg.start("reply", "one pinned-model call over the conversation")
         if not body.get("stream"):
