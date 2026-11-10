@@ -324,18 +324,49 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
     dce_sem = asyncio.Semaphore(cfg.dce_concurrency)
     dce_budget = dce_shadow.Budget(plan_ms=cfg.dce_plan_ms, max_model_calls=cfg.dce_max_model_calls, max_attempts=cfg.max_attempts)
     dce_store = dce_session.SessionStore()   # per-conversation last two turns, in memory only (decision 5)
-    catalog_cache: squid_catalog.SquidCatalog | None = None
-    catalog_at: float = 0.0
+    catalog_cache: squid_catalog.SquidCatalog | None = squid_catalog.load_disk_cache()
+    catalog_at: float = time.monotonic() if catalog_cache is not None else 0.0
+    catalog_lock = asyncio.Lock()
 
-    async def get_catalog(client: httpx.AsyncClient) -> squid_catalog.SquidCatalog:
+    async def refresh_catalog(client: httpx.AsyncClient) -> squid_catalog.SquidCatalog:
         nonlocal catalog_cache, catalog_at
         if not cfg.openwebui_base_url:
             return squid_catalog.SquidCatalog.empty(error="openwebui_base_url_not_configured")
-        if catalog_cache is not None and time.monotonic() - catalog_at < 60.0:
-            return catalog_cache
-        catalog_cache = await squid_catalog.fetch_catalog(client, cfg.openwebui_base_url, cfg.openwebui_api_key)
-        catalog_at = time.monotonic()
-        return catalog_cache
+        fetched = await squid_catalog.fetch_catalog(client, cfg.openwebui_base_url, cfg.openwebui_api_key)
+        async with catalog_lock:
+            if fetched.entries:
+                catalog_cache = fetched
+                catalog_at = time.monotonic()
+            elif catalog_cache is None:
+                catalog_cache = fetched
+        return catalog_cache or fetched
+
+    async def get_catalog(client: httpx.AsyncClient, *, allow_fetch: bool = True) -> squid_catalog.SquidCatalog:
+        nonlocal catalog_cache, catalog_at
+        if not cfg.openwebui_base_url:
+            return squid_catalog.SquidCatalog.empty(error="openwebui_base_url_not_configured")
+        async with catalog_lock:
+            if catalog_cache is not None and time.monotonic() - catalog_at < 60.0:
+                return catalog_cache
+        if not allow_fetch:
+            async with catalog_lock:
+                return catalog_cache or squid_catalog.SquidCatalog.empty(error="catalog_warming")
+        return await refresh_catalog(client)
+
+    async def _catalog_refresh_loop() -> None:
+        refresh_s = float(os.environ.get("FORGE_SQUID_CATALOG_REFRESH_S", "90"))
+        await asyncio.sleep(5.0)
+        while True:
+            try:
+                async with httpx.AsyncClient(transport=transport, timeout=45.0, follow_redirects=False) as client:
+                    await refresh_catalog(client)
+            except Exception:  # noqa: BLE001
+                pass
+            await asyncio.sleep(max(30.0, refresh_s))
+
+    @app.on_event("startup")
+    async def _squid_catalog_background() -> None:
+        asyncio.create_task(_catalog_refresh_loop())
 
     def resolve_client_model(model: str, catalog: squid_catalog.SquidCatalog) -> tuple[str, str]:
         try:
@@ -484,9 +515,11 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
     async def models(request: Request) -> dict[str, Any]:
         require_access(request)
         require_live()
+        # Never call Open WebUI /api/models on this path: OWUI aggregates connections by
+        # fetching this endpoint and would deadlock (ReadTimeout → empty catalog).
         async with httpx.AsyncClient(transport=transport, timeout=30.0, follow_redirects=False) as client:
             await check_backend(client)
-            catalog = await get_catalog(client)
+            catalog = await get_catalog(client, allow_fetch=False)
         rows = [
             {"id": entry.squid_id, "object": "model", "created": 0, "owned_by": branding.SERVICE_NAME}
             for entry in catalog.entries

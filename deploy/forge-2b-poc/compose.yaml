@@ -45,6 +45,7 @@ services:
       FORGE_2B_LLM_BASE_URL: ${FORGE_2B_LLM_BASE_URL:-http://forge-gateway:8080/v1}
       FORGE_2B_ENABLE_LIVE: "1"
       FORGE_2B_CACHE_DIR: /var/lib/forge-2b/cache
+      FORGE_SQUID_CATALOG_CACHE_FILE: ${FORGE_SQUID_CATALOG_CACHE_FILE:-/var/lib/forge-2b/cache/catalog-cache.json}
       FORGE_2B_LLM_TIMEOUT: ${FORGE_2B_LLM_TIMEOUT:-180}
       # tuned on the NVDA FY26 10-K etalon (forge-2b-poc artifacts/P2B-GRAPH): smaller windows + top-80 with category caps
       FORGE_2B_MAX_WINDOWS: ${FORGE_2B_MAX_WINDOWS:-240}

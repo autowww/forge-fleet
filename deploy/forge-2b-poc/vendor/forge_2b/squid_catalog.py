@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import httpx
 
-from . import branding
+from . import branding, env_keys
 
 SQUID_PREFIX = "forge-squid-"
 DEFAULT_UPSTREAM_MODEL = "qwen3.5:2b-q4_K_M"
@@ -137,6 +139,53 @@ def parse_owui_models_payload(data: Any) -> list[dict[str, Any]]:
     return []
 
 
+def catalog_cache_path() -> Path:
+    override = env_keys.first_env("FORGE_SQUID_CATALOG_CACHE_FILE")
+    if override:
+        return Path(override).expanduser()
+    return env_keys.config_dir() / "catalog-cache.json"
+
+
+def load_disk_cache() -> SquidCatalog | None:
+    path = catalog_cache_path()
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text())
+        rows = payload.get("upstream_rows")
+        if not isinstance(rows, list):
+            return None
+        catalog = build_catalog([r for r in rows if isinstance(r, dict)])
+        if catalog.error and not catalog.entries:
+            return None
+        return catalog
+    except (OSError, ValueError, TypeError):
+        return None
+
+
+def save_disk_cache(rows: list[dict[str, Any]], catalog: SquidCatalog) -> None:
+    from datetime import datetime, timezone
+
+    path = catalog_cache_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "upstream_rows": rows,
+                "squid_map": catalog.trace().get("map", {}),
+                "saved_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    )
+    try:
+        path.chmod(0o600)
+    except OSError:
+        pass
+
+
 async def fetch_catalog(client: httpx.AsyncClient, base_url: str, api_key: str) -> SquidCatalog:
     if not base_url:
         return SquidCatalog.empty(error="openwebui_base_url_not_configured")
@@ -149,7 +198,11 @@ async def fetch_catalog(client: httpx.AsyncClient, base_url: str, api_key: str) 
         payload = response.json()
     except (httpx.HTTPError, ValueError) as ex:
         return SquidCatalog.empty(error=f"{type(ex).__name__}")
-    return build_catalog(parse_owui_models_payload(payload))
+    rows = parse_owui_models_payload(payload)
+    catalog = build_catalog(rows)
+    if catalog.entries:
+        save_disk_cache(rows, catalog)
+    return catalog
 
 
 def completion_url(base_url: str) -> str:
