@@ -26,7 +26,7 @@ RESOLUTION_SCHEMA_VERSION = "forge.models.resolution.v0.2"
 REQUEST_SCHEMA_VERSION = "forge.models.resolution_request.v0.1"
 PROPOSAL_SCHEMA_VERSION = "forge.models.resolution_proposal.v0.1"
 RESOLVER_VERSION = "dce-g3/0.1.3"
-VERIFIER_VERSION = "dce-g3-verifier/0.1.3"
+VERIFIER_VERSION = "dce-g3-verifier/0.1.4"
 
 PATHS = ("node", "coverage")
 # ACCEPT_ADVISORY: the *relation* was verified deterministically (antecedent ref rebinds; typed edge recomputed from literal spans).

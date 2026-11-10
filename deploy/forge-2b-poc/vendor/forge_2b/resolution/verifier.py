@@ -251,6 +251,23 @@ def _ir_node_ids(ir: S.RequestIR) -> set[str]:
     return {n.id for coll in (g.objectives, g.constraints, g.conditions, g.unresolved, g.context_statements, g.protected_regions) for n in coll}
 
 
+def canonicalise_antecedent_ref(ref: str, offered: dict[str, Any]) -> str:
+    """G3V-014: map model shorthand to the sole offered ref when unique (no new refs invented)."""
+    if not ref or ref in offered:
+        return ref
+    by_tail: dict[str, list[str]] = {}
+    for r in offered:
+        tail = r.split(":", 1)[-1]
+        by_tail.setdefault(tail, []).append(r)
+    tail = ref.split(":", 1)[-1]
+    if tail in by_tail and len(by_tail[tail]) == 1:
+        return by_tail[tail][0]
+    hits = [r for r in offered if r.endswith(ref) or ref == r.split(":", 1)[-1]]
+    if len(hits) == 1:
+        return hits[0]
+    return ref
+
+
 # --------------------------------------------------------------------------------------------------------- verify ---
 @dataclass
 class VerifyResult:
@@ -338,7 +355,8 @@ def verify(req: ResolutionRequest, model_text: Optional[str], ir: S.RequestIR, u
                 rules.append("g3.v.unknown_node")
             if r["node_id"][:1] in ("c", "p"):
                 rules.append("g3.v.constraint_or_protected_target")
-            ref = r.get("antecedent_ref")
+            ref_raw = r.get("antecedent_ref")
+            ref = canonicalise_antecedent_ref(ref_raw, cands) if ref_raw else None
             cand = cands.get(ref) if ref else None
             if ref and cand is None:
                 rules.append("g3.v.fabricated_ref")
@@ -397,7 +415,7 @@ def verify(req: ResolutionRequest, model_text: Optional[str], ir: S.RequestIR, u
                 binding = "antecedent_ref" if r["relation"] == "antecedent" else "typed_recomputed"
                 F.append(VerifierFinding(proposal_index, "node", "ACCEPT_ADVISORY", ["g3.v.accepted_advisory"],
                                          f"advisory {r['relation']} for {r['node_id']} ({binding})", r["node_id"], i, rs, ev))
-                accepted.append({**r, "proposal_index": proposal_index, "item_index": i, "advisory": True, "binding": binding,
+                accepted.append({**r, "antecedent_ref": ref, "proposal_index": proposal_index, "item_index": i, "advisory": True, "binding": binding,
                                  "evidence_spans": [e.__dict__ for e in ev]})
             else:
                 # free-text interpretation: schema-safe, policy-clean, literals anchored — but its factual content is NOT verified

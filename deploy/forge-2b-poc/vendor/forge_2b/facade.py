@@ -1,10 +1,12 @@
-"""Isolated, feature-flagged Forge 2B API proof of concept.
+"""Forge Squid — OpenAI-compatible comprehension shim (forge-squid models).
 
-NOT a DCS execution engine. Uses forge-dcs ingest + compile, then forge-llm inference.
+Uses forge-dcs ingest + compile, then upstream LLM via Open WebUI or forge-llm gateway.
 """
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import contextvars
 import hashlib
 import hmac
 import json
@@ -24,8 +26,9 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from jsonschema import Draft202012Validator
 
-from . import attach, edgar, graph, live, zipingest
+from . import attach, branding, edgar, env_keys, graph, live, squid_catalog, zipingest
 from .dce.structured_turn import (
+    contract_kind,
     contract_note,
     is_structured_contract,
     json_instruction,
@@ -58,8 +61,10 @@ log = logging.getLogger("forge_2b")
 if not logging.getLogger().handlers:  # uvicorn configures only its own loggers; make node progress visible
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
-MODEL_ALIAS = "forge-2b"
-SOURCE_FILE_ID = "forge-2b-note"
+DEFAULT_SQUID_ID = squid_catalog.default_squid_id()
+SOURCE_FILE_ID = "forge-squid-note"
+_client_model: contextvars.ContextVar[str] = contextvars.ContextVar("client_model", default=DEFAULT_SQUID_ID)
+_upstream_model: contextvars.ContextVar[str | None] = contextvars.ContextVar("upstream_model", default=None)
 MAX_BODY_BYTES = 8 * 1024 * 1024  # Open WebUI prepends attached-file content to the last user message
 TEN_K_MARK = re.compile(r"\bFORM\s+10-K\b|\bANNUAL REPORT PURSUANT TO SECTION 13 OR 15\(d\)", re.I)
 SOURCE_PATTERN = re.compile(
@@ -103,12 +108,17 @@ class Config:
     incoming_key: str
     dcs_url: str
     dcs_key: str
-    llm_url: str
-    llm_key: str
-    backend_model: str
+    backend_model: str = DEFAULT_BACKEND
+    default_squid_id: str = squid_catalog.DEFAULT_SQUID_ID
+    llm_url: str = ""
+    llm_key: str = ""
+    backend_kind: str = "openwebui"
+    cursor_api_key: str = ""
+    openwebui_base_url: str = ""
+    openwebui_api_key: str = ""
     max_attempts: int = 2
     # graph executor knobs
-    edgar_user_agent: str = "forge-2b-poc/0.2 (ops@forgesdlc.com)"
+    edgar_user_agent: str = branding.DEFAULT_EDGAR_USER_AGENT
     cache_dir: Path | None = None
     max_source_bytes: int = 2 * 1024 * 1024
     window_chars: int = 2000
@@ -126,8 +136,7 @@ class Config:
     @classmethod
     def from_env(cls) -> "Config":
         dcs = _require_http_url("DCS_BASE_URL", os.environ.get("DCS_BASE_URL", "http://127.0.0.1:9793"))
-        llm = _require_http_url("FORGE_2B_LLM_BASE_URL", os.environ.get("FORGE_2B_LLM_BASE_URL", ""))
-        cache = os.environ.get("FORGE_2B_CACHE_DIR", "")
+        cache = env_keys.first_env("FORGE_SQUID_CACHE_DIR")
         d = zipingest.Limits()
         limits = zipingest.Limits(
             max_archive_bytes=int(os.environ.get("FORGE_2B_ZIP_MAX_ARCHIVE_MB", d.max_archive_bytes // 1048576)) * 1048576,
@@ -137,16 +146,22 @@ class Config:
             max_path_len=int(os.environ.get("FORGE_2B_ZIP_MAX_PATH", d.max_path_len)),
             max_ratio=int(os.environ.get("FORGE_2B_ZIP_MAX_RATIO", d.max_ratio)),
         )
+        default_squid = squid_catalog.default_squid_id()
         return cls(
             zip_limits=limits,
-            enabled=os.environ.get("FORGE_2B_ENABLE_LIVE") == "1",
-            incoming_key=os.environ.get("FORGE_2B_API_KEY", ""),
+            enabled=env_keys.first_env("FORGE_SQUID_ENABLE_LIVE") == "1",
+            incoming_key=env_keys.first_env("FORGE_SQUID_API_KEY"),
             dcs_url=dcs,
             dcs_key=os.environ.get("DCS_BEARER_TOKEN", os.environ.get("DCS_API_KEY", "")),
-            llm_url=llm,
-            llm_key=os.environ.get("FORGE_2B_LLM_API_KEY", os.environ.get("LLM_API_KEY", "")),
-            backend_model=os.environ.get("FORGE_2B_BACKEND_MODEL_ID", DEFAULT_BACKEND).strip() or DEFAULT_BACKEND,
-            edgar_user_agent=os.environ.get("FORGE_2B_EDGAR_USER_AGENT", cls.edgar_user_agent),
+            llm_url="",
+            llm_key="",
+            backend_model=DEFAULT_BACKEND,
+            backend_kind="openwebui",
+            cursor_api_key="",
+            default_squid_id=default_squid,
+            openwebui_base_url=squid_catalog.openwebui_base_url(),
+            openwebui_api_key=squid_catalog.openwebui_api_key(),
+            edgar_user_agent=env_keys.first_env("FORGE_SQUID_EDGAR_USER_AGENT", default=cls.edgar_user_agent),
             cache_dir=Path(cache) if cache else None,
             window_chars=int(os.environ.get("FORGE_2B_WINDOW_CHARS", cls.window_chars)),
             max_windows=int(os.environ.get("FORGE_2B_MAX_WINDOWS", cls.max_windows)),
@@ -253,14 +268,24 @@ def _headers(key: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {key}"}
 
 
+def _response_model() -> str:
+    return _client_model.get()
+
+
+def _effective_backend_model(cfg: Config) -> str:
+    upstream = _upstream_model.get()
+    return upstream if upstream else cfg.backend_model
+
+
 def _text_response(body: dict[str, Any], run_id: str, content: str, headers: dict[str, str]):
     """Single-shot OpenAI chat response (JSON or one-chunk SSE) for lanes whose result is already final."""
     created = int(time.time())
     response_id = "chatcmpl-" + run_id
+    alias = _response_model()
     if body.get("stream"):
 
         def chunk(delta: dict[str, str], finish: str | None = None) -> str:
-            frame = {"id": response_id, "object": "chat.completion.chunk", "created": created, "model": MODEL_ALIAS,
+            frame = {"id": response_id, "object": "chat.completion.chunk", "created": created, "model": alias,
                      "choices": [{"index": 0, "delta": delta, "finish_reason": finish}]}
             return "data: " + json.dumps(frame, ensure_ascii=False, separators=(",", ":")) + "\n\n"
 
@@ -272,7 +297,7 @@ def _text_response(body: dict[str, Any], run_id: str, content: str, headers: dic
 
         return StreamingResponse(generate(), media_type="text/event-stream", headers=headers)
     return JSONResponse(
-        content={"id": response_id, "object": "chat.completion", "created": created, "model": MODEL_ALIAS,
+        content={"id": response_id, "object": "chat.completion", "created": created, "model": alias,
                  "choices": [{"index": 0, "message": {"role": "assistant", "content": content}, "finish_reason": "stop"}]},
         headers=headers,
     )
@@ -286,6 +311,11 @@ def _backend_matches(served: str, expected: str) -> bool:
     return False
 
 
+def _backend_label(cfg: Config) -> str:
+    up = _upstream_model.get() or cfg.backend_model
+    return f"{up} (Open WebUI upstream)"
+
+
 def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransport | None = None) -> FastAPI:
     cfg = config or Config.from_env()
     app = FastAPI(title="Forge 2B OpenAI API PoC", docs_url=None, redoc_url=None)
@@ -294,6 +324,36 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
     dce_sem = asyncio.Semaphore(cfg.dce_concurrency)
     dce_budget = dce_shadow.Budget(plan_ms=cfg.dce_plan_ms, max_model_calls=cfg.dce_max_model_calls, max_attempts=cfg.max_attempts)
     dce_store = dce_session.SessionStore()   # per-conversation last two turns, in memory only (decision 5)
+    catalog_cache: squid_catalog.SquidCatalog | None = None
+    catalog_at: float = 0.0
+
+    async def get_catalog(client: httpx.AsyncClient) -> squid_catalog.SquidCatalog:
+        nonlocal catalog_cache, catalog_at
+        if not cfg.openwebui_base_url:
+            return squid_catalog.SquidCatalog.empty(error="openwebui_base_url_not_configured")
+        if catalog_cache is not None and time.monotonic() - catalog_at < 60.0:
+            return catalog_cache
+        catalog_cache = await squid_catalog.fetch_catalog(client, cfg.openwebui_base_url, cfg.openwebui_api_key)
+        catalog_at = time.monotonic()
+        return catalog_cache
+
+    def resolve_client_model(model: str, catalog: squid_catalog.SquidCatalog) -> tuple[str, str]:
+        try:
+            return catalog.resolve_client_model(model)
+        except ValueError as ex:
+            raise POCError(404, "MODEL_NOT_FOUND", "Unknown PoC model") from ex
+        except KeyError as ex:
+            raise POCError(404, "MODEL_NOT_FOUND", "Unknown forge-squid model") from ex
+
+    @contextlib.asynccontextmanager
+    async def request_route(client_model: str, upstream_model: str):
+        t_client = _client_model.set(client_model)
+        t_upstream = _upstream_model.set(upstream_model)
+        try:
+            yield
+        finally:
+            _client_model.reset(t_client)
+            _upstream_model.reset(t_upstream)
 
     async def dce_plan(ings: list[zipingest.Ingest], query: str, run_id: str, record: dict[str, Any]) -> dce_shadow.Plan | None:
         """Bounded deterministic DCE stage (parse → map → DAG → dry-run retrieval). Never raises: failures are recorded
@@ -330,8 +390,9 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
     def require_live() -> None:
         if not cfg.enabled:
             raise POCError(503, "LIVE_DISABLED", "Live PoC is disabled")
-        if not all([cfg.dcs_url, cfg.dcs_key, cfg.llm_url, cfg.llm_key, cfg.backend_model]):
-            raise POCError(503, "UPSTREAM_NOT_CONFIGURED", "Upstream DCS or forge-llm config incomplete")
+        needed = [cfg.dcs_url, cfg.dcs_key, cfg.openwebui_base_url, cfg.incoming_key]
+        if not all(needed):
+            raise POCError(503, "UPSTREAM_NOT_CONFIGURED", "DCS or Open WebUI catalog is not configured")
 
     async def call(client: httpx.AsyncClient, method: str, url: str, key: str, **kw: Any) -> Any:
         try:
@@ -348,16 +409,38 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
         sources = caps.get("sources") or {}
         if not sources.get("configured"):
             raise POCError(503, "DCS_SOURCES_UNAVAILABLE", "DCS source store is not configured (ingest-first PoC)")
-        models = await call(client, "GET", cfg.llm_url.rstrip("/") + "/models", cfg.llm_key)
-        ids = {row.get("id") for row in models.get("data", []) if isinstance(row, dict)}
-        if cfg.backend_model not in ids:
-            raise POCError(503, "BACKEND_MODEL_NOT_ADVERTISED", "Backend model not advertised by authorized forge-llm gateway")
-        catalog_trace: dict[str, Any] = {}
-        try:
-            catalog_trace = await call(client, "GET", cfg.llm_url.rstrip("/") + "/llm/catalog", cfg.llm_key)
-        except POCError:
-            catalog_trace = {"note": "catalog optional for gate; models list passed"}
+        upstream = _upstream_model.get()
+        catalog_trace: dict[str, Any] = (
+            {"note": "openwebui upstream", "upstream_model": upstream} if upstream else {"note": "openwebui catalog"}
+        )
         return {"capabilities": caps, "catalog_trace": catalog_trace}
+
+    async def complete_backend(client: httpx.AsyncClient, body: dict[str, Any]) -> dict[str, Any]:
+        upstream = _upstream_model.get()
+        if not upstream:
+            raise POCError(503, "UPSTREAM_NOT_CONFIGURED", "Request has no resolved Open WebUI upstream model")
+        if not cfg.openwebui_base_url:
+            raise POCError(503, "UPSTREAM_NOT_CONFIGURED", "Open WebUI base URL is not configured")
+        payload = dict(body)
+        payload["model"] = upstream
+        headers: dict[str, str] = {"Content-Type": "application/json"}
+        if cfg.openwebui_api_key:
+            headers["Authorization"] = f"Bearer {cfg.openwebui_api_key}"
+        url = squid_catalog.completion_url(cfg.openwebui_base_url)
+        try:
+            response = await client.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+            answer = response.json()
+        except (httpx.HTTPError, ValueError) as ex:
+            raise POCError(503, "UPSTREAM_UNAVAILABLE", "Open WebUI chat completion failed") from ex
+        if not isinstance(answer, dict):
+            raise POCError(502, "INVALID_GATEWAY_RESPONSE", "Open WebUI response malformed")
+        served = str(answer.get("model", ""))
+        if squid_catalog.is_shim_upstream_id(served):
+            raise POCError(502, "BACKEND_MODEL_MISMATCH", "Open WebUI returned a shim model (loop)")
+        if not _backend_matches(served, upstream):
+            raise POCError(502, "BACKEND_MODEL_MISMATCH", "Open WebUI returned a different served model")
+        return answer
 
     async def ingest_source(client: httpx.AsyncClient, data: bytes, file_id: str = SOURCE_FILE_ID) -> dict[str, str]:
         url = cfg.dcs_url.rstrip("/") + "/v1/sources"
@@ -387,15 +470,28 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
 
     @app.get("/healthz")
     async def healthz() -> dict[str, Any]:
-        return {"ok": True, "service": "forge-2b-poc", "live_enabled": cfg.enabled, "dce_mode": cfg.dce_mode}
+        return {
+            "ok": True,
+            "service": branding.SERVICE_NAME,
+            "live_enabled": cfg.enabled,
+            "dce_mode": cfg.dce_mode,
+            "backend_kind": cfg.backend_kind,
+            "default_squid_model": cfg.default_squid_id,
+            "openwebui_catalog": bool(cfg.openwebui_base_url),
+        }
 
     @app.get("/v1/models")
     async def models(request: Request) -> dict[str, Any]:
         require_access(request)
         require_live()
-        async with httpx.AsyncClient(transport=transport, timeout=12.0, follow_redirects=False) as client:
+        async with httpx.AsyncClient(transport=transport, timeout=30.0, follow_redirects=False) as client:
             await check_backend(client)
-        return {"object": "list", "data": [{"id": MODEL_ALIAS, "object": "model", "created": 0, "owned_by": "forge-2b-poc"}]}
+            catalog = await get_catalog(client)
+        rows = [
+            {"id": entry.squid_id, "object": "model", "created": 0, "owned_by": branding.SERVICE_NAME}
+            for entry in catalog.entries
+        ]
+        return {"object": "list", "data": rows, "squid_catalog": catalog.trace()}
 
     @app.get("/v1/forge/runs/{run_id}")
     async def run_trace(run_id: str, request: Request) -> dict[str, Any]:
@@ -431,7 +527,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                 "id": response_id,
                 "object": "chat.completion.chunk",
                 "created": created,
-                "model": MODEL_ALIAS,
+                "model": _response_model(),
                 "choices": [{"index": 0, "delta": delta, "finish_reason": finish}],
             }
             return "data: " + json.dumps(frame, ensure_ascii=False, separators=(",", ":")) + "\n\n"
@@ -439,7 +535,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
         record: dict[str, Any] = {
             "run_id": run_id,
             "kind": "graph",
-            "model_alias": MODEL_ALIAS,
+            "model_alias": _response_model(),
             "backend_model": cfg.backend_model,
             "raw_prompt_sha256": hashlib.sha256(user_text.encode()).hexdigest(),
             "directive": {"ticker": ticker, "accession": accession},
@@ -458,7 +554,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
         lg.add("source", "zero_model", "attached 10-K file" if source_loader else "SEC EDGAR fetch + HTML→paragraph text")
         lg.add("plan", "dcs", "forge-dcs ingest + plan compile (deterministic)")
         lg.add("triage", "zero_model", "signal-lexicon paragraph scoring + windowing; no neural NLP model")
-        lg.add("windows", "fixed_model", f"{cfg.backend_model} (Ollama via forge-gateway), one atomic call per window")
+        lg.add("windows", "fixed_model", f"{_backend_label(cfg)}, one atomic call per window")
         lg.add("reduce", "zero_model", "normalize + iXBRL verify + composite score + cluster, top-N")
         record["steps"] = lg.steps()
 
@@ -515,15 +611,12 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                     last_snap = time.monotonic()
 
                     async def llm(msgs: list[dict[str, str]], max_tokens: int) -> tuple[str, str]:
-                        answer = await call(
+                        answer = await complete_backend(
                             client,
-                            "POST",
-                            cfg.llm_url.rstrip("/") + "/chat/completions",
-                            cfg.llm_key,
-                            json={"model": cfg.backend_model, "messages": msgs, "temperature": 0, "max_tokens": max_tokens, "stream": False},
+                            {"model": _effective_backend_model(cfg), "messages": msgs, "temperature": 0, "max_tokens": max_tokens, "stream": False},
                         )
                         served = str(answer.get("model", ""))
-                        if not _backend_matches(served, cfg.backend_model):
+                        if not _backend_matches(served, _effective_backend_model(cfg)):
                             raise POCError(502, "BACKEND_MODEL_MISMATCH", "Gateway returned a different served model")
                         try:
                             return str(answer["choices"][0]["message"]["content"]), served
@@ -605,7 +698,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                     "id": response_id,
                     "object": "chat.completion",
                     "created": created,
-                    "model": MODEL_ALIAS,
+                    "model": _response_model(),
                     "choices": [{"index": 0, "message": {"role": "assistant", "content": content}, "finish_reason": "stop"}],
                 },
                 headers=headers,
@@ -727,7 +820,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
         stale = sorted({i.filename for i in ings if i not in ctx.zips and i.filename.lower().endswith(tuple(zipingest.ARCHIVE_EXTENSIONS))})
         steps: list[dict[str, Any]] = []
         record: dict[str, Any] = {
-            "run_id": run_id, "kind": "attachment", "model_alias": MODEL_ALIAS, "backend_model": cfg.backend_model,
+            "run_id": run_id, "kind": "attachment", "model_alias": _response_model(), "backend_model": cfg.backend_model,
             "raw_prompt_sha256": hashlib.sha256(user_text.encode()).hexdigest(), "query": query[:500],
             "archives": [{"archive_id": i.archive_id, "filename": i.filename, "entries": len(i.entries), "included": len(i.included),
                           "integrity": dict(i.integrity)} for i in ings],
@@ -784,7 +877,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
         # ---- live-streamed body ---------------------------------------------------------------------------
         stream = bool(body.get("stream"))
         lg = live.LiveGraph(run_id, "attachment")
-        llm_engine = f"{cfg.backend_model} (Ollama via forge-gateway, temperature 0)"
+        llm_engine = _backend_label(cfg)
         terms, paths = attach.query_terms(query)
         listing = attach.is_list_request(query) or (not terms and not paths)  # small talk ("hi") with a file -> show the manifest
         want_qa = not listing or bool(paths) or len(terms) >= 2
@@ -897,8 +990,10 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                                     yield "snap", lg.snapshot_html()  # the LLM is in flight: timer ticks in the artifact
                                     t0 = time.monotonic()
                                     try:
-                                        answer = await call(client, "POST", cfg.llm_url.rstrip("/") + "/chat/completions", cfg.llm_key,
-                                                            json={"model": cfg.backend_model, "messages": msgs, "temperature": 0, "max_tokens": 400, "stream": False})
+                                        answer = await complete_backend(
+                                            client,
+                                            {"model": _effective_backend_model(cfg), "messages": msgs, "temperature": 0, "max_tokens": 400, "stream": False},
+                                        )
                                         served = str(answer.get("model", ""))
                                         content = str(answer["choices"][0]["message"]["content"])
                                     except (POCError, KeyError, IndexError, TypeError) as ex:
@@ -907,7 +1002,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                                         yield "text", f"  - ✗ upstream error ({type(ex).__name__}); retrying\n"
                                         continue
                                     ms = int((time.monotonic() - t0) * 1000)
-                                    if not _backend_matches(served, cfg.backend_model):
+                                    if not _backend_matches(served, _effective_backend_model(cfg)):
                                         attempts.append({"attempt": attempt, "failure": "BACKEND_MODEL_MISMATCH", "served": served})
                                         yield "text", f"  - ✗ served model `{served}` is not the pinned backend; aborting\n"
                                         break
@@ -1003,10 +1098,12 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                 record["upstream_catalog"] = trace_meta.get("catalog_trace")
 
                 async def call_llm(msgs: list[dict[str, str]], *, max_tokens: int = dce_shadow.Q2_MAX_TOKENS) -> tuple[str, str]:
-                    answer = await call(client, "POST", cfg.llm_url.rstrip("/") + "/chat/completions", cfg.llm_key,
-                                        json={"model": cfg.backend_model, "messages": msgs, "temperature": 0, "max_tokens": max_tokens, "stream": False})
+                    answer = await complete_backend(
+                        client,
+                        {"model": _effective_backend_model(cfg), "messages": msgs, "temperature": 0, "max_tokens": max_tokens, "stream": False},
+                    )
                     served = str(answer.get("model", ""))
-                    if not _backend_matches(served, cfg.backend_model):
+                    if not _backend_matches(served, _effective_backend_model(cfg)):
                         raise POCError(502, "BACKEND_MODEL_MISMATCH", "Gateway returned a different served model")
                     return str(answer["choices"][0]["message"]["content"]), served
 
@@ -1067,7 +1164,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
         response_id = "chatcmpl-" + run_id
 
         def chunk(delta: dict[str, str], finish: str | None = None) -> str:
-            frame = {"id": response_id, "object": "chat.completion.chunk", "created": created, "model": MODEL_ALIAS,
+            frame = {"id": response_id, "object": "chat.completion.chunk", "created": created, "model": _response_model(),
                      "choices": [{"index": 0, "delta": delta, "finish_reason": finish}]}
             return "data: " + json.dumps(frame, ensure_ascii=False, separators=(",", ":")) + "\n\n"
 
@@ -1111,6 +1208,8 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
             reset_chat_experiment(exp_token)
 
     async def _free_chat_inner(request: Request, body: dict[str, Any], messages: Any, user_text: str, _exp_token: object):
+        route_client = _client_model.get()
+        route_upstream = _upstream_model.get()
         reading = relax_answer_shaping(comprehend(user_text), user_text)
         structured = is_structured_contract(user_text)
         run_id = uuid.uuid4().hex
@@ -1119,7 +1218,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
         lg.start("read")
         record: dict[str, Any] = {
             "run_id": run_id,
-            "model_alias": MODEL_ALIAS,
+            "model_alias": _response_model(),
             "backend_model": cfg.backend_model,
             "kind": "chat",
             "lane": "chat",
@@ -1183,13 +1282,19 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
 
         conv = conversation(messages) or [{"role": "user", "content": user_text[:4000]}]
         llm_body = {
-            "model": cfg.backend_model,
+            "model": _effective_backend_model(cfg),
             "messages": [{"role": "system", "content": system_prompt(reading, previous_turn_note(prev)) + json_instruction(user_text) + contract_note(user_text)}, *conv],
             "temperature": 0,
             "max_tokens": 1024,
             "stream": False,
         }
-        lg.add("reply", "fixed_model", cfg.backend_model)
+        if contract_kind(user_text) == "json":
+            # One completion, same weights. The gateway emits a JSON object and does not spend the
+            # reply on a thinking preamble. The schema is "an object", never the expected fields.
+            llm_body["response_format"] = {"type": "json_object"}
+            llm_body["think"] = False
+            llm_body["reasoning_effort"] = "none"
+        lg.add("reply", "fixed_model", _effective_backend_model(cfg))
 
         def failed() -> None:
             record["status"] = "FAILED"
@@ -1206,15 +1311,20 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
             try:
                 async with run_sem:
                     async with httpx.AsyncClient(transport=transport, timeout=cfg.llm_timeout, follow_redirects=False) as client:
-                        models = await call(client, "GET", cfg.llm_url.rstrip("/") + "/models", cfg.llm_key)
-                        ids = {row.get("id") for row in models.get("data", []) if isinstance(row, dict)}
-                        if cfg.backend_model not in ids:
-                            raise POCError(503, "BACKEND_MODEL_NOT_ADVERTISED", "Backend model not advertised by authorized forge-llm gateway")
                         msgs = list(llm_body["messages"])
                         while True:
                             attempts += 1
                             body = {**llm_body, "messages": msgs}
-                            answer = await call(client, "POST", cfg.llm_url.rstrip("/") + "/chat/completions", cfg.llm_key, json=body)
+                            try:
+                                answer = await complete_backend(client, body)
+                            except POCError:
+                                if "response_format" not in body:
+                                    raise
+                                # The gateway 500s on json_object for some long contracts. One plain retry,
+                                # same messages, still a single answer the client sees.
+                                plain = {k: v for k, v in body.items() if k not in ("response_format", "think", "reasoning_effort")}
+                                answer = await complete_backend(client, plain)
+                                record["stages"].append("json_mode_fallback")
                             choice = answer["choices"][0]
                             finish_reason = str(choice.get("finish_reason") or "stop")
                             piece = choice["message"]["content"]
@@ -1242,7 +1352,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
             if not isinstance(content, str) or not content.strip():
                 failed()
                 raise POCError(502, "INVALID_GATEWAY_RESPONSE", "Gateway response has no assistant content")
-            if not _backend_matches(served, cfg.backend_model):
+            if not _backend_matches(served, _effective_backend_model(cfg)):
                 failed()
                 raise POCError(502, "BACKEND_MODEL_MISMATCH", "Gateway returned a different served model")
             record["served_model"] = served
@@ -1274,19 +1384,25 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
         response_id = "chatcmpl-" + run_id
 
         def chunk(delta: dict[str, str], finish: str | None = None) -> str:
-            frame = {"id": response_id, "object": "chat.completion.chunk", "created": created, "model": MODEL_ALIAS,
+            frame = {"id": response_id, "object": "chat.completion.chunk", "created": created, "model": _response_model(),
                      "choices": [{"index": 0, "delta": delta, "finish_reason": finish}]}
             return "data: " + json.dumps(frame, ensure_ascii=False, separators=(",", ":")) + "\n\n"
 
         async def generate():
-            yield chunk({"role": "assistant"})
-            yield chunk({"content": lg.snapshot_html()})   # the model is in flight: the `reply` timer ticks in the artifact
+            t_client = _client_model.set(route_client)
+            t_upstream = _upstream_model.set(route_upstream)
             try:
-                yield chunk({"content": await reply_text()})
-            except POCError as ex:
-                yield chunk({"content": f"\n\n**Run failed:** `{ex.code}` — {ex.message}. No reply committed.\n" + lg.snapshot_html(final=True)})
-            yield chunk({}, "stop")
-            yield "data: [DONE]\n\n"
+                yield chunk({"role": "assistant"})
+                yield chunk({"content": lg.snapshot_html()})   # the model is in flight: the `reply` timer ticks in the artifact
+                try:
+                    yield chunk({"content": await reply_text()})
+                except POCError as ex:
+                    yield chunk({"content": f"\n\n**Run failed:** `{ex.code}` — {ex.message}. No reply committed.\n" + lg.snapshot_html(final=True)})
+                yield chunk({}, "stop")
+                yield "data: [DONE]\n\n"
+            finally:
+                _client_model.reset(t_client)
+                _upstream_model.reset(t_upstream)
 
         return StreamingResponse(generate(), media_type="text/event-stream", headers=headers)
 
@@ -1301,8 +1417,14 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
             body = json.loads(raw)
         except ValueError as ex:
             raise POCError(400, "INVALID_REQUEST", "Body must be valid JSON") from ex
-        if not isinstance(body, dict) or body.get("model") != MODEL_ALIAS:
-            raise POCError(404, "MODEL_NOT_FOUND", "Unknown PoC model")
+        if not isinstance(body, dict):
+            raise POCError(400, "INVALID_REQUEST", "Body must be a JSON object")
+        client_model = body.get("model")
+        if not isinstance(client_model, str) or not client_model.strip():
+            raise POCError(400, "INVALID_REQUEST", "model must be a non-empty string")
+        async with httpx.AsyncClient(transport=transport, timeout=30.0, follow_redirects=False) as client:
+            catalog = await get_catalog(client)
+        client_model, upstream = resolve_client_model(client_model.strip(), catalog)
         messages = body.get("messages")
         user_text = _last_user_text(messages)
         if user_text is None:
@@ -1311,32 +1433,35 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
             raise POCError(422, "UNSUPPORTED_FEATURE", "Tools and client-supplied output schemas are outside first PoC")
         if body.get("stream") not in (None, True, False):
             raise POCError(422, "INVALID_REQUEST", "stream must be boolean")
-        ctx = attach.parse_openwebui_context(user_text)
-        if ctx is not None and ctx.sources:
-            return await attachment_run(request, body, user_text, ctx)
-        task_answer = attach.task_response(user_text)
-        if task_answer is not None:  # Open WebUI housekeeping prompts: zero-model, never inference
-            return _text_response(body, uuid.uuid4().hex, task_answer, {"Cache-Control": "no-store", "X-Forge-Lane": "task"})
-        if edgar.parse_directive(user_text) and "SOURCE:" not in user_text:
-            return await graph_run(request, body, user_text)
-        if not SOURCE_PATTERN.fullmatch(user_text):
-            return await free_chat(request, body, messages, user_text)
-        expected, source = parse_fixture(user_text)
-        run_id = uuid.uuid4().hex
 
-        async with run_sem:
-            record: dict[str, Any] = {
-                "run_id": run_id,
-                "model_alias": MODEL_ALIAS,
-                "backend_model": cfg.backend_model,
-                "raw_prompt_sha256": hashlib.sha256(user_text.encode()).hexdigest(),
-                "status": "RUNNING",
-                "attempts": 0,
-                "stages": ["accepted"],
-            }
-            if len(traces) >= 100:
-                traces.pop(next(iter(traces)))
-            traces[run_id] = record
+        async with request_route(client_model, upstream):
+            ctx = attach.parse_openwebui_context(user_text)
+            if ctx is not None and ctx.sources:
+                return await attachment_run(request, body, user_text, ctx)
+            task_answer = attach.task_response(user_text)
+            if task_answer is not None:  # Open WebUI housekeeping prompts: zero-model, never inference
+                return _text_response(body, uuid.uuid4().hex, task_answer, {"Cache-Control": "no-store", "X-Forge-Lane": "task"})
+            if edgar.parse_directive(user_text) and "SOURCE:" not in user_text:
+                return await graph_run(request, body, user_text)
+            if not SOURCE_PATTERN.fullmatch(user_text):
+                return await free_chat(request, body, messages, user_text)
+            expected, source = parse_fixture(user_text)
+            run_id = uuid.uuid4().hex
+
+            async with run_sem:
+                record: dict[str, Any] = {
+                    "run_id": run_id,
+                    "model_alias": _response_model(),
+                    "backend_model": _effective_backend_model(cfg),
+                    "upstream_model": upstream,
+                    "raw_prompt_sha256": hashlib.sha256(user_text.encode()).hexdigest(),
+                    "status": "RUNNING",
+                    "attempts": 0,
+                    "stages": ["accepted"],
+                }
+                if len(traces) >= 100:
+                    traces.pop(next(iter(traces)))
+                traces[run_id] = record
             plan: dict[str, Any] = {}
             try:
                 async with httpx.AsyncClient(transport=transport, timeout=35.0, follow_redirects=False) as client:
@@ -1361,7 +1486,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                         if attempt > 1:
                             sys += f" Previous attempt failed deterministic gate: {last_failure}. Retry from original SOURCE only."
                         llm_body = {
-                            "model": cfg.backend_model,
+                            "model": _effective_backend_model(cfg),
                             "messages": [
                                 {"role": "system", "content": sys},
                                 {"role": "user", "content": source.decode("utf-8")},
@@ -1370,14 +1495,12 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                             "max_tokens": 256,
                             "stream": False,
                         }
-                        answer = await call(
-                            client, "POST", cfg.llm_url.rstrip("/") + "/chat/completions", cfg.llm_key, json=llm_body
-                        )
+                        answer = await complete_backend(client, llm_body)
                         try:
                             content = answer["choices"][0]["message"]["content"]
                             validated = validate_output(content, expected)
                             served = answer.get("model", "")
-                            if not _backend_matches(str(served), cfg.backend_model):
+                            if not _backend_matches(str(served), _effective_backend_model(cfg)):
                                 raise POCError(502, "BACKEND_MODEL_MISMATCH", "Gateway returned a different served model")
                             record["served_model"] = served
                             record["stages"].append("validation_pass")
@@ -1405,7 +1528,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                 "id": response_id,
                 "object": "chat.completion",
                 "created": created,
-                "model": MODEL_ALIAS,
+                "model": _response_model(),
                 "choices": [{"index": 0, "message": {"role": "assistant", "content": content}, "finish_reason": "stop"}],
             }
             headers = {"X-Forge-Run-Id": run_id, "X-Forge-Plan-Hash": plan["plan_hash"], "Cache-Control": "no-store"}
@@ -1416,7 +1539,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                         "id": response_id,
                         "object": "chat.completion.chunk",
                         "created": created,
-                        "model": MODEL_ALIAS,
+                        "model": _response_model(),
                         "choices": [{"index": 0, "delta": delta, "finish_reason": finish}],
                     }
                     return "data: " + json.dumps(frame, ensure_ascii=False, separators=(",", ":")) + "\n\n"

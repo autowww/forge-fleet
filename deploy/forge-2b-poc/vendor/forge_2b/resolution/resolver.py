@@ -86,7 +86,9 @@ def _call(backend: ResolverBackend, prompt: str, budget: Budget, seed: int, rema
 
 
 def resolve(ir: S.RequestIR, utterance: str, graph: Optional[EvidenceGraph], *, backend: Optional[ResolverBackend],
-            sources_text: Optional[dict[str, str]] = None, budget: Budget = Budget(), seed: int = 0) -> ResolveResult:
+            sources_text: Optional[dict[str, str]] = None, budget: Budget = Budget(), seed: int = 0,
+            prompt_version: Optional[str] = None, closed_refs: bool = False) -> ResolveResult:
+    pv = prompt_version or prompts.PROMPT_VERSION
     if not isinstance(ir, S.RequestIR):
         raise TypeError("ir must be a RequestIR")
     if graph is not None and not isinstance(graph, EvidenceGraph):
@@ -116,8 +118,8 @@ def resolve(ir: S.RequestIR, utterance: str, graph: Optional[EvidenceGraph], *, 
     if backend is not None and sel.outcome == "calls":
         idx = 0
         for n in sel.nodes:
-            req = _node_request(ir, utterance, graph, n, sources_text, allowed_ids, warn_codes, budget, g_d0, ir_d0)
-            prompt = prompts.build_node_prompt(req)
+            req = _node_request(ir, utterance, graph, n, sources_text, allowed_ids, warn_codes, budget, g_d0, ir_d0, pv)
+            prompt = prompts.build_node_prompt(req, prompt_version=pv, closed_refs=closed_refs)
             req.prompt_digest = prompt_digest(prompt)
             requests.append(req)
             idx = _run_one(req, prompt, idx, backend, budget, seed, ir, utterance, graph, sources_text, None, proposals, findings, accepted,
@@ -126,7 +128,7 @@ def resolve(ir: S.RequestIR, utterance: str, graph: Optional[EvidenceGraph], *, 
             gaps = [(g.char_start, g.char_end) for g in sel.gaps]
             req = ResolutionRequest(REQUEST_SCHEMA_VERSION, ir.digest, ir_d0, g_d0, "coverage", "coverage_gap",
                                     RequestSpan(0, len(utterance), utterance), RequestSpan(0, len(utterance), utterance), [], [], warn_codes,
-                                    budget, prompts.PROMPT_VERSION)
+                                    budget, pv)
             prompt = prompts.build_coverage_prompt(req, utterance, _node_summaries(ir), [(g.char_start, g.char_end, g.text) for g in sel.gaps])
             req.prompt_digest = prompt_digest(prompt)
             requests.append(req)
@@ -141,7 +143,7 @@ def resolve(ir: S.RequestIR, utterance: str, graph: Optional[EvidenceGraph], *, 
 
     backend_desc = backend.describe() if backend is not None else {"kind": "none", "model_id": "none", "runtime": {}, "settings": {}}
     backend_desc = {"kind": backend_desc["kind"], "model_id": str(backend_desc["model_id"]), "runtime": dict(backend_desc.get("runtime") or {}),
-                    "prompt_version": prompts.PROMPT_VERSION, "settings": dict(backend_desc.get("settings") or {})}
+                    "prompt_version": pv, "settings": dict(backend_desc.get("settings") or {})}
     ov = ResolutionOverlay(RESOLUTION_SCHEMA_VERSION, RESOLVER_VERSION, VERIFIER_VERSION, ir.digest, ir_d0, g_d0, backend_desc, sel.to_dict(),
                            [r.to_dict() for r in requests], proposals, [f.to_dict() for f in findings], accepted, coverage, unverified, warnings, tel,
                            list(NOTES))
@@ -152,15 +154,16 @@ def resolve(ir: S.RequestIR, utterance: str, graph: Optional[EvidenceGraph], *, 
 
 
 def _node_request(ir: S.RequestIR, utterance: str, graph: Optional[EvidenceGraph], n: SelectedNode, sources_text: Optional[dict[str, str]],
-                  allowed_ids: list[str], warn_codes: list[str], budget: Budget, g_d: str, ir_d: str) -> ResolutionRequest:
+                  allowed_ids: list[str], warn_codes: list[str], budget: Budget, g_d: str, ir_d: str,
+                  prompt_version: str) -> ResolutionRequest:
     clause = RequestSpan(n.span.start, n.span.end, utterance[n.span.start:n.span.end])
     ctx = clause_context(utterance, n.span)
     cands = candidates_for(ir, graph, n, sources_text)
     req = ResolutionRequest(REQUEST_SCHEMA_VERSION, ir.digest, ir_d, g_d, "node", n.uncertainty_reason, clause, ctx, allowed_ids, cands,
-                            warn_codes, budget, prompts.PROMPT_VERSION, n.node_id, n.node_kind)
+                            warn_codes, budget, prompt_version, n.node_id, n.node_kind)
     # trim candidates until the prompt fits the input budget (deterministic: drop from the tail). This is best effort only:
     # the exact assembled prompt is re-checked in _run_one before any call and is never sent when it still does not fit (F12).
-    while len(req.candidates) > 1 and prompts.estimate_tokens(prompts.build_node_prompt(req)) > budget.max_input_tokens:
+    while len(req.candidates) > 1 and prompts.estimate_tokens(prompts.build_node_prompt(req, prompt_version=prompt_version)) > budget.max_input_tokens:
         req.candidates = req.candidates[:-1]
     errs = validate_request(req.to_dict())
     if errs:

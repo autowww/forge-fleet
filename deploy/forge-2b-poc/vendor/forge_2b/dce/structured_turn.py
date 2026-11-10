@@ -327,7 +327,21 @@ def _first_object(text: str):
     try:
         value, end = json.JSONDecoder().raw_decode(text[start:])
     except json.JSONDecodeError:
-        return None
+        return _lenient_object(text[start:])
     if isinstance(value, dict):
         return value
     return None
+
+
+def _lenient_object(text: str):
+    """Recover one object from unquoted keys or a trailing comma. Values are the model's own."""
+    end = text.rfind("}")
+    if end < 0:
+        return None
+    chunk = re.sub(r",(\s*[}\]])", r"\1", text[: end + 1])
+    chunk = re.sub(r"([{\[,]\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:", r'\1"\2":', chunk)
+    try:
+        value = json.loads(chunk)
+    except json.JSONDecodeError:
+        return None
+    return value if isinstance(value, dict) else None

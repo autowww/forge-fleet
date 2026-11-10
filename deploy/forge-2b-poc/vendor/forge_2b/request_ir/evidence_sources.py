@@ -5,7 +5,8 @@ sources** plus structured *facts* (key/value lines, CSV cells, Markdown headings
 
 Everything here is data handling only:
 
-* no network, no filesystem, no shell — bytes in, dataclasses out; the caller owns I/O;
+* no network, no filesystem, no shell — bytes in, dataclasses out; the caller owns I/O (callers must cap attachment count and total
+  raw bytes before ``load_sources`` — see ``ResourceLimits`` and G2I);
 * attachment content is **untrusted data** — nothing in it is ever read as an instruction, and this module never looks at a
   ``RequestIR``;
 * every limit in :class:`ResourceLimits` is enforced and every skip is reported as a :class:`SourceWarning` — bounded partial
@@ -25,6 +26,8 @@ import json
 import posixpath
 import re
 import stat
+import struct
+import time
 import zipfile
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Optional
@@ -47,6 +50,9 @@ class ResourceLimits:
     max_facts_per_source: int = 5000
     max_lines_per_source: int = 50000
     max_csv_columns: int = 256
+    max_raw_archive_bytes: int = 32 * 1024 * 1024   # G2I I1: before hash/open
+    max_total_raw_bytes: int = 64 * 1024 * 1024     # G2I-H: cumulative raw bytes admitted per request
+    max_scan_ms: int = 2000                         # G2I I4: best-effort wall clock (checkpoints in loops; 0 = off)
 
     def as_dict(self) -> dict[str, Any]:
         return {k: getattr(self, k) for k in self.__dataclass_fields__}
@@ -87,8 +93,22 @@ WARNING_CODES = (
     "too_many_attachments", "entry_too_large", "total_too_large", "binary_skipped", "decode_fallback_latin1",
     "zip_invalid", "zip_too_many_entries", "zip_unsafe_path", "zip_symlink", "zip_nested_archive", "zip_compression_ratio",
     "zip_duplicate_path", "zip_directory", "csv_malformed", "json_malformed", "facts_truncated", "lines_truncated",
-    "unknown_media_type", "empty_source",
+    "unknown_media_type", "empty_source", "zip_raw_too_large", "scan_budget_exhausted", "raw_admission_too_large",
 )
+
+
+def _scan_over_budget(t_scan: float, limits: ResourceLimits) -> bool:
+    return bool(limits.max_scan_ms) and (time.perf_counter() - t_scan) * 1000.0 > limits.max_scan_ms
+
+
+def _zip_eocd_entry_count(raw: bytes) -> Optional[int]:
+    """Read central-directory entry count from the EOCD without inflating members (G2I I2)."""
+    sig = b"PK\x05\x06"
+    idx = raw.rfind(sig, max(0, len(raw) - 65557))
+    if idx < 0 or idx + 22 > len(raw):
+        return None
+    disk_entries, disk_entries_on_disk = struct.unpack_from("<HH", raw, idx + 8)
+    return max(disk_entries, disk_entries_on_disk)
 
 
 @dataclass(frozen=True)
@@ -592,17 +612,21 @@ def scan_markdown(sid: str, text: str, starts: list[int], limits: ResourceLimits
 
 # ------------------------------------------------------------------------------------------------------ assembling ---
 def _decode_one(name: str, path: str, origin: str, raw: bytes, mime: Optional[str], limits: ResourceLimits,
-                warnings: list[SourceWarning], stats: dict[str, int]) -> Optional[DecodedSource]:
+                warnings: list[SourceWarning], stats: dict[str, int], *, t_scan: float = 0.0) -> Optional[DecodedSource]:
+    if t_scan and _scan_over_budget(t_scan, limits):
+        warnings.append(SourceWarning("scan_budget_exhausted", path, f"max_scan_ms {limits.max_scan_ms}"))
+        return None
+    size = len(raw)
+    if size > limits.max_entry_bytes:
+        warnings.append(SourceWarning("entry_too_large", path, f"{size} > max_entry_bytes {limits.max_entry_bytes}"))
+        return DecodedSource(SourceRef(_source_id(origin, path, "sha256:0"), "sha256:0", path, origin,
+                                       media_type_for(path, mime), None, size, False), "")
     digest = "sha256:" + sha256_hex(raw)
     media = media_type_for(path, mime)
     sid = _source_id(origin, path, digest)
-    size = len(raw)
     if size == 0:
         warnings.append(SourceWarning("empty_source", path, "zero bytes"))
         return DecodedSource(SourceRef(sid, digest, path, origin, media, None, 0, False), "")
-    if size > limits.max_entry_bytes:
-        warnings.append(SourceWarning("entry_too_large", path, f"{size} > max_entry_bytes {limits.max_entry_bytes}"))
-        return DecodedSource(SourceRef(sid, digest, path, origin, media, None, size, False), "")
     if stats["bytes_decoded"] + size > limits.max_total_bytes:
         warnings.append(SourceWarning("total_too_large", path, f"would exceed max_total_bytes {limits.max_total_bytes}"))
         return DecodedSource(SourceRef(sid, digest, path, origin, media, None, size, False), "")
@@ -648,9 +672,22 @@ def _decode_one(name: str, path: str, origin: str, raw: bytes, mime: Optional[st
 
 
 def _expand_zip(att: AttachmentInput, raw: bytes, limits: ResourceLimits, warnings: list[SourceWarning],
-                stats: dict[str, int], depth: int) -> list[DecodedSource]:
+                stats: dict[str, int], depth: int, *, t_scan: float) -> list[DecodedSource]:
     out: list[DecodedSource] = []
     base = normalize_safe_path(att.name) or "archive.zip"
+    if len(raw) > limits.max_raw_archive_bytes:
+        warnings.append(SourceWarning("zip_raw_too_large", base, f"{len(raw)} > max_raw_archive_bytes {limits.max_raw_archive_bytes}"))
+        container_digest = "sha256:" + sha256_hex(raw[: limits.max_raw_archive_bytes])
+        out.append(DecodedSource(SourceRef(_source_id(att.origin, base, container_digest), container_digest, base, att.origin, "zip",
+                                       None, min(len(raw), limits.max_raw_archive_bytes), False), ""))
+        return out
+    eocd_count = _zip_eocd_entry_count(raw)
+    if eocd_count is not None and eocd_count > limits.max_zip_entries:
+        warnings.append(SourceWarning("zip_too_many_entries", base, f"EOCD reports {eocd_count} > {limits.max_zip_entries}; not opened"))
+        container_digest = "sha256:" + sha256_hex(raw)
+        out.append(DecodedSource(SourceRef(_source_id(att.origin, base, container_digest), container_digest, base, att.origin, "zip",
+                                       None, len(raw), False), ""))
+        return out
     # the archive itself is a (non-decoded) container source, so a request naming "bundle.zip" can link to it (G2 burned repair)
     container_digest = "sha256:" + sha256_hex(raw)
     out.append(DecodedSource(SourceRef(_source_id(att.origin, base, container_digest), container_digest, base, att.origin, "zip",
@@ -666,6 +703,9 @@ def _expand_zip(att: AttachmentInput, raw: bytes, limits: ResourceLimits, warnin
         infos = infos[: limits.max_zip_entries]
     seen: set[str] = set()
     for info in infos:
+        if _scan_over_budget(t_scan, limits):
+            warnings.append(SourceWarning("scan_budget_exhausted", base, f"max_scan_ms {limits.max_scan_ms} (zip member loop)"))
+            break
         stats["zip_entries_seen"] += 1
         member = f"{base}!{info.filename}"
         if info.is_dir():
@@ -695,6 +735,10 @@ def _expand_zip(att: AttachmentInput, raw: bytes, limits: ResourceLimits, warnin
             warnings.append(SourceWarning("entry_too_large", member, f"{info.file_size} > max_entry_bytes {limits.max_entry_bytes}"))
             stats["zip_entries_skipped"] += 1
             continue
+        if stats["bytes_decoded"] + info.file_size > limits.max_total_bytes:
+            warnings.append(SourceWarning("total_too_large", member, f"would exceed max_total_bytes {limits.max_total_bytes}"))
+            stats["zip_entries_skipped"] += 1
+            continue
         if safe.lower().endswith(_ARCHIVE_EXT):
             if not limits.allow_nested_archives or depth >= 1:
                 warnings.append(SourceWarning("zip_nested_archive", member, "nested archive listed, not expanded"))
@@ -714,9 +758,9 @@ def _expand_zip(att: AttachmentInput, raw: bytes, limits: ResourceLimits, warnin
         path = f"{base}!{safe}"
         if safe.lower().endswith(".zip") and limits.allow_nested_archives and depth < 1:
             inner = AttachmentInput(name=path, mime_type="application/zip", content_bytes=data, origin=att.origin)
-            out.extend(_expand_zip(inner, data, limits, warnings, stats, depth + 1))
+            out.extend(_expand_zip(inner, data, limits, warnings, stats, depth + 1, t_scan=t_scan))
             continue
-        src = _decode_one(att.name, path, att.origin, data, None, limits, warnings, stats)
+        src = _decode_one(att.name, path, att.origin, data, None, limits, warnings, stats, t_scan=t_scan)
         if src is not None:
             out.append(src)
     return out
@@ -725,23 +769,32 @@ def _expand_zip(att: AttachmentInput, raw: bytes, limits: ResourceLimits, warnin
 def load_sources(attachments: list[AttachmentInput], limits: ResourceLimits = ResourceLimits()) -> SourceSet:
     """Decode and scan every attachment under the limits. Never raises for content problems — they become warnings."""
     warnings: list[SourceWarning] = []
-    stats = {"attachments": len(attachments), "sources": 0, "sources_decoded": 0, "bytes_decoded": 0, "facts": 0,
-             "zip_entries_seen": 0, "zip_entries_skipped": 0}
+    stats = {"attachments": len(attachments), "sources": 0, "sources_decoded": 0, "bytes_decoded": 0, "bytes_raw_admitted": 0,
+             "facts": 0, "zip_entries_seen": 0, "zip_entries_skipped": 0}
+    t_scan = time.perf_counter()
     sources: list[DecodedSource] = []
     if len(attachments) > limits.max_attachments:
         warnings.append(SourceWarning("too_many_attachments", "<request>",
                                       f"{len(attachments)} > {limits.max_attachments}; extra attachments ignored"))
         attachments = attachments[: limits.max_attachments]
     for att in attachments:
+        if _scan_over_budget(t_scan, limits):
+            warnings.append(SourceWarning("scan_budget_exhausted", "<request>", f"max_scan_ms {limits.max_scan_ms}"))
+            break
         raw = att.raw()
+        if stats["bytes_raw_admitted"] + len(raw) > limits.max_total_raw_bytes:
+            warnings.append(SourceWarning("raw_admission_too_large", att.name,
+                                          f"cumulative raw {stats['bytes_raw_admitted'] + len(raw)} > {limits.max_total_raw_bytes}"))
+            continue
+        stats["bytes_raw_admitted"] += len(raw)
         path = normalize_safe_path(att.name) or f"unsafe-name-{sha256_hex(att.name.encode('utf-8'))[:8]}"
         if path.startswith("unsafe-name-"):
             warnings.append(SourceWarning("zip_unsafe_path", att.name, "attachment name normalised to a safe placeholder"))
         media = media_type_for(path, att.mime_type)
         if media == "zip" or (att.content_bytes is not None and raw[:4] == b"PK\x03\x04"):
-            sources.extend(_expand_zip(att, raw, limits, warnings, stats, 0))
+            sources.extend(_expand_zip(att, raw, limits, warnings, stats, 0, t_scan=t_scan))
             continue
-        src = _decode_one(att.name, path, att.origin, raw, att.mime_type, limits, warnings, stats)
+        src = _decode_one(att.name, path, att.origin, raw, att.mime_type, limits, warnings, stats, t_scan=t_scan)
         if src is not None:
             sources.append(src)
     # canonical order: the graph must not depend on the order in which attachments were handed in

@@ -3,7 +3,7 @@
 # touching the other connections (sync-openwebui-connections-db.sh replaces the whole list).
 #
 #   add-openwebui-openai-connection.sh <base_url> <prefix_id> [key_env_var]
-#   e.g. add-openwebui-openai-connection.sh http://forge-2b:9085/v1 forge-2b-poc FORGE_2B_API_KEY
+#   e.g. add-openwebui-openai-connection.sh http://forge-2b:9085/v1 forge-squid FORGE_SQUID_API_KEY
 #
 # The bearer is read from the environment variable named by the 3rd arg (default OPENAI_CONNECTION_KEY)
 # so it never appears in argv. Open WebUI caches PersistentConfig in-process: restart the container

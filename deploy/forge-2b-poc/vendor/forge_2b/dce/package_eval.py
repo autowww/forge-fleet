@@ -33,6 +33,8 @@ import time
 import zipfile
 from pathlib import Path
 
+from forge_2b import env_keys
+
 ROOT = Path(__file__).resolve().parents[3]   # repo root when run from a checkout; inside the image these defaults do not exist
 SET = ROOT / "tests/dce/package_set_v1.jsonl"
 PACKAGE = ROOT / "artifacts/DCE-G1R3A"
@@ -205,7 +207,8 @@ def live(cases: list[dict], package: Path, base: str, key: str, out: Path, expec
             # is its own chat, so no turn can be read against an unrelated predecessor
             chat_id = f"pkgeval-{run_tag}-{prior or case['id']}"
             t0 = time.monotonic()
-            resp = c.post(f"{base}/v1/chat/completions", json={"model": "forge-2b", "stream": False, "messages": messages},
+            model = os.environ.get("FORGE_SQUID_DEFAULT_MODEL", "forge-squid-qwen352bq4km")
+            resp = c.post(f"{base}/v1/chat/completions", json={"model": model, "stream": False, "messages": messages},
                           headers={**auth, "Content-Type": "application/json", "X-Forge-Chat-Id": chat_id})
             ms = int((time.monotonic() - t0) * 1000)
             run_id = resp.headers.get("x-forge-run-id", "")
@@ -335,7 +338,7 @@ def main() -> int:
     ap.add_argument("--set", type=Path, default=SET)
     ap.add_argument("--package", type=Path, default=PACKAGE)
     ap.add_argument("--base", default="")
-    ap.add_argument("--env-file", type=Path, default=Path.home() / ".config/forge-2b-poc/lab.env")
+    ap.add_argument("--env-file", type=Path, default=env_keys.lab_env_file())
     ap.add_argument("--out", type=Path)
     ap.add_argument("--expect-mode", default="")
     ap.add_argument("--only", default="", help="comma-separated case ids")
@@ -363,11 +366,11 @@ def main() -> int:
         print(f"{a.out}: {sum(1 for r in rows if r['pass'])}/{len(rows)} strict · {sum(1 for r in rows if r['pass_visible'])}/{len(rows)} visible · healthz {b.get('healthz')}")
         return 0
     env = load_env(a.env_file)
-    key = os.environ.get("FORGE_2B_API_KEY") or env.get("FORGE_2B_API_KEY", "")
-    base = (a.base or os.environ.get("FORGE_2B_BASE_URL") or env.get("FORGE_2B_BASE_URL", "http://127.0.0.1:9085/v1")).rstrip("/")
+    key = env_keys.first_env("FORGE_SQUID_API_KEY") or env.get("FORGE_SQUID_API_KEY", "")
+    base = (a.base or env_keys.first_env("FORGE_SQUID_BASE_URL") or env.get("FORGE_SQUID_BASE_URL", "http://127.0.0.1:9085/v1")).rstrip("/")
     base = base[:-3] if base.endswith("/v1") else base
     if not key:
-        print("BLOCKED: FORGE_2B_API_KEY missing", file=sys.stderr)
+        print("BLOCKED: FORGE_SQUID_API_KEY missing", file=sys.stderr)
         return 2
     if not a.out:
         print("--out required for live", file=sys.stderr)
