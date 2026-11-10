@@ -43,6 +43,7 @@ from .chat_lane import (
     comprehend,
     conversation,
     detached_follow_up_reply,
+    flatten_content,
     footer,
     identity_reply,
     previous_answer_reply,
@@ -454,6 +455,9 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
             raise POCError(503, "UPSTREAM_NOT_CONFIGURED", "Open WebUI base URL is not configured")
         payload = dict(body)
         payload["model"] = upstream
+        # Qwen via Open WebUI may answer only in reasoning_content unless thinking is off.
+        payload.setdefault("think", False)
+        payload.setdefault("reasoning_effort", "none")
         headers: dict[str, str] = {"Content-Type": "application/json"}
         if cfg.openwebui_api_key:
             headers["Authorization"] = f"Bearer {cfg.openwebui_api_key}"
@@ -1360,9 +1364,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                                 record["stages"].append("json_mode_fallback")
                             choice = answer["choices"][0]
                             finish_reason = str(choice.get("finish_reason") or "stop")
-                            piece = choice["message"]["content"]
-                            if not isinstance(piece, str):
-                                piece = ""
+                            piece = flatten_content((choice.get("message") or {}).get("content")) or ""
                             served = str(answer.get("model", ""))
                             content = (content + piece).strip() if content else piece.strip()
                             if finish_reason != "length" or not chat_continue_on_length() or attempts > 1 or structured:
