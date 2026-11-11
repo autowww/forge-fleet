@@ -28,6 +28,10 @@ MODE_FILE="${FORGE_2B_DCE_MODE_FILE:-$HOME/.config/forge-2b-poc/dce-mode}"
 
 compose() { docker compose -f "$DEPLOY/compose.yaml" "$@"; }
 
+# Fleet hosts: ~/.docker/buildx may be root-owned while rollouts run as the git install user.
+export DOCKER_BUILDKIT="${FORGE_2B_DOCKER_BUILDKIT:-${FLEET_DOCKER_BUILDKIT:-0}}"
+export COMPOSE_DOCKER_CLI_BUILD="${COMPOSE_DOCKER_CLI_BUILD:-$DOCKER_BUILDKIT}"
+
 if [[ "${1:-}" == "--down" ]]; then
   compose down
   exit 0
