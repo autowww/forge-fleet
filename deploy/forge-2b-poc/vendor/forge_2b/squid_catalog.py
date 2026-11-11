@@ -13,6 +13,7 @@ import httpx
 from . import branding, env_keys
 
 SQUID_PREFIX = "forge-squid-"
+OWUI_CONNECTION_PREFIX = "forge-squid"
 DEFAULT_UPSTREAM_MODEL = "qwen3.5:2b-q4_K_M"
 DEFAULT_SQUID_ID = f"{SQUID_PREFIX}qwen352bq4km"
 _SLUG_STRIP = str.maketrans("", "", ".:_-/")
@@ -40,13 +41,22 @@ class SquidCatalog:
         return [e.squid_id for e in self.entries]
 
     def resolve_client_model(self, model: str) -> tuple[str, str]:
-        """Return ``(client_squid_id, upstream_openwebui_id)``."""
-        if not model.startswith(SQUID_PREFIX):
-            raise ValueError("not_a_squid_model")
-        slug = model[len(SQUID_PREFIX) :].lower()
+        """Return ``(client_squid_id, upstream_openwebui_id)``.
+
+        Open WebUI calls back with the id from ``GET /v1/models``, which is the
+        bare slug (``composer``), not ``forge-squid.composer``.
+        """
+        raw = model.strip()
+        try:
+            canonical = normalize_squid_client_id(raw)
+        except ValueError:
+            canonical = ""
+        slug = canonical[len(SQUID_PREFIX) :].lower() if canonical.lower().startswith(SQUID_PREFIX) else slugify(raw)
         for entry in self.entries:
-            if entry.slug == slug or entry.squid_id == model:
+            if entry.slug == slug or (canonical and entry.squid_id == canonical):
                 return entry.squid_id, entry.upstream_id
+        if not canonical:
+            raise ValueError("not_a_squid_model")
         raise KeyError(model)
 
     def trace(self) -> dict[str, Any]:
@@ -56,7 +66,41 @@ class SquidCatalog:
             "dropped_count": len(self.dropped),
             "error": self.error,
             "map": {e.squid_id: e.upstream_id for e in self.entries},
+            "owui_ids": {f"{OWUI_CONNECTION_PREFIX}.{e.slug}": e.upstream_id for e in self.entries},
         }
+
+
+def slug_from_squid_id(squid_id: str) -> str:
+    if squid_id.startswith(SQUID_PREFIX):
+        return squid_id[len(SQUID_PREFIX) :]
+    return squid_id
+
+
+def owui_aggregated_id(slug: str) -> str:
+    """Open WebUI id with connection prefix only once: ``forge-squid.<slug>``."""
+    slug = slug_from_squid_id(slug.strip())
+    return f"{OWUI_CONNECTION_PREFIX}.{slug}"
+
+
+def public_model_id(entry: SquidEntry) -> str:
+    """Id advertised on ``GET /v1/models`` (slug only; OWUI prepends ``forge-squid.``)."""
+    return entry.slug
+
+
+def normalize_squid_client_id(model: str) -> str:
+    """Accept OWUI ``forge-squid.<slug>``, legacy ``forge-squid.forge-squid-*``, or ``forge-squid-*``."""
+    m = model.strip()
+    low = m.lower()
+    prefix = f"{OWUI_CONNECTION_PREFIX}."
+    if low.startswith(prefix):
+        rest = m.split(".", 1)[1].strip()
+        rlow = rest.lower()
+        if rlow.startswith(SQUID_PREFIX):
+            return rest if rest.lower().startswith(SQUID_PREFIX) else f"{SQUID_PREFIX}{rlow}"
+        return f"{SQUID_PREFIX}{rlow}"
+    if low.startswith(SQUID_PREFIX):
+        return m
+    raise ValueError("not_a_squid_model")
 
 
 def openwebui_base_url() -> str:
@@ -101,6 +145,37 @@ def is_shim_upstream_id(model_id: str) -> bool:
     return False
 
 
+def extra_upstream_ids() -> list[str]:
+    """Comma-separated Open WebUI model ids to mirror even when absent from /api/models."""
+    raw = env_keys.first_env("FORGE_SQUID_EXTRA_UPSTREAM")
+    if not raw:
+        return []
+    return [part.strip() for part in raw.split(",") if part.strip()]
+
+
+def merge_extra_upstream(catalog: SquidCatalog) -> SquidCatalog:
+    extra = extra_upstream_ids()
+    if not extra:
+        return catalog
+    slugs = {e.slug for e in catalog.entries}
+    squids = {e.squid_id for e in catalog.entries}
+    entries = list(catalog.entries)
+    for mid in extra:
+        if is_shim_upstream_id(mid):
+            continue
+        slug = slugify(mid)
+        if not slug or slug in slugs:
+            continue
+        sid = f"{SQUID_PREFIX}{slug}"
+        if sid in squids:
+            continue
+        entries.append(SquidEntry(squid_id=sid, upstream_id=mid, slug=slug))
+        slugs.add(slug)
+        squids.add(sid)
+    entries.sort(key=lambda e: e.squid_id)
+    return SquidCatalog(entries=entries, collisions=catalog.collisions, dropped=list(catalog.dropped), error=catalog.error)
+
+
 def build_catalog(rows: list[dict[str, Any]]) -> SquidCatalog:
     dropped: list[str] = []
     by_slug: dict[str, list[str]] = {}
@@ -126,7 +201,7 @@ def build_catalog(rows: list[dict[str, Any]]) -> SquidCatalog:
         if slug not in blocked
     ]
     entries.sort(key=lambda e: e.squid_id)
-    return SquidCatalog(entries=entries, collisions=collisions, dropped=dropped)
+    return merge_extra_upstream(SquidCatalog(entries=entries, collisions=collisions, dropped=dropped))
 
 
 def parse_owui_models_payload(data: Any) -> list[dict[str, Any]]:
@@ -156,6 +231,7 @@ def load_disk_cache() -> SquidCatalog | None:
         if not isinstance(rows, list):
             return None
         catalog = build_catalog([r for r in rows if isinstance(r, dict)])
+        catalog = merge_extra_upstream(catalog)
         if catalog.error and not catalog.entries:
             return None
         return catalog
@@ -199,6 +275,8 @@ async def fetch_catalog(client: httpx.AsyncClient, base_url: str, api_key: str) 
     except (httpx.HTTPError, ValueError) as ex:
         return SquidCatalog.empty(error=f"{type(ex).__name__}")
     rows = parse_owui_models_payload(payload)
+    for mid in extra_upstream_ids():
+        rows.append({"id": mid})
     catalog = build_catalog(rows)
     if catalog.entries:
         save_disk_cache(rows, catalog)
@@ -207,6 +285,14 @@ async def fetch_catalog(client: httpx.AsyncClient, base_url: str, api_key: str) 
 
 def completion_url(base_url: str) -> str:
     return f"{base_url.rstrip('/')}/api/chat/completions"
+
+
+def llm_gateway_completion_url(base_url: str) -> str:
+    """OpenAI-compatible forge-llm gateway (…/v1 → …/v1/chat/completions)."""
+    base = base_url.rstrip("/")
+    if base.endswith("/v1"):
+        return f"{base}/chat/completions"
+    return f"{base}/v1/chat/completions"
 
 
 def default_squid_id() -> str:

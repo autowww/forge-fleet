@@ -26,7 +26,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from jsonschema import Draft202012Validator
 
-from . import attach, branding, edgar, env_keys, graph, live, squid_catalog, zipingest
+from . import attach, branding, cursor_backend, edgar, env_keys, graph, live, squid_catalog, zipingest
 from .dce.structured_turn import (
     contract_kind,
     contract_note,
@@ -54,7 +54,21 @@ from .chat_lane import (
     trace_reading,
     visible_prefix,
 )
-from .chat_artifacts import chat_continue_on_length, chat_prose_only, reset_chat_experiment, set_chat_experiment
+from .chat_artifacts import (
+    chat_continue_on_length,
+    chat_prose_only,
+    chat_stream_graph,
+    reset_chat_experiment,
+    set_chat_experiment,
+)
+from .prose_turn import (
+    ProseProfile,
+    assemble_prose,
+    enumerate_retry_user_message,
+    gate as prose_gate,
+    profile_instruction,
+    prose_profile,
+)
 from .dce import session as dce_session
 from .dce import shadow as dce_shadow
 
@@ -154,11 +168,14 @@ class Config:
             incoming_key=env_keys.first_env("FORGE_SQUID_API_KEY"),
             dcs_url=dcs,
             dcs_key=os.environ.get("DCS_BEARER_TOKEN", os.environ.get("DCS_API_KEY", "")),
-            llm_url="",
-            llm_key="",
+            llm_url=_require_http_url(
+                "FORGE_2B_LLM_BASE_URL",
+                env_keys.first_env("FORGE_2B_LLM_BASE_URL", default=""),
+            ),
+            llm_key=env_keys.first_env("FORGE_2B_LLM_API_KEY"),
             backend_model=DEFAULT_BACKEND,
-            backend_kind="openwebui",
-            cursor_api_key="",
+            backend_kind="gateway" if env_keys.first_env("FORGE_2B_LLM_BASE_URL") else "openwebui",
+            cursor_api_key=env_keys.first_env("FORGE_2B_CURSOR_API_KEY", "CURSOR_API_KEY"),
             default_squid_id=default_squid,
             openwebui_base_url=squid_catalog.openwebui_base_url(),
             openwebui_api_key=squid_catalog.openwebui_api_key(),
@@ -422,9 +439,11 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
     def require_live() -> None:
         if not cfg.enabled:
             raise POCError(503, "LIVE_DISABLED", "Live PoC is disabled")
-        needed = [cfg.dcs_url, cfg.dcs_key, cfg.openwebui_base_url, cfg.incoming_key]
-        if not all(needed):
-            raise POCError(503, "UPSTREAM_NOT_CONFIGURED", "DCS or Open WebUI catalog is not configured")
+        needed = [cfg.dcs_url, cfg.dcs_key, cfg.incoming_key]
+        has_llm = bool(cfg.llm_url and cfg.llm_key)
+        has_catalog = bool(cfg.openwebui_base_url)
+        if not all(needed) or not (has_llm or has_catalog):
+            raise POCError(503, "UPSTREAM_NOT_CONFIGURED", "DCS, forge-llm gateway, or Open WebUI catalog is not configured")
 
     async def call(client: httpx.AsyncClient, method: str, url: str, key: str, **kw: Any) -> Any:
         try:
@@ -451,23 +470,45 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
         upstream = _upstream_model.get()
         if not upstream:
             raise POCError(503, "UPSTREAM_NOT_CONFIGURED", "Request has no resolved Open WebUI upstream model")
-        if not cfg.openwebui_base_url:
-            raise POCError(503, "UPSTREAM_NOT_CONFIGURED", "Open WebUI base URL is not configured")
         payload = dict(body)
         payload["model"] = upstream
+        if cursor_backend.is_cursor_model(upstream):
+            if not (cfg.llm_url and cfg.llm_key):
+                raise POCError(503, "UPSTREAM_NOT_CONFIGURED", "Composer is served by the forge-llm gateway CLI lane")
+            url = squid_catalog.llm_gateway_completion_url(cfg.llm_url)
+            headers = {"Content-Type": "application/json", "Authorization": f"Bearer {cfg.llm_key}"}
+            try:
+                response = await client.post(url, headers=headers, json=payload)
+                response.raise_for_status()
+                answer = response.json()
+            except (httpx.HTTPError, ValueError) as ex:
+                raise POCError(503, "UPSTREAM_UNAVAILABLE", "forge-llm gateway CLI completion failed") from ex
+            if not isinstance(answer, dict):
+                raise POCError(502, "INVALID_GATEWAY_RESPONSE", "Gateway CLI response malformed")
+            return answer
         # Qwen via Open WebUI may answer only in reasoning_content unless thinking is off.
         payload.setdefault("think", False)
         payload.setdefault("reasoning_effort", "none")
         headers: dict[str, str] = {"Content-Type": "application/json"}
-        if cfg.openwebui_api_key:
-            headers["Authorization"] = f"Bearer {cfg.openwebui_api_key}"
-        url = squid_catalog.completion_url(cfg.openwebui_base_url)
+        via = env_keys.first_env("FORGE_SQUID_COMPLETION_BACKEND").strip().lower()
+        use_gateway = via != "openwebui" and bool(cfg.llm_url and cfg.llm_key)
+        if use_gateway:
+            url = squid_catalog.llm_gateway_completion_url(cfg.llm_url)
+            headers["Authorization"] = f"Bearer {cfg.llm_key}"
+            upstream_label = "forge-llm gateway"
+        else:
+            if not cfg.openwebui_base_url:
+                raise POCError(503, "UPSTREAM_NOT_CONFIGURED", "Open WebUI base URL is not configured")
+            if cfg.openwebui_api_key:
+                headers["Authorization"] = f"Bearer {cfg.openwebui_api_key}"
+            url = squid_catalog.completion_url(cfg.openwebui_base_url)
+            upstream_label = "Open WebUI"
         try:
             response = await client.post(url, headers=headers, json=payload)
             response.raise_for_status()
             answer = response.json()
         except (httpx.HTTPError, ValueError) as ex:
-            raise POCError(503, "UPSTREAM_UNAVAILABLE", "Open WebUI chat completion failed") from ex
+            raise POCError(503, "UPSTREAM_UNAVAILABLE", f"{upstream_label} chat completion failed") from ex
         if not isinstance(answer, dict):
             raise POCError(502, "INVALID_GATEWAY_RESPONSE", "Open WebUI response malformed")
         served = str(answer.get("model", ""))
@@ -525,7 +566,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
             await check_backend(client)
             catalog = await get_catalog(client, allow_fetch=False)
         rows = [
-            {"id": entry.squid_id, "object": "model", "created": 0, "owned_by": branding.SERVICE_NAME}
+            {"id": squid_catalog.public_model_id(entry), "object": "model", "created": 0, "owned_by": branding.SERVICE_NAME}
             for entry in catalog.entries
         ]
         return {"object": "list", "data": rows, "squid_catalog": catalog.trace()}
@@ -1222,7 +1263,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
         return StreamingResponse(generate(), media_type="text/event-stream", headers=headers)
 
     def _chat_experiment_headers(req: Request) -> dict[str, str] | None:
-        keys = ("sanitize", "prose_only", "continue")
+        keys = ("sanitize", "prose_only", "continue", "stream_graph")
         hdrs = {k: req.headers.get(f"x-forge-2b-exp-{k.replace('_', '-')}") for k in keys}
         if all(v is None for v in hdrs.values()):
             return None
@@ -1249,6 +1290,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
         route_upstream = _upstream_model.get()
         reading = relax_answer_shaping(comprehend(user_text), user_text)
         structured = is_structured_contract(user_text)
+        prose_prof = prose_profile(reading, user_text)
         run_id = uuid.uuid4().hex
         lg = live.LiveGraph(run_id, "chat")
         lg.add("read", "zero_model", "chat_lane reader · side-effect lexicon, no model")
@@ -1264,6 +1306,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
             "attempts": 0,
             "stages": ["accepted", "comprehended"],
             "reading": trace_reading(reading),
+            "prose_profile": prose_prof.value,
             "steps": lg.steps(),
         }
         if len(traces) >= 100:
@@ -1278,7 +1321,11 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
             timeline.append(lg.line(lg.get(node), "end"))
             lg.close(run_status)
             record["steps"] = lg.steps()
-            return "\n\n**Live timeline:**\n" + "".join(timeline) + lg.snapshot_html(final=True)
+            graph = "\n\n**Live timeline:**\n" + "".join(timeline) + lg.snapshot_html(final=True)
+            if not chat_stream_graph():
+                record["presentation_graph"] = lg.snapshot_html(final=True)
+                return ""
+            return graph
 
         decision = reading.decision()
         lg.finish("read", "COMMITTED", f"decision {decision} · status {reading.status}")
@@ -1318,9 +1365,12 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                 return _text_response(body, run_id, text + done(stage, "COMMITTED", f"{stage.replace('_', ' ')} answered without the model", "COMMITTED"), headers)
 
         conv = conversation(messages) or [{"role": "user", "content": user_text[:4000]}]
+        system_bits = system_prompt(reading, previous_turn_note(prev)) + json_instruction(user_text) + contract_note(user_text)
+        if not structured and prose_prof != ProseProfile.PLAIN:
+            system_bits += profile_instruction(prose_prof)
         llm_body = {
             "model": _effective_backend_model(cfg),
-            "messages": [{"role": "system", "content": system_prompt(reading, previous_turn_note(prev)) + json_instruction(user_text) + contract_note(user_text)}, *conv],
+            "messages": [{"role": "system", "content": system_bits}, *conv],
             "temperature": 0,
             "max_tokens": 1024,
             "stream": False,
@@ -1401,6 +1451,32 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                 record["stages"].append("reply")
             text = visible_prefix(reading) + scrub_self_claim(content.strip()) + footer(reading)
             text = present_structured(user_text, text)
+            if not structured:
+                text = assemble_prose(prose_prof, text)
+                fails = prose_gate(prose_prof, text, truncated=truncated)
+                record["prose_gates"] = fails
+                if prose_prof == ProseProfile.ENUMERATE and "list_missing" in fails and attempts == 1:
+                    retry_msgs = [
+                        *llm_body["messages"],
+                        {"role": "assistant", "content": text},
+                        {"role": "user", "content": enumerate_retry_user_message()},
+                    ]
+                    try:
+                        async with run_sem:
+                            async with httpx.AsyncClient(
+                                transport=transport, timeout=cfg.llm_timeout, follow_redirects=False
+                            ) as client:
+                                answer = await complete_backend(client, {**llm_body, "messages": retry_msgs})
+                        choice = answer["choices"][0]
+                        extra = flatten_content((choice.get("message") or {}).get("content")) or ""
+                        if extra.strip():
+                            attempts += 1
+                            record["attempts"] = attempts
+                            record["stages"].append("enumerate_retry")
+                            text = assemble_prose(prose_prof, extra.strip())
+                            record["prose_gates"] = prose_gate(prose_prof, text, truncated=False)
+                    except (POCError, KeyError, IndexError, TypeError):
+                        pass
             dce_store.push(sess_key, dce_session.chat_turn(user_text, text))
             run_status = record["status"]
             detail = f"{attempts} call(s) · served {served}" + (" · truncated" if truncated else "")
@@ -1428,11 +1504,13 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
             t_upstream = _upstream_model.set(route_upstream)
             try:
                 yield chunk({"role": "assistant"})
-                yield chunk({"content": lg.snapshot_html()})   # the model is in flight: the `reply` timer ticks in the artifact
+                if chat_stream_graph():
+                    yield chunk({"content": lg.snapshot_html()})   # the model is in flight: the `reply` timer ticks in the artifact
                 try:
                     yield chunk({"content": await reply_text()})
                 except POCError as ex:
-                    yield chunk({"content": f"\n\n**Run failed:** `{ex.code}` — {ex.message}. No reply committed.\n" + lg.snapshot_html(final=True)})
+                    fail_tail = lg.snapshot_html(final=True) if chat_stream_graph() else ""
+                    yield chunk({"content": f"\n\n**Run failed:** `{ex.code}` — {ex.message}. No reply committed.\n" + fail_tail})
                 yield chunk({}, "stop")
                 yield "data: [DONE]\n\n"
             finally:

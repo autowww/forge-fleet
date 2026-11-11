@@ -66,6 +66,11 @@ def chat_continue_on_length() -> bool:
     return _exp_flag("continue", "FORGE_2B_CHAT_CONTINUE_ON_LENGTH")
 
 
+def chat_stream_graph() -> bool:
+    """When true (default), streamed chat answers include live ```html graph snapshots in the body."""
+    return _exp_flag("stream_graph", "FORGE_2B_CHAT_STREAM_GRAPH")
+
+
 def env_contract_note_mode() -> str:
     """off | mechanical (default) | full — full restores pre-remediation answer-key notes."""
     mode = os.environ.get("FORGE_2B_CONTRACT_NOTE", "mechanical").strip().lower()
