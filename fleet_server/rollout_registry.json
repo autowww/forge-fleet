@@ -95,19 +95,19 @@
       "slot_service_id": "forge-llm-control-plane",
       "supports_source_overlay": false
     },
-    "forge-2b-poc": {
-      "script": "scripts/rollout-forge-2b-poc.sh",
-      "slot_service_id": "forge-2b-poc",
+    "forge-squid": {
+      "script": "scripts/rollout-forge-squid.sh",
+      "slot_service_id": "forge-squid",
       "supports_source_overlay": false,
       "overrides": {
-        "forge_2b_dce_mode": "FORGE_2B_DCE_MODE",
-        "dce_mode": "FORGE_2B_DCE_MODE",
-        "forge_2b_dce_max_model_calls": "FORGE_2B_DCE_MAX_MODEL_CALLS",
-        "forge_2b_dce_plan_ms": "FORGE_2B_DCE_PLAN_MS",
-        "forge_2b_dce_concurrency": "FORGE_2B_DCE_CONCURRENCY",
-        "forge_2b_skip_build": "FORGE_2B_SKIP_BUILD",
-        "forge_2b_env_file": "FORGE_2B_ENV_FILE",
-        "forge_2b_llm_timeout": "FORGE_2B_LLM_TIMEOUT"
+        "forge_squid_dce_mode": "FORGE_SQUID_DCE_MODE",
+        "dce_mode": "FORGE_SQUID_DCE_MODE",
+        "forge_squid_dce_max_model_calls": "FORGE_SQUID_DCE_MAX_MODEL_CALLS",
+        "forge_squid_dce_plan_ms": "FORGE_SQUID_DCE_PLAN_MS",
+        "forge_squid_dce_concurrency": "FORGE_SQUID_DCE_CONCURRENCY",
+        "forge_squid_skip_build": "FORGE_SQUID_SKIP_BUILD",
+        "forge_squid_env_file": "FORGE_SQUID_ENV_FILE",
+        "forge_squid_llm_timeout": "FORGE_SQUID_LLM_TIMEOUT"
       }
     },
     "dummy-service": {

@@ -1,0 +1,84 @@
+# forge-squid on Granite: forge-dcs (ingest + STRICT compile) + OpenAI-compatible shim.
+# Reachable from Open WebUI as http://forge-squid:9085/v1. Code via git (vendor/ synced by scripts/sync-forge-squid.sh).
+name: forge-squid
+
+services:
+  forge-dcs:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: forge-squid:latest
+    container_name: forge-dcs
+    restart: unless-stopped
+    command: ["uvicorn", "forge_dcs.api:app", "--host", "0.0.0.0", "--port", "9793"]
+    env_file:
+      - ${FORGE_SQUID_ENV_FILE:-${HOME}/.config/forge-squid/forge-squid.env}
+    environment:
+      DCS_STORE_ROOT: /var/lib/forge-dcs/store
+    volumes:
+      - dcs_store:/var/lib/forge-dcs/store
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,urllib.error,sys\ntry:\n  sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:9793/v1/capabilities', timeout=3).status == 200 else 1)\nexcept urllib.error.HTTPError as e:\n  sys.exit(0 if e.code == 401 else 1)"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - internal
+
+  forge-squid:
+    image: forge-squid:latest
+    container_name: forge-squid
+    restart: unless-stopped
+    depends_on:
+      forge-dcs:
+        condition: service_started
+    command: ["uvicorn", "forge_squid.facade:app", "--host", "0.0.0.0", "--port", "9085"]
+    env_file:
+      - ${FORGE_SQUID_ENV_FILE:-${HOME}/.config/forge-squid/forge-squid.env}
+    environment:
+      DCS_BASE_URL: http://forge-dcs:9793
+      FORGE_SQUID_LLM_BASE_URL: ${FORGE_SQUID_LLM_BASE_URL:-http://forge-gateway:8080/v1}
+      FORGE_SQUID_ENABLE_LIVE: "1"
+      FORGE_SQUID_CACHE_DIR: /var/lib/forge-squid/cache
+      FORGE_SQUID_CATALOG_CACHE_FILE: ${FORGE_SQUID_CATALOG_CACHE_FILE:-/var/lib/forge-squid/cache/catalog-cache.json}
+      FORGE_SQUID_EXTRA_UPSTREAM: ${FORGE_SQUID_EXTRA_UPSTREAM:-composer}
+      FORGE_SQUID_LLM_TIMEOUT: ${FORGE_SQUID_LLM_TIMEOUT:-180}
+      FORGE_SQUID_MAX_WINDOWS: ${FORGE_SQUID_MAX_WINDOWS:-240}
+      FORGE_SQUID_WINDOW_CHARS: ${FORGE_SQUID_WINDOW_CHARS:-2000}
+      FORGE_SQUID_TOP_N: ${FORGE_SQUID_TOP_N:-80}
+      FORGE_SQUID_DCE_MODE: ${FORGE_SQUID_DCE_MODE:-off}
+      FORGE_SQUID_DCE_MAX_MODEL_CALLS: ${FORGE_SQUID_DCE_MAX_MODEL_CALLS:-3}
+      FORGE_SQUID_DCE_PLAN_MS: ${FORGE_SQUID_DCE_PLAN_MS:-3000}
+      FORGE_SQUID_DCE_CONCURRENCY: ${FORGE_SQUID_DCE_CONCURRENCY:-2}
+      FORGE_SQUID_SKILL_DIR: ${FORGE_SQUID_SKILL_DIR:-/app/skills/sec-10k-impact}
+    volumes:
+      - shim_cache:/var/lib/forge-squid/cache
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:9085/healthz', timeout=3).status == 200 else 1)"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - internal
+      - openwebui
+      - gateway
+
+volumes:
+  dcs_store:
+    name: forge_squid_dcs_store
+  shim_cache:
+    name: forge_squid_shim_cache
+
+networks:
+  internal:
+    name: forge_squid_internal
+  openwebui:
+    external: true
+    name: ${OPEN_WEBUI_NETWORK:-forge-open-webui_default}
+  gateway:
+    external: true
+    name: ${FORGE_LLM_NETWORK:-forge-llm-control-plane_default}
