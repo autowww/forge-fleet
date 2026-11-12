@@ -1272,10 +1272,10 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
     async def free_chat(request: Request, body: dict[str, Any], messages: Any, user_text: str):
         """Ordinary conversation. A side-effect-only ask is answered from the reader; every other ask is one pinned-model reply.
 
-        The lane is linear by design, and it shows that: a two-node live graph (`read` — the deterministic reader, no model;
-        then `reply` / `refuse` / `identity`) is emitted the way the attachment and 10-K lanes do, so the user sees what ran
-        and which step called the model (P1.3, 2026-11-06). JSON clients get the final graph only; streaming clients see the
-        `reply` node ticking while the model is in flight."""
+        The lane exposes forge-squid value-add on the right: comprehension (`read`), prose profile + prompt assembly
+        (`profile`, `compose`), one or more pinned-model calls (`reply`, optional `reply_cont` / `reply_refine`), then
+        deterministic shaping (`polish`). JSON clients get the final graph; streaming clients see nodes accumulate and the
+        active LLM step tick while the model is in flight (P1.3+, 2026-11-11)."""
         exp_token = set_chat_experiment(_chat_experiment_headers(request))
         note_hdr = request.headers.get("x-forge-2b-contract-note")
         note_token = set_contract_note_override(note_hdr.strip().lower() if note_hdr else None)
@@ -1293,7 +1293,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
         prose_prof = prose_profile(reading, user_text)
         run_id = uuid.uuid4().hex
         lg = live.LiveGraph(run_id, "chat")
-        lg.add("read", "zero_model", "chat_lane reader · side-effect lexicon, no model")
+        lg.add("read", "zero_model", "request_ir + DCE-01 · side-effect lexicon")
         lg.start("read")
         record: dict[str, Any] = {
             "run_id": run_id,
@@ -1327,8 +1327,31 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                 return ""
             return graph
 
+        def commit_deterministic(node_id: str, engine: str, detail: str) -> None:
+            lg.add(node_id, "zero_model", engine)
+            lg.start(node_id)
+            lg.finish(node_id, "COMMITTED", detail)
+            timeline.append(lg.line(lg.get(node_id), "end"))
+            record["steps"] = lg.steps()
+
+        def seal_graph(run_status: str) -> str:
+            lg.close(run_status)
+            record["steps"] = lg.steps()
+            graph = "\n\n**Live timeline:**\n" + "".join(timeline) + lg.snapshot_html(final=True)
+            if not chat_stream_graph():
+                record["presentation_graph"] = lg.snapshot_html(final=True)
+                return ""
+            return graph
+
         decision = reading.decision()
-        lg.finish("read", "COMMITTED", f"decision {decision} · status {reading.status}")
+        goals_preview = ", ".join(reading.dce_goals[:4]) or "—"
+        if len(reading.dce_goals) > 4:
+            goals_preview += f" +{len(reading.dce_goals) - 4}"
+        lg.finish(
+            "read",
+            "COMMITTED",
+            f"decision {decision} · route {reading.dce_route} · {len(reading.objectives)} objective(s) · goals {goals_preview}",
+        )
         timeline.append(lg.line(lg.get("read"), "end"))
         if decision == "refuse":
             record["status"] = "REFUSED_SIDE_EFFECT"
@@ -1368,6 +1391,22 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
         system_bits = system_prompt(reading, previous_turn_note(prev)) + json_instruction(user_text) + contract_note(user_text)
         if not structured and prose_prof != ProseProfile.PLAIN:
             system_bits += profile_instruction(prose_prof)
+        commit_deterministic(
+            "profile",
+            "prose_turn · profile pick",
+            f"prose profile · {prose_prof.value}" + (" · reader constrained" if decision == "constrained" else ""),
+        )
+        ck = contract_kind(user_text)
+        if structured or ck:
+            commit_deterministic("contract", "structured_turn", f"contract kind · {ck or 'structured'}")
+        compose_bits: list[str] = [f"{len(conv)} chat turn(s)"]
+        if prose_prof != ProseProfile.PLAIN and not structured:
+            compose_bits.append(f"profile instruction ({prose_prof.value})")
+        if decision == "constrained":
+            compose_bits.append("side-effect reader note")
+        if ck == "json":
+            compose_bits.append("json_object response_format")
+        commit_deterministic("compose", "prompt assembly", "system prompt · " + " · ".join(compose_bits))
         llm_body = {
             "model": _effective_backend_model(cfg),
             "messages": [{"role": "system", "content": system_bits}, *conv],
@@ -1395,12 +1434,15 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
             attempts = 0
             content = ""
             served = ""
+            active_llm = "reply"
             try:
                 async with run_sem:
                     async with httpx.AsyncClient(transport=transport, timeout=cfg.llm_timeout, follow_redirects=False) as client:
                         msgs = list(llm_body["messages"])
                         while True:
                             attempts += 1
+                            if active_llm == "reply_cont":
+                                lg.start("reply_cont", "continuation · finish truncated answer")
                             body = {**llm_body, "messages": msgs}
                             try:
                                 answer = await complete_backend(client, body)
@@ -1412,6 +1454,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                                 plain = {k: v for k, v in body.items() if k not in ("response_format", "think", "reasoning_effort")}
                                 answer = await complete_backend(client, plain)
                                 record["stages"].append("json_mode_fallback")
+                                commit_deterministic("json_fallback", "gateway retry", "json_object rejected · plain completion")
                             choice = answer["choices"][0]
                             finish_reason = str(choice.get("finish_reason") or "stop")
                             piece = flatten_content((choice.get("message") or {}).get("content")) or ""
@@ -1419,6 +1462,11 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                             content = (content + piece).strip() if content else piece.strip()
                             if finish_reason != "length" or not chat_continue_on_length() or attempts > 1 or structured:
                                 break
+                            lg.finish("reply", "PARTIAL", "finish_reason length · scheduling continuation")
+                            timeline.append(lg.line(lg.get("reply"), "end"))
+                            record["steps"] = lg.steps()
+                            lg.add("reply_cont", "fixed_model", _effective_backend_model(cfg))
+                            active_llm = "reply_cont"
                             msgs = [
                                 *msgs,
                                 {"role": "assistant", "content": piece},
@@ -1462,6 +1510,9 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                         {"role": "user", "content": enumerate_retry_user_message()},
                     ]
                     try:
+                        lg.add("reply_refine", "fixed_model", _effective_backend_model(cfg))
+                        lg.start("reply_refine", "enumerate gate · list_missing · 2nd LLM call")
+                        record["steps"] = lg.steps()
                         async with run_sem:
                             async with httpx.AsyncClient(
                                 transport=transport, timeout=cfg.llm_timeout, follow_redirects=False
@@ -1473,14 +1524,38 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                             attempts += 1
                             record["attempts"] = attempts
                             record["stages"].append("enumerate_retry")
+                            lg.finish("reply_refine", "COMMITTED", "enumerate gate retry committed")
+                            timeline.append(lg.line(lg.get("reply_refine"), "end"))
                             text = assemble_prose(prose_prof, extra.strip())
                             record["prose_gates"] = prose_gate(prose_prof, text, truncated=False)
+                        else:
+                            lg.finish("reply_refine", "FAILED", "empty refinement")
+                            timeline.append(lg.line(lg.get("reply_refine"), "end"))
                     except (POCError, KeyError, IndexError, TypeError):
-                        pass
+                        if any(n.id == "reply_refine" for n in lg.nodes):
+                            lg.finish("reply_refine", "FAILED", "refinement error")
+                            timeline.append(lg.line(lg.get("reply_refine"), "end"))
             dce_store.push(sess_key, dce_session.chat_turn(user_text, text))
             run_status = record["status"]
-            detail = f"{attempts} call(s) · served {served}" + (" · truncated" if truncated else "")
-            graph = done("reply", "COMMITTED" if run_status == "COMMITTED" else "PARTIAL", detail, run_status)
+            llm_nodes = [n for n in lg.nodes if n.routing == "fixed_model"]
+            llm_detail = " · ".join(f"{n.id} {n.status.lower()}" for n in llm_nodes if n.status != "PENDING")
+            if active_llm == "reply_cont":
+                lg.finish(
+                    "reply_cont",
+                    "COMMITTED" if run_status == "COMMITTED" else "PARTIAL",
+                    f"served {served}" + (" · truncated" if truncated else ""),
+                )
+                timeline.append(lg.line(lg.get("reply_cont"), "end"))
+            else:
+                lg.finish(
+                    "reply",
+                    "COMMITTED" if run_status == "COMMITTED" else "PARTIAL",
+                    f"{attempts} call(s) · {llm_detail or 'served ' + served}" + (" · truncated" if truncated else ""),
+                )
+                timeline.append(lg.line(lg.get("reply"), "end"))
+            gate_txt = ", ".join(record.get("prose_gates") or []) or "all gates passed"
+            commit_deterministic("polish", "assemble_prose · scrub · gates", gate_txt)
+            graph = seal_graph(run_status)
             if structured:
                 return text
             if chat_prose_only():

@@ -158,7 +158,7 @@ class LiveGraph:
         legend = ('<div style="font-size:11px;color:#555;margin:6px 0 8px">'
                   '<span style="color:#ef6c00">▶ running</span> · <span style="color:#2e7d32">✓ committed</span> · <span style="color:#b26a00">◐ partial</span> · '
                   '<span style="color:#c62828">✗ failed</span> · <span style="color:#9e9e9e">– skipped</span> · '
-                  'orange/green border = LLM node, grey text = deterministic step</div>')
+                  'orange/green border = LLM call · grey = forge-squid comprehension / prompt / polish</div>')
         head = (f'<div style="font-size:12px;color:#333"><b>forge-2b {html.escape(self.lane)} lane</b> · run <code>{self.run_id}</code>'
                 f'<br>elapsed {total} · LLM nodes touched: {llm} · {"final" if final else "live snapshot"}</div>')
         return (
