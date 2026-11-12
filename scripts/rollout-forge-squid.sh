@@ -69,6 +69,13 @@ else
   compose build --pull forge-dcs
 fi
 
+fleet_rollout_step "restart" "Retiring legacy stack containers (volumes preserved)"
+for c in forge-2b forge-dcs; do
+  if docker ps -aq -f "name=^/${c}$" | grep -q .; then
+    docker stop "$c" >/dev/null 2>&1 || true
+    docker rm "$c" >/dev/null 2>&1 || true
+  fi
+done
 fleet_rollout_step "restart" "docker compose up -d --force-recreate"
 compose up -d --force-recreate --remove-orphans
 
