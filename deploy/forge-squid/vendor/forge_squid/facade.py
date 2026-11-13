@@ -26,7 +26,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from jsonschema import Draft202012Validator
 
-from . import attach, branding, cursor_backend, edgar, env_keys, graph, live, squid_catalog, zipingest
+from . import attach, branding, cursor_backend, edgar, env_keys, gateway_telemetry, graph, live, squid_catalog, zipingest
 from .dce.structured_turn import (
     contract_kind,
     contract_note,
@@ -88,6 +88,7 @@ DEFAULT_SQUID_ID = squid_catalog.default_squid_id()
 SOURCE_FILE_ID = "forge-squid-note"
 _client_model: contextvars.ContextVar[str] = contextvars.ContextVar("client_model", default=DEFAULT_SQUID_ID)
 _upstream_model: contextvars.ContextVar[str | None] = contextvars.ContextVar("upstream_model", default=None)
+_active_run_id: contextvars.ContextVar[str | None] = contextvars.ContextVar("active_run_id", default=None)
 MAX_BODY_BYTES = 8 * 1024 * 1024  # Open WebUI prepends attached-file content to the last user message
 TEN_K_MARK = re.compile(r"\bFORM\s+10-K\b|\bANNUAL REPORT PURSUANT TO SECTION 13 OR 15\(d\)", re.I)
 SOURCE_PATTERN = re.compile(
@@ -347,6 +348,16 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
     app = FastAPI(title="forge-squid OpenAI API PoC", docs_url=None, redoc_url=None)
     traces: dict[str, dict[str, Any]] = {}
     run_sem = asyncio.Semaphore(1)
+
+    def emit_shim_telemetry_for_run(run_id: str) -> None:
+        rec = traces.get(run_id)
+        if not rec:
+            return
+        gateway_telemetry.schedule_shim_run(llm_base_url=cfg.llm_url, api_key=cfg.llm_key, record=rec)
+
+    def return_chat_response(body: dict[str, Any], run_id: str, content: str, headers: dict[str, str]):
+        emit_shim_telemetry_for_run(run_id)
+        return _text_response(body, run_id, content, headers)
     dce_sem = asyncio.Semaphore(cfg.dce_concurrency)
     dce_budget = dce_shadow.Budget(plan_ms=cfg.dce_plan_ms, max_model_calls=cfg.dce_max_model_calls, max_attempts=cfg.max_attempts)
     dce_store = dce_session.SessionStore()   # per-conversation last two turns, in memory only (decision 5)
@@ -484,7 +495,12 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
             if not (cfg.llm_url and cfg.llm_key):
                 raise POCError(503, "UPSTREAM_NOT_CONFIGURED", "Composer is served by the forge-llm gateway CLI lane")
             url = squid_catalog.llm_gateway_completion_url(cfg.llm_url)
-            headers = {"Content-Type": "application/json", "Authorization": f"Bearer {cfg.llm_key}"}
+            rid = _active_run_id.get()
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {cfg.llm_key}",
+                **gateway_telemetry.gateway_headers(run_id=rid, client_model=_client_model.get()),
+            }
             try:
                 response = await client.post(url, headers=headers, json=payload)
                 response.raise_for_status()
@@ -493,6 +509,8 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                 raise POCError(503, "UPSTREAM_UNAVAILABLE", "forge-llm gateway CLI completion failed") from ex
             if not isinstance(answer, dict):
                 raise POCError(502, "INVALID_GATEWAY_RESPONSE", "Gateway CLI response malformed")
+            if rid and rid in traces:
+                gateway_telemetry.merge_gateway_usage(traces[rid], answer)
             return answer
         # Qwen via Open WebUI may answer only in reasoning_content unless thinking is off.
         payload.setdefault("think", False)
@@ -500,9 +518,11 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
         headers: dict[str, str] = {"Content-Type": "application/json"}
         via = env_keys.first_env("FORGE_SQUID_COMPLETION_BACKEND").strip().lower()
         use_gateway = via != "openwebui" and bool(cfg.llm_url and cfg.llm_key)
+        rid = _active_run_id.get()
         if use_gateway:
             url = squid_catalog.llm_gateway_completion_url(cfg.llm_url)
             headers["Authorization"] = f"Bearer {cfg.llm_key}"
+            headers.update(gateway_telemetry.gateway_headers(run_id=rid, client_model=_client_model.get()))
             upstream_label = "forge-llm gateway"
         else:
             if not cfg.openwebui_base_url:
@@ -519,6 +539,8 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
             raise POCError(503, "UPSTREAM_UNAVAILABLE", f"{upstream_label} chat completion failed") from ex
         if not isinstance(answer, dict):
             raise POCError(502, "INVALID_GATEWAY_RESPONSE", "Open WebUI response malformed")
+        if rid and rid in traces:
+            gateway_telemetry.merge_gateway_usage(traces[rid], answer)
         served = str(answer.get("model", ""))
         if squid_catalog.is_shim_upstream_id(served):
             raise POCError(502, "BACKEND_MODEL_MISMATCH", "Open WebUI returned a shim model (loop)")
@@ -1244,7 +1266,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                     last_snap = piece  # JSON clients get the final graph only
                 else:
                     parts.append(piece)
-            return _text_response(body, run_id, "".join(parts) + last_snap, headers)
+            return return_chat_response(body, run_id, "".join(parts) + last_snap, headers)
 
         created = int(time.time())
         response_id = "chatcmpl-" + run_id
@@ -1330,6 +1352,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
         if len(traces) >= 100:
             traces.pop(next(iter(traces)))
         traces[run_id] = record
+        run_token = _active_run_id.set(run_id)
         if lg is not None:
             record["steps"] = lg.steps()
         headers = {"Cache-Control": "no-store", "X-Forge-Lane": "chat", "X-Forge-Run-Id": run_id}
@@ -1392,7 +1415,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
             record["stages"].append("side_effect_refused")
             lg.add("refuse", "zero_model", "reader verdict · no model")
             lg.start("refuse")
-            return _text_response(body, run_id, refusal_text(reading) + done("refuse", "COMMITTED", "side effect requested — not performed", "REFUSED_SIDE_EFFECT"), headers)
+            return return_chat_response(body, run_id, refusal_text(reading) + done("refuse", "COMMITTED", "side effect requested — not performed", "REFUSED_SIDE_EFFECT"), headers)
         named = identity_reply(user_text)
         if named is not None:
             assert lg is not None
@@ -1401,7 +1424,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
             record["reading"]["decision"] = "identity"
             lg.add("identity", "zero_model", "fixed self-description · no model")
             lg.start("identity")
-            return _text_response(body, run_id, named + done("identity", "COMMITTED", "who-are-you answered without the model", "COMMITTED"), headers)
+            return return_chat_response(body, run_id, named + done("identity", "COMMITTED", "who-are-you answered without the model", "COMMITTED"), headers)
         # Phase 5 grounding (2026-11-06): questions about the engine itself, about what is attached, about the previous turn, and
         # elliptical follow-ups that arrived without their attachment are answered deterministically from the session store —
         # the pinned model is never asked about files it cannot see or about capabilities it would invent.
@@ -1421,7 +1444,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                 assert lg is not None
                 lg.add(stage, "zero_model", "session store · no model")
                 lg.start(stage)
-                return _text_response(body, run_id, text + done(stage, "COMMITTED", f"{stage.replace('_', ' ')} answered without the model", "COMMITTED"), headers)
+                return return_chat_response(body, run_id, text + done(stage, "COMMITTED", f"{stage.replace('_', ' ')} answered without the model", "COMMITTED"), headers)
 
         conv = conversation(messages) or [{"role": "user", "content": user_text[:4000]}]
         system_bits = system_prompt(reading, previous_turn_note(prev)) + json_instruction(user_text) + contract_note(user_text)
@@ -1493,7 +1516,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                 return text + tail
 
             if not stream_mode:
-                return _text_response(body, run_id, await dag_reply(attach_graph_in_body=False), headers)
+                return return_chat_response(body, run_id, await dag_reply(attach_graph_in_body=False), headers)
 
             created = int(time.time())
             response_id = "chatcmpl-" + run_id
@@ -1705,18 +1728,24 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
             gate_txt = ", ".join(record.get("prose_gates") or []) or "all gates passed"
             commit_deterministic("polish", "assemble_prose · scrub · gates", gate_txt)
             graph = seal_graph(run_status)
+            if lg is not None:
+                record["elapsed_ms"] = int(lg.elapsed_ms())
             if structured:
+                emit_shim_telemetry_for_run(run_id)
                 return text
             if chat_prose_only():
+                emit_shim_telemetry_for_run(run_id)
                 return text
             if stream_mode:
+                emit_shim_telemetry_for_run(run_id)
                 return text
+            emit_shim_telemetry_for_run(run_id)
             return text + graph
 
         assert lg is not None
         lg.start("reply", "one pinned-model call over the conversation")
         if not stream_mode:
-            return _text_response(body, run_id, await reply_text(), headers)
+            return return_chat_response(body, run_id, await reply_text(), headers)
 
         created = int(time.time())
         response_id = "chatcmpl-" + run_id
@@ -1747,6 +1776,8 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                 yield chunk({}, "stop")
                 yield "data: [DONE]\n\n"
             finally:
+                emit_shim_telemetry_for_run(run_id)
+                _active_run_id.reset(run_token)
                 _client_model.reset(t_client)
                 _upstream_model.reset(t_upstream)
 
