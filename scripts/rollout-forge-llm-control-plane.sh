@@ -139,7 +139,10 @@ _runner_yaml_changed_in_container() {
 deploy_gateway_stack() {
   cd "$FORGE_LLM_ROOT"
   export OLLAMA_HOST_URL="${OLLAMA_HOST_URL:-$OLLAMA_FORWARDER_URL}"
-  log "building forge-gateway"
+  # Granite hosts may deny buildx state under ~/.docker (permission denied); classic build works.
+  export DOCKER_BUILDKIT="${DOCKER_BUILDKIT:-0}"
+  export COMPOSE_DOCKER_CLI_BUILD="${COMPOSE_DOCKER_CLI_BUILD:-0}"
+  log "building forge-gateway (BUILDKIT=${DOCKER_BUILDKIT})"
   compose -f compose.yaml build forge-gateway
   local -a up_args=(-d)
   if _runner_yaml_changed_in_container; then
