@@ -14,6 +14,7 @@ import httpx
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 
+from control_plane.cli_lane import is_cli_model, openai_chat_via_cli
 from control_plane.interception import adapter_openai, fingerprint_body, inject_think_false, run_openai_inference
 from control_plane.catalog_select import enabled_pins, pinned_openai_model_objects
 from control_plane.config import (
@@ -39,10 +40,15 @@ from control_plane.store import (
     insert_feedback,
     insert_job,
     insert_request,
+    insert_telemetry_event,
+    insert_telemetry_events,
     list_requests,
+    list_telemetry_events,
     stats_since,
     update_job,
 )
+from control_plane.telemetry_analytics import telemetry_summary
+from control_plane.telemetry_schema import SCHEMA_VERSION, validate_event
 from runners.factory import get_adapter
 from runners.loader import config_hash, load_runner_config
 from control_plane.webhooks import deliver_webhook
@@ -190,6 +196,68 @@ async def llm_stats(hours: float = 1.0) -> dict[str, Any]:
     }
 
 
+@router.get("/v1/llm/telemetry/summary")
+async def llm_telemetry_summary(hours: float = 24.0) -> dict[str, Any]:
+    """Throughput, tokens, models, classifiers, and squid shim savings rollups."""
+    since = time.time() - hours * 3600
+    base = telemetry_summary(since, hours)
+    base["active"] = active_snapshot()
+    base["queue_depth"] = await inference_queue.depth()
+    return base
+
+
+@router.get("/v1/llm/telemetry/events")
+async def llm_telemetry_events_list(
+    hours: float = 24.0,
+    kind: str | None = None,
+    limit: int = 100,
+) -> dict[str, Any]:
+    since = time.time() - hours * 3600
+    events = list_telemetry_events(since, kind=kind, limit=min(limit, 500))
+    return {"schema_version": SCHEMA_VERSION, "events": events}
+
+
+@router.post("/v1/llm/telemetry/events")
+async def llm_telemetry_events_ingest(request: Request) -> dict[str, Any]:
+    """Ingest shim / classifier / NLP telemetry (forge-squid and other clients)."""
+    raw = await request.json()
+    ctx = ForgeContext.from_headers(dict(request.headers))
+    rows: list[dict[str, Any]] = []
+    if isinstance(raw, list):
+        items = raw
+    elif isinstance(raw, dict) and isinstance(raw.get("events"), list):
+        items = raw["events"]
+    elif isinstance(raw, dict):
+        items = [raw]
+    else:
+        raise HTTPException(status_code=400, detail="Expected object or events array")
+    for item in items:
+        if not isinstance(item, dict):
+            raise HTTPException(status_code=400, detail="Each event must be an object")
+        ok, err = validate_event(item)
+        if not ok:
+            raise HTTPException(status_code=400, detail=err)
+        payload = {
+            "schema_version": SCHEMA_VERSION,
+            **{k: v for k, v in item.items() if k not in ("ts", "trace_id", "consumer")},
+        }
+        rows.append(
+            {
+                "ts": float(item.get("ts") or time.time()),
+                "trace_id": item.get("trace_id") or ctx.trace_id,
+                "consumer": item.get("consumer") or ctx.consumer,
+                "source": item["source"],
+                "kind": item["kind"],
+                "payload": payload,
+            }
+        )
+    if len(rows) == 1:
+        eid = insert_telemetry_event(rows[0])
+        return {"status": "ok", "ids": [eid], "schema_version": SCHEMA_VERSION}
+    ids = insert_telemetry_events(rows)
+    return {"status": "ok", "ids": ids, "schema_version": SCHEMA_VERSION}
+
+
 @router.get("/v1/llm/requests")
 async def llm_requests(hours: float = 24.0, limit: int = 100) -> dict[str, Any]:
     since = time.time() - hours * 3600
@@ -271,6 +339,15 @@ async def openai_chat_completions(
         body = json.loads(body_bytes) if body_bytes else {}
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=400, detail="Invalid JSON") from exc
+
+    requested = body.get("model")
+    if isinstance(requested, str) and is_cli_model(requested):
+        to = float(body.get("timeout") or DEFAULT_HOLD_TIMEOUT_SEC)
+        status, content, cli_hdrs = await openai_chat_via_cli(
+            model=requested, body=body, timeout=to
+        )
+        media = cli_hdrs.get("content-type", "application/json")
+        return Response(content=content, status_code=status, media_type=media)
 
     try:
         task = resolve_task(

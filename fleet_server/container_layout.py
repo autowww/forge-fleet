@@ -588,10 +588,12 @@ def services_status_snapshot(
         cp = st.get("control_plane")
         if isinstance(cp, dict):
             rollup_1h = cp.get("rollup_1h") if isinstance(cp.get("rollup_1h"), dict) else None
+            tel = st.get("llm_telemetry") if isinstance(st.get("llm_telemetry"), dict) else None
             entry["llm_rack"] = forge_llm_service.build_llm_rack(
                 cp,
                 service_id=str(rec.get("id") or "forge_llm"),
                 rollup_1h=rollup_1h,
+                telemetry=tel,
             )
         out.append(entry)
     return out

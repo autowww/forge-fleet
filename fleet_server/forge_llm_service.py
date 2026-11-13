@@ -170,6 +170,23 @@ def fetch_gateway_control_plane(
     return _gateway_get_json(f"/v1/llm/stats?hours={window}", host_port, timeout=timeout, compose_root=compose_root)
 
 
+def fetch_gateway_telemetry_summary(
+    host_port: int,
+    *,
+    hours: float = 24.0,
+    timeout: float = 5.0,
+    compose_root: Path | None = None,
+) -> dict[str, Any] | None:
+    """Best-effort scrape of ``/v1/llm/telemetry/summary`` (tokens, shim savings, classifiers)."""
+    window = max(0.01, float(hours))
+    return _gateway_get_json(
+        f"/v1/llm/telemetry/summary?hours={window}",
+        host_port,
+        timeout=timeout,
+        compose_root=compose_root,
+    )
+
+
 def fetch_gateway_catalog(
     host_port: int,
     *,
@@ -211,11 +228,16 @@ def build_llm_rack(
     *,
     service_id: str,
     rollup_1h: dict[str, Any] | None = None,
+    telemetry: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     rollup = control_plane.get("rollup") if isinstance(control_plane.get("rollup"), dict) else {}
     active = control_plane.get("active") if isinstance(control_plane.get("active"), dict) else {}
     r1 = rollup_1h if isinstance(rollup_1h, dict) else rollup
     completion_tokens = int(rollup.get("completion_tokens") or 0)
+    tel = telemetry if isinstance(telemetry, dict) else {}
+    gw = tel.get("gateway") if isinstance(tel.get("gateway"), dict) else {}
+    shim = tel.get("shim_savings") if isinstance(tel.get("shim_savings"), dict) else {}
+    squid = shim.get("squid_shim") if isinstance(shim.get("squid_shim"), dict) else {}
     return {
         "active_model": active.get("active_model"),
         "active_mode": active.get("active_mode"),
@@ -227,6 +249,13 @@ def build_llm_rack(
         "prompt_tokens_since_fleet_start": rollup.get("prompt_tokens"),
         "completion_tokens_since_fleet_start": completion_tokens,
         "tokens_per_sec": tokens_per_sec(service_id, completion_tokens),
+        "throughput_rpm": tel.get("throughput_requests_per_minute"),
+        "decode_tokens_per_second": gw.get("decode_tokens_per_second"),
+        "telemetry_window_hours": tel.get("window_hours"),
+        "shim_runs": squid.get("runs"),
+        "tokens_saved_estimate": squid.get("tokens_saved_estimate"),
+        "model_calls_avoided": squid.get("model_calls_avoided"),
+        "shim_llm_calls_made": squid.get("llm_calls_made"),
     }
 
 
@@ -254,6 +283,10 @@ def status_for_record(
         cp_1h = cp_start
         if uptime_h > 1.05:
             cp_1h = fetch_gateway_control_plane(port, hours=1.0, compose_root=root) or cp_start
+        # Shim analytics use a stable 24h window; control-plane stats above use Fleet uptime.
+        tel = fetch_gateway_telemetry_summary(port, hours=24.0, compose_root=root)
+        if tel:
+            out["llm_telemetry"] = tel
         if cp_start:
             cp_start = dict(cp_start)
             if cp_1h and cp_1h is not cp_start:

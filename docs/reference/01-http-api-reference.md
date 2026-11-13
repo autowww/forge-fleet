@@ -225,6 +225,9 @@ Each **`forge_llm_services[]`** entry may include **`llm_rack`** with gateway co
 | `prompt_tokens_since_fleet_start` / `completion_tokens_since_fleet_start` | Token rollups since Fleet start |
 | `tokens_per_sec` | Derived completion-token rate between Fleet sampler ticks |
 | `active_model` / `active_mode` | Current gateway session |
+| `decode_tokens_per_second` | From gateway `GET /v1/llm/telemetry/summary` |
+| `tokens_saved_estimate` / `model_calls_avoided` / `shim_runs` | Squid shim savings rollup (same telemetry summary) |
+| `throughput_rpm` | Requests per minute in the telemetry window |
 
 Gateway **`control_plane`** is fetched with **`since_epoch`** aligned to Fleet start when available.
 

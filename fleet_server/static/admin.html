@@ -5092,6 +5092,15 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
               esc(String(rack.queue_depth != null ? rack.queue_depth : "—")) +
               " · 1h req " +
               esc(String(rack.requests_1h != null ? rack.requests_1h : "—")) +
+              (rack.tokens_saved_estimate != null && rack.tokens_saved_estimate > 0
+                ? " · shim saved ~" + esc(String(rack.tokens_saved_estimate)) + " tok"
+                : "") +
+              (rack.model_calls_avoided != null && rack.model_calls_avoided > 0
+                ? " · " + esc(String(rack.model_calls_avoided)) + " calls avoided"
+                : "") +
+              (rack.decode_tokens_per_second != null
+                ? " · decode " + esc(String(rack.decode_tokens_per_second)) + " t/s"
+                : "") +
               "</div>";
           }
           var root = String(s.compose_root || "").slice(0, 48) + (String(s.compose_root || "").length > 48 ? "…" : "");

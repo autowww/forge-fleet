@@ -61,7 +61,19 @@ CREATE TABLE IF NOT EXISTS llm_feedback (
     meta_json TEXT
 );
 
+CREATE TABLE IF NOT EXISTS llm_telemetry_events (
+    id TEXT PRIMARY KEY,
+    ts REAL NOT NULL,
+    trace_id TEXT,
+    consumer TEXT,
+    source TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_llm_requests_ts ON llm_requests(ts);
+CREATE INDEX IF NOT EXISTS idx_llm_telemetry_ts ON llm_telemetry_events(ts);
+CREATE INDEX IF NOT EXISTS idx_llm_telemetry_kind ON llm_telemetry_events(kind);
 CREATE INDEX IF NOT EXISTS idx_llm_jobs_status ON llm_jobs(status);
 """
 
@@ -218,6 +230,79 @@ def stats_since(since_ts: float) -> dict[str, Any]:
         "swaps": int(row["swaps"] or 0),
         "by_mode": {str(r["mode"]): {"n": r["n"], "avg_ms": r["avg_ms"]} for r in by_mode},
     }
+
+
+def insert_telemetry_event(row: dict[str, Any]) -> str:
+    eid = row.get("id") or str(uuid.uuid4())
+    with db() as conn:
+        conn.execute(
+            """
+            INSERT INTO llm_telemetry_events (id, ts, trace_id, consumer, source, kind, payload_json)
+            VALUES (?,?,?,?,?,?,?)
+            """,
+            (
+                eid,
+                row.get("ts", time.time()),
+                row.get("trace_id"),
+                row.get("consumer"),
+                row.get("source"),
+                row.get("kind"),
+                json.dumps(row.get("payload") or {}),
+            ),
+        )
+    return eid
+
+
+def insert_telemetry_events(rows: list[dict[str, Any]]) -> list[str]:
+    ids: list[str] = []
+    with db() as conn:
+        for row in rows:
+            eid = row.get("id") or str(uuid.uuid4())
+            conn.execute(
+                """
+                INSERT INTO llm_telemetry_events (id, ts, trace_id, consumer, source, kind, payload_json)
+                VALUES (?,?,?,?,?,?,?)
+                """,
+                (
+                    eid,
+                    row.get("ts", time.time()),
+                    row.get("trace_id"),
+                    row.get("consumer"),
+                    row.get("source"),
+                    row.get("kind"),
+                    json.dumps(row.get("payload") or {}),
+                ),
+            )
+            ids.append(eid)
+    return ids
+
+
+def list_telemetry_events(
+    since_ts: float,
+    *,
+    kind: str | None = None,
+    limit: int = 500,
+) -> list[dict[str, Any]]:
+    with db() as conn:
+        if kind:
+            rows = conn.execute(
+                """
+                SELECT * FROM llm_telemetry_events
+                WHERE ts >= ? AND kind = ?
+                ORDER BY ts DESC LIMIT ?
+                """,
+                (since_ts, kind, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT * FROM llm_telemetry_events
+                WHERE ts >= ?
+                ORDER BY ts DESC LIMIT ?
+                """,
+                (since_ts, limit),
+            ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def insert_feedback(payload: dict[str, Any]) -> None:

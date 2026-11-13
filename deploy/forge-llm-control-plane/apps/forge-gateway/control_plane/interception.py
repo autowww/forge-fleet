@@ -13,12 +13,14 @@ from fastapi.responses import JSONResponse, Response
 
 from control_plane.config import DEFAULT_HOLD_TIMEOUT_SEC, QUARANTINED_MODELS
 from control_plane.context import ForgeContext
+from control_plane.cli_lane import is_cli_model, openai_chat_via_cli
 from control_plane.external_lane import openai_chat_via_openwebui
 from control_plane.modes import DEFAULT_WAIT_BY_MODE, ModeId, needs_think_false
 from control_plane.queue_manager import inference_queue
 from control_plane.route_select import header_task_from_request, plan_route
 from control_plane.slot_manager import active_snapshot, ensure_model
 from control_plane.store import insert_request
+from control_plane.request_telemetry import classification_snapshot, record_prometheus_completion
 from control_plane.task_resolve import deterministic_first_recommended, resolve_task
 from control_plane.catalog_select import catalog_evidence
 from runners.base import NativeApiUnsupported
@@ -131,6 +133,12 @@ async def run_openai_inference(
     request_headers: dict[str, str] | None = None,
 ) -> Response:
     headers = request_headers or {}
+    requested = body.get("model")
+    if isinstance(requested, str) and is_cli_model(requested):
+        to = float(timeout or body.get("timeout") or DEFAULT_HOLD_TIMEOUT_SEC)
+        status, content, hdrs = await openai_chat_via_cli(model=requested, body=body, timeout=to)
+        media = hdrs.get("content-type", "application/json")
+        return Response(content=content, status_code=status, media_type=media)
     try:
         task = resolve_task(
             header_task=header_task_from_request(headers) or None,
@@ -267,8 +275,21 @@ async def run_openai_inference(
                 "meta": {
                     **_route_evidence(route, task),
                     "path": path,
+                    **classification_snapshot(
+                        path=path,
+                        body=body,
+                        consumer=ctx.consumer,
+                        task_id=task.task_id,
+                        deterministic_first=deterministic_first_recommended(task.task_id),
+                    ),
                 },
             }
+        )
+        record_prometheus_completion(
+            path=path,
+            model=model,
+            prompt_tokens=tin,
+            completion_tokens=tout,
         )
         return Response(
             content=content,

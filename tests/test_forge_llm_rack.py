@@ -32,6 +32,32 @@ def test_build_llm_rack_includes_since_fleet_start_fields():
     assert rack["requests_1h"] == 10
 
 
+def test_build_llm_rack_merges_telemetry_summary():
+    cp = {
+        "queue_depth": 0,
+        "active": {"active_model": "composer"},
+        "rollup": {"requests": 5, "completion_tokens": 100, "prompt_tokens": 50},
+    }
+    tel = {
+        "window_hours": 24,
+        "throughput_requests_per_minute": 0.5,
+        "gateway": {"decode_tokens_per_second": 12.3},
+        "shim_savings": {
+            "squid_shim": {
+                "runs": 2,
+                "tokens_saved_estimate": 16000,
+                "model_calls_avoided": 4,
+                "llm_calls_made": 2,
+            }
+        },
+    }
+    rack = fls.build_llm_rack(cp, service_id="forge-llm", telemetry=tel)
+    assert rack["tokens_saved_estimate"] == 16000
+    assert rack["model_calls_avoided"] == 4
+    assert rack["shim_runs"] == 2
+    assert rack["decode_tokens_per_second"] == 12.3
+
+
 def test_tokens_per_sec_tracks_delta():
     service = "test-llm-rate"
     first = fls.tokens_per_sec(service, 1000)
