@@ -208,6 +208,20 @@
           <div class="card-body py-3">
             <h2 class="h6 text-uppercase text-body-secondary mb-3">Overview</h2>
             <div id="fleet-tiles" class="fleet-tile-row fleet-one-row mb-2" aria-live="polite">Loading tiles…</div>
+            <div
+              id="fleet-llm-telemetry-wrap"
+              class="d-none border border-secondary-subtle rounded p-2 mb-2 small"
+              role="region"
+              aria-label="Forge LLM gateway telemetry"
+            >
+              <div class="fw-semibold mb-1">Forge LLM gateway telemetry <span class="text-body-secondary fw-normal">(24h)</span></div>
+              <div id="fleet-llm-telemetry-body" class="text-body-secondary fleet-mono small"></div>
+              <p class="text-body-secondary mb-0 mt-1" style="font-size: 0.75rem">
+                Token and shim savings come from forge-gateway <code class="fleet-mono">/v1/llm/telemetry/summary</code>.
+                On the laptop, set <strong>Fleet scope</strong> to your <strong>Granite</strong> peer to see production data.
+                Per-stack detail: <strong>Services</strong> tab.
+              </p>
+            </div>
             <div id="fleet-chart-wrap" class="mb-0 mt-3 pt-3 border-top border-secondary-subtle">
               <div class="small text-body-secondary mb-1 d-flex flex-wrap align-items-center justify-content-between gap-2">
                 <span class="text-body-secondary small">
@@ -3800,6 +3814,73 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
      * Header text + container-type cards from live snapshot orchestration (fresher than last DB row).
      * Chart series come from ``refreshTelemetryChartsFromDb``; this only updates summary + cards.
      */
+    function pickPrimaryLlmRack(svcs) {
+      if (!Array.isArray(svcs) || !svcs.length) return null;
+      for (var i = 0; i < svcs.length; i++) {
+        var s = svcs[i];
+        if (String(s.id || "") === "default" && s.llm_rack) return { id: s.id, rack: s.llm_rack };
+      }
+      for (var j = 0; j < svcs.length; j++) {
+        var s2 = svcs[j];
+        if (String(s2.type_id || "") !== "forge_llm") continue;
+        if (!s2.llm_rack || !s2.gateway_publish) continue;
+        return { id: s2.id, rack: s2.llm_rack };
+      }
+      return null;
+    }
+
+    function paintLlmGatewayTelemetry(integ) {
+      var wrap = document.getElementById("fleet-llm-telemetry-wrap");
+      var body = document.getElementById("fleet-llm-telemetry-body");
+      if (!wrap || !body) return;
+      var svcs = (integ && integ.forge_llm_services) || [];
+      if (!svcs.length) {
+        wrap.classList.remove("d-none");
+        body.textContent =
+          "No forge_llm service on this Fleet scope — gateway telemetry is not scraped. Register the control-plane stack (Services tab) or switch Fleet scope to Granite.";
+        return;
+      }
+      var picked = pickPrimaryLlmRack(svcs);
+      if (!picked || !picked.rack) {
+        wrap.classList.remove("d-none");
+        body.textContent =
+          "forge_llm service(s) registered but gateway scrape returned no llm_rack (gateway down, auth token mismatch, or wrong compose root). Check forge-gateway on :18080.";
+        return;
+      }
+      var r = picked.rack;
+      var lines = [
+        "service: " + String(picked.id),
+        "active model: " + String(r.active_model != null && r.active_model !== "" ? r.active_model : "—"),
+        "queue: " + String(r.queue_depth != null ? r.queue_depth : "—"),
+        "requests (1h / since Fleet): " +
+          String(r.requests_1h != null ? r.requests_1h : "—") +
+          " / " +
+          String(r.requests_since_fleet_start != null ? r.requests_since_fleet_start : "—"),
+        "tokens in/out (since Fleet): " +
+          String(r.prompt_tokens_since_fleet_start != null ? r.prompt_tokens_since_fleet_start : "—") +
+          " / " +
+          String(r.completion_tokens_since_fleet_start != null ? r.completion_tokens_since_fleet_start : "—"),
+        "throughput: " +
+          String(r.throughput_rpm != null ? r.throughput_rpm : "—") +
+          " req/min · decode " +
+          String(r.decode_tokens_per_second != null ? r.decode_tokens_per_second : "—") +
+          " tok/s",
+        "squid shim (24h): " +
+          String(r.shim_runs != null ? r.shim_runs : 0) +
+          " runs · ~" +
+          String(r.tokens_saved_estimate != null ? r.tokens_saved_estimate : 0) +
+          " tok saved · " +
+          String(r.model_calls_avoided != null ? r.model_calls_avoided : 0) +
+          " calls avoided · " +
+          String(r.shim_llm_calls_made != null ? r.shim_llm_calls_made : "—") +
+          " LLM calls",
+      ];
+      body.innerHTML = lines.map(function (ln) {
+        return "<div>" + esc(ln) + "</div>";
+      }).join("");
+      wrap.classList.remove("d-none");
+    }
+
     function paintOrchestrationHeader(orch) {
       if (orch && typeof orch === "object") __fleetLastOrchestration = orch;
       var wrap = document.getElementById("fleet-orchestration-wrap");
@@ -5092,12 +5173,15 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
               esc(String(rack.queue_depth != null ? rack.queue_depth : "—")) +
               " · 1h req " +
               esc(String(rack.requests_1h != null ? rack.requests_1h : "—")) +
-              (rack.tokens_saved_estimate != null && rack.tokens_saved_estimate > 0
-                ? " · shim saved ~" + esc(String(rack.tokens_saved_estimate)) + " tok"
-                : "") +
-              (rack.model_calls_avoided != null && rack.model_calls_avoided > 0
-                ? " · " + esc(String(rack.model_calls_avoided)) + " calls avoided"
-                : "") +
+              " · tokens " +
+              esc(String(rack.prompt_tokens_since_fleet_start != null ? rack.prompt_tokens_since_fleet_start : "—")) +
+              "/" +
+              esc(String(rack.completion_tokens_since_fleet_start != null ? rack.completion_tokens_since_fleet_start : "—")) +
+              " · shim " +
+              esc(String(rack.shim_runs != null ? rack.shim_runs : 0)) +
+              " runs · ~" +
+              esc(String(rack.tokens_saved_estimate != null ? rack.tokens_saved_estimate : 0)) +
+              " tok saved" +
               (rack.decode_tokens_per_second != null
                 ? " · decode " + esc(String(rack.decode_tokens_per_second)) + " t/s"
                 : "") +
@@ -5836,6 +5920,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       }
 
       renderManagedServices(integ);
+      paintLlmGatewayTelemetry(integ);
       loadContainerTypesOnce();
       fleetAppsSyncTabs(data.apps || []);
       fleetAppsLoadCatalog(data.apps || []);
