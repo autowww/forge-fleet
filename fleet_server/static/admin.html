@@ -210,17 +210,33 @@
             <div id="fleet-tiles" class="fleet-tile-row fleet-one-row mb-2" aria-live="polite">Loading tiles…</div>
             <div
               id="fleet-llm-telemetry-wrap"
-              class="d-none border border-secondary-subtle rounded p-2 mb-2 small"
+              class="d-none mb-0 mt-2 pt-3 border-top border-secondary-subtle"
               role="region"
               aria-label="Forge LLM gateway telemetry"
             >
-              <div class="fw-semibold mb-1">Forge LLM gateway telemetry <span class="text-body-secondary fw-normal">(24h)</span></div>
-              <div id="fleet-llm-telemetry-body" class="text-body-secondary fleet-mono small"></div>
-              <p class="text-body-secondary mb-0 mt-1" style="font-size: 0.75rem">
-                Token and shim savings come from forge-gateway <code class="fleet-mono">/v1/llm/telemetry/summary</code>.
-                On the laptop, set <strong>Fleet scope</strong> to your <strong>Granite</strong> peer to see production data.
-                Per-stack detail: <strong>Services</strong> tab.
-              </p>
+              <h3 class="h6 text-uppercase text-body-secondary mb-2">
+                Forge LLM gateway <span class="text-lowercase fw-normal">(24h)</span>
+              </h3>
+              <div id="fleet-llm-tiles" class="fleet-tile-row fleet-one-row mb-2" aria-live="polite"></div>
+              <div id="fleet-llm-chart-wrap" class="mb-0">
+                <div class="small text-body-secondary mb-1 d-flex flex-wrap align-items-center justify-content-between gap-2">
+                  <span class="text-body-secondary small">
+                    <span class="text-body">Gateway live</span>
+                    <span class="ms-1" style="color:#2dd4bf" aria-hidden="true">●</span> decode tok/s
+                    <span class="ms-1" style="color:#60a5fa" aria-hidden="true">●</span> req/min
+                    <span class="ms-1" style="color:#f472b6" aria-hidden="true">●</span> completion tok/s
+                  </span>
+                  <span class="fleet-chart-time-hint fleet-mono" id="fleet-llm-chart-hint"
+                    >Older left · recent right · snapshot tail · scaled to max seen</span
+                  >
+                </div>
+                <div
+                  id="fleet-llm-load-chart"
+                  class="fleet-chart-box"
+                  role="img"
+                  aria-label="Forge LLM gateway live throughput chart"
+                ></div>
+              </div>
             </div>
             <div id="fleet-chart-wrap" class="mb-0 mt-3 pt-3 border-top border-secondary-subtle">
               <div class="small text-body-secondary mb-1 d-flex flex-wrap align-items-center justify-content-between gap-2">
@@ -1295,6 +1311,8 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
     /** Serialize snapshot polls so a slow/stale response cannot overwrite fresher tiles after hard reload. */
     var __fleetSnapshotTail = Promise.resolve();
     var chartBuf = [];
+    var llmChartBuf = [];
+    var llmChartMaxima = { decode: 1, rpm: 1, tokRate: 1 };
     var chartHostIdentity = null;
     var CHART_MS = 3600000;
     var MAX_CHART_RENDER = 480;
@@ -2078,6 +2096,8 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       "<svg class=\"fleet-tile__mark\" width=\"40\" height=\"40\" viewBox=\"0 0 40 40\" xmlns=\"http://www.w3.org/2000/svg\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.55\" stroke-linejoin=\"round\"><path d=\"M22 7v23a6 6 0 1 1-4 0V7a2 2 0 1 1 4 0z\"/></svg>";
     var MARK_COOLDOWN =
       "<svg class=\"fleet-tile__mark\" width=\"40\" height=\"40\" viewBox=\"0 0 40 40\" xmlns=\"http://www.w3.org/2000/svg\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"20\" cy=\"22\" r=\"12\"/><path d=\"M20 14v8l5 3\"/></svg>";
+    var MARK_LLM =
+      "<svg class=\"fleet-tile__mark\" width=\"40\" height=\"32\" viewBox=\"0 0 40 32\" xmlns=\"http://www.w3.org/2000/svg\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.45\" stroke-linejoin=\"round\"><path d=\"M6 8c0-2 1.5-3.5 3.5-3.5H28c2 0 3.5 1.5 3.5 3.5v11c0 2-1.5 3.5-3.5 3.5H14l-6 5v-5H9.5C7.5 22.5 6 21 6 19V8z\"/><path d=\"M12 14h16M12 18h11\" opacity=\"0.85\"/></svg>";
 
   var __fleetRaplPrev = { uj: null, tMs: null };
 
@@ -3829,56 +3849,411 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       return null;
     }
 
+    function formatLlmCompact(n) {
+      if (n == null || isNaN(Number(n))) return "—";
+      var v = Number(n);
+      var sign = v < 0 ? "-" : "";
+      v = Math.abs(v);
+      if (v >= 1e6) return sign + (v / 1e6).toFixed(1) + "M";
+      if (v >= 10000) return sign + Math.round(v / 1000) + "k";
+      if (v >= 1000) return sign + (v / 1000).toFixed(1) + "k";
+      if (v >= 100) return sign + String(Math.round(v));
+      return sign + String(Math.round(v * 10) / 10);
+    }
+
+    function formatLlmRate(n, unit) {
+      if (n == null || isNaN(Number(n))) return "—";
+      return String(Math.round(Number(n) * 10) / 10) + (unit ? " " + unit : "");
+    }
+
+    function llmGatewayTile(role, bandPrefix, heatPct, markSvg, label, value, mem, hint) {
+      var hz = heat3(heatPct != null && !isNaN(Number(heatPct)) ? Number(heatPct) : 0);
+      return (
+        '<div class="fleet-tile fleet-tile--' +
+        esc(bandPrefix) +
+        "-" +
+        hz +
+        '" data-fleet-tile-role="' +
+        esc(role) +
+        '"><div class="fleet-tile__brand">' +
+        tileMark(markSvg, label) +
+        '</div><div class="fleet-tile__value fleet-mono">' +
+        esc(value) +
+        '</div><div class="fleet-tile__mem">' +
+        mem +
+        '</div><div class="fleet-tile__hint">' +
+        hint +
+        "</div></div>"
+      );
+    }
+
+    function llmLogHeat(n, fullAt) {
+      var v = n != null && !isNaN(Number(n)) ? Math.max(0, Number(n)) : 0;
+      var cap = fullAt != null && !isNaN(Number(fullAt)) && Number(fullAt) > 0 ? Number(fullAt) : 100000;
+      if (v <= 0) return 0;
+      return Math.min(100, (Math.log10(v + 1) / Math.log10(cap + 1)) * 100);
+    }
+
+    function renderLlmGatewayTiles(picked, rack) {
+      var el = document.getElementById("fleet-llm-tiles");
+      if (!el) return;
+      if (!picked || !rack) {
+        el.innerHTML =
+          '<div class="fleet-tile fleet-tile--mem-low" data-fleet-tile-role="llm-empty"><div class="fleet-tile__brand">' +
+          tileMark(MARK_LLM, "Forge LLM") +
+          '</div><div class="fleet-tile__value fleet-mono">—</div><div class="fleet-tile__mem">Gateway</div><div class="fleet-tile__hint">No llm_rack on this scope</div></div>';
+        return;
+      }
+      var r = rack;
+      var svc = esc(String(picked.id));
+      var prompt24 = r.prompt_tokens_24h != null ? Number(r.prompt_tokens_24h) : null;
+      var compl24 = r.completion_tokens_24h != null ? Number(r.completion_tokens_24h) : null;
+      var decode = r.decode_tokens_per_second != null ? Number(r.decode_tokens_per_second) : null;
+      var rpm = r.throughput_rpm != null ? Number(r.throughput_rpm) : null;
+      var queue = r.queue_depth != null ? Number(r.queue_depth) : null;
+      var shimSaved = r.tokens_saved_estimate != null ? Number(r.tokens_saved_estimate) : 0;
+      var shimRuns = r.shim_runs != null ? Number(r.shim_runs) : 0;
+      var model =
+        r.active_model != null && String(r.active_model).trim() !== ""
+          ? String(r.active_model)
+          : "—";
+      var modelShort = model.length > 22 ? model.slice(0, 20) + "…" : model;
+
+      var tiles = [];
+      tiles.push(
+        llmGatewayTile(
+          "llm-prompt",
+          "mem",
+          llmLogHeat(prompt24, 200000),
+          MARK_RAM,
+          "Prompt tokens 24h",
+          formatLlmCompact(prompt24),
+          "Prompt · 24h",
+          "service " + svc
+        )
+      );
+      tiles.push(
+        llmGatewayTile(
+          "llm-completion",
+          "cpu",
+          llmLogHeat(compl24, 80000),
+          MARK_CPU,
+          "Completion tokens 24h",
+          formatLlmCompact(compl24),
+          "Completion · 24h",
+          esc(modelShort)
+        )
+      );
+      tiles.push(
+        llmGatewayTile(
+          "llm-decode",
+          "load",
+          decode != null ? Math.min(100, (decode / 80) * 100) : 0,
+          MARK_LOAD,
+          "Decode throughput",
+          formatLlmRate(decode, "tok/s"),
+          "Decode speed",
+          rpm != null ? esc(formatLlmRate(rpm, "req/min")) : "—"
+        )
+      );
+      tiles.push(
+        llmGatewayTile(
+          "llm-rpm",
+          "disk",
+          rpm != null ? Math.min(100, (rpm / 30) * 100) : 0,
+          MARK_DISK,
+          "Request rate",
+          formatLlmRate(rpm, "rpm"),
+          "Throughput",
+          "req (1h): " + esc(String(r.requests_1h != null ? r.requests_1h : "—"))
+        )
+      );
+      tiles.push(
+        llmGatewayTile(
+          "llm-shim",
+          "cooldown",
+          shimSaved > 0 ? Math.min(100, (shimSaved / 8000) * 100) : 0,
+          MARK_COOLDOWN,
+          "Squid shim savings",
+          formatLlmCompact(shimSaved),
+          shimRuns + (shimRuns === 1 ? " run" : " runs") + " · tok saved",
+          "calls avoided: " + esc(String(r.model_calls_avoided != null ? r.model_calls_avoided : 0))
+        )
+      );
+      tiles.push(
+        llmGatewayTile(
+          "llm-queue",
+          "mem",
+          queue != null ? Math.min(100, queue * 25) : 0,
+          MARK_THERMAL,
+          "Queue depth",
+          queue != null ? esc(String(Math.round(queue))) : "—",
+          "Queue",
+          esc(modelShort)
+        )
+      );
+      el.innerHTML = tiles.join("");
+    }
+
+    function llmChartNormalizeTimes(buf) {
+      if (!buf || !buf.length) return [];
+      var out = [];
+      var lastT = null;
+      for (var i = 0; i < buf.length; i++) {
+        var row = buf[i];
+        var t = row.t != null && !isNaN(Number(row.t)) ? Number(row.t) : null;
+        if (t == null) {
+          t = lastT != null ? lastT + POLL_MS : Date.now() - (buf.length - 1 - i) * POLL_MS;
+        }
+        if (lastT != null && t <= lastT) t = lastT + 1;
+        lastT = t;
+        out.push({ t: t, decode: row.decode, rpm: row.rpm, tokRate: row.tokRate });
+      }
+      return out;
+    }
+
+    function llmChartBufResampleTime(buf, maxPts) {
+      if (!buf || !buf.length) return [];
+      if (buf.length <= maxPts) return buf.slice();
+      var t0 = Number(buf[0].t);
+      var t1 = Number(buf[buf.length - 1].t);
+      var span = Math.max(1, t1 - t0);
+      var out = [];
+      for (var j = 0; j < maxPts; j++) {
+        var u = maxPts <= 1 ? 0 : j / (maxPts - 1);
+        var tt = t0 + u * span;
+        var best = buf[0];
+        var bestD = Math.abs(Number(buf[0].t) - tt);
+        for (var i = 1; i < buf.length; i++) {
+          var d = Math.abs(Number(buf[i].t) - tt);
+          if (d < bestD) {
+            bestD = d;
+            best = buf[i];
+          }
+        }
+        out.push({ t: tt, decode: best.decode, rpm: best.rpm, tokRate: best.tokRate });
+      }
+      return out;
+    }
+
+    function updateLlmChartMaxima(buf) {
+      for (var i = 0; i < buf.length; i++) {
+        var rw = buf[i];
+        if (rw.decode != null && !isNaN(rw.decode)) {
+          llmChartMaxima.decode = Math.max(llmChartMaxima.decode, Number(rw.decode));
+        }
+        if (rw.rpm != null && !isNaN(rw.rpm)) {
+          llmChartMaxima.rpm = Math.max(llmChartMaxima.rpm, Number(rw.rpm));
+        }
+        if (rw.tokRate != null && !isNaN(rw.tokRate)) {
+          llmChartMaxima.tokRate = Math.max(llmChartMaxima.tokRate, Number(rw.tokRate));
+        }
+      }
+      llmChartMaxima.decode = Math.max(llmChartMaxima.decode, 1);
+      llmChartMaxima.rpm = Math.max(llmChartMaxima.rpm, 0.5);
+      llmChartMaxima.tokRate = Math.max(llmChartMaxima.tokRate, 1);
+    }
+
+    function llmTelemetryGridAndPaths(chartRows, w, h, padL, padR, padT, padB) {
+      var iw = w - padL - padR;
+      var ih = h - padT - padB;
+      var n = chartRows.length;
+      if (!n) {
+        var gridPartsEmpty = [];
+        chartTickPercents().forEach(function (tp) {
+          var gy = chartPctToY(tp, padT, ih);
+          gridPartsEmpty.push(
+            "<line x1=\"" +
+              padL +
+              "\" y1=\"" +
+              gy.toFixed(2) +
+              "\" x2=\"" +
+              (padL + iw) +
+              "\" y2=\"" +
+              gy.toFixed(2) +
+              "\" stroke=\"currentColor\" stroke-opacity=\"0.11\" stroke-width=\"1\"/>"
+          );
+          gridPartsEmpty.push(
+            "<text x=\"" +
+              (padL - 5) +
+              "\" y=\"" +
+              (gy + 3).toFixed(2) +
+              "\" fill=\"currentColor\" opacity=\"0.48\" font-size=\"9\" text-anchor=\"end\">" +
+              tp +
+              "</text>"
+          );
+        });
+        return { gridInner: gridPartsEmpty.join(""), dDecode: "", dRpm: "", dTok: "", w: w, h: h };
+      }
+      var tMin = chartRows[0].t != null ? chartRows[0].t : 0;
+      var tMax = chartRows[n - 1].t != null ? chartRows[n - 1].t : tMin + 1;
+      var span = Math.max(1, tMax - tMin);
+      var xsTime = [];
+      for (var xi = 0; xi < n; xi++) {
+        var ti = chartRows[xi].t != null ? chartRows[xi].t : tMin;
+        xsTime.push(padL + ((ti - tMin) / span) * iw);
+      }
+      function xAt(i) {
+        return xsTime[i];
+      }
+      var rawDecode = [];
+      var rawRpm = [];
+      var rawTok = [];
+      for (var ri = 0; ri < n; ri++) {
+        var rowR = chartRows[ri];
+        rawDecode.push(pctOfMaxRaw(rowR && rowR.decode, llmChartMaxima.decode));
+        rawRpm.push(pctOfMaxRaw(rowR && rowR.rpm, llmChartMaxima.rpm));
+        rawTok.push(pctOfMaxRaw(rowR && rowR.tokRate, llmChartMaxima.tokRate));
+      }
+      var dDecode;
+      var dRpm;
+      var dTok;
+      if (n === 1) {
+        var yd0 = chartPctToY(rawDecode[0], padT, ih);
+        var yr0 = chartPctToY(rawRpm[0], padT, ih);
+        var yt0 = chartPctToY(rawTok[0], padT, ih);
+        var xFull = (padL + iw).toFixed(2);
+        dDecode = "M " + padL + " " + yd0.toFixed(2) + " L " + xFull + " " + yd0.toFixed(2);
+        dRpm = "M " + padL + " " + yr0.toFixed(2) + " L " + xFull + " " + yr0.toFixed(2);
+        dTok = "M " + padL + " " + yt0.toFixed(2) + " L " + xFull + " " + yt0.toFixed(2);
+      } else {
+        var ptsD = [];
+        var ptsR = [];
+        var ptsT = [];
+        for (var ii = 0; ii < n; ii++) {
+          var xi2 = xAt(ii);
+          ptsD.push({ x: xi2, y: chartPctToY(rawDecode[ii], padT, ih) });
+          ptsR.push({ x: xi2, y: chartPctToY(rawRpm[ii], padT, ih) });
+          ptsT.push({ x: xi2, y: chartPctToY(rawTok[ii], padT, ih) });
+        }
+        dDecode = chartPolylineD(ptsD);
+        dRpm = chartPolylineD(ptsR);
+        dTok = chartPolylineD(ptsT);
+      }
+      var gridParts = [];
+      chartTickPercents().forEach(function (tp) {
+        var gy = chartPctToY(tp, padT, ih);
+        gridParts.push(
+          "<line x1=\"" +
+            padL +
+            "\" y1=\"" +
+            gy.toFixed(2) +
+            "\" x2=\"" +
+            (padL + iw) +
+            "\" y2=\"" +
+            gy.toFixed(2) +
+            "\" stroke=\"currentColor\" stroke-opacity=\"0.11\" stroke-width=\"1\"/>"
+        );
+        gridParts.push(
+          "<text x=\"" +
+            (padL - 5) +
+            "\" y=\"" +
+            (gy + 3).toFixed(2) +
+            "\" fill=\"currentColor\" opacity=\"0.48\" font-size=\"9\" text-anchor=\"end\">" +
+            tp +
+            "</text>"
+        );
+      });
+      return { gridInner: gridParts.join(""), dDecode: dDecode, dRpm: dRpm, dTok: dTok, w: w, h: h };
+    }
+
+    function renderLlmTelemetrySvgMarkup(gp, strokeScale) {
+      var sw = strokeScale != null ? strokeScale : 2;
+      var swThin = Math.max(1.25, sw - 0.65);
+      return (
+        "<g id=\"fleet-llm-chart-grid\">" +
+        gp.gridInner +
+        "</g>" +
+        "<path id=\"fleet-llm-chart-decode\" fill=\"none\" stroke=\"#2dd4bf\" stroke-width=\"" +
+        sw +
+        "\" stroke-linejoin=\"round\" stroke-linecap=\"round\" vector-effect=\"non-scaling-stroke\" shape-rendering=\"geometricPrecision\" d=\"" +
+        esc(gp.dDecode) +
+        "\"/>" +
+        "<path id=\"fleet-llm-chart-rpm\" fill=\"none\" stroke=\"#60a5fa\" stroke-width=\"" +
+        swThin +
+        "\" stroke-linejoin=\"round\" stroke-linecap=\"round\" vector-effect=\"non-scaling-stroke\" shape-rendering=\"geometricPrecision\" d=\"" +
+        esc(gp.dRpm) +
+        "\"/>" +
+        "<path id=\"fleet-llm-chart-tok\" fill=\"none\" stroke=\"#f472b6\" stroke-width=\"" +
+        swThin +
+        "\" stroke-linejoin=\"round\" stroke-linecap=\"round\" vector-effect=\"non-scaling-stroke\" shape-rendering=\"geometricPrecision\" d=\"" +
+        esc(gp.dTok) +
+        "\"/>"
+      );
+    }
+
+    function appendLiveLlmChartTail(rack) {
+      if (!rack || typeof rack !== "object") return;
+      var nowT = Date.now();
+      var cut = nowT - CHART_MS;
+      while (llmChartBuf.length && Number(llmChartBuf[0].t) < cut) llmChartBuf.shift();
+      if (llmChartBuf.length > 2400) llmChartBuf.splice(0, llmChartBuf.length - 2400);
+      var decode =
+        rack.decode_tokens_per_second != null && !isNaN(Number(rack.decode_tokens_per_second))
+          ? Number(rack.decode_tokens_per_second)
+          : null;
+      var rpm =
+        rack.throughput_rpm != null && !isNaN(Number(rack.throughput_rpm)) ? Number(rack.throughput_rpm) : null;
+      var tokRate =
+        rack.tokens_per_sec != null && !isNaN(Number(rack.tokens_per_sec))
+          ? Number(rack.tokens_per_sec)
+          : decode;
+      llmChartBuf.push({ t: nowT, decode: decode, rpm: rpm, tokRate: tokRate });
+    }
+
+    function renderLlmGatewayChart() {
+      var el = document.getElementById("fleet-llm-load-chart");
+      if (!el) return;
+      var w = 600;
+      var h = 108;
+      var padL = 36;
+      var padR = 8;
+      var padT = 6;
+      var padB = 14;
+      var bufFull = llmChartNormalizeTimes(llmChartBuf);
+      if (!bufFull.length) {
+        el.innerHTML =
+          "<svg class=\"fleet-chart-svg\" xmlns=\"http://www.w3.org/2000/svg\" width=\"100%\" height=\"100%\" viewBox=\"0 0 " +
+          w +
+          " " +
+          h +
+          "\"><text x=\"" +
+          padL +
+          "\" y=\"" +
+          (h / 2) +
+          "\" fill=\"currentColor\" opacity=\"0.45\" font-size=\"12\">Waiting for gateway polls…</text></svg>";
+        return;
+      }
+      updateLlmChartMaxima(bufFull);
+      var chartRows = llmChartBufResampleTime(bufFull, MAX_CHART_RENDER);
+      var gp = llmTelemetryGridAndPaths(chartRows, w, h, padL, padR, padT, padB);
+      var innerMarkup = renderLlmTelemetrySvgMarkup(gp, 2.25);
+      var svg = el.querySelector("svg.fleet-chart-svg");
+      if (!svg) {
+        el.innerHTML =
+          "<svg class=\"fleet-chart-svg\" xmlns=\"http://www.w3.org/2000/svg\" width=\"100%\" height=\"100%\" preserveAspectRatio=\"none\" viewBox=\"0 0 " +
+          w +
+          " " +
+          h +
+          "\">" +
+          innerMarkup +
+          "</svg>";
+        return;
+      }
+      svg.innerHTML = innerMarkup;
+      svg.setAttribute("viewBox", "0 0 " + w + " " + h);
+    }
+
     function paintLlmGatewayTelemetry(integ) {
       var wrap = document.getElementById("fleet-llm-telemetry-wrap");
-      var body = document.getElementById("fleet-llm-telemetry-body");
-      if (!wrap || !body) return;
+      if (!wrap) return;
       var svcs = (integ && integ.forge_llm_services) || [];
-      if (!svcs.length) {
-        wrap.classList.remove("d-none");
-        body.textContent =
-          "No forge_llm service on this Fleet scope — gateway telemetry is not scraped. Register the control-plane stack (Services tab) or switch Fleet scope to Granite.";
-        return;
-      }
-      var picked = pickPrimaryLlmRack(svcs);
-      if (!picked || !picked.rack) {
-        wrap.classList.remove("d-none");
-        body.textContent =
-          "forge_llm service(s) registered but gateway scrape returned no llm_rack (gateway down, auth token mismatch, or wrong compose root). Check forge-gateway on :18080.";
-        return;
-      }
-      var r = picked.rack;
-      var lines = [
-        "service: " + String(picked.id),
-        "active model: " + String(r.active_model != null && r.active_model !== "" ? r.active_model : "—"),
-        "queue: " + String(r.queue_depth != null ? r.queue_depth : "—"),
-        "requests (1h / since Fleet): " +
-          String(r.requests_1h != null ? r.requests_1h : "—") +
-          " / " +
-          String(r.requests_since_fleet_start != null ? r.requests_since_fleet_start : "—"),
-        "tokens in/out (24h): " +
-          String(r.prompt_tokens_24h != null ? r.prompt_tokens_24h : r.prompt_tokens_since_fleet_start != null ? r.prompt_tokens_since_fleet_start : "—") +
-          " / " +
-          String(r.completion_tokens_24h != null ? r.completion_tokens_24h : r.completion_tokens_since_fleet_start != null ? r.completion_tokens_since_fleet_start : "—"),
-        "throughput: " +
-          String(r.throughput_rpm != null ? r.throughput_rpm : "—") +
-          " req/min · decode " +
-          String(r.decode_tokens_per_second != null ? r.decode_tokens_per_second : "—") +
-          " tok/s",
-        "squid shim (24h): " +
-          String(r.shim_runs != null ? r.shim_runs : 0) +
-          " runs · ~" +
-          String(r.tokens_saved_estimate != null ? r.tokens_saved_estimate : 0) +
-          " tok saved · " +
-          String(r.model_calls_avoided != null ? r.model_calls_avoided : 0) +
-          " calls avoided · " +
-          String(r.shim_llm_calls_made != null ? r.shim_llm_calls_made : "—") +
-          " LLM calls",
-      ];
-      body.innerHTML = lines.map(function (ln) {
-        return "<div>" + esc(ln) + "</div>";
-      }).join("");
+      var picked = svcs.length ? pickPrimaryLlmRack(svcs) : null;
+      var rack = picked && picked.rack ? picked.rack : null;
       wrap.classList.remove("d-none");
+      renderLlmGatewayTiles(picked, rack);
+      if (rack) appendLiveLlmChartTail(rack);
+      renderLlmGatewayChart();
     }
 
     function paintOrchestrationHeader(orch) {
