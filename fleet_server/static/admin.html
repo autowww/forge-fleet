@@ -3856,10 +3856,10 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
           String(r.requests_1h != null ? r.requests_1h : "—") +
           " / " +
           String(r.requests_since_fleet_start != null ? r.requests_since_fleet_start : "—"),
-        "tokens in/out (since Fleet): " +
-          String(r.prompt_tokens_since_fleet_start != null ? r.prompt_tokens_since_fleet_start : "—") +
+        "tokens in/out (24h): " +
+          String(r.prompt_tokens_24h != null ? r.prompt_tokens_24h : r.prompt_tokens_since_fleet_start != null ? r.prompt_tokens_since_fleet_start : "—") +
           " / " +
-          String(r.completion_tokens_since_fleet_start != null ? r.completion_tokens_since_fleet_start : "—"),
+          String(r.completion_tokens_24h != null ? r.completion_tokens_24h : r.completion_tokens_since_fleet_start != null ? r.completion_tokens_since_fleet_start : "—"),
         "throughput: " +
           String(r.throughput_rpm != null ? r.throughput_rpm : "—") +
           " req/min · decode " +

@@ -256,6 +256,9 @@ def build_llm_rack(
         "tokens_saved_estimate": squid.get("tokens_saved_estimate"),
         "model_calls_avoided": squid.get("model_calls_avoided"),
         "shim_llm_calls_made": squid.get("llm_calls_made"),
+        "gateway_requests_24h": gw.get("requests"),
+        "prompt_tokens_24h": gw.get("prompt_tokens"),
+        "completion_tokens_24h": gw.get("completion_tokens"),
     }
 
 
