@@ -66,14 +66,28 @@ def read_rollout_log(*, max_bytes: int = 16000) -> dict[str, Any]:
 
 
 def _rollout_script(repo_root: Path) -> Path:
-    p = repo_root / "scripts" / "rollout-forge-llm-control-plane.sh"
-    if not p.is_file():
-        raise FileNotFoundError("rollout_script_missing")
-    return p
+    from fleet_server import repo_root as fleet_roots
+
+    _root, script = fleet_roots.resolve_rollout_script(
+        fleet_roots.LLM_ROLLOUT_SCRIPT,
+        runtime=repo_root,
+    )
+    return script
+
+
+def _rollout_cwd(repo_root: Path) -> Path:
+    from fleet_server import repo_root as fleet_roots
+
+    root, _ = fleet_roots.resolve_rollout_script(
+        fleet_roots.LLM_ROLLOUT_SCRIPT,
+        runtime=repo_root,
+    )
+    return root
 
 
 def schedule_rollout(repo_root: Path, *, runner_apply: str | None = None) -> dict[str, Any]:
     script = _rollout_script(repo_root)
+    rollout_cwd = _rollout_cwd(repo_root)
     env = _rollout_env(runner_apply=runner_apply)
     log_path = rollout_log_path()
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -86,7 +100,7 @@ def schedule_rollout(repo_root: Path, *, runner_apply: str | None = None) -> dic
                 fh.flush()
                 subprocess.run(
                     ["bash", str(script)],
-                    cwd=str(repo_root),
+                    cwd=str(rollout_cwd),
                     env=env,
                     stdout=fh,
                     stderr=subprocess.STDOUT,
@@ -116,11 +130,12 @@ def run_rollout_sync(
     runner_apply: str | None = None,
 ) -> dict[str, Any]:
     script = _rollout_script(repo_root)
+    rollout_cwd = _rollout_cwd(repo_root)
     env = _rollout_env(runner_apply=runner_apply)
     try:
         r = subprocess.run(
             ["bash", str(script)],
-            cwd=str(repo_root),
+            cwd=str(rollout_cwd),
             env=env,
             capture_output=True,
             text=True,

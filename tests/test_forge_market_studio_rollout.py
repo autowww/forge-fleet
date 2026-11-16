@@ -65,7 +65,14 @@ def test_run_rollout_sync_success(tmp_path: Path, monkeypatch) -> None:
     assert "rollout-forge-market-studio.sh" in mock_run.call_args[0][0][1]
 
 
-def test_run_rollout_sync_missing_script(tmp_path: Path) -> None:
+def test_run_rollout_sync_missing_script(tmp_path: Path, monkeypatch) -> None:
+    from fleet_server import repo_root as fleet_roots
+
+    monkeypatch.setattr(
+        fleet_roots,
+        "rollout_root_candidates",
+        lambda runtime=None: [tmp_path],
+    )
     try:
         fmsr.run_rollout_sync(tmp_path)
     except FileNotFoundError as ex:

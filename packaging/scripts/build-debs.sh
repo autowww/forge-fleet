@@ -30,14 +30,33 @@ stage_common_code() {
   install -m0644 "${ROOT}/systemd/forge-fleet-apt-upgrade.service" "$dest_lib/systemd/forge-fleet-apt-upgrade.service"
   install -m0644 "${ROOT}/systemd/forge-fleet-apt-upgrade.timer" "$dest_lib/systemd/forge-fleet-apt-upgrade.timer"
   install -m0755 "${ROOT}/scripts/apt-upgrade-cron.sh" "$dest_lib/scripts/apt-upgrade-cron.sh"
+  for rollout_script in \
+    rollout-forge-market-studio.sh \
+    rollout-forge-llm-control-plane.sh \
+    fleet-rollout-step.sh \
+    fleet-rollout-backup.sh \
+    register-market-studio-env-gateway.sh \
+    register-market-studio-gateway.sh \
+    register-market-studio-dev-gateway.sh; do
+    if [[ -f "${ROOT}/scripts/${rollout_script}" ]]; then
+      install -m0755 "${ROOT}/scripts/${rollout_script}" "$dest_lib/scripts/${rollout_script}"
+    fi
+  done
+  if [[ -f "${ROOT}/compose.yaml" ]]; then
+    install -m0644 "${ROOT}/compose.yaml" "$dest_lib/compose.yaml"
+  fi
   bash "${ROOT}/packaging/scripts/bundle-kitchensink-admin.sh" \
     "${ROOT}/kitchensink" "$dest_lib/kitchensink"
-  if [[ -d "${ROOT}/deploy/forge-llm-control-plane" ]]; then
+  if [[ -d "${ROOT}/deploy" ]]; then
     mkdir -p "$dest_lib/deploy"
-    rsync -a \
-      --exclude '__pycache__/' \
-      --exclude '*.pyc' \
-      "${ROOT}/deploy/forge-llm-control-plane/" "$dest_lib/deploy/forge-llm-control-plane/"
+    for deploy_dir in forge-llm-control-plane forge-market-studio forge-market-studio-dev; do
+      if [[ -d "${ROOT}/deploy/${deploy_dir}" ]]; then
+        rsync -a \
+          --exclude '__pycache__/' \
+          --exclude '*.pyc' \
+          "${ROOT}/deploy/${deploy_dir}/" "$dest_lib/deploy/${deploy_dir}/"
+      fi
+    done
   fi
 }
 

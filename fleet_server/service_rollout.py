@@ -37,10 +37,17 @@ def _rollout_env(spec: rollout_registry.RolloutSpec, body: dict[str, Any]) -> tu
 
 
 def _script_path(spec: rollout_registry.RolloutSpec) -> Path:
-    p = _repo_root() / spec.script
-    if not p.is_file():
-        raise FileNotFoundError(f"rollout_script_missing: {spec.script}")
-    return p
+    from fleet_server import repo_root as fleet_roots
+
+    _root, script = fleet_roots.resolve_rollout_script(spec.script, runtime=_repo_root())
+    return script
+
+
+def _rollout_cwd(spec: rollout_registry.RolloutSpec) -> Path:
+    from fleet_server import repo_root as fleet_roots
+
+    root, _ = fleet_roots.resolve_rollout_script(spec.script, runtime=_repo_root())
+    return root
 
 
 def _log_path(service_id: str) -> Path:
@@ -72,6 +79,7 @@ def schedule_rollout(service_id: str, body: dict[str, Any] | None = None) -> dic
     if not acquired.get("ok"):
         return acquired
     script = _script_path(spec)
+    rollout_cwd = _rollout_cwd(spec)
     log_path = _log_path(slot_id)
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -84,7 +92,7 @@ def schedule_rollout(service_id: str, body: dict[str, Any] | None = None) -> dic
                 fh.flush()
                 r = subprocess.run(
                     ["bash", str(script)],
-                    cwd=str(_repo_root()),
+                    cwd=str(rollout_cwd),
                     env=env,
                     stdout=fh,
                     stderr=subprocess.STDOUT,
