@@ -221,12 +221,42 @@ def schedule_async_upgrade(
     threading.Thread(target=_work, daemon=True, name="fleet-upgrade").start()
 
 
+def _sync_apt_upgrade_completion(data_dir: Path) -> None:
+    """When the root apt worker writes ``upgrade-result.json``, finish the coordinator."""
+    doc = upgrade_coordinator.read_status()
+    if str(doc.get("phase") or "") != "queued":
+        return
+    upgrade_id = str(doc.get("upgrade_id") or "").strip()
+    apt = package_upgrade.queue_status(data_dir)
+    apt_phase = str(apt.get("phase") or "")
+    result = apt.get("result") if isinstance(apt.get("result"), dict) else package_upgrade.read_upgrade_result(data_dir)
+    if apt_phase == "complete" and result:
+        rid = str(result.get("request_id") or "").strip()
+        if upgrade_id and rid and rid != upgrade_id:
+            return
+        upgrade_coordinator.finish_upgrade(upgrade_id=upgrade_id or rid or None, apt_result=result)
+        return
+    if apt_phase == "failed" and result:
+        rid = str(result.get("request_id") or "").strip()
+        if upgrade_id and rid and rid != upgrade_id:
+            return
+        upgrade_coordinator.fail_upgrade(str(result.get("error") or "apt_upgrade_failed"), str(result.get("detail") or ""))
+
+
 def upgrade_status(data_dir: Path) -> dict[str, Any]:
+    _sync_apt_upgrade_completion(data_dir)
     doc = upgrade_coordinator.read_status()
     phase = str(doc.get("phase") or "idle")
     apt = package_upgrade.queue_status(data_dir)
     if phase in ("idle", "complete", "failed") and apt.get("phase") not in ("idle",):
         doc = {**doc, **apt}
+    elif phase == "queued":
+        doc = {**doc, **{k: v for k, v in apt.items() if k not in ("phase",)}}
+        if apt.get("phase") in ("queued", "failed"):
+            doc["phase"] = apt["phase"]
+        elif apt.get("phase") == "complete":
+            doc["phase"] = "complete"
+            doc["result"] = apt.get("result")
     doc["install_channel"] = install_channel.detect_install_channel(data_dir)
     doc["timer_active"] = package_upgrade.timer_active()
     doc.setdefault("ok", True)

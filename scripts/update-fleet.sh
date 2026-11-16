@@ -243,6 +243,10 @@ except Exception as exc:  # noqa: BLE001
     print("fatal")
     sys.exit(0)
 if j.get("ok") is True:
+    if j.get("status") == "queued":
+        print("[update-fleet] remote apt upgrade queued — verify will poll /v1/health for target version", file=sys.stderr)
+        print("queued")
+        sys.exit(0)
     note = (j.get("note") or "").strip() or "remote Fleet upgrade completed"
     print("[update-fleet] remote ok:", note, file=sys.stderr)
     if j.get("channel_fallback"):
@@ -265,7 +269,7 @@ print(err)
     unset _UPDATE_FLEET_JSON_TMP || true
     rm -f "$_rb_tmp"
     case "$_rb_verdict" in
-      ok) break ;;
+      ok|queued) break ;;
       migrate_to_apt_required)
         if [[ "$REMOTE_STRICT_APT" -eq 1 || "$_rb_attempt" -ge 2 ]]; then
           echo "update-fleet: remote host is on a git channel and --remote-strict-apt is set (or fallback already tried); migrate it: land-fleet migrate-to-apt" >&2

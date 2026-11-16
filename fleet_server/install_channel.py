@@ -8,6 +8,9 @@ from pathlib import Path
 from typing import Any
 
 
+_APT_SOURCES_LIST = Path("/etc/apt/sources.list.d/forge-fleet.list")
+
+
 def _dpkg_version(pkg: str) -> str | None:
     try:
         r = subprocess.run(
@@ -23,6 +26,35 @@ def _dpkg_version(pkg: str) -> str | None:
         return None
     ver = (r.stdout or "").strip()
     return ver or None
+
+
+def _apt_policy(pkg: str) -> dict[str, str | None]:
+    """Best-effort ``apt-cache policy`` parse (no root)."""
+    try:
+        r = subprocess.run(
+            ["apt-cache", "policy", pkg],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            stdin=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return {"installed": None, "candidate": None, "raw_error": "apt_cache_failed"}
+    if r.returncode != 0:
+        return {"installed": None, "candidate": None, "raw_error": (r.stderr or r.stdout or "apt_cache_error").strip()}
+    installed: str | None = None
+    candidate: str | None = None
+    for line in (r.stdout or "").splitlines():
+        s = line.strip()
+        if s.startswith("Installed:"):
+            parts = s.split(":", 1)[-1].strip().split()
+            if parts and parts[0] not in ("(none)", "(not"):
+                installed = parts[0]
+        elif s.startswith("Candidate:"):
+            parts = s.split(":", 1)[-1].strip().split()
+            if parts and parts[0] != "(none)":
+                candidate = parts[0]
+    return {"installed": installed, "candidate": candidate, "raw_error": None}
 
 
 def detect_install_channel(data_dir: Path | None = None) -> str:
@@ -67,6 +99,9 @@ def install_channel_payload(data_dir: Path) -> dict[str, Any]:
     except (OSError, subprocess.SubprocessError):
         pass
     migrate_ready = channel.startswith("apt")
+    pkg = "forge-fleet-user" if channel == "apt_user" else "forge-fleet" if channel == "apt_system" else ""
+    policy = _apt_policy(pkg) if pkg else {"installed": None, "candidate": None, "raw_error": None}
+    apt_repo_list = _APT_SOURCES_LIST.is_file()
     recommended = "POST /v1/admin/upgrade"
     if channel == "git_user":
         recommended = "land-fleet migrate-to-apt --user"
@@ -77,6 +112,9 @@ def install_channel_payload(data_dir: Path) -> dict[str, Any]:
         "install_channel": channel,
         "apt_user_version": apt_user_ver,
         "apt_system_version": apt_system_ver,
+        "apt_candidate_version": policy.get("candidate"),
+        "apt_policy_installed": policy.get("installed"),
+        "apt_repo_list_present": apt_repo_list,
         "timer_active": timer_active,
         "migration_complete": migrate_ready,
         "recommended_command": recommended,

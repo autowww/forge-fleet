@@ -4,7 +4,7 @@ set -euo pipefail
 
 FLEET_LIB="${FLEET_LIB:-/usr/lib/forge-fleet}"
 LOG_TAG="forge-fleet-apt-upgrade"
-MAX_AGE_SEC="${FLEET_UPGRADE_SIGNAL_MAX_AGE_SEC:-300}"
+MAX_AGE_SEC="${FLEET_UPGRADE_SIGNAL_MAX_AGE_SEC:-1800}"
 
 log() { echo "${LOG_TAG}: $*"; }
 
@@ -28,6 +28,27 @@ except Exception:
 PY
 }
 
+_write_failure_result() {
+  local out_dir="$1" doc="$2" err="$3" detail="$4"
+  local result_file="${out_dir}/upgrade-result.json"
+  mkdir -p "$(dirname "$result_file")"
+  python3 - "$result_file" "$doc" "$err" "$detail" <<'PY'
+import json, sys
+from datetime import datetime, timezone
+out, doc_raw, err, detail = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+doc = json.loads(doc_raw)
+payload = {
+    "ok": False,
+    "error": err,
+    "detail": detail,
+    "completed_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "request_id": doc.get("request_id"),
+    "package": doc.get("package"),
+}
+open(out, "w", encoding="utf-8").write(json.dumps(payload, indent=2) + "\n")
+PY
+}
+
 _process_signal() {
   local signal_file="$1"
   local doc
@@ -40,8 +61,30 @@ _process_signal() {
   [[ -n "$package" ]] || { log "invalid signal (no package): $signal_file"; rm -f "$signal_file"; return 0; }
 
   log "applying apt upgrade package=$package user=$username"
-  apt-get update -qq
-  apt-get install -y "$package"
+  local inst_before inst_after cand
+  inst_before="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get("installed_version_before",""))' "$doc")"
+  if ! apt-get update -qq; then
+    log "apt-get update failed"
+    _write_failure_result "$user_data_dir" "$doc" "apt_update_failed" "apt-get update failed"
+    rm -f "$signal_file"
+    return 0
+  fi
+  if ! apt-get install -y "$package"; then
+    log "apt-get install failed for $package"
+    _write_failure_result "$user_data_dir" "$doc" "apt_install_failed" "apt-get install failed"
+    rm -f "$signal_file"
+    return 0
+  fi
+  inst_after="$(dpkg-query -W -f='${Version}' "$package" 2>/dev/null || true)"
+  cand="$(apt-cache policy "$package" 2>/dev/null | awk '/^[[:space:]]+candidate:/ {print $2; exit}')"
+  if [[ -n "$cand" && "$cand" != "(none)" && -n "$inst_after" ]] \
+    && dpkg --compare-versions "$cand" gt "$inst_after" 2>/dev/null; then
+    log "apt candidate ${cand} newer than installed ${inst_after} — fix forge-fleet apt source (noble suite)"
+    _write_failure_result "$user_data_dir" "$doc" "apt_no_upgrade" \
+      "installed=${inst_after} apt candidate=${cand}; check /etc/apt/sources.list.d/forge-fleet.list"
+    rm -f "$signal_file"
+    return 0
+  fi
 
   if [[ "$channel" == "apt_user" && -n "$username" ]]; then
     local uid runtime
@@ -69,7 +112,7 @@ payload = {
 open(out, "w", encoding="utf-8").write(json.dumps(payload, indent=2) + "\n")
 PY
   rm -f "$signal_file"
-  log "upgrade complete -> $result_file"
+  log "upgrade complete package=${inst_after:-unknown} -> $result_file"
 }
 
 scan_user_signals() {

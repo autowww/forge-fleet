@@ -4,5 +4,6 @@ After=network-online.target
 
 [Service]
 Type=oneshot
+Environment=FLEET_UPGRADE_SIGNAL_MAX_AGE_SEC=1800
 ExecStart=/usr/lib/forge-fleet/scripts/apt-upgrade-cron.sh
 SyslogIdentifier=forge-fleet-apt-upgrade
