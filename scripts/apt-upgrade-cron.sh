@@ -8,6 +8,17 @@ MAX_AGE_SEC="${FLEET_UPGRADE_SIGNAL_MAX_AGE_SEC:-1800}"
 
 log() { echo "${LOG_TAG}: $*"; }
 
+_refresh_forge_apt_keyring() {
+  local base="${FORGE_APT_BASE_URL:-https://packages.forgesdlc.com/fleet/ubuntu}"
+  local keyring="/usr/share/keyrings/forge-fleet-archive-keyring.gpg"
+  [[ -f /etc/apt/sources.list.d/forge-fleet.list ]] || return 0
+  if ! curl -fsSL "${base}/gpg.key" | gpg --batch --yes --dearmor -o "$keyring" 2>/dev/null; then
+    log "WARN: could not refresh ${keyring} from CDN"
+    return 0
+  fi
+  chmod a+r "$keyring" 2>/dev/null || true
+}
+
 _stale() {
   local file="$1"
   python3 - "$file" "$MAX_AGE_SEC" <<'PY'
@@ -63,6 +74,8 @@ _process_signal() {
   log "applying apt upgrade package=$package user=$username"
   local inst_before inst_after cand
   inst_before="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get("installed_version_before",""))' "$doc")"
+  _refresh_forge_apt_keyring
+  rm -f /var/lib/apt/lists/packages.forgesdlc.com_fleet_ubuntu_dists_noble_* 2>/dev/null || true
   if ! apt-get update -qq; then
     log "apt-get update failed"
     _write_failure_result "$user_data_dir" "$doc" "apt_update_failed" "apt-get update failed"

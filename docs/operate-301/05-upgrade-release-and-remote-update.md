@@ -23,7 +23,12 @@ On timeout with `on_timeout=abort`: **409** `upgrade_blocked` and **`waiting_on[
 
 **Apt channels:** Fleet writes **`upgrade-request.json`**; **`forge-fleet-apt-upgrade.timer`** (every minute) runs **`scripts/apt-upgrade-cron.sh`**. No stored password — one-time timer enable at install/migrate.
 
-**Diagnostics:** `GET /v1/admin/install-channel` includes **`apt_candidate_version`**, **`apt_repo_list_present`**, and dpkg **`apt_user_version`**. If the CDN ships a newer semver but **candidate == installed** (often with **`apt_repo_list_present`: false** or a wrong suite), cooperative apt will not advance — refresh the host with **`packaging/ubuntu/install.sh`** (noble). Do not rely on cooperative **git** on **`apt_user`** hosts for routine bumps: the apt worker may still run **`land-fleet setup-user`** and resync the user runtime from the **stale deb**, undoing a git-forward tree.
+**Diagnostics:** `GET /v1/admin/install-channel` includes **`apt_candidate_version`**, **`apt_repo_list_present`**, and dpkg **`apt_user_version`**. If the CDN ships a newer semver but **candidate == installed**, inspect apt:
+
+- **`/etc/apt/sources.list.d/forge-fleet.list`** missing or wrong suite → run **`packaging/ubuntu/install.sh`** (noble).
+- **GPG / stale index:** `apt-get update` fails with `NO_PUBKEY` for `packages.forgesdlc.com` while **`gpg.key` on the CDN** does not match **`/usr/share/keyrings/forge-fleet-archive-keyring.gpg`** — refresh the keyring from **`${FORGE_APT_BASE_URL}/gpg.key`**, delete **`/var/lib/apt/lists/packages.forgesdlc.com_fleet_ubuntu_*`**, then `apt-get update`. The root apt worker refreshes the keyring on each queued upgrade (0.3.242+).
+
+Do not rely on cooperative **git** on **`apt_user`** hosts for routine bumps: the apt worker may still run **`land-fleet setup-user`** and resync the user runtime from the **stale deb**, undoing a git-forward tree.
 
 **Status hygiene:** each new queue clears stale **`upgrade-result.json`**; signals default to a **30-minute** TTL (`FLEET_UPGRADE_SIGNAL_MAX_AGE_SEC`). Poll **`GET /v1/admin/upgrade/status`** until **`phase: complete`** or a structured **`apt_no_upgrade`** failure — not an old result from a prior bump.
 
