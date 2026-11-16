@@ -69,6 +69,27 @@ def repo_allowed(repo: str) -> bool:
     return any(fnmatch(repo, pat) for pat in repo_allowlist())
 
 
+def _agentic_llm_telemetry_env() -> dict[str, str]:
+    """Optional gateway telemetry POST config for agentic-dev containers (fail-open client-side)."""
+    out: dict[str, str] = {}
+    url = str(os.environ.get("FORGE_LLM_TELEMETRY_URL") or "").strip()
+    if url:
+        out["FORGE_LLM_TELEMETRY_URL"] = url
+    bearer = ""
+    for key in (
+        "FORGE_LLM_TELEMETRY_BEARER",
+        "FORGE_LLM_GATEWAY_BEARER",
+        "LLM_BEARER_TOKEN",
+        "FORGE_API_TOKEN",
+    ):
+        bearer = str(os.environ.get(key) or "").strip()
+        if bearer:
+            break
+    if bearer:
+        out["FORGE_LLM_TELEMETRY_BEARER"] = bearer
+    return out
+
+
 def git_token() -> str:
     return str(os.environ.get("FLEET_AGENTIC_GIT_TOKEN") or "").strip()
 
@@ -627,6 +648,7 @@ def _run_host(task_dir: Path, out_dir: Path, envelope: dict[str, Any], secret: s
         "CURSOR_API_KEY": secret,
         "GIT_TOKEN": token,
     }
+    env.update(_agentic_llm_telemetry_env())
     binary = cursor_cli_job.configured_binary()
     if binary:
         env["CURSOR_AGENT_BIN"] = binary
@@ -648,7 +670,10 @@ def _run_docker(job_id: str, task_dir: Path, out_dir: Path, envelope: dict[str, 
     docker = shutil.which("docker") or shutil.which("podman") or "docker"
     name = f"fleet-agentic-{job_id[:12]}"
     env_file = task_dir / ".env.runtime"
-    env_file.write_text(f"CURSOR_API_KEY={secret}\nGIT_TOKEN={token}\n", encoding="utf-8")
+    lines = [f"CURSOR_API_KEY={secret}", f"GIT_TOKEN={token}"]
+    for key, val in _agentic_llm_telemetry_env().items():
+        lines.append(f"{key}={val}")
+    env_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
     os.chmod(env_file, 0o600)
     argv = [
         docker, "run", "--rm", "--name", name,

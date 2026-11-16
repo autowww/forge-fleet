@@ -3913,6 +3913,11 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
       var queue = r.queue_depth != null ? Number(r.queue_depth) : null;
       var shimSaved = r.tokens_saved_estimate != null ? Number(r.tokens_saved_estimate) : 0;
       var shimRuns = r.shim_runs != null ? Number(r.shim_runs) : 0;
+      var agentRuns = r.agent_runs_24h != null ? Number(r.agent_runs_24h) : null;
+      var agentTok =
+        r.agent_prompt_tokens_measured_24h != null || r.agent_completion_tokens_measured_24h != null
+          ? Number(r.agent_prompt_tokens_measured_24h || 0) + Number(r.agent_completion_tokens_measured_24h || 0)
+          : null;
       var model =
         r.active_model != null && String(r.active_model).trim() !== ""
           ? String(r.active_model)
@@ -3978,6 +3983,18 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
           formatLlmCompact(shimSaved),
           shimRuns + (shimRuns === 1 ? " run" : " runs") + " · tok saved",
           "calls avoided: " + esc(String(r.model_calls_avoided != null ? r.model_calls_avoided : 0))
+        )
+      );
+      tiles.push(
+        llmGatewayTile(
+          "llm-agent-runs",
+          "load",
+          agentRuns != null ? Math.min(100, agentRuns * 12) : 0,
+          MARK_LLM,
+          "Workcell agent runs",
+          agentRuns != null ? esc(String(Math.round(agentRuns))) : "—",
+          "Agent runs · 24h",
+          agentTok != null ? esc(formatLlmCompact(agentTok)) + " tok measured" : "tokens often unavailable"
         )
       );
       tiles.push(

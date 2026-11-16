@@ -152,4 +152,10 @@ def review_main(task: dict[str, Any], out_dir: Path, rec: Recorder) -> dict[str,
     result["status"] = {"pass": "pass", "hold": "hold"}.get(verdict, "failed")
     if verdict == "fail" and not result.get("hold_reason"):
         result["hold_reason"] = "review_fail:" + ",".join(c["id"] for c in checks if c["status"] == "fail")
+    try:
+        from agent_telemetry import report_code_review_marker
+
+        report_code_review_marker(recorder=rec, task_id=task_id)
+    except Exception:  # noqa: BLE001
+        pass
     return result

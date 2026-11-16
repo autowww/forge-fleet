@@ -238,6 +238,7 @@ def build_llm_rack(
     gw = tel.get("gateway") if isinstance(tel.get("gateway"), dict) else {}
     shim = tel.get("shim_savings") if isinstance(tel.get("shim_savings"), dict) else {}
     squid = shim.get("squid_shim") if isinstance(shim.get("squid_shim"), dict) else {}
+    agents = tel.get("agent_runs") if isinstance(tel.get("agent_runs"), dict) else {}
     return {
         "active_model": active.get("active_model"),
         "active_mode": active.get("active_mode"),
@@ -259,6 +260,11 @@ def build_llm_rack(
         "gateway_requests_24h": gw.get("requests"),
         "prompt_tokens_24h": gw.get("prompt_tokens"),
         "completion_tokens_24h": gw.get("completion_tokens"),
+        "agent_runs_24h": agents.get("runs"),
+        "agent_non_llm_runs_24h": agents.get("non_llm_runs"),
+        "agent_prompt_tokens_measured_24h": agents.get("prompt_tokens_measured"),
+        "agent_completion_tokens_measured_24h": agents.get("completion_tokens_measured"),
+        "agent_runs_token_unavailable_24h": agents.get("runs_token_unavailable"),
     }
 
 

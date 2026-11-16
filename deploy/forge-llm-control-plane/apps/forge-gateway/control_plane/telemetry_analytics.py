@@ -6,7 +6,7 @@ import json
 from typing import Any
 
 from control_plane.store import list_requests, list_telemetry_events, stats_since
-from control_plane.telemetry_schema import METRIC_CATALOG, shim_savings_row
+from control_plane.telemetry_schema import METRIC_CATALOG, agent_run_row, shim_savings_row
 
 
 def _parse_meta(row: dict[str, Any]) -> dict[str, Any]:
@@ -137,9 +137,49 @@ def shim_savings_since(since_ts: float) -> dict[str, Any]:
     }
 
 
+def agent_runs_since(since_ts: float) -> dict[str, Any]:
+    events = list_telemetry_events(since_ts, kind="agent_run", limit=5000)
+    totals = {
+        "runs": 0,
+        "non_llm_runs": 0,
+        "prompt_tokens_measured": 0,
+        "completion_tokens_measured": 0,
+        "runs_token_unavailable": 0,
+    }
+    by_consumer: dict[str, int] = {}
+    by_model: dict[str, int] = {}
+
+    for ev in events:
+        try:
+            payload = json.loads(ev.get("payload_json") or "{}")
+        except json.JSONDecodeError:
+            continue
+        metrics = payload.get("metrics") if isinstance(payload.get("metrics"), dict) else {}
+        row = agent_run_row(metrics)
+        totals["runs"] += 1
+        if not row["llm"]:
+            totals["non_llm_runs"] += 1
+        if row["token_quality"] == "unavailable":
+            totals["runs_token_unavailable"] += 1
+        else:
+            totals["prompt_tokens_measured"] += row["prompt_tokens"]
+            totals["completion_tokens_measured"] += row["completion_tokens"]
+        consumer = str(ev.get("consumer") or "anonymous")
+        by_consumer[consumer] = by_consumer.get(consumer, 0) + 1
+        model = row["model"] or "_unknown"
+        by_model[model] = by_model.get(model, 0) + 1
+
+    return {
+        **totals,
+        "by_consumer": by_consumer,
+        "by_model": by_model,
+    }
+
+
 def telemetry_summary(since_ts: float, window_hours: float) -> dict[str, Any]:
     enriched = stats_enriched(since_ts)
     shim = shim_savings_since(since_ts)
+    agents = agent_runs_since(since_ts)
     span = max(window_hours * 3600.0, 1.0)
     rpm = round((enriched.get("requests") or 0) * 3600.0 / span, 2)
     return {
@@ -149,4 +189,5 @@ def telemetry_summary(since_ts: float, window_hours: float) -> dict[str, Any]:
         "throughput_requests_per_minute": rpm,
         "gateway": enriched,
         "shim_savings": shim,
+        "agent_runs": agents,
     }

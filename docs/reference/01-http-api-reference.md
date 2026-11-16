@@ -227,6 +227,9 @@ Each **`forge_llm_services[]`** entry may include **`llm_rack`** with gateway co
 | `active_model` / `active_mode` | Current gateway session |
 | `decode_tokens_per_second` | From gateway `GET /v1/llm/telemetry/summary` |
 | `tokens_saved_estimate` / `model_calls_avoided` / `shim_runs` | Squid shim savings rollup (same telemetry summary) |
+| `agent_runs_24h` / `agent_non_llm_runs_24h` | `agent_run` events from agentic-dev / code-review (telemetry summary `agent_runs`) |
+| `agent_prompt_tokens_measured_24h` / `agent_completion_tokens_measured_24h` | Cursor usage when `token_quality=measured` only (not mixed into gateway token tiles) |
+| `agent_runs_token_unavailable_24h` | Agent runs where token usage was not reported |
 | `throughput_rpm` | Requests per minute in the telemetry window |
 
 Gateway **`control_plane`** is fetched with **`since_epoch`** aligned to Fleet start when available.

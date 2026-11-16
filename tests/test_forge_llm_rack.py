@@ -58,6 +58,25 @@ def test_build_llm_rack_merges_telemetry_summary():
     assert rack["decode_tokens_per_second"] == 12.3
 
 
+def test_build_llm_rack_agent_runs_optional():
+    cp = {"queue_depth": 0, "active": {}, "rollup": {"requests": 0, "prompt_tokens": 0, "completion_tokens": 0}}
+    rack_old = fls.build_llm_rack(cp, service_id="forge-llm", telemetry={"gateway": {"requests": 0}})
+    assert rack_old.get("agent_runs_24h") is None
+    tel = {
+        "agent_runs": {
+            "runs": 3,
+            "non_llm_runs": 1,
+            "prompt_tokens_measured": 100,
+            "completion_tokens_measured": 40,
+            "runs_token_unavailable": 2,
+        }
+    }
+    rack = fls.build_llm_rack(cp, service_id="forge-llm", telemetry=tel)
+    assert rack["agent_runs_24h"] == 3
+    assert rack["agent_non_llm_runs_24h"] == 1
+    assert rack["agent_prompt_tokens_measured_24h"] == 100
+
+
 def test_tokens_per_sec_tracks_delta():
     service = "test-llm-rate"
     first = fls.tokens_per_sec(service, 1000)

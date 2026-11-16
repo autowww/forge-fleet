@@ -203,6 +203,18 @@ def main() -> int:
     cursor_timeout = int(task.get("cursor_timeout_s") or 1500)
     proc = rec.run("cursor", cursor_args, cwd=checkout, env=cursor_env, timeout=cursor_timeout)
     (out_dir / "cursor-output.txt").write_text(rec.redact((proc.stdout or "")[-200000:]), encoding="utf-8")
+    try:
+        from agent_telemetry import report_agent_run_from_cursor
+
+        report_agent_run_from_cursor(
+            recorder=rec,
+            task_id=str(task.get("task_id") or ""),
+            model=model,
+            proc=proc,
+            consumer="agentic-dev",
+        )
+    except Exception:  # noqa: BLE001
+        pass
     if proc.returncode != 0:
         result["hold_reason"] = "cursor_failed"
         return finish(out_dir, rec, result)

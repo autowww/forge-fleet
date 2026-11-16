@@ -272,5 +272,63 @@ class ReviewTests(_Base):
         self.assertEqual(rr.verdict_for(checks, True), ("hold", True))
 
 
+def _load_agent_telemetry():
+    import sys
+
+    deploy = str(adj.deploy_dir())
+    if deploy not in sys.path:
+        sys.path.insert(0, deploy)
+    path = adj.deploy_dir() / "agent_telemetry.py"
+    spec = importlib.util.spec_from_file_location("agent_telemetry", path)
+    mod = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class AgentTelemetryTests(unittest.TestCase):
+    def test_build_redacts_cursor_key_in_stdout(self) -> None:
+        at = _load_agent_telemetry()
+        secret = "crsr_testsecret12345678"
+        with mock.patch.dict(os.environ, {"CURSOR_API_KEY": secret, "GIT_TOKEN": ""}):
+            ev = at.build_agent_run_event(
+                consumer="agentic-dev",
+                trace_id="req_task_0a1b2c3d",
+                model="composer-2.5",
+                duration_ms=1000,
+                exit_code=0,
+                llm=True,
+                stdout=f"done {secret}",
+            )
+        blob = json.dumps(ev)
+        self.assertNotIn(secret, blob)
+        self.assertIn("[redacted]", blob)
+
+    def test_post_failure_does_not_raise(self) -> None:
+        at = _load_agent_telemetry()
+        with mock.patch.dict(
+            os.environ,
+            {"FORGE_LLM_TELEMETRY_URL": "http://127.0.0.1:9/events", "FORGE_LLM_TELEMETRY_BEARER": "t"},
+        ):
+            with mock.patch("urllib.request.urlopen", side_effect=OSError("down")):
+                ok = at.post_agent_run_event({"kind": "agent_run", "source": "client", "consumer": "x", "metrics": {}})
+        self.assertFalse(ok)
+
+    def test_review_marker_non_llm(self) -> None:
+        at = _load_agent_telemetry()
+        ev = at.build_agent_run_event(
+            consumer="code-review",
+            trace_id="req_task_0a1b2c3d",
+            model="",
+            duration_ms=10,
+            exit_code=0,
+            llm=False,
+            stdout="",
+        )
+        self.assertFalse(ev["metrics"]["llm"])
+        self.assertEqual(ev["metrics"]["token_quality"], "unavailable")
+        self.assertNotIn("prompt_tokens", ev["metrics"])
+
+
 if __name__ == "__main__":
     unittest.main()

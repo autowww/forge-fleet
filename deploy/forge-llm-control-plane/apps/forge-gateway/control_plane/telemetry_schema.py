@@ -11,6 +11,7 @@ EventKind = Literal[
     "shim_run",
     "classifier",
     "nlp",
+    "agent_run",
 ]
 
 EventSource = Literal["gateway", "squid", "client"]
@@ -35,7 +36,7 @@ def validate_event(payload: dict[str, Any]) -> tuple[bool, str]:
     """Light validation for POST /v1/llm/telemetry/events."""
     kind = payload.get("kind")
     source = payload.get("source")
-    if kind not in ("gateway_completion", "shim_run", "classifier", "nlp"):
+    if kind not in ("gateway_completion", "shim_run", "classifier", "nlp", "agent_run"):
         return False, f"invalid kind: {kind!r}"
     if source not in ("gateway", "squid", "client"):
         return False, f"invalid source: {source!r}"
@@ -59,4 +60,26 @@ def shim_savings_row(metrics: dict[str, Any]) -> dict[str, Any]:
         "deterministic_steps": list(metrics.get("deterministic_steps") or []),
         "nlp_models": list(metrics.get("nlp_models") or []),
         "classifiers": dict(metrics.get("classifiers") or {}),
+    }
+
+
+def agent_run_row(metrics: dict[str, Any]) -> dict[str, Any]:
+    """Normalize client agent_run metrics for rollups."""
+    quality = str(metrics.get("token_quality") or "unavailable").strip().lower()
+    if quality not in ("measured", "unavailable"):
+        quality = "unavailable"
+    llm_raw = metrics.get("llm")
+    llm = True if llm_raw is None else bool(llm_raw)
+    tin = tout = 0
+    if quality == "measured":
+        tin = int(metrics.get("prompt_tokens") or 0)
+        tout = int(metrics.get("completion_tokens") or 0)
+    return {
+        "model": str(metrics.get("model") or ""),
+        "duration_ms": int(metrics.get("duration_ms") or 0),
+        "exit_code": int(metrics.get("exit_code") or 0),
+        "llm": llm,
+        "token_quality": quality,
+        "prompt_tokens": tin,
+        "completion_tokens": tout,
     }
