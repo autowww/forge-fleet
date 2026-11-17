@@ -87,6 +87,66 @@ def _mlflow_password(email: str) -> str:
     return digest[:24]
 
 
+_ensured_users: set[str] = set()
+_ensure_lock = threading.Lock()
+
+
+def _mlflow_admin_basic() -> str | None:
+    user = (os.environ.get("FORGE_AUTH_GATE_MLFLOW_ADMIN_USERNAME") or "").strip()
+    password = (os.environ.get("FORGE_AUTH_GATE_MLFLOW_ADMIN_PASSWORD") or "").strip()
+    ini_path = (os.environ.get("FORGE_AUTH_GATE_MLFLOW_AUTH_INI") or "").strip()
+    if ini_path and (not user or not password):
+        try:
+            for line in open(ini_path, encoding="utf-8"):
+                chunk = line.strip()
+                if chunk.startswith("admin_username") and "=" in chunk:
+                    user = user or chunk.split("=", 1)[1].strip()
+                elif chunk.startswith("admin_password") and "=" in chunk:
+                    password = password or chunk.split("=", 1)[1].strip()
+        except OSError:
+            return None
+    if not user or not password:
+        return None
+    token = base64.b64encode(f"{user}:{password}".encode("utf-8")).decode("ascii")
+    return f"Basic {token}"
+
+
+def _mlflow_admin_request(method: str, path: str, body: bytes, admin: str) -> int:
+    url = f"{UPSTREAM}{path}"
+    req = urllib.request.Request(
+        url,
+        data=body,
+        headers={"Authorization": admin, "Content-Type": "application/json", "Accept": "application/json"},
+        method=method,
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            resp.read()
+            return resp.status
+    except urllib.error.HTTPError as exc:
+        exc.read()
+        return exc.code
+
+
+def _ensure_mlflow_user(email: str) -> bool:
+    """Create or align the MLflow basic-auth user for a Google email."""
+    with _ensure_lock:
+        if email in _ensured_users:
+            return True
+    admin = _mlflow_admin_basic()
+    if admin is None:
+        return False
+    body = json.dumps({"username": email, "password": _mlflow_password(email)}).encode("utf-8")
+    created = _mlflow_admin_request("POST", "/api/2.0/mlflow/users/create", body, admin)
+    if created not in (200, 201):
+        updated = _mlflow_admin_request("PATCH", "/api/2.0/mlflow/users/update-password", body, admin)
+        if updated not in (200, 201):
+            return False
+    with _ensure_lock:
+        _ensured_users.add(email)
+    return True
+
+
 def _parse_upstream(url: str) -> tuple[str, int, bool, str]:
     parsed = urllib.parse.urlparse(url)
     scheme = (parsed.scheme or "http").lower()
@@ -195,6 +255,9 @@ class GateHandler(BaseHTTPRequestHandler):
                 extra[TRUSTED_NAME_HEADER] = session.get("name") or session["email"]
         elif MODE == "mlflow":
             user = session["email"]
+            if not _ensure_mlflow_user(user):
+                self.send_error(502, "MLflow user was not created for this Google account")
+                return
             pwd = _mlflow_password(user)
             token = base64.b64encode(f"{user}:{pwd}".encode("utf-8")).decode("ascii")
             extra["Authorization"] = f"Basic {token}"

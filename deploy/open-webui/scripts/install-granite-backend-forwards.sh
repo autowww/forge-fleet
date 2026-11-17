@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Mercury loopback forwards to Granite Open WebUI backends (forge-gateway + bridges).
+# Mercury forwards to Granite Open WebUI backends (forge-gateway + bridges).
 set -euo pipefail
-REMOTE="${FORGE_OPENWEBUI_GRANITE_SSH:-granite}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 UNIT="$HOME/.config/systemd/user/forge-openwebui-granite-forward.service"
 mkdir -p "$(dirname "$UNIT")"
+chmod +x "$SCRIPT_DIR/granite-backend-forward.sh"
 cat >"$UNIT" <<EOF
 [Unit]
 Description=SSH forwards to Granite LLM Open WebUI backends
@@ -12,11 +13,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/ssh -N -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 \
-  -L 127.0.0.1:18080:127.0.0.1:18080 \
-  -L 127.0.0.1:9240:127.0.0.1:9240 \
-  -L 127.0.0.1:9241:127.0.0.1:9241 \
-  ${REMOTE}
+ExecStart=${SCRIPT_DIR}/granite-backend-forward.sh
 Restart=always
 RestartSec=5
 
@@ -25,4 +22,5 @@ WantedBy=default.target
 EOF
 systemctl --user daemon-reload
 systemctl --user enable --now forge-openwebui-granite-forward.service
-echo "Forwards active on 127.0.0.1:18080,9240,9241"
+systemctl --user restart forge-openwebui-granite-forward.service
+echo "Forwards unit installed"

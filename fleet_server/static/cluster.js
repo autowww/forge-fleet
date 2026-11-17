@@ -366,21 +366,32 @@
       var layer = byLayer[id];
       if (!layer.rows.length) return;
       html += '<h4 class="small fw-semibold text-body mb-1">' + esc(layer.label) + "</h4>";
-      html += '<div class="table-responsive mb-3"><table class="table table-sm table-bordered mb-0"><thead><tr>' +
+      html += '<div class="table-responsive mb-3"><table class="table table-sm table-bordered mb-0 fleet-eco-table"><thead><tr>' +
         "<th>Component</th><th>Status</th><th>Where</th><th>Connects to</th></tr></thead><tbody>";
       layer.rows.forEach(function (comp) {
         var where = (comp.placements || []).length
-          ? (comp.placements || [])
+          ? '<ul class="list-unstyled mb-0 fleet-eco-where">' +
+            (comp.placements || [])
               .map(function (p) {
                 var loc = esc(p.node_label || p.node_id || "node");
-                var sid = p.service_id ? " · " + esc(p.service_id) : "";
+                var sid = p.service_id ? esc(p.service_id) : "";
                 var counts =
                   p.services_running != null
-                    ? " (" + esc(String(p.services_running)) + "/" + esc(String(p.services_total)) + ")"
+                    ? esc(String(p.services_running)) + "/" + esc(String(p.services_total))
                     : "";
-                return loc + sid + " " + statusBadge(p.state) + counts;
+                return (
+                  '<li class="d-flex flex-wrap align-items-center gap-2 mb-1">' +
+                  '<span class="fw-semibold">' +
+                  loc +
+                  "</span>" +
+                  statusBadge(p.state) +
+                  (sid ? '<span class="fleet-mono text-body-secondary">' + sid + "</span>" : "") +
+                  (counts ? '<span class="fleet-mono text-body-secondary">' + counts + "</span>" : "") +
+                  "</li>"
+                );
               })
-              .join("<br>")
+              .join("") +
+            "</ul>"
           : '<span class="text-body-secondary">Not on this mesh</span>';
         var links = (comp.connects_to || [])
           .map(function (edge) {

@@ -86,3 +86,5 @@ def test_ecosystem_places_known_services():
     assert by_id["open-webui"]["connects_to"][0]["id"] == "forge-llm"
     assert by_id["market-studio"]["status"] == "absent"
     assert by_id["fleet"]["placements"][0]["state"] == "up"
+    assert by_id["roadrunner"]["status"] == "absent"
+    assert by_id["atlas"]["status"] == "absent"

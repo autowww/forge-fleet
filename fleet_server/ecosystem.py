@@ -75,6 +75,22 @@ _COMPONENTS: tuple[dict[str, Any], ...] = (
             {"id": "forge-llm", "via": "Optional gateway lane"},
         ],
     },
+    {
+        "id": "roadrunner",
+        "label": "Roadrunner",
+        "layer": "product",
+        "summary": "Agent lane on the Element host.",
+        "id_prefixes": ("roadrunner", "forge-agent-roadrunner"),
+        "connects_to": [{"id": "fleet", "via": "Managed service"}],
+    },
+    {
+        "id": "atlas",
+        "label": "Forge Atlas",
+        "layer": "product",
+        "summary": "Atlas service on the mesh.",
+        "id_prefixes": ("atlas", "forge-atlas"),
+        "connects_to": [{"id": "fleet", "via": "Managed service"}],
+    },
 )
 
 _LAYERS = (
