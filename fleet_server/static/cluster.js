@@ -123,7 +123,7 @@
       html +=
         '<div class="col-sm-6 col-lg-4 col-xl-3">' +
         '<div class="border border-secondary-subtle rounded p-2 h-100 small">' +
-        '<div class="fw-semibold mb-1 d-flex justify-content-between gap-2">' +
+        '<div class="fw-semibold mb-1 d-flex flex-wrap align-items-center justify-content-between gap-2">' +
         '<span>' +
         esc(node.label || node.node_id || "node") +
         "</span> " +
@@ -250,7 +250,7 @@
         '<td class="small text-body-secondary">' +
         esc(err || "—") +
         "</td>" +
-        '<td class="text-nowrap">' +
+        '<td class="fleet-cluster-actions">' +
         acts +
         '<span class="fleet-mono small text-body-secondary ms-1 fleet-cluster-svc-msg" data-svc-id="' +
         esc(sid) +
@@ -308,18 +308,18 @@
       " · RAM " +
       esc(fmtPct((cap.memory || {}).used_pct)) +
       "</p>" +
-      '<div class="table-responsive mb-3"><table class="table table-sm table-bordered mb-0"><thead><tr>' +
+      '<div class="table-responsive mb-3"><table class="table table-sm table-bordered mb-0 fleet-cluster-table"><thead><tr>' +
       "<th>GPU</th><th>Name</th><th class=\"text-end\">Util</th><th class=\"text-end\">VRAM</th></tr></thead><tbody>" +
       gpuRows +
       "</tbody></table></div>" +
       '<h4 class="h6 text-uppercase text-body-secondary mb-1">Managed services</h4>' +
-      '<div class="table-responsive mb-3"><table class="table table-sm table-hover mb-0"><thead><tr>' +
+      '<div class="table-responsive mb-3"><table class="table table-sm table-hover mb-0 fleet-cluster-table"><thead><tr>' +
       "<th>Service</th><th class=\"text-end\">Running</th><th>Error</th><th>Actions</th></tr></thead><tbody>" +
       svcRows +
       "</tbody></table></div>" +
       '<h4 class="h6 text-uppercase text-body-secondary mb-1">Running containers</h4>' +
       trunc +
-      '<div class="table-responsive"><table class="table table-sm table-hover mb-0"><thead><tr>' +
+      '<div class="table-responsive"><table class="table table-sm table-hover mb-0 fleet-cluster-table"><thead><tr>' +
       "<th>Container</th><th>Service</th><th class=\"text-end\">CPU</th><th class=\"text-end\">Memory</th><th class=\"text-end\">PIDs</th>" +
       "</tr></thead><tbody>" +
       cRows +
@@ -361,13 +361,12 @@
     });
     var html =
       '<h3 class="h6 text-uppercase text-body-secondary mb-2">Forge ecosystem</h3>' +
-      '<p class="small text-body-secondary mb-2">Reference architecture with live placement. Connections are the designed path; status is this mesh.</p>';
+      '<p class="small text-body-secondary mb-3">Reference architecture with live placement. Each component lists every node on its own line.</p>';
     Object.keys(byLayer).forEach(function (id) {
       var layer = byLayer[id];
       if (!layer.rows.length) return;
-      html += '<h4 class="small fw-semibold text-body mb-1">' + esc(layer.label) + "</h4>";
-      html += '<div class="table-responsive mb-3"><table class="table table-sm table-bordered mb-0 fleet-eco-table"><thead><tr>' +
-        "<th>Component</th><th>Status</th><th>Where</th><th>Connects to</th></tr></thead><tbody>";
+      html += '<h4 class="small fw-semibold text-body mb-2">' + esc(layer.label) + "</h4>";
+      html += '<div class="d-flex flex-column gap-2 mb-3">';
       layer.rows.forEach(function (comp) {
         var where = (comp.placements || []).length
           ? '<ul class="list-unstyled mb-0 fleet-eco-where">' +
@@ -395,23 +394,34 @@
           : '<span class="text-body-secondary">Not on this mesh</span>';
         var links = (comp.connects_to || [])
           .map(function (edge) {
-            return esc(edge.id) + ' <span class="text-body-secondary">(' + esc(edge.via) + ")</span>";
+            return (
+              '<li class="mb-1"><span class="fw-semibold">' +
+              esc(edge.id) +
+              '</span> <span class="text-body-secondary">' +
+              esc(edge.via) +
+              "</span></li>"
+            );
           })
-          .join("<br>");
+          .join("");
         html +=
-          "<tr><td><div class=\"fw-semibold\">" +
+          '<article class="fleet-eco-card border border-secondary-subtle rounded p-2">' +
+          '<div class="d-flex flex-wrap align-items-center gap-2 mb-1">' +
+          '<span class="fw-semibold">' +
           esc(comp.label) +
-          '</div><div class="small text-body-secondary">' +
-          esc(comp.summary || "") +
-          "</div></td><td>" +
+          "</span>" +
           statusBadge(comp.status) +
-          "</td><td class=\"small\">" +
+          "</div>" +
+          '<p class="small text-body-secondary mb-2">' +
+          esc(comp.summary || "") +
+          "</p>" +
+          '<div class="row g-2 small">' +
+          '<div class="col-md-7"><div class="text-uppercase text-body-secondary mb-1">Where</div>' +
           where +
-          '</td><td class="small">' +
-          (links || "—") +
-          "</td></tr>";
+          '</div><div class="col-md-5"><div class="text-uppercase text-body-secondary mb-1">Connects to</div>' +
+          (links ? '<ul class="list-unstyled mb-0">' + links + "</ul>" : "—") +
+          "</div></div></article>";
       });
-      html += "</tbody></table></div>";
+      html += "</div>";
     });
     if (eco.other_services && eco.other_services.length) {
       html += '<p class="small text-body-secondary mb-0">Other managed services: ' +

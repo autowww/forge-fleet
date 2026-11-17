@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import html
 import base64
 import hashlib
 import hmac
@@ -128,6 +129,19 @@ def _mlflow_admin_request(method: str, path: str, body: bytes, admin: str) -> in
         return exc.code
 
 
+def _inject_sign_out(data: bytes) -> bytes:
+    bar = (
+        b'<div style="position:fixed;top:8px;right:12px;z-index:2147483647">'
+        b'<a href="/_forge_auth/logout" style="font:13px sans-serif;background:#1c1915;'
+        b'color:#f4f1ea;padding:6px 10px;text-decoration:none">Sign out</a></div>'
+    )
+    lower = data.lower()
+    idx = lower.rfind(b"</body>")
+    if idx == -1:
+        return bar + data
+    return data[:idx] + bar + data[idx:]
+
+
 def _ensure_mlflow_user(email: str) -> bool:
     """Create or align the MLflow basic-auth user for a Google email."""
     with _ensure_lock:
@@ -207,6 +221,12 @@ class GateHandler(BaseHTTPRequestHandler):
             if self.command != "HEAD":
                 self.wfile.write(payload)
             return
+        if parsed.path == "/_forge_auth/logout":
+            self._signed_out_page()
+            return
+        if parsed.path == "/_forge_auth/login":
+            self._redirect(self._google_start())
+            return
         if parsed.path == "/_forge_auth/finish":
             ticket = (urllib.parse.parse_qs(parsed.query).get("ticket") or [""])[0]
             if not ticket:
@@ -237,16 +257,10 @@ class GateHandler(BaseHTTPRequestHandler):
             return
         session = _read_cookie(self._cookie_value())
         if not session:
-            if PUBLIC_ORIGIN:
-                rt = urllib.parse.quote(PUBLIC_ORIGIN, safe="")
-                loc = f"{AUTH_ORIGIN}/api/auth/oidc/start?return_to={rt}"
+            if self._browser_document():
+                self._sign_in_page()
             else:
-                loc = f"{AUTH_ORIGIN}/api/auth/oidc/start"
-            self.send_response(302)
-            self.send_header("Location", loc)
-            self.send_header("Content-Length", "0")
-            self.send_header("Connection", "close")
-            self.end_headers()
+                self.send_error(401, "Sign in required")
             return
         extra: dict[str, str] = {}
         if MODE == "webui":
@@ -262,6 +276,63 @@ class GateHandler(BaseHTTPRequestHandler):
             token = base64.b64encode(f"{user}:{pwd}".encode("utf-8")).decode("ascii")
             extra["Authorization"] = f"Basic {token}"
         self._proxy(extra_headers=extra)
+
+    def _google_start(self) -> str:
+        if not PUBLIC_ORIGIN:
+            return f"{AUTH_ORIGIN}/api/auth/oidc/start"
+        rt = urllib.parse.quote(PUBLIC_ORIGIN, safe="")
+        return f"{AUTH_ORIGIN}/api/auth/oidc/start?return_to={rt}"
+
+    def _browser_document(self) -> bool:
+        if self.command != "GET":
+            return False
+        path = urllib.parse.urlparse(self.path).path or "/"
+        if path.startswith(("/api/", "/ajax-api/", "/static/", "/assets/", "/_forge_auth/")):
+            return False
+        accept = (self.headers.get("Accept") or "").lower()
+        return "text/html" in accept or path == "/"
+
+    def _html(self, status: int, title: str, body: str, extra: list[tuple[str, str]] | None = None) -> None:
+        page = (
+            "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+            f"<title>{title}</title></head><body style=\"font-family:Georgia,serif;"
+            "background:#f4f1ea;color:#1c1915;max-width:36rem;margin:4rem auto;padding:0 1rem\">"
+            f"<h1>{title}</h1>{body}</body></html>"
+        ).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(page)))
+        self.send_header("Cache-Control", "no-store")
+        for key, val in extra or []:
+            self.send_header(key, val)
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(page)
+
+    def _sign_in_page(self) -> None:
+        start = html.escape(self._google_start())
+        self._html(
+            200,
+            "Sign in",
+            f"<p>This service uses the Forge Google account.</p>"
+            f"<p><a href=\"{start}\">Sign in with Google</a></p>",
+        )
+
+    def _signed_out_page(self) -> None:
+        start = html.escape(self._google_start())
+        self._html(
+            200,
+            "Signed out",
+            f"<p>You are signed out of this host. The Google account in the browser is unchanged.</p>"
+            f"<p><a href=\"{start}\">Sign in with Google</a></p>",
+            [("Set-Cookie", f"{COOKIE_NAME}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0")],
+        )
+
+    def _redirect(self, location: str) -> None:
+        self.send_response(302)
+        self.send_header("Location", location)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def _cookie_value(self) -> str:
         raw = self.headers.get("Cookie") or ""
@@ -299,13 +370,22 @@ class GateHandler(BaseHTTPRequestHandler):
             conn.request(self.command, path, body=body, headers=headers)
             resp = conn.getresponse()
             self.send_response(resp.status)
+            data = resp.read()
+            ctype = (resp.getheader("Content-Type") or "").lower()
+            rewrite = (
+                bool(extra_headers)
+                and self.command != "HEAD"
+                and "text/html" in ctype
+                and not resp.getheader("Content-Encoding")
+            )
+            if rewrite:
+                data = _inject_sign_out(data)
             for hk, hv in resp.getheaders():
                 lk = hk.lower()
-                if lk in ("transfer-encoding", "connection"):
+                if lk in ("transfer-encoding", "connection", "content-length"):
                     continue
                 self.send_header(hk, hv)
-            data = resp.read()
-            if not resp.getheader("Content-Length") and data:
+            if data and self.command != "HEAD":
                 self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             if self.command != "HEAD":

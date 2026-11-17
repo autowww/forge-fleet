@@ -38,17 +38,23 @@
       overflow-x: auto !important;
     }
     .fleet-eco-table td,
-    .fleet-eco-table th { white-space: normal; vertical-align: top; }
-    .fleet-eco-where { min-width: 16rem; }
-    .fleet-eco-table .badge { white-space: nowrap; }
-    [data-bs-theme="light"] .fleet-eco-table {
+    .fleet-eco-table th,
+    .fleet-cluster-table td,
+    .fleet-cluster-table th { white-space: normal; vertical-align: top; }
+    .fleet-eco-where { min-width: 12rem; }
+    .fleet-eco-card,
+    .fleet-cluster-table .badge { white-space: nowrap; }
+    .fleet-cluster-actions { min-width: 9rem; }
+    [data-bs-theme="light"] .fleet-eco-table,
+    [data-bs-theme="light"] .fleet-cluster-table,
+    [data-bs-theme="light"] .fleet-eco-card {
       --bs-table-bg: #ffffff;
       --bs-table-color: #0f172a;
       --bs-table-border-color: #cbd5e1;
       color: #0f172a;
       background: #ffffff;
     }
-    [data-bs-theme="light"] .fleet-eco-table .text-body-secondary { color: #475569 !important; }
+    [data-bs-theme="light"] #fleet-tab-cluster .text-body-secondary { color: #475569 !important; }
   </style>
 </head>
 <body class="fleet-admin-body">
