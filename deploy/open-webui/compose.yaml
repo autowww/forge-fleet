@@ -72,6 +72,23 @@ services:
       retries: 5
       start_period: 60s
 
+  presence:
+    image: python:3.12-alpine
+    container_name: ${OPEN_WEBUI_PRESENCE_CONTAINER:-forge-open-webui-presence}
+    restart: unless-stopped
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    environment:
+      FLEET_PRESENCE_URL: ${FLEET_PRESENCE_URL:-http://host.docker.internal:18766}
+      FLEET_BEARER_TOKEN: ${FLEET_BEARER_TOKEN:-}
+      PYTHONPATH: /opt/presence
+    volumes:
+      - ./presence_heartbeat.py:/opt/presence/presence_heartbeat.py:ro
+    command:
+      - python
+      - -c
+      - import time,presence_heartbeat; presence_heartbeat.start(instance_id="open-webui", kind="service", purpose="edge", label="Open WebUI", auth="session", detail="operator session"); time.sleep(10**9)
+
 volumes:
   pgdata:
     name: ${OPEN_WEBUI_PGDATA_VOLUME:-forge_open_webui_pgdata}

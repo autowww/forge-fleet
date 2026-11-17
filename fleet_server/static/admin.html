@@ -57,6 +57,17 @@
     [data-bs-theme="light"] #fleet-tab-cluster .text-body-secondary { color: #475569 !important; }
     .fleet-graph-wrap { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-start; }
   .fleet-graph-svg { max-width: 100%; height: auto; background: var(--bs-body-bg); border: 1px solid var(--bs-border-color); border-radius: 0.5rem; }
+  .fleet-graph-matrix { border-collapse: separate; border-spacing: 0.4rem; width: 100%; }
+  .fleet-graph-matrix th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--bs-secondary-color); font-weight: 700; text-align: left; vertical-align: bottom; }
+  .fleet-graph-matrix td { vertical-align: top; min-width: 8rem; }
+  .fleet-graph-chip { display: block; width: 100%; text-align: left; margin-bottom: 0.35rem; border-radius: 0.5rem; border: 3px solid #64748b; background: var(--forge-surface-2, var(--bs-secondary-bg)); color: var(--bs-body-color); padding: 0.35rem 0.5rem; font-size: 0.78rem; }
+  .fleet-graph-kind { display: inline-block; font-weight: 700; font-size: 0.68rem; border: 1px solid currentColor; border-radius: 0.25rem; padding: 0 0.25rem; }
+  .fleet-graph-status-word { font-weight: 600; }
+  .fleet-graph-st-running { border-color: #16a34a; }
+  .fleet-graph-st-partial { border-color: #d97706; }
+  .fleet-graph-st-error { border-color: #dc2626; }
+  .fleet-graph-st-stale, .fleet-graph-st-neutral { border-color: #64748b; }
+  .fleet-graph-chip--selected { outline: 2px solid #0f172a; }
   .fleet-graph-node-rect { fill: var(--forge-surface-2, var(--bs-secondary-bg)); stroke-width: 3; }
   .fleet-graph-node--selected .fleet-graph-node-rect { filter: brightness(1.05); }
   .fleet-graph-node-title { font-size: 12px; font-weight: 700; fill: var(--bs-body-color); }
@@ -67,6 +78,9 @@
   .fleet-graph-detail { flex: 1 1 16rem; min-width: 14rem; max-width: 22rem; border: 1px solid var(--bs-border-color); border-radius: 0.5rem; padding: 0.75rem; background: var(--forge-surface-2, var(--bs-secondary-bg)); }
   .fleet-graph-status-badge { display: inline-block; padding: 0.1rem 0.45rem; border-radius: 999px; font-size: 0.72rem; font-weight: 600; border: 1px solid var(--bs-border-color); }
     [data-bs-theme="light"] .fleet-graph-svg { background: #ffffff; border-color: #cbd5e1; }
+    [data-bs-theme="light"] .fleet-graph-matrix th { color: #334155; }
+    [data-bs-theme="light"] .fleet-graph-chip { background: #f8fafc; color: #0f172a; }
+    [data-bs-theme="light"] .fleet-graph-chip--selected { outline-color: #0f172a; }
     [data-bs-theme="light"] .fleet-graph-node-rect { fill: #f8fafc; }
     [data-bs-theme="light"] .fleet-graph-node-title,
     [data-bs-theme="light"] .fleet-graph-node-status { fill: #0f172a; }
@@ -357,7 +371,7 @@
               </div>
             </div>
             <p class="small text-body-secondary mb-3">
-              Reference architecture by layer. Node border color is live status; edges are designed connections (<code class="fleet-mono">connects_to</code>).
+              Live matrix from heartbeats. Rows are cluster nodes, columns are the purpose each process announces. S service, W worker, I integration. Select a chip for status and auth.
             </p>
             <div class="fleet-graph-wrap">
               <div id="fleet-graph-svg-host" class="flex-grow-1" style="min-width: 0; overflow-x: auto" aria-live="polite">

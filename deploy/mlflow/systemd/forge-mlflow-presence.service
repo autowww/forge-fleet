@@ -1,0 +1,15 @@
+[Unit]
+Description=MLflow presence heartbeat to the local Fleet
+After=network-online.target forge-mlflow.service
+
+[Service]
+Type=simple
+Environment=PYTHONUNBUFFERED=1
+Environment=FLEET_PRESENCE_URL=http://127.0.0.1:18766
+EnvironmentFile=-/home/forge/.config/forge-mlx/forge-mlx.env
+ExecStart=/usr/bin/python3 -c "import time,sys; sys.path.insert(0, '/home/forge/deploy/mlflow'); import presence_heartbeat; presence_heartbeat.start(instance_id='mlflow', kind='integration', purpose='experiments', label='MLflow', auth='bearer', detail='tracking user'); time.sleep(10**9)"
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

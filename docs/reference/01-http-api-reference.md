@@ -86,6 +86,9 @@ Feature docs (details beyond this table): [CONTAINER-TEMPLATES.md](../build-201/
 | GET | `/v1/capacity` | bearer | Per-node CPU/RAM/GPU headroom for planning (estimates; no reservation ledger). |
 | GET | `/v1/host/container-stats` | bearer | Running Docker containers on this host with **`docker stats`** CPU/memory (cached ~8s; query `refresh=1` to bypass). |
 | GET | `/v1/cluster` | bearer | Cluster dashboard payload: local node + each remote peer — capacity, managed services, container stats (~8s cache). |
+| GET | `/v1/presence` | bearer | Presence matrix: rows are nodes, columns are announced purposes. Local last-state rows plus gzip aggregates from non-main peers. |
+| POST | `/v1/presence/heartbeat` | bearer | One local instance announcement (`id`, `k` kind, `p` purpose, `s` status, `a` auth). Products call this on `127.0.0.1` only. |
+| POST | `/v1/presence/aggregate` | bearer | Gzipped JSON of one node's current local table. Main node stores it as that node's row. A node refuses an aggregate that names itself. |
 | GET | `/v1/mesh/capacity` | bearer | Local capacity + cached fetch from each `remote-peers` entry (~20s TTL). |
 | GET | `/v1/remote-peers` | bearer | List configured remote Fleet peers (no secrets). |
 | PUT | `/v1/remote-peers/{id}` | bearer | Create/update peer (`label`, `base_url`, `bearer_token`). |

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import hashlib
 import json
 import os
@@ -1083,6 +1084,15 @@ class FleetHandler(BaseHTTPRequestHandler):
             skip_cache = (q.get("refresh") or ["0"])[0].strip().lower() in {"1", "true", "yes"}
             self._send(200, fleet_cluster.cluster_payload(data_dir_c, use_cache=not skip_cache))
             return
+        if path == "/v1/presence":
+            from fleet_server import presence
+
+            conn = store.connect(self.server.db_path)
+            try:
+                self._send(200, presence.matrix(conn))
+            finally:
+                conn.close()
+            return
         if path == "/v1/mesh/benchmarks/score":
             from fleet_server import fmsbench_runs
 
@@ -1818,6 +1828,32 @@ class FleetHandler(BaseHTTPRequestHandler):
                 return
             self._send(200, {"ok": True, **rec})
             return
+        if path == "/v1/presence/aggregate":
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+            from fleet_server import presence
+
+            length = int(self.headers.get("Content-Length") or 0)
+            if length <= 0 or length > 262_144:
+                self._send(400, {"ok": False, "error": "bad_length"})
+                return
+            raw_agg = self.rfile.read(length)
+            gzipped = (self.headers.get("Content-Encoding") or "").lower().strip() == "gzip"
+            try:
+                doc = presence.decode_aggregate(raw_agg, gzipped=gzipped)
+                items = doc.get("items") if isinstance(doc.get("items"), list) else []
+                conn = store.connect(self.server.db_path)
+                try:
+                    out = presence.replace_aggregate(conn, str(doc.get("node_id") or ""), items)
+                    conn.commit()
+                finally:
+                    conn.close()
+            except (ValueError, json.JSONDecodeError, OSError, gzip.BadGzipFile) as ex:
+                self._send(400, {"ok": False, "error": str(ex)[:200]})
+                return
+            self._send(200, out)
+            return
         body: dict[str, Any] = {}
         if self._v1_skip_guard(path):
             body = self._read_json()
@@ -1874,6 +1910,22 @@ class FleetHandler(BaseHTTPRequestHandler):
             if not self._auth_ok():
                 self._send_unauthorized()
                 return
+        if path == "/v1/presence/heartbeat":
+            from fleet_server import presence
+
+            try:
+                item = presence.normalize_item(body if isinstance(body, dict) else {})
+            except ValueError as ex:
+                self._send(400, {"ok": False, "error": str(ex)})
+                return
+            conn = store.connect(self.server.db_path)
+            try:
+                presence.upsert_local(conn, item)
+                conn.commit()
+            finally:
+                conn.close()
+            self._send(200, {"ok": True, "id": item["instance_id"]})
+            return
         if path == "/v1/auth/session":
             from fleet_server import fleet_sessions, request_guard
 
@@ -3450,6 +3502,9 @@ def main() -> None:
             name="fleet-template-prefetch",
             daemon=True,
         ).start()
+    from fleet_server import presence as fleet_presence
+
+    fleet_presence.start_loops(db_path, data_dir)
     space_guardian.run_startup_gc(data_dir, db_path)
     space_guardian.start_guardian(data_dir, db_path)
     memory_guardian.start_guardian(data_dir, db_path)

@@ -12,7 +12,7 @@
 |-----|----------------|
 | **Overview** | Release identity, jobs-by-status chart, host processes, active workers, recent jobs table |
 | **Cluster** | Full mesh plus the **Forge ecosystem** reference: known products, where they run, service status, and designed connections (gateway, Open WebUI, Market Studio, Fleet). Host CPU/RAM/GPU, container stats, and start/stop stay below that map. Ignores the Fleet scope dropdown. |
-| **Graph** | Same ecosystem data as **Cluster**, drawn as a four-layer SVG (Control → Reasoning → Edge → Products): node border color is live status, edges are catalog `connects_to` links; select a node for placements and connection detail. Polls only while this tab is visible. |
+| **Graph** | Presence matrix from heartbeats (`GET /v1/presence`). Rows are cluster nodes, columns are announced purposes. Chip border is status; S/W/I marks service, worker, or integration. The detail panel shows the auth mechanism the process declared. This Fleet stores local heartbeats and, when it is not the main node, posts one gzipped aggregate to that peer. Polls only while the tab is visible. |
 | **Services** | Managed compose services (`forge_llm`, Market Studio gateways, …) with start/stop where applicable |
 | **Containers** | Container-type swimlanes from **`GET /v1/container-types`** |
 | **Jobs** | Deeper job list and filters |

@@ -1930,6 +1930,18 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
                 return StreamingResponse(generate(), media_type="text/event-stream", headers=headers)
             return JSONResponse(content=response, headers=headers)
 
+    try:
+        from forge_squid.presence_heartbeat import start as presence_start
+
+        presence_start(
+            instance_id="forge-2b",
+            kind="service",
+            purpose="reasoning",
+            label="Forge 2B",
+            auth="bearer",
+        )
+    except Exception:
+        pass
     return app
 
 

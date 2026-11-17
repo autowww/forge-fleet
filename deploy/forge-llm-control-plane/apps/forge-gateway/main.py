@@ -57,6 +57,18 @@ async def _startup() -> None:
     restore_counters_from_disk()
     _runtime_state.clear()
     _runtime_state.update(load_persisted_state())
+    try:
+        from presence_heartbeat import start as presence_start
+
+        presence_start(
+            instance_id="forge-llm",
+            kind="service",
+            purpose="reasoning",
+            label="Forge LLM gateway",
+            auth="bearer" if GATEWAY_AUTH_REQUIRED and _EFFECTIVE_TOKEN else "loopback",
+        )
+    except Exception:
+        logger.exception("presence heartbeat failed to start")
 
 
 def _log(event: str, **fields: Any) -> None:

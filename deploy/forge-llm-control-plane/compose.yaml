@@ -30,6 +30,8 @@ services:
       FORGE_LLM_DB_PATH: /data/forge-llm.sqlite
       FLEET_WAKE_BASE_URL: ${FLEET_WAKE_BASE_URL:-http://host.docker.internal:18766}
       FLEET_WAKE_BEARER_TOKEN: ${FLEET_WAKE_BEARER_TOKEN:-${FORGE_API_TOKEN:-}}
+      FLEET_PRESENCE_URL: ${FLEET_PRESENCE_URL:-http://host.docker.internal:18766}
+      FLEET_BEARER_TOKEN: ${FLEET_BEARER_TOKEN:-${FLEET_WAKE_BEARER_TOKEN:-${FORGE_API_TOKEN:-}}}
     volumes:
       - gateway_state:/data
       - ./configs/runner.granite.yaml:/config/runner.yaml:ro

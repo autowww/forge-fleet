@@ -229,6 +229,10 @@ def _run_fleet_schema_migrations(conn: sqlite3.Connection, from_v: int, to_v: in
                 conn.execute(
                     "ALTER TABLE fleet_auth_sessions ADD COLUMN session_secret TEXT NOT NULL DEFAULT ''"
                 )
+        elif next_v == 11:
+            from fleet_server import presence
+
+            presence.ensure_table(conn)
         else:
             raise RuntimeError(f"fleet_schema migration missing for {v} -> {next_v}")
         v = next_v
@@ -318,6 +322,13 @@ def update_job(
     with _lock:
         conn.execute(f"UPDATE jobs SET {', '.join(fields)} WHERE id = ?", vals)
         conn.commit()
+    if status is not None:
+        try:
+            from fleet_server import presence
+
+            presence.sync_job_presence(conn, jid)
+        except Exception:
+            pass
 
 
 def _safe_json_dict(raw: Any) -> dict[str, Any] | None:
