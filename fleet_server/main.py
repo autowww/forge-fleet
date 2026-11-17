@@ -2553,6 +2553,21 @@ class FleetHandler(BaseHTTPRequestHandler):
             code = 200 if out.get("ok") else 502
             self._send(code, out)
             return
+        if path == "/v1/admin/lcdl-nn-gpu-worker-build":
+            from fleet_server import lcdl_gpu_worker_build
+
+            overrides = {
+                key: body.get(key)
+                for key in ("forge_lcdl_root", "forge_lcdl_git_ref", "forge_lcdl_nn_gpu_image")
+                if body.get(key)
+            }
+            try:
+                out = lcdl_gpu_worker_build.schedule_build(self._repo_root(), overrides=overrides or None)
+            except FileNotFoundError as ex:
+                self._send(400, {"ok": False, "error": "build_script_missing", "detail": str(ex)[:400]})
+                return
+            self._send(200, out)
+            return
         if path == "/v1/admin/forge-market-studio-rollout":
             sync = str(body.get("sync") or "").strip().lower() in ("1", "true", "yes")
             overrides = {

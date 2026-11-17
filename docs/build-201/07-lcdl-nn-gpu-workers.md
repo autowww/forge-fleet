@@ -15,7 +15,7 @@ Forge LCDL NN tasks (`nn_fleet_infer`, `nn_train`, `nn_eval`, `nn_generate`) sub
 | `forge-lcdl-nn-infer-worker:local` | Default infer stub / light worker |
 | `forge-lcdl-nn-gpu-worker:local` | CUDA MNIST train/eval/infer (`deploy/nn-gpu-worker/Dockerfile`) |
 
-Build GPU worker from forge-lcdl root:
+Build GPU worker from forge-lcdl root, or `POST /v1/admin/lcdl-nn-gpu-worker-build` so the Fleet host git-fetches `FORGE_LCDL_GIT_REF` and runs the same build:
 
 ```bash
 docker build -f deploy/nn-gpu-worker/Dockerfile -t forge-lcdl-nn-gpu-worker:local .
@@ -47,7 +47,9 @@ Set `FORGE_LCDL_NN_FLEET_TEMPLATE_REQUIREMENTS=lcdl_nn_gpu_worker` for Granite t
 docker run --rm --gpus all <image> python -m forge_lcdl.nn.fleet_worker
 ```
 
-Workspace tarball contains `request.json` with `op`: `infer` | `train` | `eval` | `generate`.
+Workspace tarball contains `request.json` with `op`: `infer` | `train` | `eval` | `generate` | `train_bars`.
+
+`train_bars` reads `bars.json` beside `request.json`. Rows are `{ts, close, volume, volume_delta}` already cut to the training and acceptance windows on Granite. The worker logs `architecture`, `ticker`, `interval`, `target`, `train_until`, `test_since`, and `data_hash`, then a check run with `verdict`, `accuracy`, `base_rate`, and `avg_move`. A feature timestamp after its label fails the job. Market Studio pins the container with `--gpus device=N`.
 
 Worker POSTs `/v1/jobs/{id}/workspace-worker-complete` with `metrics`, `artifact_path`, `device_used`, `architecture`.
 

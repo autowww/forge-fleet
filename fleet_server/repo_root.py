@@ -8,6 +8,7 @@ from pathlib import Path
 from fleet_server.self_update import resolve_git_root
 
 MARKET_STUDIO_ROLLOUT_SCRIPT = "scripts/rollout-forge-market-studio.sh"
+LCDL_GPU_WORKER_BUILD_SCRIPT = "scripts/build-lcdl-nn-gpu-worker.sh"
 LLM_ROLLOUT_SCRIPT = "scripts/rollout-forge-llm-control-plane.sh"
 
 
