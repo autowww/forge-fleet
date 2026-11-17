@@ -49,7 +49,7 @@ docker run --rm --gpus all <image> python -m forge_lcdl.nn.fleet_worker
 
 Workspace tarball contains `request.json` with `op`: `infer` | `train` | `eval` | `generate` | `train_bars`.
 
-`train_bars` reads `bars.json` beside `request.json`. Rows are `{ts, close, volume, volume_delta}` already cut to the training and acceptance windows on Granite. The worker logs `architecture`, `ticker`, `interval`, `target`, `train_until`, `test_since`, and `data_hash`, then a check run with `verdict`, `accuracy`, `base_rate`, and `avg_move`. A feature timestamp after its label fails the job. Market Studio pins the container with `--gpus device=N`.
+`train_bars` reads `bars.json` beside `request.json`. Rows are `{ts, close, volume, volume_delta}` already cut to the training and acceptance windows on Granite. The worker logs `architecture`, `ticker`, `interval`, `target`, `train_until`, `test_since`, and `data_hash`, then a check run with `verdict`, `accuracy`, `base_rate`, and `avg_move`. A feature timestamp after its label fails the job. Market Studio pins the container to `/dev/nvidiaN` plus the NVIDIA control devices. Granite's Docker daemon has no NVIDIA runtime, so `--gpus` cannot start the worker.
 
 Worker POSTs `/v1/jobs/{id}/workspace-worker-complete` with `metrics`, `artifact_path`, `device_used`, `architecture`.
 
