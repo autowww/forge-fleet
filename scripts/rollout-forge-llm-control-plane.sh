@@ -30,7 +30,15 @@ compose() {
 
 ensure_forge_llm_checkout() {
   if [[ -f "$FORGE_LLM_ROOT/compose.yaml" && -f "$FORGE_LLM_ROOT/apps/forge-gateway/presence_heartbeat.py" ]]; then
-    log "using packaged forge-llm control plane at $FORGE_LLM_ROOT"
+    if [[ ! -w "$FORGE_LLM_ROOT/compose.yaml" ]]; then
+      local dest="${XDG_STATE_HOME:-$HOME/.local/state}/forge-fleet/forge-llm-control-plane"
+      mkdir -p "$dest"
+      rsync -a --delete "$FORGE_LLM_ROOT/" "$dest/"
+      FORGE_LLM_ROOT="$dest"
+      log "copied packaged control plane to writable $FORGE_LLM_ROOT"
+    else
+      log "using packaged forge-llm control plane at $FORGE_LLM_ROOT"
+    fi
     return 0
   fi
   local git_fleet_root="${FORGE_FLEET_GIT_ROOT:-$HOME/forge-fleet}"
