@@ -33,6 +33,7 @@ stage_common_code() {
   for rollout_script in \
     rollout-forge-market-studio.sh \
     rollout-forge-llm-control-plane.sh \
+    rollout-forge-squid.sh \
     fleet-rollout-step.sh \
     fleet-rollout-backup.sh \
     register-market-studio-env-gateway.sh \
@@ -49,7 +50,7 @@ stage_common_code() {
     "${ROOT}/kitchensink" "$dest_lib/kitchensink"
   if [[ -d "${ROOT}/deploy" ]]; then
     mkdir -p "$dest_lib/deploy"
-    for deploy_dir in forge-llm-control-plane forge-market-studio forge-market-studio-dev; do
+    for deploy_dir in forge-llm-control-plane forge-market-studio forge-market-studio-dev forge-squid; do
       if [[ -d "${ROOT}/deploy/${deploy_dir}" ]]; then
         rsync -a \
           --exclude '__pycache__/' \

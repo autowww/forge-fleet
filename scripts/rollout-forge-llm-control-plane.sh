@@ -29,6 +29,10 @@ compose() {
 }
 
 ensure_forge_llm_checkout() {
+  if [[ -f "$FORGE_LLM_ROOT/compose.yaml" && -f "$FORGE_LLM_ROOT/apps/forge-gateway/presence_heartbeat.py" ]]; then
+    log "using packaged forge-llm control plane at $FORGE_LLM_ROOT"
+    return 0
+  fi
   local git_fleet_root="${FORGE_FLEET_GIT_ROOT:-$HOME/forge-fleet}"
   if [[ -f "$git_fleet_root/deploy/forge-llm-control-plane/compose.yaml" ]]; then
     FORGE_LLM_ROOT="$git_fleet_root/deploy/forge-llm-control-plane"
