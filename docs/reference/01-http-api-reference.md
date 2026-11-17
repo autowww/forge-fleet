@@ -84,6 +84,8 @@ Feature docs (details beyond this table): [CONTAINER-TEMPLATES.md](../build-201/
 | PUT | `/v1/app-gateways/{id}/edge-cache` | bearer or loopback app bearer | Container apps register cacheable gateway paths (`ttl_s`, `paths`). Fleet stamps `Cloudflare-CDN-Cache-Control` on proxied GET 200 responses. |
 | POST | `/v1/operator/verify-public-health` | bearer | Server-side `GET {public_url}/v1/health` for Edge tab verify (body: `public_url`, `bearer_token`). |
 | GET | `/v1/capacity` | bearer | Per-node CPU/RAM/GPU headroom for planning (estimates; no reservation ledger). |
+| GET | `/v1/host/container-stats` | bearer | Running Docker containers on this host with **`docker stats`** CPU/memory (cached ~8s; query `refresh=1` to bypass). |
+| GET | `/v1/cluster` | bearer | Cluster dashboard payload: local node + each remote peer — capacity, managed services, container stats (~8s cache). |
 | GET | `/v1/mesh/capacity` | bearer | Local capacity + cached fetch from each `remote-peers` entry (~20s TTL). |
 | GET | `/v1/remote-peers` | bearer | List configured remote Fleet peers (no secrets). |
 | PUT | `/v1/remote-peers/{id}` | bearer | Create/update peer (`label`, `base_url`, `bearer_token`). |
@@ -97,6 +99,10 @@ Feature docs (details beyond this table): [CONTAINER-TEMPLATES.md](../build-201/
 | GET | `/v1/remote-peers/{id}/container-templates` | bearer | Proxy to peer `GET /v1/container-templates`. |
 | GET | `/v1/remote-peers/{id}/fleet-apps/{appId}/about` | bearer | Proxy to peer `GET /v1/fleet-apps/{appId}/about`. |
 | GET | `/v1/remote-peers/{id}/capacity` | bearer | Proxy to peer `GET /v1/capacity`. |
+| GET | `/v1/remote-peers/{id}/container-stats` | bearer | Proxy to peer `GET /v1/host/container-stats` (forwards query, e.g. `refresh=1`). |
+| GET | `/v1/remote-peers/{id}/container-services` | bearer | Proxy to peer `GET /v1/container-services`. |
+| POST | `/v1/remote-peers/{id}/container-services/{sid}/start` | bearer | Proxy to peer `POST /v1/container-services/{sid}/start`. |
+| POST | `/v1/remote-peers/{id}/container-services/{sid}/stop` | bearer | Proxy to peer `POST /v1/container-services/{sid}/stop`. |
 | GET | `/v1/remote-peers/{id}/host/profile` | bearer | Proxy to peer `GET /v1/host/profile`. |
 | GET | `/v1/remote-peers/{id}/mesh/links` | bearer | Proxy to peer `GET /v1/mesh/links`. |
 | POST | `/v1/remote-peers/{id}/host/profile/benchmark` | bearer | Proxy to peer `POST /v1/host/profile/benchmark` (Fleet mark on that peer). |
@@ -246,6 +252,18 @@ Gateway **`control_plane`** is fetched with **`since_epoch`** aligned to Fleet s
 
 When **`FLEET_INJECT_HOST_METRICS_ENV_IN_DOCKER`** is truthy **and** **`FLEET_HOST_METRICS_BASE_URL`** is set, the runner injects **`FLEET_HOST_METRICS_URL`** and **`FLEET_HOST_METRICS_TOKEN`** (copy of bearer when set) into `docker_argv` jobs. See **[EXAMPLES.md](../build-201/05-examples-and-recipes.md)** and README — **this exposes the admin token inside containers** when enabled.
 
+## Forge LLM gateway — Cursor CLI lane
+
+OpenAI clients may call the forge-gateway `POST /v1/chat/completions` with `model` set to `composer*` or `grok*` and optional body field **`forge_cursor`** (`mode`, `workspace`, `force`, `timeout_s`). Every completion writes an `llm_requests` row with `meta.lane = cli`. Long **agent** runs or `timeout_s` above **`FORGE_LLM_CLI_ASYNC_TIMEOUT_S`** (default 180) require **`X-Forge-Async: 1`** plus webhook headers and return **202** `{job_id, status, lane: cli}`; poll **`GET /v1/llm/jobs/{job_id}`**.
+
+**Agentic-dev:** set **`FORGE_AGENT_VIA_GATEWAY=1`** with **`FORGE_LLM_BASE_URL`** and gateway bearer so `run_task.py` uses the gateway instead of a local `cursor-agent` subprocess (default off).
+
+**Matrix / Roadrunner:** set **`FORGE_CURSOR_VIA_GATEWAY=1`** on `forge_cursor_bridge` with the same base URL.
+
+**Model catalog:** `GET /v1/llm/cursor/models` on the gateway (gateway id → cursor-agent id, UI labels such as **F Composer 2.5**). Enabled CLI models also appear on `GET /v1/models` for Open WebUI.
+
+Contract and env vars: `forge-llm/docs/CLI_LANE.md` (synced into `deploy/forge-llm-control-plane`).
+
 ## Host Cursor CLI (`POST /v1/admin/cursor-cli`)
 
 Admin bearer required. Runs the Cursor CLI from **`FLEET_CURSOR_AGENT_BIN`** when that absolute path is set. When it is unset, Fleet uses `/usr/local/bin/cursor-agent`, `/usr/bin/cursor-agent`, or the service user's `~/.local/bin/cursor-agent`. The request field **`credential`** is the localhost `CURSOR_API_KEY`, copied into the child environment only. It is not written to the job row, argv, or logs. `--api-key` in `args` is rejected. The response is **202** `{"ok": true, "id", "status": "queued"}`.
@@ -268,7 +286,7 @@ Admin bearer required. One approved repo task runs in an **ephemeral container**
 
 | Route | Purpose |
 |---|---|
-| `POST /v1/admin/agentic-dev-task` | Submit `forge.agentic_dev_task.v1`: `task_id` (`req_task_<8 hex>`), `repo` (`owner/name`, must match `FLEET_AGENTIC_REPO_ALLOWLIST`, default `autowww/*`), `base_ref`, `branch` (agent lane, must contain `task_id`), `goal`, `verify[]`, `allow_paths[]`, `deny_paths[]`, `model`, `timeout_s` (60–3600), `approval{request_id,digest,event_id}`, `report{room_id,thread_root}`, `node` (`local` default, `auto`, or a remote peer id), and **either** `credential` (Cursor key) **or** `credential_ref: "courier"`. Response **202** with `id`, `status` (`queued` or `queued_waiting_credential`), `digest`, `node`. **409** `approval_digest_mismatch` when the bound digest differs from `canonical_digest(envelope)`. |
+| `POST /v1/admin/agentic-dev-task` | Submit `forge.agentic_dev_task.v1` (optional **`FORGE_AGENT_VIA_GATEWAY=1`** in the container env routes Cursor through forge-gateway): `task_id` (`req_task_<8 hex>`), `repo` (`owner/name`, must match `FLEET_AGENTIC_REPO_ALLOWLIST`, default `autowww/*`), `base_ref`, `branch` (agent lane, must contain `task_id`), `goal`, `verify[]`, `allow_paths[]`, `deny_paths[]`, `model`, `timeout_s` (60–3600), `approval{request_id,digest,event_id}`, `report{room_id,thread_root}`, `node` (`local` default, `auto`, or a remote peer id), and **either** `credential` (Cursor key) **or** `credential_ref: "courier"`. Response **202** with `id`, `status` (`queued` or `queued_waiting_credential`), `digest`, `node`. **409** `approval_digest_mismatch` when the bound digest differs from `canonical_digest(envelope)`. |
 | `POST /v1/admin/agentic-dev-task/{id}/credential` | Courier attaches `{"credential": …}` once; **409** when already attached or started. |
 | `GET /v1/admin/agentic-dev/pending-credentials` | Jobs in `queued_waiting_credential`: `id`, `kind`, `task_id`, `repo`, `branch`, `digest`, `approval`, `age_s`, `expired` (older than 1h). No goal text, no secrets. |
 | `GET /v1/admin/agentic-dev-task/{id}` | Status, envelope, redacted `result` (`base_sha`, `head_sha`, `pr_url`, `verify[]`, `test_instructions[]`, `hold_reason`), `stderr_tail`. |

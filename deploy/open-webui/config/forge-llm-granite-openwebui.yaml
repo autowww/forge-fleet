@@ -39,6 +39,24 @@ models:
   - id: ibm/granite4:tiny-h
     label: Classifier — Granite4 tiny (routing only)
     forge_task: intent
+# Cursor CLI lane (gateway → cursor-agent). IDs must match forge-llm/configs/cursor_cli_models.yaml.
+# Open WebUI prefix_id forge-llm → chat may send forge-llm.<gateway_id>; gateway strips prefix.
+cursor_cli_models:
+  - id: composer-2.5
+    label: F Composer 2.5 (Cursor CLI)
+    cursor_id: composer-2.5
+  - id: composer
+    label: F Composer → 2.5 (Cursor CLI)
+    cursor_id: composer-2.5
+  - id: grok-4.7-high
+    label: F Grok 4.7 High (Cursor CLI)
+    cursor_id: grok-4.7-high
+  - id: gpt-5.3-codex
+    label: F GPT 5.3 Codex (Cursor CLI)
+    cursor_id: gpt-5.3-codex
+  - id: claude-4.6-sonnet-medium-thinking
+    label: F Claude 4.6 Sonnet thinking (Cursor CLI)
+    cursor_id: claude-4.6-sonnet-medium-thinking
 external_bridges:
   - slug: chatgpt-primary
     model_prefix: granite-chatgpt-primary

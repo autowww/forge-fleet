@@ -1,0 +1,13 @@
+# Venus overlay — bind MLflow on loopback :5050 only.
+volumes:
+  pgdata:
+    name: ${MLFLOW_PGDATA_VOLUME:-forge_mlflow_pgdata}
+    external: true
+  artifacts:
+    name: ${MLFLOW_ARTIFACTS_VOLUME:-forge_mlflow_artifacts}
+    external: true
+
+services:
+  mlflow:
+    ports:
+      - "127.0.0.1:${MLFLOW_HOST_PORT:-5050}:5000"

@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse, Response
 
 from control_plane.config import DEFAULT_HOLD_TIMEOUT_SEC, QUARANTINED_MODELS
 from control_plane.context import ForgeContext
-from control_plane.cli_lane import is_cli_model, openai_chat_via_cli
+from control_plane.cli_lane import cli_chat_timeout, is_cli_model, respond_cli_chat
 from control_plane.external_lane import openai_chat_via_openwebui
 from control_plane.modes import DEFAULT_WAIT_BY_MODE, ModeId, needs_think_false
 from control_plane.queue_manager import inference_queue
@@ -135,10 +135,8 @@ async def run_openai_inference(
     headers = request_headers or {}
     requested = body.get("model")
     if isinstance(requested, str) and is_cli_model(requested):
-        to = float(timeout or body.get("timeout") or DEFAULT_HOLD_TIMEOUT_SEC)
-        status, content, hdrs = await openai_chat_via_cli(model=requested, body=body, timeout=to)
-        media = hdrs.get("content-type", "application/json")
-        return Response(content=content, status_code=status, media_type=media)
+        to = float(timeout) if timeout is not None else cli_chat_timeout(body)
+        return await respond_cli_chat(ctx=ctx, body=body, model=requested, timeout=to, path=path)
     try:
         task = resolve_task(
             header_task=header_task_from_request(headers) or None,

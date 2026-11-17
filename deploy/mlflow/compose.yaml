@@ -1,0 +1,58 @@
+# MLflow tracking server on Venus — loopback only; auth gate on :5051.
+name: ${MLFLOW_COMPOSE_PROJECT:-forge-mlflow}
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: ${MLFLOW_PG_CONTAINER:-forge-mlflow-postgres}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${MLFLOW_POSTGRES_USER:-mlflow}
+      POSTGRES_PASSWORD: ${MLFLOW_POSTGRES_PASSWORD:?set MLFLOW_POSTGRES_PASSWORD}
+      POSTGRES_DB: ${MLFLOW_POSTGRES_DB:-mlflow}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${MLFLOW_POSTGRES_USER:-mlflow} -d ${MLFLOW_POSTGRES_DB:-mlflow}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.14.3
+    container_name: ${MLFLOW_CONTAINER:-forge-mlflow}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      MLFLOW_BACKEND_STORE_URI: ${MLFLOW_BACKEND_STORE_URI:-postgresql://mlflow:${MLFLOW_POSTGRES_PASSWORD}@postgres:5432/mlflow}
+      MLFLOW_DEFAULT_ARTIFACT_ROOT: ${MLFLOW_DEFAULT_ARTIFACT_ROOT:-/mlflow/artifacts}
+    command:
+      - /bin/bash
+      - -lc
+      - |
+        set -euo pipefail
+        pip install -q 'psycopg2-binary>=2.9' 2>/dev/null || true
+        mlflow server \
+          --host 0.0.0.0 \
+          --port 5000 \
+          --app-name basic-auth \
+          --backend-store-uri "$${MLFLOW_BACKEND_STORE_URI}" \
+          --default-artifact-root "$${MLFLOW_DEFAULT_ARTIFACT_ROOT}" \
+          --serve-artifacts
+    volumes:
+      - artifacts:/mlflow/artifacts
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -o /dev/null http://127.0.0.1:5000/health || curl -fsS -o /dev/null http://127.0.0.1:5000/"]
+      interval: 20s
+      timeout: 10s
+      retries: 6
+      start_period: 45s
+
+volumes:
+  pgdata:
+    name: ${MLFLOW_PGDATA_VOLUME:-forge_mlflow_pgdata}
+  artifacts:
+    name: ${MLFLOW_ARTIFACTS_VOLUME:-forge_mlflow_artifacts}

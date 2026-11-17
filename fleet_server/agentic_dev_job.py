@@ -73,6 +73,9 @@ def _agentic_llm_telemetry_env() -> dict[str, str]:
     """Optional gateway telemetry POST config for agentic-dev containers (fail-open client-side)."""
     out: dict[str, str] = {}
     url = str(os.environ.get("FORGE_LLM_TELEMETRY_URL") or "").strip()
+    if not url:
+        port = str(os.environ.get("FORGE_GATEWAY_HOST_PORT") or "18080").strip()
+        url = f"http://host.docker.internal:{port}"
     if url:
         out["FORGE_LLM_TELEMETRY_URL"] = url
     bearer = ""
@@ -98,7 +101,15 @@ def deploy_dir() -> Path:
     override = str(os.environ.get("FLEET_AGENTIC_DEV_DEPLOY_DIR") or "").strip()
     if override:
         return Path(override)
-    return Path(__file__).resolve().parent.parent / "deploy" / "agentic-dev"
+    runtime = Path(__file__).resolve().parent.parent / "deploy" / "agentic-dev"
+    if (runtime / "Dockerfile").is_file():
+        return runtime
+    git_root = str(os.environ.get("FLEET_GIT_ROOT") or "").strip()
+    if git_root:
+        candidate = Path(git_root).expanduser() / "deploy" / "agentic-dev"
+        if (candidate / "Dockerfile").is_file():
+            return candidate
+    return runtime
 
 
 def runner_mode() -> str:
@@ -677,6 +688,7 @@ def _run_docker(job_id: str, task_dir: Path, out_dir: Path, envelope: dict[str, 
     os.chmod(env_file, 0o600)
     argv = [
         docker, "run", "--rm", "--name", name,
+        "--add-host=host.docker.internal:host-gateway",
         "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
         "--pids-limit", "1024", "--memory", os.environ.get("FLEET_AGENTIC_DEV_MEMORY") or "4g",
         "--cpus", os.environ.get("FLEET_AGENTIC_DEV_CPUS") or "2",

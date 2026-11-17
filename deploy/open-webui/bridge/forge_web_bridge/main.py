@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from forge_web_bridge.catalog import catalog_row_for_slug, openai_models_payload
+from forge_web_bridge.tenant_cdp import resolve_cdp_for_request, tenant_uses_selector
 from forge_web_bridge.guard import (
     REQUEST_ID_HEADER,
     InflightGate,
@@ -149,15 +150,16 @@ def _live_web_model_labels(cfg: dict[str, str]) -> list[str]:
     return labels
 
 
-def _run_provider(prompt: str, *, model: str) -> str:
+def _run_provider(prompt: str, *, model: str, cdp_url: str | None = None) -> str:
     """Playwright sync API hangs on the uvicorn thread. Run it in a child process."""
     cfg = _settings()
+    cdp = (cdp_url or cfg["cdp_url"]).strip()
     payload = json.dumps(
         {
             "prompt": prompt,
             "model": model,
             "provider": cfg["provider"],
-            "cdp_url": cfg["cdp_url"],
+            "cdp_url": cdp,
             "model_id": cfg["model_id"],
         }
     )
@@ -253,11 +255,32 @@ def health() -> dict[str, Any]:
 
 
 @app.get("/v1/models")
-def models(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+def models(
+    authorization: str | None = Header(default=None),
+    x_openwebui_user_email: str | None = Header(default=None, alias="X-OpenWebUI-User-Email"),
+) -> dict[str, Any]:
     _check_bearer(authorization)
     cfg = _settings()
     live = _live_web_model_labels(cfg)
-    return openai_models_payload(cfg["provider"], cfg["model_id"], live_labels=live or None)
+    payload = openai_models_payload(cfg["provider"], cfg["model_id"], live_labels=live or None)
+    tenant_id = f"tenant-{cfg['provider']}"
+    payload.setdefault("data", [])
+    allowed = {tenant_id}
+    if x_openwebui_user_email and (x_openwebui_user_email or "").strip():
+        from forge_web_bridge.tenant_cdp import resolve_tenant_cdp
+
+        hit = resolve_tenant_cdp(x_openwebui_user_email, cfg["provider"])
+        if hit.get("connected"):
+            allowed.add(tenant_id)
+    if os.getenv("FORGE_WEB_BRIDGE_TENANT_ONLY", "").strip().lower() in ("1", "true", "yes"):
+        payload["data"] = [row for row in payload.get("data") or [] if row.get("id") in allowed or str(row.get("id", "")).startswith("tenant-")]
+    else:
+        payload["data"] = list(payload.get("data") or []) + [
+            {"id": tenant_id, "object": "model", "owned_by": "tenant"},
+        ]
+    if x_openwebui_user_email and not any(str(row.get("id")) == tenant_id for row in payload.get("data") or []):
+        payload["data"] = [row for row in payload.get("data") or [] if not str(row.get("id", "")).startswith("granite-")]
+    return payload
 
 
 @app.post("/v1/chat/completions")
@@ -265,6 +288,7 @@ def chat_completions(
     body: ChatCompletionRequest,
     authorization: str | None = Header(default=None),
     x_forge_request_id: str | None = Header(default=None, alias=REQUEST_ID_HEADER),
+    x_openwebui_user_email: str | None = Header(default=None, alias="X-OpenWebUI-User-Email"),
 ):
     _check_bearer(authorization)
     request_id = request_id_from(x_forge_request_id)
@@ -273,8 +297,30 @@ def chat_completions(
     if not prompt:
         raise HTTPException(status_code=400, detail="messages must include a user prompt", headers=headers)
     model = body.model or _settings()["model_id"]
+    cfg = _settings()
+    use_tenant = tenant_uses_selector(model) or os.getenv("FORGE_WEB_BRIDGE_TENANT_ONLY", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    if use_tenant and not (x_openwebui_user_email or "").strip():
+        raise HTTPException(
+            status_code=403,
+            detail="Sign in to Open WebUI with Google, then connect ChatGPT or Gemini in Lenses /setup.",
+            headers=headers,
+        )
+    cdp_url = cfg["cdp_url"]
+    if use_tenant or tenant_uses_selector(model):
+        cdp_url, err = resolve_cdp_for_request(
+            user_email=x_openwebui_user_email,
+            model=model,
+            default_provider=cfg["provider"],
+            default_cdp=cfg["cdp_url"],
+        )
+        if err:
+            raise HTTPException(status_code=403, detail=err, headers=headers)
     try:
-        text = _gate.run(lambda: _run_provider(prompt, model=model))
+        text = _gate.run(lambda: _run_provider(prompt, model=model, cdp_url=cdp_url))
     except QueueFull as exc:
         raise HTTPException(status_code=429, detail=str(exc), headers={**headers, "Retry-After": "5"})
     except ProviderTimeout as exc:

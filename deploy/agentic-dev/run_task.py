@@ -195,13 +195,50 @@ def main() -> int:
 
     model = str(task.get("model") or "composer-2.5")
     goal = str(task.get("goal") or "")
-    cursor_bin = os.environ.get("CURSOR_AGENT_BIN") or "cursor-agent"
-    cursor_args = [cursor_bin, "--print", "--force", "--trust", "--workspace", str(checkout),
-                   "--model", model, "--output-format", "text", goal]
-    cursor_env = dict(git_env)
-    cursor_env["CURSOR_API_KEY"] = cursor_key
     cursor_timeout = int(task.get("cursor_timeout_s") or 1500)
-    proc = rec.run("cursor", cursor_args, cwd=checkout, env=cursor_env, timeout=cursor_timeout)
+    if os.environ.get("FORGE_AGENT_VIA_GATEWAY", "").strip().lower() in ("1", "true", "yes"):
+        from gateway_client import run_cursor_via_gateway
+
+        t0 = time.time()
+        gw = run_cursor_via_gateway(
+            model=model,
+            workspace=str(checkout),
+            prompt=goal,
+            timeout_s=cursor_timeout,
+        )
+        proc = subprocess.CompletedProcess(
+            args=["forge-gateway", "cli"],
+            returncode=gw.returncode,
+            stdout=gw.stdout,
+            stderr=gw.stderr,
+        )
+        rec.steps.append(
+            {
+                "step": "cursor",
+                "exit": gw.returncode,
+                "duration_s": round(time.time() - t0, 2),
+                "via": "gateway",
+                "job_id": gw.job_id,
+            }
+        )
+    else:
+        cursor_bin = os.environ.get("CURSOR_AGENT_BIN") or "cursor-agent"
+        cursor_args = [
+            cursor_bin,
+            "--print",
+            "--force",
+            "--trust",
+            "--workspace",
+            str(checkout),
+            "--model",
+            model,
+            "--output-format",
+            "text",
+            goal,
+        ]
+        cursor_env = dict(git_env)
+        cursor_env["CURSOR_API_KEY"] = cursor_key
+        proc = rec.run("cursor", cursor_args, cwd=checkout, env=cursor_env, timeout=cursor_timeout)
     (out_dir / "cursor-output.txt").write_text(rec.redact((proc.stdout or "")[-200000:]), encoding="utf-8")
     try:
         from agent_telemetry import report_agent_run_from_cursor

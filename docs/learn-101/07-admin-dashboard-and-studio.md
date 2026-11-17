@@ -11,6 +11,7 @@
 | Tab | What you see |
 |-----|----------------|
 | **Overview** | Release identity, jobs-by-status chart, host processes, active workers, recent jobs table |
+| **Cluster** | Full mesh (local + registered peers): host CPU/RAM/GPU per node, live **docker stats** for every running container, managed compose start/stop (including remotes via proxy). Ignores the Fleet scope dropdown. |
 | **Services** | Managed compose services (`forge_llm`, Market Studio gateways, …) with start/stop where applicable |
 | **Containers** | Container-type swimlanes from **`GET /v1/container-types`** |
 | **Jobs** | Deeper job list and filters |

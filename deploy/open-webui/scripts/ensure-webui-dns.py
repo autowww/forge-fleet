@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ensure webui.forgedc.net CNAME exists for the Granite Cloudflare tunnel."""
+"""Ensure webui.forgedc.net CNAME points at the Mercury Cloudflare tunnel."""
 from __future__ import annotations
 
 import json
@@ -21,7 +21,7 @@ if not os.environ.get("CLOUDFLARE_API_TOKEN", "").strip() and KA_ENV.is_file():
 token = os.environ.get("CLOUDFLARE_API_TOKEN", "").strip()
 zone_id = os.environ.get("CF_ZONE_ID", "a930a3d1ec96b9bcaa0ab388ddad6274").strip()
 tunnel_id = os.environ.get(
-    "CF_TUNNEL_ID", "07ff2cbc-4741-4737-a0e5-10a60a884efd"
+    "CF_TUNNEL_ID", "6e783b10-a38e-4715-a57e-f55c649fcba2"
 ).strip()
 hostname = os.environ.get("CF_HOSTNAME", "webui.forgedc.net").strip()
 label = hostname.removesuffix(".forgedc.net").split(".")[0] if hostname.endswith(".forgedc.net") else "webui"
@@ -47,20 +47,37 @@ def api(method: str, url: str, payload: dict | None = None) -> dict:
 
 
 def main() -> int:
+    target = f"{tunnel_id}.cfargotunnel.com"
     listed = api(
         "GET",
         f"https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records?name={hostname}",
     )
-    if listed.get("result"):
-        print("dns_exists", hostname)
-        return 0
+    records = listed.get("result") or []
+    if records:
+        rec = records[0]
+        if rec.get("content") == target:
+            print("dns_ok", hostname, target)
+            return 0
+        rid = rec["id"]
+        updated = api(
+            "PUT",
+            f"https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records/{rid}",
+            {
+                "type": "CNAME",
+                "name": label,
+                "content": target,
+                "proxied": True,
+            },
+        )
+        print("dns_update", updated.get("success"), updated.get("errors"))
+        return 0 if updated.get("success") else 1
     created = api(
         "POST",
         f"https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records",
         {
             "type": "CNAME",
             "name": label,
-            "content": f"{tunnel_id}.cfargotunnel.com",
+            "content": target,
             "proxied": True,
         },
     )

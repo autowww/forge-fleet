@@ -41,6 +41,13 @@ def git_sync_argv(root: Path, ref: str) -> list[list[str]]:
             ["git", "-C", str(root), "checkout", "-q", ref],
             ["git", "-C", str(root), "reset", "-q", "--hard", f"origin/{ref}"],
         ]
+    if root.is_dir() and any(root.iterdir()):
+        stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+        return [
+            ["mv", str(root), f"{root}.broken-{stamp}"],
+            ["git", "clone", "--branch", ref, REPO_URL, str(root)],
+        ]
+    root.mkdir(parents=True, exist_ok=True)
     return [["git", "clone", "--branch", ref, REPO_URL, str(root)]]
 
 

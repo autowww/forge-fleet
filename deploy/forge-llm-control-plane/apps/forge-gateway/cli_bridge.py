@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""OpenAI chat bridge on the operator laptop. composer -> cursor-agent ask mode."""
+"""OpenAI chat bridge on the operator laptop. CLI models -> cursor-agent."""
 
 from __future__ import annotations
 
@@ -8,7 +8,8 @@ import os
 import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from control_plane.cli_lane import is_cli_model, run_cursor_agent
+from control_plane.cli_lane import cli_chat_timeout, is_cli_model, openai_chat_via_cli
+import asyncio
 
 
 def _token() -> str:
@@ -49,15 +50,19 @@ class Handler(BaseHTTPRequestHandler):
             return
         model = str(body.get("model") or "composer")
         if not is_cli_model(model):
-            payload = b'{"error":{"message":"bridge accepts composer only"}}'
+            payload = b'{"error":{"message":"bridge accepts CLI models only"}}'
             self.send_response(400)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
             self.wfile.write(payload)
             return
-        messages = body.get("messages") if isinstance(body.get("messages"), list) else []
-        status, content, _hdrs = run_cursor_agent(messages, model, timeout=170.0)
+        timeout = cli_chat_timeout(body if isinstance(body, dict) else {})
+
+        async def _run() -> tuple[int, bytes, dict[str, str]]:
+            return await openai_chat_via_cli(model=model, body=body, timeout=timeout)
+
+        status, content, _hdrs = asyncio.run(_run())
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(content)))

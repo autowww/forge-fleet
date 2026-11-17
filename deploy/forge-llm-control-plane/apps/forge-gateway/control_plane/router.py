@@ -14,9 +14,18 @@ import httpx
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 
-from control_plane.cli_lane import is_cli_model, openai_chat_via_cli
+from control_plane.cli_lane import (
+    assert_cli_async_allowed,
+    cli_chat_timeout,
+    cli_model_id,
+    is_cli_model,
+    openai_chat_via_cli,
+    respond_cli_chat,
+)
+from control_plane.request_telemetry import record_cli_completion
 from control_plane.interception import adapter_openai, fingerprint_body, inject_think_false, run_openai_inference
 from control_plane.catalog_select import enabled_pins, pinned_openai_model_objects
+from control_plane.cli_catalog import catalog_for_api, cursor_openai_model_objects
 from control_plane.config import (
     DEFAULT_HOLD_TIMEOUT_SEC,
     QUARANTINED_MODELS,
@@ -118,6 +127,56 @@ async def _run_chat_job(
                 "prompt_fingerprint": fingerprint_body(body),
                 "meta": {"async": True, "job_id": job_id, "lane": lane, "task": task_id},
             }
+        )
+    except Exception as exc:  # noqa: BLE001
+        update_job(job_id, status="failed", error=str(exc)[:500], completed_ts=time.time())
+
+
+async def _run_cli_job(
+    job_id: str,
+    body: dict[str, Any],
+    ctx: ForgeContext,
+    model: str,
+) -> None:
+    update_job(job_id, status="running")
+    t0 = time.perf_counter()
+    timeout = cli_chat_timeout(body)
+    try:
+        status, content, _hdrs = await openai_chat_via_cli(model=model, body=body, timeout=timeout)
+        data = json.loads(content) if status < 400 else {}
+        if status >= 400:
+            update_job(
+                job_id,
+                status="failed",
+                error=content.decode(errors="replace")[:500],
+                completed_ts=time.time(),
+            )
+        else:
+            update_job(
+                job_id,
+                status="completed",
+                response=data,
+                completed_ts=time.time(),
+            )
+        if ctx.webhook_url and ctx.webhook_secret:
+            payload = {
+                "job_id": job_id,
+                "status": "completed" if status < 400 else "failed",
+                "mode": "chat",
+                "model": cli_model_id(model),
+                "response": data if status < 400 else None,
+                "error": None if status < 400 else content.decode(errors="replace")[:500],
+            }
+            await deliver_webhook(ctx.webhook_url, ctx.webhook_secret, payload)
+        record_cli_completion(
+            ctx=ctx,
+            body=body,
+            model=model,
+            status=status,
+            content=content,
+            t0=t0,
+            served_model=cli_model_id(model),
+            meta_extra={"async": True, "job_id": job_id, "lane": "cli"},
         )
     except Exception as exc:  # noqa: BLE001
         update_job(job_id, status="failed", error=str(exc)[:500], completed_ts=time.time())
@@ -289,6 +348,12 @@ async def llm_job(job_id: str) -> dict[str, Any]:
     return out
 
 
+@router.get("/v1/llm/cursor/models")
+async def llm_cursor_models() -> dict[str, Any]:
+    """Cursor CLI catalog: gateway id → cursor-agent id, labels, endpoints."""
+    return catalog_for_api()
+
+
 @router.get("/v1/models")
 async def openai_models() -> dict[str, Any]:
     status, content, hdrs = await adapter_openai("GET", "/v1/models", b"")
@@ -308,6 +373,9 @@ async def openai_models() -> dict[str, Any]:
             data["data"] = pinned_openai_model_objects(filtered, include_synthetic=True)
         elif allowed:
             data["data"] = pinned_openai_model_objects([], include_synthetic=True)
+    models = data.get("data")
+    if isinstance(models, list):
+        data["data"] = cursor_openai_model_objects(models)
     return data
 
 
@@ -342,12 +410,35 @@ async def openai_chat_completions(
 
     requested = body.get("model")
     if isinstance(requested, str) and is_cli_model(requested):
-        to = float(body.get("timeout") or DEFAULT_HOLD_TIMEOUT_SEC)
-        status, content, cli_hdrs = await openai_chat_via_cli(
-            model=requested, body=body, timeout=to
+        assert_cli_async_allowed(body, ctx)
+        if ctx.async_job:
+            if not ctx.webhook_url or not ctx.webhook_secret:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Async CLI jobs require X-Forge-Webhook-Url and X-Forge-Webhook-Secret",
+                )
+            job_id = insert_job(
+                {
+                    "consumer": ctx.consumer,
+                    "mode": "chat",
+                    "model": cli_model_id(requested),
+                    "webhook_url": ctx.webhook_url,
+                    "webhook_secret": ctx.webhook_secret,
+                    "request": body,
+                }
+            )
+            background_tasks.add_task(_run_cli_job, job_id, body, ctx, requested)
+            return JSONResponse(
+                {"job_id": job_id, "status": "queued", "lane": "cli"},
+                status_code=202,
+                headers={"X-Forge-Job-Id": job_id, "X-Forge-Lane": "cli"},
+            )
+        return await respond_cli_chat(
+            ctx=ctx,
+            body=body,
+            model=requested,
+            timeout=cli_chat_timeout(body),
         )
-        media = cli_hdrs.get("content-type", "application/json")
-        return Response(content=content, status_code=status, media_type=media)
 
     try:
         task = resolve_task(

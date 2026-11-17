@@ -50,6 +50,18 @@ LAYOUT=user ./scripts/install-caddy-fleet-ollama-unified.sh --non-interactive
 
 Point DNS/tunnel at the same origin as Fleet. Do **not** use `register_edge_route` for the UI.
 
+## 3a. Per-tenant browsers (Lenses containers)
+
+When **forge-lenses-gateway** runs on loopback `:8090`, tenants connect ChatGPT and Gemini with Google only inside their private container (`/setup` on Lenses). Web bridges use that CDP instead of the host `chatgpt-primary` / `gemini-primary` profiles:
+
+```bash
+./scripts/configure-open-webui-tenant-bridge.sh
+# Add EnvironmentFile from lenses-tenant-gateway.env to the gateway systemd unit
+./scripts/install-open-webui-account-plane.sh
+```
+
+Pick models named `tenant-chatgpt` / `tenant-gemini` in Open WebUI after connecting apps in Lenses.
+
 ## 3. Signed-in ChatGPT / Gemini (web accounts)
 
 One Edge profile + one loopback bridge per account:

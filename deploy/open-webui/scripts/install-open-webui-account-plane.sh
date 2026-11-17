@@ -70,6 +70,7 @@ EOF
   # Per-account bearer (bridge binds 0.0.0.0 for Docker; bearer is required by default).
   # Generated once into a 0600 file; never printed, never committed. Paste it into the
   # Open WebUI connection for this bridge (Admin → Settings → Connections → API key).
+  tenant_gw_env="${BEARER_DIR}/lenses-tenant-gateway.env"
   bearer_env="${BEARER_DIR}/bridge-${slug}.env"
   if [[ ! -s "$bearer_env" ]]; then
     umask 077
@@ -89,6 +90,7 @@ Type=simple
 Restart=on-failure
 RestartSec=5
 EnvironmentFile=${bearer_env}
+EnvironmentFile=-${tenant_gw_env}
 Environment=FORGE_WEB_BRIDGE_REQUIRE_BEARER=1
 Environment=FORGE_WEB_BRIDGE_MAX_QUEUE=${FORGE_WEB_BRIDGE_MAX_QUEUE:-4}
 Environment=FORGE_WEB_BRIDGE_TIMEOUT_S=${FORGE_WEB_BRIDGE_TIMEOUT_S:-180}

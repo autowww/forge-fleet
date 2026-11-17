@@ -652,6 +652,25 @@ class FleetHandler(BaseHTTPRequestHandler):
             peer_id = m_cap.group(1)
             code, body, ctype = remote_peers.proxy_get(data_dir, peer_id, "/v1/capacity")
             self._send_proxy_body(code, body, ctype)
+            return
+        m_cstats = re.match(r"^/v1/remote-peers/([^/]+)/container-stats$", path)
+        if m_cstats:
+            peer_id = m_cstats.group(1)
+            query = urlparse(self.path).query
+            code, body, ctype = remote_peers.proxy_get(
+                data_dir,
+                peer_id,
+                "/v1/host/container-stats",
+                query=query,
+                timeout_s=remote_peers._PROXY_SLOW_TIMEOUT_S,
+            )
+            self._send_proxy_body(code, body, ctype)
+            return
+        m_cserv = re.match(r"^/v1/remote-peers/([^/]+)/container-services$", path)
+        if m_cserv:
+            peer_id = m_cserv.group(1)
+            code, body, ctype = remote_peers.proxy_get(data_dir, peer_id, "/v1/container-services")
+            self._send_proxy_body(code, body, ctype)
             return True
         m_up_status = re.match(r"^/v1/remote-peers/([^/]+)/admin/upgrade/status$", path)
         if m_up_status:
@@ -757,6 +776,14 @@ class FleetHandler(BaseHTTPRequestHandler):
                 self._send_raw(404, b"", "text/plain; charset=utf-8")
                 return
             self._send_raw(200, cap_js, "application/javascript; charset=utf-8")
+            return
+        if path == "/admin/cluster.js":
+            try:
+                cluster_js = resources.files("fleet_server").joinpath("static/cluster.js").read_bytes()
+            except OSError:
+                self._send_raw(404, b"", "text/plain; charset=utf-8")
+                return
+            self._send_raw(200, cluster_js, "application/javascript; charset=utf-8")
             return
         if path == "/admin/performance-view.css":
             try:
@@ -1023,6 +1050,15 @@ class FleetHandler(BaseHTTPRequestHandler):
                 lim = 50
             self._send(200, host_processes.snapshot(limit=lim, sort=sort_raw))
             return
+        if path == "/v1/host/container-stats":
+            from fleet_server import host_container_stats
+
+            q = parse_qs(urlparse(self.path).query)
+            skip_cache = (q.get("refresh") or ["0"])[0].strip().lower() in {"1", "true", "yes"}
+            body = host_container_stats.container_stats_payload(use_cache=not skip_cache)
+            code = 200 if body.get("ok") else 503
+            self._send(code, body)
+            return
         if path == "/v1/capacity":
             data_dir_c = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
             self._send(200, capacity.capacity_payload(data_dir_c))
@@ -1030,6 +1066,14 @@ class FleetHandler(BaseHTTPRequestHandler):
         if path == "/v1/mesh/capacity":
             data_dir_c = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
             self._send(200, capacity.mesh_capacity(data_dir_c))
+            return
+        if path == "/v1/cluster":
+            from fleet_server import cluster as fleet_cluster
+
+            data_dir_c = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            q = parse_qs(urlparse(self.path).query)
+            skip_cache = (q.get("refresh") or ["0"])[0].strip().lower() in {"1", "true", "yes"}
+            self._send(200, fleet_cluster.cluster_payload(data_dir_c, use_cache=not skip_cache))
             return
         if path == "/v1/mesh/benchmarks/score":
             from fleet_server import fmsbench_runs
@@ -1914,6 +1958,36 @@ class FleetHandler(BaseHTTPRequestHandler):
                 method="POST",
                 body=b"{}",
                 timeout_s=180,
+            )
+            self._send_proxy_body(code, raw, ctype)
+            return
+        m_remote_svc_start = re.match(r"^/v1/remote-peers/([^/]+)/container-services/([^/]+)/start$", path)
+        if m_remote_svc_start:
+            data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            peer_id = m_remote_svc_start.group(1)
+            sid = m_remote_svc_start.group(2)
+            code, raw, ctype = remote_peers.proxy_json(
+                data_dir_p,
+                peer_id,
+                f"/v1/container-services/{sid}/start",
+                method="POST",
+                body=b"{}",
+                timeout_s=remote_peers._PROXY_SLOW_TIMEOUT_S,
+            )
+            self._send_proxy_body(code, raw, ctype)
+            return
+        m_remote_svc_stop = re.match(r"^/v1/remote-peers/([^/]+)/container-services/([^/]+)/stop$", path)
+        if m_remote_svc_stop:
+            data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            peer_id = m_remote_svc_stop.group(1)
+            sid = m_remote_svc_stop.group(2)
+            code, raw, ctype = remote_peers.proxy_json(
+                data_dir_p,
+                peer_id,
+                f"/v1/container-services/{sid}/stop",
+                method="POST",
+                body=b"{}",
+                timeout_s=remote_peers._PROXY_SLOW_TIMEOUT_S,
             )
             self._send_proxy_body(code, raw, ctype)
             return

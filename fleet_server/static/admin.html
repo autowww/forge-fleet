@@ -111,6 +111,9 @@
             <button class="nav-link active" id="fleet-tab-overview-btn" data-bs-toggle="tab" data-bs-target="#fleet-tab-overview" type="button" role="tab" aria-controls="fleet-tab-overview" aria-selected="true">Overview</button>
           </li>
           <li class="nav-item" role="presentation">
+            <button class="nav-link" id="fleet-tab-cluster-btn" data-bs-toggle="tab" data-bs-target="#fleet-tab-cluster" type="button" role="tab" aria-controls="fleet-tab-cluster" aria-selected="false" tabindex="-1">Cluster</button>
+          </li>
+          <li class="nav-item" role="presentation">
             <button class="nav-link" id="fleet-tab-services-btn" data-bs-toggle="tab" data-bs-target="#fleet-tab-services" type="button" role="tab" aria-controls="fleet-tab-services" aria-selected="false" tabindex="-1">Services</button>
           </li>
           <li class="nav-item" role="presentation">
@@ -265,6 +268,33 @@
                 aria-label="Host telemetry history (CPU, RAM, temperature, load, disk). Press Enter or click for extended history."
               ></div>
             </div>
+          </div>
+        </section>
+      </div>
+
+      <div
+        class="tab-pane fade"
+        id="fleet-tab-cluster"
+        role="tabpanel"
+        aria-labelledby="fleet-tab-cluster-btn"
+        tabindex="0"
+      >
+        <section class="card mb-3 border-secondary-subtle shadow-sm">
+          <div class="card-body">
+            <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+              <h2 class="h6 text-uppercase text-body-secondary mb-0">Cluster</h2>
+              <div class="d-flex flex-wrap align-items-center gap-2">
+                <span id="fleet-cluster-meta" class="small text-body-secondary fleet-mono" aria-live="polite">—</span>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-cluster-refresh-btn">Refresh</button>
+              </div>
+            </div>
+            <p class="small text-body-secondary mb-2">
+              Mesh-wide view: every registered Fleet node (local + peers). Fleet scope dropdown does not change this tab.
+            </p>
+            <div id="fleet-cluster-mesh-strip" class="row g-2 mb-3" aria-live="polite">Open this tab to load cluster data.</div>
+            <p id="fleet-cluster-totals" class="small text-body-secondary fleet-mono mb-3"></p>
+            <div id="fleet-cluster-nodes" aria-live="polite"></div>
+            <p id="fleet-cluster-msg" class="fleet-mono small text-body-secondary mb-0" aria-live="polite"></p>
           </div>
         </section>
       </div>
@@ -1220,6 +1250,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
   <script src="/admin/benchmarks-view.js"></script>
   <script src="/admin/performance-view.js"></script>
   <script src="/admin/capacity.js"></script>
+  <script src="/admin/cluster.js"></script>
   <script>
   /* forge-theme.js only registers DOMContentLoaded; if that event already fired, theme + clicks never wire — fix here. */
   (function () {

@@ -1,0 +1,92 @@
+# Gateway ↔ Cursor CLI model catalog (forge-llm).
+# Served ids must match what clients send in POST /v1/chat/completions "model".
+# Open WebUI: with openai.api_configs prefix_id "forge-llm", chat may show
+#   forge-llm.<gateway_id> — the gateway strips the forge-llm. prefix before CLI.
+# UI labels below (e.g. "F Composer 2.5") are for Admin/docs; pick models by gateway_id.
+
+schema: forge_llm.cursor_cli_models.v1
+display_prefix_letter: F  # operator shorthand in labels (not sent as model id)
+
+endpoints:
+  chat_completions: POST /v1/chat/completions
+  models_list: GET /v1/models
+  cursor_catalog: GET /v1/llm/cursor/models
+  async_job: POST /v1/chat/completions  # X-Forge-Async: 1 + webhooks
+  job_status: GET /v1/llm/jobs/{job_id}
+  telemetry_summary: GET /v1/llm/telemetry/summary
+  telemetry_ingest: POST /v1/llm/telemetry/events
+
+models:
+  - gateway_id: composer
+    cursor_id: composer-2.5
+    label: F Composer (→ 2.5)
+    family: composer
+    aliases: [forge-llm.composer, composer-1.5]
+    enabled: true
+    notes: Bare id composer aliases to composer-2.5 in cli_lane.
+
+  - gateway_id: composer-2.5
+    cursor_id: composer-2.5
+    label: F Composer 2.5
+    family: composer
+    aliases: [forge-llm.composer-2.5]
+    enabled: true
+
+  - gateway_id: composer-2.5-fast
+    cursor_id: composer-2.5-fast
+    label: F Composer 2.5 Fast
+    family: composer
+    aliases: [forge-llm.composer-2.5-fast]
+    enabled: false
+    notes: Disabled by default; workspace policy prefers standard composer-2.5.
+
+  - gateway_id: grok
+    cursor_id: grok
+    label: F Grok (default)
+    family: grok
+    aliases: [forge-llm.grok]
+    enabled: true
+    notes: Use a specific grok-* id when cursor-agent lists one.
+
+  - gateway_id: grok-4.7-high
+    cursor_id: grok-4.7-high
+    label: F Grok 4.7 High
+    family: grok
+    aliases: [forge-llm.grok-4.7-high]
+    enabled: true
+
+  - gateway_id: grok-4.6-xhigh
+    cursor_id: grok-4.6-xhigh
+    label: F Grok 4.6 Extra High
+    family: grok
+    enabled: true
+
+  - gateway_id: gpt-5.3-codex
+    cursor_id: gpt-5.3-codex
+    label: F GPT 5.3 Codex
+    family: openai
+    enabled: true
+
+  - gateway_id: gpt-5.5-medium
+    cursor_id: gpt-5.5-medium
+    label: F GPT 5.5 Medium
+    family: openai
+    enabled: true
+
+  - gateway_id: claude-4.6-sonnet-medium-thinking
+    cursor_id: claude-4.6-sonnet-medium-thinking
+    label: F Claude 4.6 Sonnet (thinking)
+    family: anthropic
+    enabled: true
+
+  - gateway_id: claude-4.6-opus-high-thinking
+    cursor_id: claude-4.6-opus-high-thinking
+    label: F Claude 4.6 Opus (thinking)
+    family: anthropic
+    enabled: true
+
+  - gateway_id: gemini-3-flash
+    cursor_id: gemini-3-flash
+    label: F Gemini 3 Flash
+    family: google
+    enabled: true

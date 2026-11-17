@@ -89,6 +89,7 @@ def main() -> None:
         "FORGE_LLM_EXPOSE_PINNED_MODELS_ONLY": "true",
         "gateway_bearer_configured": bool(gw_bearer),
         "models": manifest.get("models") or [],
+        "cursor_cli_models": manifest.get("cursor_cli_models") or [],
         "connection_label": gw.get("connection_label") or "forge-llm-granite",
     }
 
@@ -107,9 +108,14 @@ def main() -> None:
     print(f"FORGE_API_TOKEN={'<same-as-FORGE_LLM_GATEWAY_BEARER>' if gw_bearer else '<run-install-script>'}")
     print("FORGE_LLM_EXPOSE_PINNED_MODELS_ONLY=true")
     print("")
-    print("# Models exposed in Open WebUI (pick in chat; gateway routes by model id):")
+    print("# Granite local models (Ollama pins; gateway routes by model id):")
     for m in payload["models"]:
         print(f"#   {m.get('id')} — {m.get('label')} (forge_task={m.get('forge_task')})")
+    if payload["cursor_cli_models"]:
+        print("# Cursor CLI models (POST /v1/chat/completions → cli_lane; list also on GET /v1/models):")
+        for m in payload["cursor_cli_models"]:
+            cid = m.get("cursor_id") or m.get("id")
+            print(f"#   {m.get('id')} — {m.get('label')} (cursor_id={cid})")
 
 
 if __name__ == "__main__":

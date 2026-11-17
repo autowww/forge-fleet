@@ -1,0 +1,15 @@
+[Unit]
+Description=Forge auth gate (Google login proxy)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/home/forge/.config/forge-auth-gate/gate.env
+ExecStart=/usr/bin/python3 /home/forge/.local/share/forge-fleet/deploy/forge-auth-gate/gate.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
