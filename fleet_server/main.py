@@ -785,6 +785,14 @@ class FleetHandler(BaseHTTPRequestHandler):
                 return
             self._send_raw(200, cluster_js, "application/javascript; charset=utf-8")
             return
+        if path == "/admin/ecosystem-graph.js":
+            try:
+                graph_js = resources.files("fleet_server").joinpath("static/ecosystem-graph.js").read_bytes()
+            except OSError:
+                self._send_raw(404, b"", "text/plain; charset=utf-8")
+                return
+            self._send_raw(200, graph_js, "application/javascript; charset=utf-8")
+            return
         if path == "/admin/performance-view.css":
             try:
                 perf_css = resources.files("fleet_server").joinpath("static/performance-view.css").read_bytes()

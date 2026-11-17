@@ -55,6 +55,25 @@
       background: #ffffff;
     }
     [data-bs-theme="light"] #fleet-tab-cluster .text-body-secondary { color: #475569 !important; }
+    .fleet-graph-wrap { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-start; }
+  .fleet-graph-svg { max-width: 100%; height: auto; background: var(--bs-body-bg); border: 1px solid var(--bs-border-color); border-radius: 0.5rem; }
+  .fleet-graph-node-rect { fill: var(--forge-surface-2, var(--bs-secondary-bg)); stroke-width: 3; }
+  .fleet-graph-node--selected .fleet-graph-node-rect { filter: brightness(1.05); }
+  .fleet-graph-node-title { font-size: 12px; font-weight: 700; fill: var(--bs-body-color); }
+  .fleet-graph-node-status { font-size: 11px; font-weight: 600; fill: var(--bs-body-color); }
+  .fleet-graph-node-placements { font-size: 9px; fill: var(--bs-secondary-color); }
+  .fleet-graph-layer-label { font-size: 11px; font-weight: 700; fill: var(--bs-secondary-color); text-transform: uppercase; letter-spacing: 0.06em; }
+  .fleet-graph-edge { stroke: var(--bs-border-color); opacity: 0.85; }
+  .fleet-graph-detail { flex: 1 1 16rem; min-width: 14rem; max-width: 22rem; border: 1px solid var(--bs-border-color); border-radius: 0.5rem; padding: 0.75rem; background: var(--forge-surface-2, var(--bs-secondary-bg)); }
+  .fleet-graph-status-badge { display: inline-block; padding: 0.1rem 0.45rem; border-radius: 999px; font-size: 0.72rem; font-weight: 600; border: 1px solid var(--bs-border-color); }
+    [data-bs-theme="light"] .fleet-graph-svg { background: #ffffff; border-color: #cbd5e1; }
+    [data-bs-theme="light"] .fleet-graph-node-rect { fill: #f8fafc; }
+    [data-bs-theme="light"] .fleet-graph-node-title,
+    [data-bs-theme="light"] .fleet-graph-node-status { fill: #0f172a; }
+    [data-bs-theme="light"] .fleet-graph-node-placements { fill: #475569; }
+    [data-bs-theme="light"] .fleet-graph-layer-label { fill: #334155; }
+    [data-bs-theme="light"] .fleet-graph-edge { stroke: #94a3b8; }
+    [data-bs-theme="light"] .fleet-graph-detail { background: #f8fafc; border-color: #cbd5e1; color: #0f172a; }
   </style>
 </head>
 <body class="fleet-admin-body">
@@ -130,6 +149,9 @@
           </li>
           <li class="nav-item" role="presentation">
             <button class="nav-link" id="fleet-tab-cluster-btn" data-bs-toggle="tab" data-bs-target="#fleet-tab-cluster" type="button" role="tab" aria-controls="fleet-tab-cluster" aria-selected="false" tabindex="-1">Cluster</button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="fleet-tab-graph-btn" data-bs-toggle="tab" data-bs-target="#fleet-tab-graph" type="button" role="tab" aria-controls="fleet-tab-graph" aria-selected="false" tabindex="-1">Graph</button>
           </li>
           <li class="nav-item" role="presentation">
             <button class="nav-link" id="fleet-tab-services-btn" data-bs-toggle="tab" data-bs-target="#fleet-tab-services" type="button" role="tab" aria-controls="fleet-tab-services" aria-selected="false" tabindex="-1">Services</button>
@@ -314,6 +336,39 @@
             <p id="fleet-cluster-totals" class="small text-body-secondary fleet-mono mb-3"></p>
             <div id="fleet-cluster-nodes" aria-live="polite"></div>
             <p id="fleet-cluster-msg" class="fleet-mono small text-body-secondary mb-0" aria-live="polite"></p>
+          </div>
+        </section>
+      </div>
+
+      <div
+        class="tab-pane fade"
+        id="fleet-tab-graph"
+        role="tabpanel"
+        aria-labelledby="fleet-tab-graph-btn"
+        tabindex="0"
+      >
+        <section class="card mb-3 border-secondary-subtle shadow-sm">
+          <div class="card-body">
+            <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+              <h2 class="h6 text-uppercase text-body-secondary mb-0">Forge ecosystem graph</h2>
+              <div class="d-flex flex-wrap align-items-center gap-2">
+                <span id="fleet-graph-meta" class="small text-body-secondary fleet-mono" aria-live="polite">—</span>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="fleet-graph-refresh-btn">Refresh</button>
+              </div>
+            </div>
+            <p class="small text-body-secondary mb-3">
+              Reference architecture by layer. Node border color is live status; edges are designed connections (<code class="fleet-mono">connects_to</code>).
+            </p>
+            <div class="fleet-graph-wrap">
+              <div id="fleet-graph-svg-host" class="flex-grow-1" style="min-width: 0; overflow-x: auto" aria-live="polite">
+                Open this tab to load the graph.
+              </div>
+              <div id="fleet-graph-detail" class="fleet-graph-detail" aria-live="polite">
+                <p class="small text-body-secondary mb-0">Select a component in the graph.</p>
+              </div>
+            </div>
+            <p id="fleet-graph-other" class="small text-body-secondary fleet-mono mt-3 mb-1 d-none"></p>
+            <p id="fleet-graph-msg" class="fleet-mono small text-body-secondary mb-0" aria-live="polite"></p>
           </div>
         </section>
       </div>
@@ -1270,6 +1325,7 @@ command -v nvidia-smi &gt;/dev/null &amp;&amp; nvidia-smi -q -d POWER 2&gt;/dev/
   <script src="/admin/performance-view.js"></script>
   <script src="/admin/capacity.js"></script>
   <script src="/admin/cluster.js"></script>
+  <script src="/admin/ecosystem-graph.js"></script>
   <script>
   /* forge-theme.js only registers DOMContentLoaded; if that event already fired, theme + clicks never wire — fix here. */
   (function () {
