@@ -327,7 +327,95 @@
     );
   }
 
+  function statusBadge(state) {
+    var map = {
+      running: "success",
+      up: "success",
+      partial: "warning",
+      stopped: "secondary",
+      registered: "secondary",
+      absent: "light",
+      error: "danger",
+      down: "danger",
+      unknown: "secondary",
+    };
+    var tone = map[state] || "secondary";
+    var cls = tone === "light" ? "text-bg-light text-dark border" : "text-bg-" + tone;
+    return '<span class="badge ' + cls + '">' + esc(state) + "</span>";
+  }
+
+  function renderEcosystem(eco) {
+    var el = document.getElementById("fleet-cluster-ecosystem");
+    if (!el) return;
+    if (!eco || !Array.isArray(eco.components)) {
+      el.innerHTML = "";
+      return;
+    }
+    var byLayer = {};
+    (eco.layers || []).forEach(function (layer) {
+      byLayer[layer.id] = { label: layer.label, rows: [] };
+    });
+    eco.components.forEach(function (comp) {
+      var bucket = byLayer[comp.layer] || (byLayer[comp.layer] = { label: comp.layer, rows: [] });
+      bucket.rows.push(comp);
+    });
+    var html =
+      '<h3 class="h6 text-uppercase text-body-secondary mb-2">Forge ecosystem</h3>' +
+      '<p class="small text-body-secondary mb-2">Reference architecture with live placement. Connections are the designed path; status is this mesh.</p>';
+    Object.keys(byLayer).forEach(function (id) {
+      var layer = byLayer[id];
+      if (!layer.rows.length) return;
+      html += '<h4 class="small fw-semibold text-body mb-1">' + esc(layer.label) + "</h4>";
+      html += '<div class="table-responsive mb-3"><table class="table table-sm table-bordered mb-0"><thead><tr>' +
+        "<th>Component</th><th>Status</th><th>Where</th><th>Connects to</th></tr></thead><tbody>";
+      layer.rows.forEach(function (comp) {
+        var where = (comp.placements || []).length
+          ? (comp.placements || [])
+              .map(function (p) {
+                var loc = esc(p.node_label || p.node_id || "node");
+                var sid = p.service_id ? " · " + esc(p.service_id) : "";
+                var counts =
+                  p.services_running != null
+                    ? " (" + esc(String(p.services_running)) + "/" + esc(String(p.services_total)) + ")"
+                    : "";
+                return loc + sid + " " + statusBadge(p.state) + counts;
+              })
+              .join("<br>")
+          : '<span class="text-body-secondary">Not on this mesh</span>';
+        var links = (comp.connects_to || [])
+          .map(function (edge) {
+            return esc(edge.id) + ' <span class="text-body-secondary">(' + esc(edge.via) + ")</span>";
+          })
+          .join("<br>");
+        html +=
+          "<tr><td><div class=\"fw-semibold\">" +
+          esc(comp.label) +
+          '</div><div class="small text-body-secondary">' +
+          esc(comp.summary || "") +
+          "</div></td><td>" +
+          statusBadge(comp.status) +
+          "</td><td class=\"small\">" +
+          where +
+          '</td><td class="small">' +
+          (links || "—") +
+          "</td></tr>";
+      });
+      html += "</tbody></table></div>";
+    });
+    if (eco.other_services && eco.other_services.length) {
+      html += '<p class="small text-body-secondary mb-0">Other managed services: ' +
+        eco.other_services
+          .map(function (row) {
+            return esc(row.node_label) + "/" + esc(row.service_id) + " (" + esc(row.state) + ")";
+          })
+          .join(", ") +
+        "</p>";
+    }
+    el.innerHTML = html;
+  }
+
   function renderCluster(doc) {
+    renderEcosystem(doc && doc.ecosystem);
     var strip = document.getElementById("fleet-cluster-mesh-strip");
     var totals = document.getElementById("fleet-cluster-totals");
     var nodesEl = document.getElementById("fleet-cluster-nodes");

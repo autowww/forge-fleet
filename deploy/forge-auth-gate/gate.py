@@ -163,6 +163,8 @@ class GateHandler(BaseHTTPRequestHandler):
             loc = PUBLIC_ORIGIN + "/" if PUBLIC_ORIGIN else "/"
             self.send_response(302)
             self.send_header("Location", loc)
+            self.send_header("Content-Length", "0")
+            self.send_header("Connection", "close")
             self.send_header(
                 "Set-Cookie",
                 f"{COOKIE_NAME}={cookie_val}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age={SESSION_TTL}",
@@ -182,6 +184,8 @@ class GateHandler(BaseHTTPRequestHandler):
                 loc = f"{AUTH_ORIGIN}/api/auth/oidc/start"
             self.send_response(302)
             self.send_header("Location", loc)
+            self.send_header("Content-Length", "0")
+            self.send_header("Connection", "close")
             self.end_headers()
             return
         extra: dict[str, str] = {}

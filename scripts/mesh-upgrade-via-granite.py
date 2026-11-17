@@ -23,7 +23,7 @@ def main() -> int:
         {
             "mode": "upgrade",
             "require_apt_channel": True,
-            "allow_git_fallback": True,
+            "allow_git_fallback": False,
             "stash_dirty": True,
             "max_wait_sec": 300,
             "on_timeout": "force",

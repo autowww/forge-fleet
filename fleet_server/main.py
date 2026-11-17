@@ -1931,7 +1931,7 @@ class FleetHandler(BaseHTTPRequestHandler):
             forwarded = {
                 "mode": "upgrade",
                 "require_apt_channel": True,
-                "allow_git_fallback": True,
+                "allow_git_fallback": False,
                 "max_wait_sec": max(15, min(max_wait, 180)),
                 "on_timeout": on_timeout,
             }

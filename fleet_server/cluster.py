@@ -8,7 +8,9 @@ import time
 from pathlib import Path
 from typing import Any
 
-from fleet_server import capacity, container_layout, forge_llm_service, host_container_stats, managed_compose_service, remote_peers
+from fleet_server import capacity, container_layout, ecosystem, forge_llm_service, host_container_stats, managed_compose_service, remote_peers
+
+_CLUSTER_VIEW_SCHEMA = "forge.fleet.cluster.v1"
 
 _CLUSTER_LOCK = threading.Lock()
 _CLUSTER_CACHE: dict[str, Any] = {"at": 0.0, "payload": None}
@@ -153,10 +155,12 @@ def cluster_payload(data_dir: Path, *, use_cache: bool = True, cache_ttl_s: floa
 
     payload = {
         "ok": True,
+        "schema_version": _CLUSTER_VIEW_SCHEMA,
         "observed_at": now,
         "cache_ttl_s": cache_ttl_s,
         "cached": False,
         "nodes": nodes,
+        "ecosystem": ecosystem.ecosystem_view(nodes),
     }
     with _CLUSTER_LOCK:
         _CLUSTER_CACHE["at"] = now

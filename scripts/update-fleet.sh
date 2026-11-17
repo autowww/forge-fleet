@@ -2,7 +2,7 @@
 # update-fleet.sh — propagate **this dev checkout** to **git** and **local production** (systemd):
 #   submodule sync → semver bump → git commit (all changes by default) → git push → optional POST
 #   POST /v1/admin/upgrade on remote Fleet (--remote-upgrade) → apt package only (requires --publish-apt-cdn)
-#   (sudo failure is non-fatal) → update-user.sh when ~/.config/systemd/user/forge-fleet.service exists (no sudo)
+#   (sudo failure is non-fatal). With --remote-upgrade, update-user.sh is skipped unless --user-install (apt-only runtime policy).
 #
 # Run from the forge-fleet repo root:
 #   ./scripts/update-fleet.sh
@@ -22,11 +22,10 @@
 #   --no-push      commit only, do not push
 #   --no-install   skip sudo install-update (no local /opt refresh)
 #   --no-user      skip update-user.sh even when a user systemd unit is present
-#   --remote-upgrade          after push + apt CDN publish, POST /v1/admin/upgrade (apt when the host is on apt;
-#                             hosts still on a git channel fall back to the cooperative git upgrade via the same
-#                             API — no operator action, no SSH; 409 upgrade_blocked retries once with
-#                             on_timeout=force; then polls /v1/health until the new version is reported)
-#   --remote-strict-apt       disable the git-channel fallback (fail with migrate_to_apt_required instead)
+#   --user-install opt in to update-user.sh after ship (legacy git rsync; prohibited for routine runtime refresh)
+#   --remote-upgrade          after push + apt CDN publish, POST /v1/admin/upgrade (apt only; allow_git_fallback false by default)
+#   --remote-strict-apt       same as default when FLEET_REMOTE_UPGRADE_STRICT_APT=1 (no git pull on remote)
+#   --allow-git-fallback      set allow_git_fallback on remote POST (dev/break-glass only)
 #   --remote-git-self-update  deprecated alias for --remote-upgrade
 #   env: FLEET_REMOTE_UPGRADE_MAX_WAIT_SEC=120  FLEET_REMOTE_UPGRADE_FORCE_ON_BLOCK=1  FLEET_REMOTE_UPGRADE_VERIFY_SEC=180
 #   --publish-apt-cdn         after push, build debs and deploy packages.forgesdlc.com (CDN only; not GitHub)
@@ -49,10 +48,11 @@ STRICT=0
 NO_PUSH=0
 NO_INSTALL=0
 NO_USER=0
+USER_INSTALL=0
 ALLOW_DIRTY_STRICT=0
 DRY_RUN=0
 REMOTE_UPGRADE=0
-REMOTE_STRICT_APT="${FLEET_REMOTE_UPGRADE_STRICT_APT:-0}"
+REMOTE_STRICT_APT="${FLEET_REMOTE_UPGRADE_STRICT_APT:-1}"
 PUBLISH_APT_CDN=0
 REMOTE_URL_OVERRIDE=""
 REMOTE_BEARER_OVERRIDE=""
@@ -146,11 +146,13 @@ while [[ $# -gt 0 ]]; do
     --no-push) NO_PUSH=1; shift ;;
     --no-install) NO_INSTALL=1; shift ;;
     --no-user) NO_USER=1; shift ;;
+    --user-install) USER_INSTALL=1; shift ;;
+    --allow-git-fallback) REMOTE_STRICT_APT=0; shift ;;
     --allow-dirty) ALLOW_DIRTY_STRICT=1; shift ;;
     --commit-all) shift ;; # default in dev mode; kept for scripts that still pass it
     --dry-run) DRY_RUN=1; shift ;;
     --remote-upgrade) REMOTE_UPGRADE=1; shift ;;
-    --remote-strict-apt) REMOTE_STRICT_APT=1; shift ;;
+    --remote-strict-apt) REMOTE_STRICT_APT=1; shift ;; # default when --remote-upgrade (see REMOTE_STRICT_APT init)
     --remote-git-self-update)
       echo "[update-fleet] warning: --remote-git-self-update is deprecated; use --remote-upgrade --publish-apt-cdn" >&2
       REMOTE_UPGRADE=1
@@ -175,6 +177,10 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ "$REMOTE_UPGRADE" -eq 1 ]] && [[ "$USER_INSTALL" -eq 0 ]]; then
+  NO_USER=1
+fi
 
 [[ -f "$ROOT/pyproject.toml" ]] || { echo "update-fleet: not a forge-fleet repo: $ROOT" >&2; exit 1; }
 [[ -d "$ROOT/fleet_server" ]] || { echo "update-fleet: missing fleet_server/" >&2; exit 1; }
@@ -201,8 +207,8 @@ invoke_remote_upgrade() {
   fi
   _rb_url="${_rb_base}/v1/admin/upgrade"
   _rb_wait="${FLEET_REMOTE_UPGRADE_MAX_WAIT_SEC:-120}"
-  _rb_allow_git="true"
-  [[ "$REMOTE_STRICT_APT" -eq 1 ]] && _rb_allow_git="false"
+  _rb_allow_git="false"
+  [[ "$REMOTE_STRICT_APT" -eq 0 ]] && _rb_allow_git="true"
 
   # Attempt ladder (each step is one POST; the first successful one wins):
   #   1. apt policy, cooperative wait        {require_apt_channel, allow_git_fallback}

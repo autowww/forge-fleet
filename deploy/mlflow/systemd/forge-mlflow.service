@@ -1,0 +1,16 @@
+[Unit]
+Description=Forge MLflow tracking server
+After=network-online.target
+
+[Service]
+Type=simple
+Environment=PYTHONUNBUFFERED=1
+Environment=MLFLOW_AUTH_CONFIG_PATH=/home/forge/.local/share/forge-mlflow/basic_auth.ini
+EnvironmentFile=/home/forge/.local/share/forge-mlflow/server.env
+WorkingDirectory=/home/forge/.local/share/forge-mlflow
+ExecStart=/home/forge/.local/share/forge-mlflow/venv/bin/mlflow server --host 127.0.0.1 --port 5050 --app-name basic-auth --backend-store-uri sqlite:////home/forge/.local/share/forge-mlflow/mlflow.db --default-artifact-root /home/forge/.local/share/forge-mlflow/artifacts --serve-artifacts
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

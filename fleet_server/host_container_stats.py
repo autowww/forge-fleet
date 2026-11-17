@@ -10,6 +10,7 @@ from typing import Any
 
 from fleet_server import environment_stats
 
+_HOST_CONTAINER_STATS_SCHEMA = "forge.fleet.host_container_stats.v1"
 _MAX_CONTAINERS = 80
 _CACHE_LOCK = threading.Lock()
 _CACHE: dict[str, Any] = {"ts": 0.0, "payload": None}
@@ -93,6 +94,7 @@ def container_stats_payload(*, use_cache: bool = True) -> dict[str, Any]:
     ok = ps_err is None
     payload: dict[str, Any] = {
         "ok": ok,
+        "schema_version": _HOST_CONTAINER_STATS_SCHEMA,
         "observed_at": now,
         "containers_total_reported": len(names),
         "containers_included": len(selected),
