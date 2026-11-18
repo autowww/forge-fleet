@@ -33,6 +33,7 @@ stage_common_code() {
   for rollout_script in \
     rollout-forge-market-studio.sh \
     rollout-forge-llm-control-plane.sh \
+    build-lcdl-nn-gpu-worker.sh \
     rollout-forge-squid.sh \
     fleet-rollout-step.sh \
     fleet-rollout-backup.sh \
