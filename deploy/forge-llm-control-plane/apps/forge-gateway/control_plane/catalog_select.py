@@ -26,10 +26,13 @@ def load_catalog(path: str | None = None) -> dict[str, Any]:
     cfg = load_runner_config()
     cat_path = path or cfg.catalog_path
     if not cat_path:
-        bundled = (
-            Path(__file__).resolve().parents[3] / "configs" / "catalog" / "forge_llm_catalog_2026-11-03.json"
-        )
-        cat_path = str(bundled) if bundled.is_file() else None
+        try:
+            bundled = (
+                Path(__file__).resolve().parents[3] / "configs" / "catalog" / "forge_llm_catalog_2026-11-03.json"
+            )
+        except IndexError:
+            bundled = None
+        cat_path = str(bundled) if bundled is not None and bundled.is_file() else None
     if not cat_path:
         raise FileNotFoundError("catalog_path not configured")
     return json.loads(Path(cat_path).read_text(encoding="utf-8"))

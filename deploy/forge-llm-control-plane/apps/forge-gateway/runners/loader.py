@@ -155,8 +155,11 @@ def _resolve_catalog_path(data: dict[str, Any], source: str | None) -> str | Non
         repo = Path(source).resolve().parent.parent / "catalog" / "forge_llm_catalog_2026-11-03.json"
         if repo.is_file():
             return str(repo)
-    bundled = Path(__file__).resolve().parents[3] / "configs" / "catalog" / "forge_llm_catalog_2026-11-03.json"
-    if bundled.is_file():
+    try:
+        bundled = Path(__file__).resolve().parents[3] / "configs" / "catalog" / "forge_llm_catalog_2026-11-03.json"
+    except IndexError:
+        bundled = None
+    if bundled is not None and bundled.is_file():
         return str(bundled)
     return None
 
@@ -172,8 +175,12 @@ def resolve_runner_path() -> Path | None:
     ):
         if candidate.is_file():
             return candidate
-    # Repo layout: forge-llm/configs/runner.granite.yaml from gateway cwd
-    repo_root = Path(__file__).resolve().parents[3]
+    # Repo layout: forge-llm/configs/runner.granite.yaml from gateway cwd.
+    # The container image keeps this module under /app, which is not that deep.
+    try:
+        repo_root = Path(__file__).resolve().parents[3]
+    except IndexError:
+        return None
     for name in ("runner.yaml", "runner.granite.yaml", "runner.example.yaml"):
         p = repo_root / "configs" / name
         if p.is_file():

@@ -22,13 +22,13 @@ def _catalog_candidates() -> list[Path]:
     raw = (os.environ.get("FORGE_LLM_CLI_MODELS_FILE") or "").strip()
     if raw:
         out.append(Path(raw))
-    out.extend(
-        [
-            Path("/config/cursor_cli_models.yaml"),
-            Path(__file__).resolve().parents[1] / "configs" / "cursor_cli_models.yaml",
-            Path(__file__).resolve().parents[3] / "configs" / "cursor_cli_models.yaml",
-        ]
-    )
+    out.append(Path("/config/cursor_cli_models.yaml"))
+    resolved = Path(__file__).resolve()
+    for depth in (1, 3):
+        try:
+            out.append(resolved.parents[depth] / "configs" / "cursor_cli_models.yaml")
+        except IndexError:
+            continue
     return out
 
 

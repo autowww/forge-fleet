@@ -499,7 +499,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
             headers = {
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {cfg.llm_key}",
-                **gateway_telemetry.gateway_headers(run_id=rid, client_model=_client_model.get()),
+                **gateway_telemetry.gateway_headers(run_id=rid, client_model=upstream),
             }
             try:
                 response = await client.post(url, headers=headers, json=payload)
@@ -522,7 +522,7 @@ def create_app(config: Config | None = None, *, transport: httpx.AsyncBaseTransp
         if use_gateway:
             url = squid_catalog.llm_gateway_completion_url(cfg.llm_url)
             headers["Authorization"] = f"Bearer {cfg.llm_key}"
-            headers.update(gateway_telemetry.gateway_headers(run_id=rid, client_model=_client_model.get()))
+            headers.update(gateway_telemetry.gateway_headers(run_id=rid, client_model=upstream))
             upstream_label = "forge-llm gateway"
         else:
             if not cfg.openwebui_base_url:

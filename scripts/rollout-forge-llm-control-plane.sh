@@ -85,7 +85,7 @@ OLLAMA_HOST_URL=${OLLAMA_FORWARDER_URL}
 EOF
   fi
   # Migrate stale .env that pointed at loopback-only :11434 (unreachable from containers).
-  if grep -qE '^OLLAMA_HOST_URL=http://host\.docker\.internal:11434/?$' .env; then
+  if grep -qE '^OLLAMA_HOST_URL=http://(host\.docker\.internal:11434|forge-ollama-host:11434)/?$' .env; then
     sed -i "s|^OLLAMA_HOST_URL=.*|OLLAMA_HOST_URL=${OLLAMA_FORWARDER_URL}|" .env
     log "migrated OLLAMA_HOST_URL -> ${OLLAMA_FORWARDER_URL} (host Ollama is loopback-only)"
   fi
