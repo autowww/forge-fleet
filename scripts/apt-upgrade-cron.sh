@@ -103,10 +103,19 @@ _process_signal() {
     local uid runtime
     uid="$(id -u "$username")"
     runtime="/run/user/${uid}"
-    runuser -u "$username" -- env XDG_RUNTIME_DIR="$runtime" DBUS_SESSION_BUS_ADDRESS="unix:path=${runtime}/bus" land-fleet setup-user || true
-    runuser -u "$username" -- env XDG_RUNTIME_DIR="$runtime" DBUS_SESSION_BUS_ADDRESS="unix:path=${runtime}/bus" systemctl --user restart forge-fleet.service || true
+    if [[ "$package" == "fleet-guardian" ]]; then
+      runuser -u "$username" -- env XDG_RUNTIME_DIR="$runtime" DBUS_SESSION_BUS_ADDRESS="unix:path=${runtime}/bus" systemctl --user daemon-reload || true
+      runuser -u "$username" -- env XDG_RUNTIME_DIR="$runtime" DBUS_SESSION_BUS_ADDRESS="unix:path=${runtime}/bus" systemctl --user enable --now fleet-guardian.service || true
+    else
+      runuser -u "$username" -- env XDG_RUNTIME_DIR="$runtime" DBUS_SESSION_BUS_ADDRESS="unix:path=${runtime}/bus" land-fleet setup-user || true
+      runuser -u "$username" -- env XDG_RUNTIME_DIR="$runtime" DBUS_SESSION_BUS_ADDRESS="unix:path=${runtime}/bus" systemctl --user restart forge-fleet.service || true
+    fi
   elif [[ "$channel" == "apt_system" ]]; then
-    systemctl restart forge-fleet.service || true
+    if [[ "$package" == "fleet-guardian" ]]; then
+      systemctl restart fleet-guardian.service || true
+    else
+      systemctl restart forge-fleet.service || true
+    fi
   fi
 
   local result_file="${user_data_dir}/upgrade-result.json"

@@ -129,11 +129,13 @@ def run_upgrade(
         }
 
     if channel in ("apt_user", "apt_system"):
+        requested_pkg = str(raw.get("package") or "").strip() or None
         queued = package_upgrade.write_upgrade_signal(
             data_dir,
             mode=mode,
             lifecycle_ok=True,
             request_id=upgrade_id,
+            package=requested_pkg,
         )
         if not queued.get("ok"):
             upgrade_coordinator.fail_upgrade(str(queued.get("error") or "queue_failed"))

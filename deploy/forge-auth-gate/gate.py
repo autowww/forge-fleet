@@ -5,6 +5,9 @@ from __future__ import annotations
 
 import html
 import base64
+from pathlib import Path
+
+from completion_jobs import JOB_COLLECTION, CompletionJobs, job_id_from_path
 import hashlib
 import hmac
 import json
@@ -39,6 +42,11 @@ MLFLOW_HMAC_SECRET = (os.environ.get("FORGE_AUTH_GATE_MLFLOW_HMAC_SECRET") or GA
 SESSION_TTL = int(os.environ.get("FORGE_AUTH_GATE_SESSION_TTL", "43200"))
 LISTEN_HOST = os.environ.get("FORGE_AUTH_GATE_HOST", "127.0.0.1")
 LISTEN_PORT = int(os.environ.get("FORGE_AUTH_GATE_PORT", "19809"))
+PROXY_TIMEOUT = int(os.environ.get("FORGE_AUTH_GATE_PROXY_TIMEOUT", "360"))
+_JOBS = CompletionJobs(
+    Path(os.environ.get("FORGE_AUTH_GATE_JOB_DIR", "/tmp/forge-auth-gate-jobs")),
+    UPSTREAM,
+)
 
 _STRIP_HEADERS = {
     TRUSTED_EMAIL_HEADER.lower(),
@@ -170,6 +178,19 @@ def _parse_upstream(url: str) -> tuple[str, int, bool, str]:
     return host, port, scheme == "https", path
 
 
+def session_upstream_headers(session: dict[str, str]) -> dict[str, str] | None:
+    """Headers added for a Google session. MLflow mode signs the user in with basic auth instead."""
+    if MODE == "mlflow":
+        return None
+    email = str(session.get("email") or "").strip()
+    if not email:
+        return {}
+    extra = {TRUSTED_EMAIL_HEADER: email}
+    if TRUSTED_NAME_HEADER:
+        extra[TRUSTED_NAME_HEADER] = str(session.get("name") or email)
+    return extra
+
+
 def _redeem_ticket(ticket: str) -> dict[str, Any] | None:
     data = json.dumps({"ticket": ticket}).encode("utf-8")
     req = urllib.request.Request(
@@ -212,6 +233,9 @@ class GateHandler(BaseHTTPRequestHandler):
 
     def _dispatch(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
+        if parsed.path == JOB_COLLECTION or parsed.path.startswith(JOB_COLLECTION + "/"):
+            self._completion_job(parsed.path)
+            return
         if parsed.path == "/_forge_auth/health":
             payload = json.dumps({"ok": True, "service": "forge-auth-gate", "mode": MODE}).encode("utf-8")
             self.send_response(200)
@@ -263,11 +287,7 @@ class GateHandler(BaseHTTPRequestHandler):
                 self.send_error(401, "Sign in required")
             return
         extra: dict[str, str] = {}
-        if MODE == "webui":
-            extra[TRUSTED_EMAIL_HEADER] = session["email"]
-            if TRUSTED_NAME_HEADER:
-                extra[TRUSTED_NAME_HEADER] = session.get("name") or session["email"]
-        elif MODE == "mlflow":
+        if MODE == "mlflow":
             user = session["email"]
             if not _ensure_mlflow_user(user):
                 self.send_error(502, "MLflow user was not created for this Google account")
@@ -275,7 +295,51 @@ class GateHandler(BaseHTTPRequestHandler):
             pwd = _mlflow_password(user)
             token = base64.b64encode(f"{user}:{pwd}".encode("utf-8")).decode("ascii")
             extra["Authorization"] = f"Basic {token}"
+        else:
+            extra = session_upstream_headers(session) or {}
         self._proxy(extra_headers=extra)
+
+    def _completion_job(self, path: str) -> None:
+        authz = (self.headers.get("Authorization") or "").strip()
+        if not authz.lower().startswith("bearer "):
+            self._json(401, {"error": "bearer required"})
+            return
+        if path.rstrip("/") == JOB_COLLECTION:
+            if self.command != "POST":
+                self._json(405, {"error": "POST"})
+                return
+            length = int(self.headers.get("Content-Length") or "0")
+            if length <= 0 or length > 2_000_000:
+                self._json(400, {"error": "completion body is required"})
+                return
+            body = self.rfile.read(length)
+            record = _JOBS.start(authz, body)
+            self._json(202, record, retry_after=int(record.get("retry_after") or 20))
+            return
+        job_id = job_id_from_path(path)
+        if self.command != "GET" or not job_id:
+            self._json(404, {"error": "job not found"})
+            return
+        record = _JOBS.read(job_id)
+        if record is None:
+            self._json(404, {"error": "job not found"})
+            return
+        status = str(record.get("status") or "")
+        code = 202 if status == "running" else 200
+        retry_after = int(record.get("retry_after") or 0) if status in {"running", "limited"} else None
+        self._json(code, record, retry_after=retry_after)
+
+    def _json(self, status: int, payload: dict, *, retry_after: int | None = None) -> None:
+        raw = json.dumps(payload).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(raw)))
+        self.send_header("Cache-Control", "no-store")
+        if retry_after:
+            self.send_header("Retry-After", str(retry_after))
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(raw)
 
     def _google_start(self) -> str:
         if not PUBLIC_ORIGIN:
@@ -363,9 +427,9 @@ class GateHandler(BaseHTTPRequestHandler):
         headers["Host"] = f"{host}:{port}" if port not in (80, 443) else host
         conn: HTTPConnection | HTTPSConnection
         if use_tls:
-            conn = HTTPSConnection(host, port, timeout=120, context=ssl.create_default_context())
+            conn = HTTPSConnection(host, port, timeout=PROXY_TIMEOUT, context=ssl.create_default_context())
         else:
-            conn = HTTPConnection(host, port, timeout=120)
+            conn = HTTPConnection(host, port, timeout=PROXY_TIMEOUT)
         try:
             conn.request(self.command, path, body=body, headers=headers)
             resp = conn.getresponse()

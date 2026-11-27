@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# MLflow Venus-only install guard.
+# MLflow Mercury install guard. The tracking server moved off Venus.
 set -euo pipefail
 
 mlflow_host_allowed() {
@@ -8,17 +8,17 @@ mlflow_host_allowed() {
   fi
   local role="${FORGE_HOST_ROLE:-${FORGE_MLFLOW_HOST:-}}"
   role="${role,,}"
-  if [[ "$role" == "venus" ]]; then
+  if [[ "$role" == "mercury" ]]; then
     return 0
   fi
   local hn
   hn="$(hostname -s 2>/dev/null | tr '[:upper:]' '[:lower:]')"
   case "$hn" in
-    venus | fw3gsg3 | fw3g*)
+    mercury)
       return 0
       ;;
   esac
-  if [[ -r /etc/forge/host-role ]] && grep -qiE '^venus' /etc/forge/host-role 2>/dev/null; then
+  if [[ -r /etc/forge/host-role ]] && grep -qiE '^mercury' /etc/forge/host-role 2>/dev/null; then
     return 0
   fi
   return 1
@@ -28,7 +28,7 @@ mlflow_require_venus_host() {
   if mlflow_host_allowed; then
     return 0
   fi
-  echo "MLflow deploy is Venus-only; refusing on host $(hostname -s)." >&2
+  echo "MLflow deploy is Mercury-only; refusing on host $(hostname -s)." >&2
   echo "Public UI: https://mlflow.forgedc.net" >&2
   return 1
 }

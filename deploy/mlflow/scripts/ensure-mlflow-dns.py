@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ensure mlflow.forgedc.net CNAME points at the Venus Cloudflare tunnel."""
+"""Ensure mlflow.forgedc.net CNAME points at the Mercury Cloudflare tunnel."""
 from __future__ import annotations
 
 import json
@@ -21,7 +21,7 @@ if not os.environ.get("CLOUDFLARE_API_TOKEN", "").strip() and KA_ENV.is_file():
 token = os.environ.get("CLOUDFLARE_API_TOKEN", "").strip()
 zone_id = os.environ.get("CF_ZONE_ID", "a930a3d1ec96b9bcaa0ab388ddad6274").strip()
 tunnel_id = os.environ.get(
-    "CF_TUNNEL_ID", "fb689622-f9f8-44ce-a846-5f4b72ed2c6a"
+    "CF_TUNNEL_ID", "6e783b10-a38e-4715-a57e-f55c649fcba2"
 ).strip()
 hostname = os.environ.get("CF_HOSTNAME", "mlflow.forgedc.net").strip()
 target = f"{tunnel_id}.cfargotunnel.com"

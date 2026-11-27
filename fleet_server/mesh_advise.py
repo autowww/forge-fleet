@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import socket
 from pathlib import Path
 from typing import Any
@@ -123,6 +124,74 @@ def advise_agentic_dev(data_dir: Path, db_path: Path) -> dict[str, Any]:
     return {
         "ok": True,
         "workload": "agentic_dev",
+        "ranked": ranked,
+        "best": ranked[0] if ranked else None,
+        "candidates": candidates,
+    }
+
+
+def _cursor_status_doc(doc: dict[str, Any] | None) -> dict[str, Any]:
+    body = doc if isinstance(doc, dict) else {}
+    binary = str(body.get("host_binary") or "").strip()
+    return {
+        "cursor_agent": bool(binary),
+        "host_binary": binary,
+    }
+
+
+def advise_cursor_ecosystem(data_dir: Path) -> dict[str, Any]:
+    """Rank the local node and peers that have a cursor-agent binary.
+
+    Eligibility is the host binary from ``/v1/admin/cursor-cli/status``, not the
+    agentic-dev container image.
+    """
+    from fleet_server import cursor_cli_job, remote_peers
+
+    local_binary = cursor_cli_job.configured_binary() or ""
+    candidates: list[dict[str, Any]] = [
+        {
+            "node_id": "local",
+            "scope": "local",
+            "cursor_agent": bool(local_binary),
+            "host_binary": local_binary,
+            "reason": "Local cursor-cli status.",
+        }
+    ]
+    for peer in remote_peers.list_peers(data_dir).get("peers") or []:
+        pid = str(peer.get("id") or "")
+        if not pid:
+            continue
+        code, raw, _ctype = remote_peers.proxy_get(data_dir, pid, "/v1/admin/cursor-cli/status")
+        try:
+            doc = json.loads(raw.decode("utf-8")) if raw else {}
+        except (UnicodeError, json.JSONDecodeError):
+            doc = {}
+        if code != 200:
+            candidates.append(
+                {
+                    "node_id": pid,
+                    "scope": "peer",
+                    "cursor_agent": False,
+                    "host_binary": "",
+                    "reason": f"cursor-cli status HTTP {code}.",
+                }
+            )
+            continue
+        parsed = _cursor_status_doc(doc if isinstance(doc, dict) else {})
+        candidates.append(
+            {
+                "node_id": pid,
+                "scope": "peer",
+                "cursor_agent": parsed["cursor_agent"],
+                "host_binary": parsed["host_binary"],
+                "reason": "Peer cursor-cli status.",
+            }
+        )
+    eligible = [row for row in candidates if row["cursor_agent"]]
+    ranked = sorted(eligible, key=lambda row: row["scope"] != "local")
+    return {
+        "ok": True,
+        "workload": "cursor_ecosystem",
         "ranked": ranked,
         "best": ranked[0] if ranked else None,
         "candidates": candidates,

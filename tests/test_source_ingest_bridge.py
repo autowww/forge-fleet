@@ -28,13 +28,33 @@ def test_workspace_worker_bridge_token_and_progress(tmp_path: Path) -> None:
         row_bad, err_bad = store.authenticate_workspace_worker_bridge(conn, jid, "wrong")
         assert row_bad is None and err_bad == "unauthorized"
 
-        store.merge_worker_progress(conn, jid, {"pct": 42, "phase_label": "subprocess", "message": "x"})
+        store.merge_worker_progress(
+            conn,
+            jid,
+            {
+                "pct": 42,
+                "phase": "fitting",
+                "phase_label": "subprocess",
+                "message": "x",
+                "epoch": 2,
+                "epochs": 30,
+                "loss": 0.4,
+                "loss_start": 0.8,
+                "MLFLOW_TRACKING_TOKEN": "secret",
+            },
+        )
         row2 = store.get_job(conn, jid)
         assert isinstance(row2, dict)
         wp = row2.get("worker_progress")
         assert isinstance(wp, dict)
         assert wp.get("pct") == 42
+        assert wp.get("phase") == "fitting"
         assert wp.get("message") == "x"
+        assert wp.get("epoch") == 2
+        assert wp.get("epochs") == 30
+        assert wp.get("loss") == 0.4
+        assert wp.get("loss_start") == 0.8
+        assert "MLFLOW_TRACKING_TOKEN" not in wp
 
         store.set_worker_result(conn, jid, {"ok": True, "result": {"returncode": 0}, "message": "done"})
         row3 = store.get_job(conn, jid)

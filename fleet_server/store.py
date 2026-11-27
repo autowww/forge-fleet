@@ -420,6 +420,18 @@ def merge_worker_progress(conn: sqlite3.Connection, jid: str, body: dict[str, An
         cur["phases"] = body["phases"][:50]
     if body.get("message") is not None:
         cur["message"] = str(body["message"])[:8000]
+    for key in ("epoch", "epochs"):
+        if key in body and body[key] is not None:
+            try:
+                cur[key] = int(body[key])
+            except (TypeError, ValueError):
+                pass
+    for key in ("loss", "loss_start"):
+        if key in body and body[key] is not None:
+            try:
+                cur[key] = float(body[key])
+            except (TypeError, ValueError):
+                pass
     cur["updated"] = time.time()
     now = time.time()
     with _lock:

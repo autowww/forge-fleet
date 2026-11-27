@@ -585,6 +585,12 @@ class FleetHandler(BaseHTTPRequestHandler):
         if path == "/v1/remote-peers":
             self._send(200, remote_peers.list_peers(data_dir))
             return True
+        m_guard = re.match(r"^/v1/remote-peers/([^/]+)/admin/guardian$", path)
+        if m_guard:
+            peer_id = m_guard.group(1)
+            code, body, ctype = remote_peers.proxy_get(data_dir, peer_id, "/v1/admin/guardian")
+            self._send_proxy_body(code, body, ctype)
+            return True
         m_snap = re.match(r"^/v1/remote-peers/([^/]+)/snapshot$", path)
         if m_snap:
             peer_id = m_snap.group(1)
@@ -671,6 +677,12 @@ class FleetHandler(BaseHTTPRequestHandler):
         if m_cserv:
             peer_id = m_cserv.group(1)
             code, body, ctype = remote_peers.proxy_get(data_dir, peer_id, "/v1/container-services")
+            self._send_proxy_body(code, body, ctype)
+            return True
+        m_eco_gates = re.match(r"^/v1/remote-peers/([^/]+)/admin/ecosystem-gates$", path)
+        if m_eco_gates:
+            peer_id = m_eco_gates.group(1)
+            code, body, ctype = remote_peers.proxy_get(data_dir, peer_id, "/v1/admin/ecosystem-gates")
             self._send_proxy_body(code, body, ctype)
             return True
         m_up_status = re.match(r"^/v1/remote-peers/([^/]+)/admin/upgrade/status$", path)
@@ -1227,6 +1239,15 @@ class FleetHandler(BaseHTTPRequestHandler):
             out = fleet_cleanup.inventory(self._data_dir(), self.server.db_path)
             self._send(200, out)
             return
+        if path == "/v1/admin/guardian" or path.startswith("/v1/admin/guardian/"):
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+            from fleet_server import guardian_proxy
+
+            code, raw, ctype = guardian_proxy.forward("GET", path, None)
+            self._send_proxy_body(code, raw, ctype)
+            return
         if path == "/v1/admin/space":
             if not self._auth_ok():
                 self._send_unauthorized()
@@ -1239,6 +1260,15 @@ class FleetHandler(BaseHTTPRequestHandler):
                 self._send_unauthorized()
                 return
             self._send(200, agentic_dev_job.cursor_cli_status())
+            return
+        if path == "/v1/admin/ecosystem-gates":
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+            from fleet_server import ecosystem_gates
+
+            payload = ecosystem_gates.status()
+            self._send(200 if payload.get("ok") else 404, payload)
             return
         temp_result = re.match(r"^/v1/admin/temp-jobs/([^/]+)/result$", path)
         temp_status = re.match(r"^/v1/admin/temp-jobs/([^/]+)$", path)
@@ -1977,6 +2007,20 @@ class FleetHandler(BaseHTTPRequestHandler):
             )
             self._send_proxy_body(code, raw, ctype)
             return
+        m_remote_gates = re.match(r"^/v1/remote-peers/([^/]+)/admin/ecosystem-gates$", path)
+        if m_remote_gates:
+            data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            peer_id = m_remote_gates.group(1)
+            code, raw, ctype = remote_peers.proxy_json(
+                data_dir_p,
+                peer_id,
+                "/v1/admin/ecosystem-gates",
+                method="POST",
+                body=json.dumps({"ticker": str(body.get("ticker") or body.get("anchor_ticker") or "")}).encode("utf-8"),
+                timeout_s=30,
+            )
+            self._send_proxy_body(code, raw, ctype)
+            return
         m_remote_upgrade = re.match(r"^/v1/remote-peers/([^/]+)/admin/upgrade$", path)
         if m_remote_upgrade:
             data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
@@ -1995,6 +2039,9 @@ class FleetHandler(BaseHTTPRequestHandler):
                 "max_wait_sec": max(15, min(max_wait, 180)),
                 "on_timeout": on_timeout,
             }
+            requested_pkg = str(body.get("package") or "").strip()
+            if requested_pkg:
+                forwarded["package"] = requested_pkg
             if body.get("stash_dirty"):
                 forwarded["stash_dirty"] = True
             code, raw, ctype = remote_peers.proxy_json(
@@ -2116,8 +2163,13 @@ class FleetHandler(BaseHTTPRequestHandler):
             from fleet_server import mesh_advise
 
             data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
-            if str(body.get("workload") or "") == "agentic_dev":
+            workload = str(body.get("workload") or "")
+            if workload == "agentic_dev":
                 out = mesh_advise.advise_agentic_dev(data_dir_p, Path(self.server.db_path))
+                self._send(200, out)
+                return
+            if workload == "cursor_ecosystem":
+                out = mesh_advise.advise_cursor_ecosystem(data_dir_p)
                 self._send(200, out)
                 return
             try:
@@ -2317,6 +2369,36 @@ class FleetHandler(BaseHTTPRequestHandler):
             http = int(result.pop("http"))
             self._send(http, result)
             return
+        if path == "/v1/admin/ecosystem-gates":
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+            from fleet_server import ecosystem_gates
+
+            result = ecosystem_gates.enqueue(body if isinstance(body, dict) else {})
+            http = int(result.pop("http", 200))
+            self._send(http, result)
+            return
+        if path == "/v1/admin/ecosystem-store/pull":
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+            from fleet_server.ecosystem_store_pull import pull
+
+            result = pull(self._data_dir(), body if isinstance(body, dict) else {})
+            http = int(result.pop("http", 200))
+            self._send(http, result)
+            return
+        if path == "/v1/admin/ecosystem-store/cluster":
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+            from fleet_server.ecosystem_store_pull import build_cluster
+
+            result = build_cluster(self._data_dir(), body if isinstance(body, dict) else {})
+            http = int(result.pop("http", 200))
+            self._send(http, result)
+            return
         if path == "/v1/admin/temp-jobs":
             if not self._auth_ok():
                 self._send_unauthorized()
@@ -2388,6 +2470,33 @@ class FleetHandler(BaseHTTPRequestHandler):
             elif out.get("status") == "queued":
                 code = 202
             self._send(code, out)
+            return
+        if path == "/v1/admin/guardian" or path.startswith("/v1/admin/guardian/"):
+            if not self._auth_ok():
+                self._send_unauthorized()
+                return
+            from fleet_server import guardian_proxy
+
+            raw_body = json.dumps(body or {}).encode("utf-8")
+            code, raw, ctype = guardian_proxy.forward("POST", path, raw_body)
+            self._send_proxy_body(code, raw, ctype)
+            return
+        m_remote_guard = re.match(
+            r"^/v1/remote-peers/([^/]+)/admin/guardian/findings/([^/]+)/decision$",
+            path,
+        )
+        if m_remote_guard:
+            data_dir_p = Path(str(getattr(self.server, "fleet_data_dir", ".") or ".")).resolve()
+            peer_id, finding_id = m_remote_guard.group(1), m_remote_guard.group(2)
+            code, raw, ctype = remote_peers.proxy_json(
+                data_dir_p,
+                peer_id,
+                f"/v1/admin/guardian/findings/{finding_id}/decision",
+                method="POST",
+                body=json.dumps(body or {}).encode("utf-8"),
+                timeout_s=20,
+            )
+            self._send_proxy_body(code, raw, ctype)
             return
         if path == "/v1/admin/package-upgrade":
             if not self._auth_ok():

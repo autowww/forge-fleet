@@ -35,7 +35,7 @@ Wants=network-online.target
 Type=simple
 Environment=PYTHONUNBUFFERED=1
 WorkingDirectory=$ROOT
-ExecStart=$MLFLOW_BIN server --host 127.0.0.1 --port $PORT --backend-store-uri $BACKEND --default-artifact-root $ROOT/artifacts --serve-artifacts
+ExecStart=$MLFLOW_BIN server --host 127.0.0.1 --port $PORT --backend-store-uri $BACKEND --default-artifact-root mlflow-artifacts:/ --artifacts-destination $ROOT/artifacts --serve-artifacts
 Restart=on-failure
 RestartSec=5
 

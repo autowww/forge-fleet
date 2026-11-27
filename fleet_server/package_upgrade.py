@@ -63,8 +63,15 @@ def timer_active() -> bool:
         return False
 
 
+_ALLOWED_PACKAGES = frozenset({"forge-fleet", "forge-fleet-user", "fleet-guardian"})
+
+
 def _package_for_channel(channel: str) -> str:
     return "forge-fleet" if channel == "apt_system" else "forge-fleet-user"
+
+
+def package_allowed(name: str) -> bool:
+    return name in _ALLOWED_PACKAGES
 
 
 def _username_for_channel(channel: str) -> str:
@@ -89,6 +96,7 @@ def write_upgrade_signal(
     mode: str,
     lifecycle_ok: bool,
     request_id: str | None = None,
+    package: str | None = None,
 ) -> dict[str, Any]:
     channel = install_channel.detect_install_channel(data_dir)
     if channel not in ("apt_user", "apt_system"):
@@ -98,7 +106,13 @@ def write_upgrade_signal(
             "install_channel": channel,
         }
     req_id = str(request_id or "").strip() or str(uuid.uuid4())
-    pkg = _package_for_channel(channel)
+    requested = str(package or "").strip()
+    if requested:
+        if not package_allowed(requested):
+            return {"ok": False, "error": "package_not_allowed", "package": requested}
+        pkg = requested
+    else:
+        pkg = _package_for_channel(channel)
     installed_before = install_channel._dpkg_version(pkg)
     res = result_path(data_dir)
     if res.is_file():

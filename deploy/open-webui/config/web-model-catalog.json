@@ -1,15 +1,136 @@
 {
   "chatgpt": [
-    { "slug": "auto", "label": "Auto", "match": ["Auto", "ChatGPT"] },
-    { "slug": "gpt-4o", "label": "GPT-4o", "match": ["GPT-4o", "4o"] },
-    { "slug": "gpt-4-1", "label": "GPT-4.1", "match": ["GPT-4.1", "4.1"] },
-    { "slug": "o3", "label": "o3", "match": ["o3"] },
-    { "slug": "o4-mini", "label": "o4-mini", "match": ["o4-mini", "o4 mini"] }
+    {
+      "slug": "gpt-6-astra",
+      "alias": "chatgpt-6-astra",
+      "label": "GPT-6 Astra",
+      "match": ["GPT-6 Astra", "Astra"],
+      "thinking_efforts": [
+        {
+          "id": "light",
+          "label": "Light",
+          "match": ["Light", "Low"],
+          "position": 0.08,
+          "credits_per_1000000_tokens": {"input": 250, "cached_input": 25, "output": 1250, "output_step": 1}
+        },
+        {
+          "id": "medium",
+          "label": "Medium",
+          "match": ["Medium"],
+          "position": 0.35,
+          "credits_per_1000000_tokens": {"input": 250, "cached_input": 25, "output": 2750, "output_step": 2.2}
+        },
+        {
+          "id": "high",
+          "label": "High",
+          "match": ["High"],
+          "position": 0.62,
+          "credits_per_1000000_tokens": {"input": 250, "cached_input": 25, "output": 4375, "output_step": 3.5}
+        },
+        {
+          "id": "extra-high",
+          "label": "Extra High",
+          "match": ["Extra High", "Extra high"],
+          "position": 0.82,
+          "credits_per_1000000_tokens": {"input": 250, "cached_input": 25, "output": 7000, "output_step": 5.6}
+        }
+      ],
+      "time_efforts": [
+        {
+          "id": "max",
+          "label": "Max",
+          "match": ["Max", "GPT-6 Astra"],
+          "position": 1,
+          "credits_per_1000000_tokens": {"input": 250, "cached_input": 25, "output": 11375, "output_step": 9.1}
+        }
+      ]
+    },
+    {
+      "slug": "gpt-6-sol",
+      "alias": "chatgpt-6-sol",
+      "label": "GPT-6 Sol",
+      "match": ["GPT-6 Sol", "Sol"],
+      "thinking_efforts": [
+        {
+          "id": "instant",
+          "label": "Instant",
+          "match": ["Instant"],
+          "position": 0.02,
+          "credits_per_1000000_tokens": {"input": 50, "cached_input": 5, "output": 167.5, "output_step": 0.67}
+        },
+        {
+          "id": "light",
+          "label": "Light",
+          "match": ["Light", "Low"],
+          "position": 0.08,
+          "credits_per_1000000_tokens": {"input": 50, "cached_input": 5, "output": 250, "output_step": 1}
+        },
+        {
+          "id": "medium",
+          "label": "Medium",
+          "match": ["Medium"],
+          "position": 0.35,
+          "credits_per_1000000_tokens": {"input": 50, "cached_input": 5, "output": 550, "output_step": 2.2}
+        },
+        {
+          "id": "high",
+          "label": "High",
+          "match": ["High"],
+          "position": 0.62,
+          "credits_per_1000000_tokens": {"input": 50, "cached_input": 5, "output": 875, "output_step": 3.5}
+        },
+        {
+          "id": "extra-high",
+          "label": "Extra High",
+          "match": ["Extra High", "Extra high"],
+          "position": 0.82,
+          "credits_per_1000000_tokens": {"input": 50, "cached_input": 5, "output": 1400, "output_step": 5.6}
+        }
+      ],
+      "time_efforts": [
+        {
+          "id": "max",
+          "label": "Max",
+          "match": ["Max"],
+          "position": 1,
+          "credits_per_1000000_tokens": {"input": 50, "cached_input": 5, "output": 2275, "output_step": 9.1}
+        }
+      ]
+    }
   ],
   "gemini": [
-    { "slug": "fast", "label": "Fast", "match": ["Fast", "2.0 Flash", "Flash"] },
-    { "slug": "thinking", "label": "Thinking", "match": ["Thinking", "2.0 Flash Thinking"] },
-    { "slug": "pro", "label": "Pro", "match": ["Pro", "1.5 Pro", "Advanced"] }
+    {
+      "slug": "fast",
+      "alias": "gemini-fast",
+      "effort_kind": "time",
+      "label": "Fast",
+      "match": ["Fast", "Flash"],
+      "credits_per_1000000_tokens": {"input": 18.75, "cached_input": 1.875, "output": 93.75, "output_step": 1}
+    },
+    {
+      "slug": "neon-medium",
+      "alias": "gemini-neon-medium",
+      "effort_kind": "thinking",
+      "label": "Neon",
+      "match": ["Neon", "Medium"],
+      "credits_per_1000000_tokens": {"input": 18.75, "cached_input": 1.875, "output": 206.25, "output_step": 2.2}
+    },
+    {
+      "slug": "thinking",
+      "alias": "gemini-thinking",
+      "effort_kind": "thinking",
+      "label": "Thinking",
+      "match": ["Thinking"],
+      "credits_per_1000000_tokens": {"input": 18.75, "cached_input": 1.875, "output": 206.25, "output_step": 2.2}
+    },
+    {
+      "slug": "pro",
+      "alias": "gemini-pro",
+      "effort_kind": "thinking",
+      "label": "Pro",
+      "match": ["Pro"],
+      "credits_per_1000000_tokens": {"input": 50, "cached_input": 5, "output": 300, "output_step": 1}
+    }
   ],
-  "_note": "Labels follow chatgpt.com / gemini.google.com pickers; your plan may show a subset. Bridge merges live CDP scrape with this list."
+  "_note": "Consumer ids are the short aliases. credits_per_1000000_tokens.output is the allowance burn: the model's output price times output_step. A higher output number uses the shared limit faster. Input and cached input stay the token price."
 }

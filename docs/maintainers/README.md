@@ -18,6 +18,7 @@
 | **[Docs release checklist](DOCS-RELEASE-CHECKLIST.md)** | Prompt **12** — pre-publish gates |
 | **[Fleet apt CDN publish](05-fleet-apt-cdn-publish.md)** | Build debs → **packages.forgesdlc.com** only (not GitHub Releases) |
 | **[Space Guardian](06-space-guardian.md)** | Self-healing disk tiers, quarantine volumes, API and env knobs |
+| **[fleet-guardian](09-fleet-guardian.md)** | Separate apt package: idle thermal, CPU/GPU, savings ledger, Element lessons |
 | **[Memory Guardian](07-memory-guardian.md)** | RAM observe/apply parking, wake-on-request for host Ollama |
 
 Public adoption content starts at **[Start hub](../start/README.md)**.

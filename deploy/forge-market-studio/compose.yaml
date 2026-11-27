@@ -85,8 +85,10 @@ services:
       # FM-SEC-FIC-001 — SEC filing intelligence feature flags (default off; set via forge-market-granite.env or rollout request)
       FORGE_MARKET_SEC_FIC_UI: ${FORGE_MARKET_SEC_FIC_UI:-0}
       FORGE_MARKET_SEC_FIC_ANALYZE: ${FORGE_MARKET_SEC_FIC_ANALYZE:-0}
+      ECOSYSTEM_STORE_ROOT: ${ECOSYSTEM_STORE_ROOT:-/ecosystem-store}
     volumes:
       - appdata:/app/data
+      - ${ECOSYSTEM_STORE_HOST_PATH:-/var/lib/forge-market/ecosystem-store}:/ecosystem-store:ro
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9792/health >/dev/null"]
       interval: 15s

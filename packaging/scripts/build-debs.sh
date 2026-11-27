@@ -76,7 +76,7 @@ Version: ${VERSION}
 Section: admin
 Priority: optional
 Architecture: ${ARCH}
-Depends: python3 (>= 3.11), rsync, curl, forge-fleet-docker
+Depends: python3 (>= 3.11), rsync, curl, forge-fleet-docker, fleet-guardian
 Maintainer: Forge Fleet <fleet@forgesdlc.com>
 Description: Forge Fleet user cockpit (systemd --user, port 18766)
  HTTP control plane for docker_argv jobs; mesh laptop router role.
@@ -148,7 +148,7 @@ Version: ${VERSION}
 Section: admin
 Priority: optional
 Architecture: ${ARCH}
-Depends: python3 (>= 3.11), adduser, rsync, curl
+Depends: python3 (>= 3.11), adduser, rsync, curl, fleet-guardian
 Recommends: forge-fleet-docker
 Maintainer: Forge Fleet <fleet@forgesdlc.com>
 Description: Forge Fleet system daemon (port 18765)

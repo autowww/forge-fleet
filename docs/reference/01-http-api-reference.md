@@ -140,6 +140,9 @@ Feature docs (details beyond this table): [CONTAINER-TEMPLATES.md](../build-201/
 | GET | `/v1/admin/upgrade/status` | bearer | Active upgrade session (`queued`, `complete`, `failed`, …). |
 | POST | `/v1/admin/upgrade` | bearer | Cooperative upgrade; routes by `install_channel` (apt signal or local git dev). Body: `mode`, `max_wait_sec`, `on_timeout` (`abort`|`force`), `require_apt_channel` (remote/production — **400** `migrate_to_apt_required` on git channels, answered **before** any dependent is drained), `allow_git_fallback` (with `require_apt_channel`: git-channel hosts proceed with the cooperative git upgrade and the response carries `channel_fallback` + `warning`). |
 | POST | `/v1/admin/package-upgrade` | bearer | Apt only: lifecycle wait → write signal → **202** queued. |
+| GET | `/v1/admin/guardian` | bearer | Proxy to local fleet-guardian: open findings and savings (disk bytes, core-seconds, kWh). |
+| POST | `/v1/admin/guardian/findings/{id}/decision` | bearer | `decision`: `approve`, `always`, `never`, or `hold`. |
+| GET | `/v1/remote-peers/{id}/admin/guardian` | bearer | Proxy to a peer's guardian summary. |
 | GET | `/v1/admin/space` | bearer | Space Guardian status: disk pressure, tier labels, last/next run, orphan/quarantine volumes. |
 | POST | `/v1/admin/space/run` | bearer | Run Space Guardian tier (`tier` 0 or 1, `dry_run` default **true**). Skips when upgrade/rollout active. |
 | POST | `/v1/admin/space/approve` | bearer | Approve deletion of a quarantined orphan volume (`volume_name`). |

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Add or update mlflow.forgedc.net on the Venus Cloudflare tunnel.
+# Add or update mlflow.forgedc.net on the Mercury Cloudflare tunnel.
 #
 # Usage (from forge-fleet/):
 #   export CLOUDFLARE_API_TOKEN=…
-#   export CF_TUNNEL_ID=fb689622-f9f8-44ce-a846-5f4b72ed2c6a
+#   export CF_TUNNEL_ID=6e783b10-a38e-4715-a57e-f55c649fcba2
 #   deploy/mlflow/scripts/apply-cf-mlflow-tunnel.sh [--dry-run]
 #
 set -euo pipefail
@@ -23,7 +23,7 @@ ORIGIN_SERVICE="${CF_ORIGIN_SERVICE:-http://127.0.0.1:5051}"
 CONNECT_TIMEOUT="${CF_CONNECT_TIMEOUT:-300}"
 KEEPALIVE_TIMEOUT="${CF_KEEPALIVE_TIMEOUT:-300}"
 ACCOUNT_ID="${CF_ACCOUNT_ID:-55c7a84f399231cd2b3733228d43912c}"
-TUNNEL_ID="${CF_TUNNEL_ID:-fb689622-f9f8-44ce-a846-5f4b72ed2c6a}"
+TUNNEL_ID="${CF_TUNNEL_ID:-6e783b10-a38e-4715-a57e-f55c649fcba2}"
 
 if [[ -z "${CLOUDFLARE_API_TOKEN:-}" ]]; then
   echo "Set CLOUDFLARE_API_TOKEN (e.g. source forge-knowledge-assistant/.env.local)" >&2

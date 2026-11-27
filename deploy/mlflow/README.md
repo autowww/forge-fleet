@@ -16,7 +16,7 @@ Configure the auth gate (`deploy/forge-auth-gate`) with `FORGE_AUTH_GATE_MODE=ml
 ## Cloudflare
 
 ```bash
-export CF_TUNNEL_ID=fb689622-f9f8-44ce-a846-5f4b72ed2c6a
+export CF_TUNNEL_ID=6e783b10-a38e-4715-a57e-f55c649fcba2
 deploy/mlflow/scripts/apply-cf-mlflow-tunnel.sh
 ```
 
